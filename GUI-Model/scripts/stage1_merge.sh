@@ -5,6 +5,10 @@
 # outputs/{DS}/adapters/{MODEL}_stage1_{MODE}_world-model/checkpoint-*/ 를 순회하며
 # epoch 별로 local merge + 개별 HF repo push 한다.
 #
+# AC_3: --dataset AC_3 입력 시 parse_args 가 DATASETS=(AC_3_r37 AC_3_r55 AC_3_r73)
+# 로 펼쳐 ratio 별 outputs 디렉토리를 각각 merge → HF repo (ac-3-r37-, ac-3-r55-,
+# ac-3-r73- slug) 로 push 한다. 부분 실행은 --ac3-ratios r55,r73.
+#
 # --stage1-mode full (default) | lora.
 #
 # 임시 merge YAML 생성 → llamafactory-cli export
