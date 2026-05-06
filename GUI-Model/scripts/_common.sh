@@ -110,11 +110,55 @@ if [ -f "$BASE_DIR/.env" ]; then
 fi
 
 # --- dataset prefix / HF slug / data dir 매핑 (Cell 3 _DATASET_CONFIG 와 일치) -
-# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC, AC_2, MC}.
+# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC, AC_2, AC_3, MC}.
 # MB entry 는 평가 스크립트가 dataset_info 이름/slug 를 조합하는 데 사용.
-declare -A DS_PREFIX=(  [MB]="GUI-Model-MB" [AC]="GUI-Model-AC" [AC_2]="GUI-Model-AC_2" [MC]="GUI-Model-MC" )
-declare -A HF_SLUG=(    [MB]="mb-"          [AC]="ac-"          [AC_2]="ac-2-"          [MC]="mc-"          )
-declare -A DS_DATADIR=( [MB]="MobiBench"    [AC]="AndroidControl" [AC_2]="AndroidControl_2" [MC]="MonkeyCollection" )
+#
+# AC_3 (AndroidControl_3) 은 state_pred / action_pred 두 task 를 비율 혼합한
+# 3 종 train (3:7, 5:5, 7:3) 으로 학습한다. ratio 가 학습 산출물의 정체성에
+#영향을 주므로 내부적으로 ratio 별 가상 키 (AC_3_r37, AC_3_r55, AC_3_r73) 로
+# 펼친다. 사용자 facing CLI 는 --dataset AC_3 (학습/merge) 또는
+# --train-dataset AC_3 + --ac3-ratio r55 (eval) 만 받고 expansion 은 내부에서 처리.
+declare -A DS_PREFIX=(
+  [MB]="GUI-Model-MB"
+  [AC]="GUI-Model-AC"
+  [AC_2]="GUI-Model-AC_2"
+  [AC_3]="GUI-Model-AC_3"
+  [AC_3_r37]="GUI-Model-AC_3" [AC_3_r55]="GUI-Model-AC_3" [AC_3_r73]="GUI-Model-AC_3"
+  [MC]="GUI-Model-MC"
+)
+declare -A HF_SLUG=(
+  [MB]="mb-"
+  [AC]="ac-"
+  [AC_2]="ac-2-"
+  [AC_3]="ac-3-"
+  [AC_3_r37]="ac-3-r37-" [AC_3_r55]="ac-3-r55-" [AC_3_r73]="ac-3-r73-"
+  [MC]="mc-"
+)
+declare -A DS_DATADIR=(
+  [MB]="MobiBench"
+  [AC]="AndroidControl"
+  [AC_2]="AndroidControl_2"
+  [AC_3]="AndroidControl_3"
+  [AC_3_r37]="AndroidControl_3" [AC_3_r55]="AndroidControl_3" [AC_3_r73]="AndroidControl_3"
+  [MC]="MonkeyCollection"
+)
+
+# AC_3 ratio variant 메타: ratio 키 ↔ split_data.py 산출 파일 stem.
+# split_data.py 는 train_3_7.jsonl / train_5_5.jsonl / train_7_3.jsonl 을 생성한다.
+declare -A AC3_RATIO_FILE=(
+  [AC_3_r37]="train_3_7"
+  [AC_3_r55]="train_5_5"
+  [AC_3_r73]="train_7_3"
+)
+AC3_ALL_RATIOS=(r37 r55 r73)
+
+# AC_3 ratio variant 인지 검사. usage: if is_ac3_ratio "$DS"; then ...
+is_ac3_ratio() {
+  case "$1" in
+    AC_3_r37|AC_3_r55|AC_3_r73) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 # --- 모델 레지스트리 (Cell 3 _MODEL_CONFIG 와 일치) ---------------------------
 declare -A MODEL_ID=(
@@ -163,6 +207,7 @@ parse_args() {
   local stage1_epoch_arg=""
   local epochs_arg="1,2,3"
   local variants_arg=""
+  local ac3_ratios_arg=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --model)
@@ -186,15 +231,21 @@ parse_args() {
       --variants)
         if [[ -z "${2:-}" ]]; then echo "Error: --variants requires a value." >&2; exit 2; fi
         variants_arg="$2"; shift 2 ;;
+      --ac3-ratios)
+        if [[ -z "${2:-}" ]]; then echo "Error: --ac3-ratios requires a value." >&2; exit 2; fi
+        ac3_ratios_arg="$2"; shift 2 ;;
       -h|--help)
         cat <<EOF
 Usage: $(basename "$0") [--model MODEL] [--dataset DS] [--stage1-mode MODE]
                          [--stage2-mode MODE] [--stage1-epoch N] [--epochs LIST]
-                         [--variants LIST]
+                         [--variants LIST] [--ac3-ratios LIST]
 
 Options:
   --model MODEL        모델 short_name 또는 "all" (기본: all)
-  --dataset DS         AC | AC_2 | MC | all (기본: all) — 학습 대상 DS. MB 는 평가 전용이므로 사용 불가.
+  --dataset DS         AC | AC_2 | AC_3 | MC | all (기본: all) — 학습 대상 DS.
+                       AC_3 는 ratio mix (3:7, 5:5, 7:3) 3 종을 모두 sweep 하므로
+                       --ac3-ratios 로 부분 실행 가능. MB 는 평가 전용이라 사용 불가.
+                       'all' 은 (AC AC_2 MC) 만 의미하며 AC_3 는 명시적으로 선택해야 함.
   --stage1-mode MODE   full | lora (기본: full) — Stage 1 학습 방식.
   --stage2-mode MODE   full | lora (기본: lora) — Stage 2 학습 방식 (Stage 2 전용).
   --stage1-epoch N     Stage 2 world-model variant 가 상류 base 로 삼을 Stage 1 epoch.
@@ -204,6 +255,8 @@ Options:
   --variants LIST      콤마로 구분된 변형 목록. stage{1,2}_eval.sh 전용.
                        Stage1: base, full_world_model, lora_world_model
                        Stage2: base, full_base, lora_base, full_world_model, lora_world_model
+  --ac3-ratios LIST    콤마로 구분된 AC_3 ratio 목록 (기본: r37,r55,r73).
+                       --dataset AC_3 일 때만 의미가 있다.
   -h, --help           이 도움말 표시
 
 Available models:
@@ -247,17 +300,38 @@ EOF
     exit 2
   fi
 
+  # AC_3 ratio 선택 파싱 (--ac3-ratios LIST). 기본: 3 ratio 전체.
+  local ac3_ratios=()
+  if [[ -n "$ac3_ratios_arg" ]]; then
+    IFS=',' read -r -a ac3_ratios <<< "$ac3_ratios_arg"
+    for _r in "${ac3_ratios[@]}"; do
+      case "$_r" in
+        r37|r55|r73) ;;
+        *) echo "Error: --ac3-ratios item '$_r' invalid (use r37 | r55 | r73)." >&2; exit 2 ;;
+      esac
+    done
+    unset _r
+  else
+    ac3_ratios=("${AC3_ALL_RATIOS[@]}")
+  fi
+
+  # AC_3 → 내부 ratio variant DS 키들로 expand. 다른 DS 는 그대로 전달.
   case "$dataset_arg" in
     AC)   DATASETS=(AC) ;;
     AC_2) DATASETS=(AC_2) ;;
     MC)   DATASETS=(MC) ;;
+    AC_3)
+      DATASETS=()
+      for _r in "${ac3_ratios[@]}"; do DATASETS+=("AC_3_${_r}"); done
+      unset _r
+      ;;
     all)  DATASETS=(AC AC_2 MC) ;;
     MB)
       echo "Error: MobiBench (MB) 는 평가 전용 벤치마크입니다. 학습/merge 에는 사용할 수 없습니다." >&2
-      echo "       교차 평가는 stage{1,2}_eval.sh --train-dataset {AC|AC_2|MC} --eval-datasets AC,AC_2,MC,MB 를 사용하세요." >&2
+      echo "       교차 평가는 stage{1,2}_eval.sh --train-dataset {AC|AC_2|AC_3|MC} --eval-datasets AC,AC_2,AC_3,MC,MB 를 사용하세요." >&2
       exit 2
       ;;
-    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC | AC_2 | MC | all." >&2; exit 2 ;;
+    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC | AC_2 | AC_3 | MC | all." >&2; exit 2 ;;
   esac
 
   IFS=',' read -r -a EPOCHS <<< "$epochs_arg"
@@ -300,6 +374,7 @@ parse_eval_args() {
   local stage1_epoch_arg=""
   local epochs_arg="1,2,3"
   local variants_arg=""
+  local ac3_ratio_arg=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --model)
@@ -326,17 +401,22 @@ parse_eval_args() {
       --variants)
         if [[ -z "${2:-}" ]]; then echo "Error: --variants requires a value." >&2; exit 2; fi
         variants_arg="$2"; shift 2 ;;
+      --ac3-ratio)
+        if [[ -z "${2:-}" ]]; then echo "Error: --ac3-ratio requires a value." >&2; exit 2; fi
+        ac3_ratio_arg="$2"; shift 2 ;;
       -h|--help)
         cat <<EOF
-Usage: $(basename "$0") --train-dataset {AC|AC_2|MC} [--eval-datasets LIST] [--model MODEL]
+Usage: $(basename "$0") --train-dataset {AC|AC_2|AC_3|MC} [--eval-datasets LIST] [--model MODEL]
                          [--stage1-mode MODE] [--stage2-mode MODE] [--stage1-epoch N]
-                         [--epochs LIST] [--variants LIST]
+                         [--epochs LIST] [--variants LIST] [--ac3-ratio RATIO]
 
 Options:
   --model MODEL           모델 short_name 또는 "all" (기본: all)
-  --train-dataset DS      AC | AC_2 | MC (필수) — HF Hub merged repo 를 해석할 학습 DS
+  --train-dataset DS      AC | AC_2 | AC_3 | MC (필수) — HF Hub merged repo 를 해석할 학습 DS.
+                          AC_3 는 ratio 하나를 추가로 지정해야 함 (--ac3-ratio).
   --eval-datasets LIST    콤마로 구분된 평가 DS 리스트 (기본: --train-dataset 단일값)
-                          허용값: AC, AC_2, MC, MB (MB 는 단일 파일 overall 채점)
+                          허용값: AC, AC_2, AC_3, MC, MB (MB 는 단일 파일 overall 채점).
+                          AC_3 는 state_pred / action_pred 두 task 를 각각 채점한다.
   --stage1-mode MODE      full | lora (기본: full) — world-model variant 의 상류 Stage1 모드.
   --stage2-mode MODE      full | lora (기본: lora) — Stage 2 merge/eval 전용.
   --stage1-epoch N        Stage 2 world-model variant 의 HF repo 계보 번호.
@@ -344,6 +424,8 @@ Options:
   --variants LIST         콤마 구분 평가 변형 목록.
                           Stage1: base, full_world_model, lora_world_model
                           Stage2: base, full_base, lora_base, full_world_model, lora_world_model
+  --ac3-ratio RATIO       AC_3 학습 모델 식별용 단일 ratio (r37 | r55 | r73, 기본 r55).
+                          --train-dataset AC_3 일 때만 의미가 있다.
   -h, --help              이 도움말 표시
 
 Available models:
@@ -359,18 +441,40 @@ EOF
   done
 
   if [[ -z "$train_arg" ]]; then
-    echo "Error: --train-dataset 는 필수입니다 (AC | AC_2 | MC)." >&2; exit 2
+    echo "Error: --train-dataset 는 필수입니다 (AC | AC_2 | AC_3 | MC)." >&2; exit 2
   fi
   case "$train_arg" in
     AC|AC_2|MC) TRAIN_DATASET="$train_arg" ;;
+    AC_3)
+      # AC_3 는 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
+      # 미지정 시 r55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
+      local _r="${ac3_ratio_arg:-r55}"
+      case "$_r" in
+        r37|r55|r73) ;;
+        *) echo "Error: --ac3-ratio must be r37 | r55 | r73 (got '$_r')." >&2; exit 2 ;;
+      esac
+      TRAIN_DATASET="AC_3_${_r}"
+      AC3_RATIO="$_r"
+      unset _r ;;
     MB)
       echo "Error: --train-dataset MB 는 허용되지 않습니다 (MobiBench 는 평가 전용)." >&2
       exit 2 ;;
-    *) echo "Error: --train-dataset must be AC | AC_2 | MC (got '$train_arg')." >&2; exit 2 ;;
+    *) echo "Error: --train-dataset must be AC | AC_2 | AC_3 | MC (got '$train_arg')." >&2; exit 2 ;;
   esac
 
+  # --ac3-ratio 는 AC_3 train 일 때만 유효. 다른 train DS 와 함께 주면 에러.
+  if [[ -n "$ac3_ratio_arg" && "$train_arg" != "AC_3" ]]; then
+    echo "Error: --ac3-ratio 는 --train-dataset AC_3 와 함께만 사용할 수 있습니다." >&2
+    exit 2
+  fi
+
   if [[ -z "$eval_arg" ]]; then
-    EVAL_DATASETS=("$TRAIN_DATASET")
+    # AC_3 train 의 eval 기본값은 raw 'AC_3' (test 파일은 ratio 와 무관).
+    if [[ "$train_arg" == "AC_3" ]]; then
+      EVAL_DATASETS=(AC_3)
+    else
+      EVAL_DATASETS=("$TRAIN_DATASET")
+    fi
   else
     IFS=',' read -r -a EVAL_DATASETS <<< "$eval_arg"
     if [[ "${#EVAL_DATASETS[@]}" -eq 0 ]]; then
@@ -378,8 +482,8 @@ EOF
     fi
     for _d in "${EVAL_DATASETS[@]}"; do
       case "$_d" in
-        AC|AC_2|MC|MB) ;;
-        *) echo "Error: --eval-datasets item '$_d' invalid (use AC | AC_2 | MC | MB)." >&2; exit 2 ;;
+        AC|AC_2|AC_3|MC|MB) ;;
+        *) echo "Error: --eval-datasets item '$_d' invalid (use AC | AC_2 | AC_3 | MC | MB)." >&2; exit 2 ;;
       esac
     done
     unset _d
