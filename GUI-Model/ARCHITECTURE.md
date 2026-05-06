@@ -184,6 +184,14 @@ data/
 │   ├── gui-model_stage2_{train,test}.jsonl                   # ~28K / ~1.5K
 │   └── episodes_meta.jsonl
 │   # NOTE: images/ 디렉토리 없음 — JSONL `images` 가 "AndroidControl/images/..." 참조 (AC 와 공유).
+├── AndroidControl_3/                 # Stage 1 전용 학습 + 평가 (state_pred + action_pred ratio mix)
+│   ├── gui-model_stage1_state_pred.jsonl                     # 원천: state-transition task
+│   ├── gui-model_stage1_action_pred.jsonl                    # 원천: action-prediction task
+│   ├── gui-model_stage1_train_{3_7,5_5,7_3}.jsonl            # split_data.py --dataset AC_3 산출, ratio 별 (state:action)
+│   ├── gui-model_stage1_test_{id,ood}_state_pred.jsonl       # state task, app-level partition
+│   ├── gui-model_stage1_test_{id,ood}_action_pred.jsonl      # action task, app-level partition
+│   ├── episodes_meta.jsonl
+│   # NOTE: images/ 디렉토리는 AndroidControl 와 공유 (JSONL `images` 가 "AndroidControl/images/..." 참조).
 ├── MonkeyCollection/                 # Stage 1 전용 학습 + 평가
 │   ├── gui-model_stage1.jsonl              # 약 100K
 │   ├── gui-model_stage1_{train,test}.jsonl # split_data.py --dataset MC (95:5)
@@ -201,6 +209,7 @@ data/
 - **Stage 1 (MC)**: 메타 없음 → 자동 random split (`--stage1-ratio`, 기본 0.95). `_STAGE1_ONLY` guard 로 Stage 2 자동 skip.
 - **Stage 2 (AC only, ID/OOD)**: 같은 (id_apps, ood_apps) 에서 각 풀별 action-type **stratified** 샘플링 (largest-remainder). train 은 `null` primary_app 에피소드까지 흡수해 regular 크기 유지.
 - **AC_2 (Stage 1 + 2, 단일 test)**: 사전 분할 데이터 — `split_data.py` 를 다시 돌리지 않는다. 평가는 single-pair `overall` 모드로 채점.
+- **AC_3 (Stage 1 전용, state + action ratio mix)**: `run_ac3_split` 이 `state_pred` (random) + `action_pred` (action-type stratified) 두 풀을 ID/OOD 앱 partition (AC 와 공유) 으로 라우팅 후 ratio (state:action ∈ {3:7, 5:5, 7:3}) 로 혼합한 train 3 종 + (id, ood) × (state, action) 4 test 를 산출. ratio 별로 학습 가중치가 다르므로 `--ac3-ratios` 가 sweep 단위, `--ac3-train-total` 이 train 합계 (기본 70K).
 - **MB**: split 없음. 평가 전용.
 
 ### `episodes_meta.jsonl` 스키마 (AC only)
@@ -216,20 +225,21 @@ data/
 
 ### 데이터셋 이름 규약
 
-| 용도 | AndroidControl | AndroidControl_2 | MonkeyCollection | MobiBench |
-|------|----------------|-------------------|-------------------|-----------|
-| `data/` 실제 디렉토리 | `AndroidControl` | `AndroidControl_2` | `MonkeyCollection` | `MobiBench` |
-| shell 단축 코드 | `AC` | `AC_2` | `MC` | `MB` (eval 전용) |
-| LF dataset prefix | `GUI-Model-AC` | `GUI-Model-AC_2` | `GUI-Model-MC` | `GUI-Model-MB` |
-| `outputs/` 최상위 | `AC` | `AC_2` | `MC` | — (TRAIN_DS 산하 `on-MB/`) |
-| test split | ID/OOD 2 파일 | 단일 test | 단일 test | 단일 파일 |
-| Stage 2 지원 | ✓ (ID/OOD 3 섹션) | ✓ (single-pair overall) | ✗ (`_STAGE1_ONLY`) | ✓ (single-pair overall) |
+| 용도 | AndroidControl | AndroidControl_2 | AndroidControl_3 | MonkeyCollection | MobiBench |
+|------|----------------|-------------------|-------------------|-------------------|-----------|
+| `data/` 실제 디렉토리 | `AndroidControl` | `AndroidControl_2` | `AndroidControl_3` | `MonkeyCollection` | `MobiBench` |
+| shell 단축 코드 | `AC` | `AC_2` | `AC_3` (ratio 별 가상 키 `AC_3_r{37,55,73}` 으로 expand) | `MC` | `MB` (eval 전용) |
+| LF dataset prefix | `GUI-Model-AC` | `GUI-Model-AC_2` | `GUI-Model-AC_3` (test 공유) + `..._train_r{37,55,73}` | `GUI-Model-MC` | `GUI-Model-MB` |
+| `outputs/` 최상위 | `AC` | `AC_2` | `AC_3_r37` / `AC_3_r55` / `AC_3_r73` | `MC` | — (TRAIN_DS 산하 `on-MB/`) |
+| test split | ID/OOD 2 파일 | 단일 test | (id, ood) × (state, action) 4 파일 | 단일 test | 단일 파일 |
+| Stage 2 지원 | ✓ (ID/OOD 3 섹션) | ✓ (single-pair overall) | ✗ (`_STAGE1_ONLY`) | ✗ (`_STAGE1_ONLY`) | ✓ (single-pair overall) |
 
 ### LLaMA-Factory 등록
 
-- 노트북 Section 1-2 가 `LlamaFactory/data/dataset_info.json` 을 갱신 — 등록 분기는 두 직교 플래그 (`_STAGE1_ONLY`, `_SINGLE_TEST`) 로 결정:
-  - **AC** (둘 다 X): `GUI-Model-AC_stage{1,2}_{train,test_id,test_ood}` 6 entry.
+- 노트북 Section 1-2 가 `LlamaFactory/data/dataset_info.json` 을 갱신 — 등록 분기는 세 직교 플래그 (`_STAGE1_ONLY`, `_SINGLE_TEST`, `_DUAL_TASK_TEST`) 로 결정:
+  - **AC** (모두 X): `GUI-Model-AC_stage{1,2}_{train,test_id,test_ood}` 6 entry.
   - **AC_2** (`_SINGLE_TEST` 만): `GUI-Model-AC_2_stage{1,2}_{train,test}` 4 entry.
+  - **AC_3** (`_STAGE1_ONLY` + `_DUAL_TASK_TEST`, ratio 변형 3 종): `GUI-Model-AC_3_stage1_train_{r37,r55,r73}` (3) + `GUI-Model-AC_3_stage1_test_{id,ood}_{state,action}` (4) = 7 entry. test 4 파일은 ratio 변형 간 공유 (test 가 ratio 와 무관).
   - **MC** (`_STAGE1_ONLY` + `_SINGLE_TEST`): `GUI-Model-MC_stage1_{train,test}` 2 entry.
   - **MB**: `_EVAL_ONLY_BENCHMARKS` 루프가 `GUI-Model-MB_stage{1,2}` 단일 파일 entry 등록. `scripts/_common.sh::ensure_eval_only_dataset_info()` 가 source 시점에 idempotent 하게도 보장 → 노트북 미실행 환경에서도 MB 평가 성립.
 - JSONL 파일 경로는 `../../data/{DATASET_NAME}/...` 형태의 **상대 경로** 로 등록.
@@ -298,18 +308,24 @@ data/
 ### Shell script CLI
 
 ```bash
-# 학습/merge — --dataset {AC|AC_2|MC|all}. MB 거절. Stage 2 는 MC 미지원 (YAML 부재).
+# 학습/merge — --dataset {AC|AC_2|AC_3|MC|all}. MB 거절. Stage 2 는 MC / AC_3 미지원 (YAML 부재).
 bash scripts/stage1_train.sh --model qwen3-vl-8b --dataset AC                        # full (default)
 bash scripts/stage1_merge.sh --model qwen3-vl-8b --dataset AC
 bash scripts/stage1_train.sh --model qwen3-vl-4b --dataset MC --stage1-mode lora
+# AC_3 는 ratio 3 종 자동 sweep (--ac3-ratios r55,r73 로 부분 실행).
+bash scripts/stage1_train.sh --model qwen3-vl-8b --dataset AC_3 --stage1-mode full
+bash scripts/stage1_merge.sh --model qwen3-vl-8b --dataset AC_3 --stage1-mode full
 bash scripts/stage2_train.sh --model qwen3-vl-8b --dataset AC \
      --stage1-mode full --stage1-epoch 3 --stage2-mode lora
 bash scripts/stage2_merge.sh --model qwen3-vl-8b --dataset AC \
      --stage1-mode full --stage1-epoch 3 --stage2-mode lora
 
 # 평가 — --train-dataset 로 HF repo, --eval-datasets 로 test 셋 (교차 평가).
-bash scripts/stage1_eval.sh  --model qwen3-vl-8b --train-dataset AC --eval-datasets AC,AC_2,MC,MB \
+bash scripts/stage1_eval.sh  --model qwen3-vl-8b --train-dataset AC --eval-datasets AC,AC_2,AC_3,MC,MB \
      --epochs 1,2,3
+# AC_3 학습 모델은 --ac3-ratio 단일 (state + action 두 task 채점).
+bash scripts/stage1_eval.sh  --model qwen3-vl-8b --train-dataset AC_3 --ac3-ratio r55 \
+     --eval-datasets AC_3 --epochs 1,2,3
 bash scripts/stage2_eval.sh  --model qwen3-vl-8b --train-dataset AC --eval-datasets AC,AC_2,MB \
      --stage1-mode full --stage1-epoch 3 --stage2-mode lora \
      --variants base,lora_base,lora_world_model --epochs 1,2,3
@@ -317,9 +333,9 @@ bash scripts/stage2_eval.sh  --model qwen3-vl-8b --train-dataset AC --eval-datas
 
 플래그:
 
-**학습/merge (`stage{1,2}_{train,merge}.sh`)**: `--dataset {AC|AC_2|MC|all}` (MB 거절. `all` = AC+AC_2+MC) · `--stage1-mode {full|lora}` (기본 full) · `--stage2-mode {full|lora}` (stage2 전용, 기본 lora) · `--stage1-epoch N` (stage2 world-model 전용).
+**학습/merge (`stage{1,2}_{train,merge}.sh`)**: `--dataset {AC|AC_2|AC_3|MC|all}` (MB 거절. `all` = AC+AC_2+MC, AC_3 는 명시적) · `--stage1-mode {full|lora}` (기본 full) · `--stage2-mode {full|lora}` (stage2 전용, 기본 lora) · `--stage1-epoch N` (stage2 world-model 전용) · `--ac3-ratios LIST` (AC_3 sweep, 기본 `r37,r55,r73`).
 
-**평가 (`stage{1,2}_eval.sh`)**: `--train-dataset` (stage1: AC|AC_2|MC, stage2: AC|AC_2) · `--eval-datasets LIST` (AC, AC_2, MC, MB. 기본 = train-dataset 단일값) · `--epochs LIST` (기본 1,2,3) · `--variants LIST`.
+**평가 (`stage{1,2}_eval.sh`)**: `--train-dataset` (stage1: AC|AC_2|AC_3|MC, stage2: AC|AC_2) · `--eval-datasets LIST` (AC, AC_2, AC_3, MC, MB. 기본 = train-dataset 단일값) · `--epochs LIST` (기본 1,2,3) · `--variants LIST` · `--ac3-ratio {r37|r55|r73}` (AC_3 train 단일 ratio, 기본 r55).
 
 ---
 
@@ -391,7 +407,7 @@ GUI-Model/outputs/{DS}/
 | Stage 2 base      | `SaFD-00/{short}-{slug}base-stage2-{M2}-epoch{E2}` |
 | Stage 2 world     | `SaFD-00/{short}-{slug}world-model-stage1-{M1}-epoch{E1}-stage2-{M2}-epoch{E2}` |
 
-`{slug}` 는 `ac-` (AC) / `ac-2-` (AC_2) / `mc-` (MC). MB slug `mb-` 는 학습 대상이 아니므로 dormant. `{E}` 는 `trainer_state.json.epoch` 의 `int(round(...))`. 조립은 `_common.sh::hf_repo_id_stage1` / `hf_repo_id_stage2_base` / `hf_repo_id_stage2_world_model` 헬퍼에 단일화.
+`{slug}` 는 `ac-` (AC) / `ac-2-` (AC_2) / `ac-3-r37-` · `ac-3-r55-` · `ac-3-r73-` (AC_3 ratio 별) / `mc-` (MC). MB slug `mb-` 는 학습 대상이 아니므로 dormant. `{E}` 는 `trainer_state.json.epoch` 의 `int(round(...))`. 조립은 `_common.sh::hf_repo_id_stage1` / `hf_repo_id_stage2_base` / `hf_repo_id_stage2_world_model` 헬퍼에 단일화.
 
 ---
 
@@ -406,6 +422,7 @@ GUI-Model/outputs/{DS}/
 - metric: `avg_hungarian_f1`, `avg_bleu`, `avg_rouge_l` 등
 - 저장: `outputs/{DS}/eval/{MODEL}/stage1_eval/{variant}[/epoch-{E}]/on-{EVAL_DS}/hungarian_metrics.json`
 - single-pair (`--test/--pred`) 와 ID/OOD (`--test-id/--pred-id/--test-ood/--pred-ood`) 모드 모두 지원 — ID/OOD 모드는 `overall` / `in_domain` / `out_of_domain` 3 섹션 기록.
+- **AC_3 dual-task 분기**: EVAL_DS=AC_3 일 때는 state_pred / action_pred 두 task 를 각각 독립 채점하여 `on-AC_3-state/hungarian_metrics.json` (Stage1 채점, `_hungarian_eval.py`) + `on-AC_3-action/action_metrics.json` (Stage2 채점, `_action_eval.py`) 두 산출물을 만든다. ratio 차원은 학습 산출물 (TRAIN_DS=`AC_3_r{37,55,73}`) 에 박혀있고 test 4 파일은 ratio 와 무관. without_open_app sibling 은 state branch 만 (action 채점기 미지원).
 
 ### Stage 2
 

@@ -6,7 +6,7 @@
 
 - 실행 엔트리포인트는 단일 노트북 [`gui-model.ipynb`](./gui-model.ipynb) 와 [`scripts/`](./scripts) 다. 노트북은 uv 가 관리하는 단일 `.venv` (`uv sync --extra llamafactory`) 를 전제로 한다.
 - **8 개 Vision-Language 모델 (모두 Qwen 계열)**: Qwen2-VL ×2, Qwen2.5-VL ×2, Qwen3-VL ×2, Qwen3.5-Base ×2 (`template=qwen3_5_nothink`, LlamaFactory `hf_model_type=qwen3_5` multimodal 그룹).
-- **3 학습 데이터셋 + 1 평가 전용 벤치마크**: AC, AC_2, MC 가 학습 대상, MB 는 평가 전용.
+- **4 학습 데이터셋 + 1 평가 전용 벤치마크**: AC, AC_2, AC_3, MC 가 학습 대상, MB 는 평가 전용. AC_3 는 Stage 1 전용 + ratio mix (state_pred:action_pred = 3:7, 5:5, 7:3) 3 종을 sweep 해 별개의 가중치를 산출.
 - **모든 stage 의 흐름은 `train → merge → eval`** 로 통일. eval 은 HF Hub merged repo 만 pull 하므로 학습 머신이 아닌 환경에서도 재실행 가능.
 - **GPU-aware `per_device_train_batch_size`**: `.env` 의 `GPU_TYPE` (`RTX5090` / `A100` / `H100`) 와 모델 size 로 `_PER_DEVICE_BS_BY_SIZE` 표를 조회 (Cell 5 의 `lf_per_device_bs(size)` 헬퍼). `NPROC_PER_NODE ∈ {1,2,4,8}` 만 허용. 4 가지 GPU 수 모두에서 `GLOBAL_BATCH_SIZE=64` 가 정수로 나뉘도록 표 값을 유지해야 한다.
 - 모델 레지스트리는 두 곳에 있다: 노트북 Cell 5 의 `_MODEL_CONFIG` 와 `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS`. 두 곳을 동시에 수정해야 한다.
@@ -15,11 +15,12 @@
 - 평가 (`scripts/stage{1,2}_eval.sh`) 는 `vllm_infer.py` 가 HF 표준 safetensors / PEFT adapter 를 그대로 로드.
 - [`gui_model/`](./gui_model) 패키지는 사실상 배포용 스텁이며, 핵심 파이프라인 로직은 여기에 없다.
 - **데이터셋 역할 분리**:
-  - 학습 대상 DS: `AndroidControl` (AC), `AndroidControl_2` (AC_2), `MonkeyCollection` (MC).
+  - 학습 대상 DS: `AndroidControl` (AC), `AndroidControl_2` (AC_2), `AndroidControl_3` (AC_3), `MonkeyCollection` (MC).
   - `MobiBench` (MB) 는 **평가 전용 벤치마크**. 학습/merge 스크립트에서 `--dataset MB` 는 `parse_args` 에서 거절된다.
-  - MC 는 Stage 1 전용 — Stage 2 파이프라인에서 `_STAGE1_ONLY` guard 로 skip.
+  - MC / AC_3 는 Stage 1 전용 — Stage 2 파이프라인에서 `_STAGE1_ONLY` guard 로 skip.
   - AC_2 는 AC 와 schema 동일하지만 **단일 test (ID/OOD 분리 없음)** 로 사전 분할 제공. `_SINGLE_TEST` 플래그로 등록 루프가 분기 (Stage 1 + Stage 2 모두 단일 test). `images/` 디렉토리 없이 JSONL `images` 가 `AndroidControl/images/...` 를 참조 (AC 와 공유).
-  - 평가 스크립트는 `--train-dataset {AC|AC_2|MC}` + `--eval-datasets AC,AC_2,MC,MB` 로 학습 DS 와 평가 DS 를 분리 (Stage 2 eval 은 `AC | AC_2` 만 — MC 는 Stage 2 데이터 없음).
+  - **AC_3 는 dual-task** (`_DUAL_TASK_TEST` flag): `state_pred` (Stage1 채점, `_hungarian_eval.py`) + `action_pred` (Stage2 채점, `_action_eval.py`) 두 task 를 비율 (3:7, 5:5, 7:3) 로 혼합한 train + (id, ood) × (state, action) 4 test. ratio 별로 **별개의 학습 가중치** 가 산출되며 (`AC_3_r37`, `AC_3_r55`, `AC_3_r73`) HF slug 도 ratio 별 (`ac-3-r37-` 등). 평가 sweep 은 단일 ratio (`--ac3-ratio r55` 기본). `--dataset AC_3` 는 ratio 3 종을 자동 expand (`--ac3-ratios r55,r73` 로 부분 실행).
+  - 평가 스크립트는 `--train-dataset {AC|AC_2|AC_3|MC}` + `--eval-datasets AC,AC_2,AC_3,MC,MB` 로 학습 DS 와 평가 DS 를 분리 (Stage 2 eval 은 `AC | AC_2` 만 — MC / AC_3 는 Stage 2 데이터 없음).
 
 ## 어디를 수정해야 하는가
 
@@ -42,6 +43,7 @@
 ### 데이터 분할 규칙
 - [`scripts/split_data.py`](./scripts/split_data.py) 가 기준. AC 는 Stage 1 / Stage 2 모두 app-level ID/OOD (단일 partition 공유), MC 는 Stage 1 random split (메타 없음, 자동 fallback), AC_2 는 사전 분할 데이터, MB 는 split 없음.
 - AC 메타데이터: [`scripts/extract_androidcontrol_metadata.py`](./scripts/extract_androidcontrol_metadata.py) 가 `episodes_meta.jsonl` 생성 (`uv pip install android-env` 별도 필요). 스크린샷은 [`scripts/extract_androidcontrol_images.py`](./scripts/extract_androidcontrol_images.py) 가 GCS REST API 로 pull (TF 의존 없음).
+- AC_3 분할: `split_data.py --dataset AC_3 --ac3-ratios 3_7,5_5,7_3 --ac3-train-total 70000` 가 `gui-model_stage1_state_pred.jsonl` + `gui-model_stage1_action_pred.jsonl` 를 재료로 ratio 별 train 3 개 + task × split 4 test 를 산출. `run_ac3_split` 함수가 `state_pred` 는 random, `action_pred` 는 action-type stratified 샘플링을 사용해 OOD 앱 partition 을 공유한다.
 
 ### Stage 1 평가
 - [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) 가 기준 (`score` 서브커맨드만 유지). single-pair (`--test/--pred`) 와 ID/OOD (`--test-id/--pred-id/--test-ood/--pred-ood`) 두 모드 지원 — ID/OOD 모드는 `hungarian_metrics.json` 에 `overall` / `in_domain` / `out_of_domain` 3 섹션 기록.
@@ -49,6 +51,7 @@
 - EVAL_DS 별 분기:
   - **EVAL_DS=AC**: ID + OOD 두 test 파일 (`gui-model_stage1_test_{id,ood}.jsonl`) 함께 추론 → 3 섹션.
   - **EVAL_DS=AC_2**: 단일 파일 `gui-model_stage1_test.jsonl` (사전 분할) → single-pair overall.
+  - **EVAL_DS=AC_3**: state_pred + action_pred **두 task 를 각각 독립 채점**. 각 task 가 (id, ood) 2 파일을 가지므로 inference 4 회 → state 산출 `on-AC_3-state/hungarian_metrics.json` (Stage1 채점, `_hungarian_eval.py`), action 산출 `on-AC_3-action/action_metrics.json` (Stage2 채점, `_action_eval.py`). without_open_app sibling 은 state branch 만 (action 채점기 미지원).
   - **EVAL_DS=MC**: 단일 파일 `gui-model_stage1_test.jsonl` (random split) → single-pair overall.
   - **EVAL_DS=MB**: 단일 파일 `gui-model_stage1.jsonl` (벤치마크 단일 파일) → single-pair overall.
 - 산출 경로: `outputs/{TRAIN_DS}/eval/{MODEL}/stage1_eval/{variant_path}[/epoch-{E}]/on-{EVAL_DS}/` (variant_path 는 CLI VARIANT 의 `world_model` → `world-model` 치환: 예 `full_world-model`, `lora_world-model`). 어떤 epoch 을 쓸지는 사용자가 결과를 보고 수동 결정 (자동 winner 선정 없음).
