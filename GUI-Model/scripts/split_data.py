@@ -49,12 +49,18 @@ DATASET_DIRS = {
     "AC":               "AndroidControl",
     "AndroidControl_2": "AndroidControl_2",
     "AC_2":             "AndroidControl_2",
+    "AndroidControl_3": "AndroidControl_3",
+    "AC_3":             "AndroidControl_3",
     "MonkeyCollection": "MonkeyCollection",
     "MC":               "MonkeyCollection",
 }
 
 # Stage 2 분할을 지원하지 않는 데이터셋 (Stage 1 전용).
 _STAGE1_ONLY = {"MonkeyCollection", "MC"}
+
+# AC_3: stage1 이 state_pred / action_pred 두 파일로 갈라져 있고, EXP 별 비율 mix
+# train 파일을 만들어야 한다 (train 단일 + ID/OOD test 가 아니라 별도 흐름).
+_AC3_RATIO_MIX = {"AndroidControl_3", "AC_3"}
 
 EPISODE_RE = re.compile(r"episode_(\d+)")
 
@@ -90,15 +96,19 @@ def split_stage1_random(entries: list, ratio: float, seed: int) -> tuple[list, l
 
 
 # ── Sampling helpers ──────────────────────────────────────────────────────
-def stratified_subsample(entries: list, target_size: int, seed: int) -> list:
+def stratified_subsample(
+    entries: list, target_size: int, seed: int, type_key: str = "type"
+) -> list:
     """Subsample preserving action-type ratio via largest-remainder method.
 
-    Stage 2 전용 — 마지막 message 가 action JSON 임을 가정한다."""
+    마지막 message 가 action JSON 임을 가정한다.
+    Stage 2 (AC) 는 ``type`` 키, AC_3 action_pred 는 ``action_type`` 키 사용 →
+    ``type_key`` 인자로 분기."""
     rng = random.Random(seed)
     type_groups = defaultdict(list)
     for entry in entries:
         action = json.loads(entry["messages"][-1]["value"])
-        type_groups[action.get("type", "unknown")].append(entry)
+        type_groups[action.get(type_key, "unknown")].append(entry)
 
     total = len(entries)
     if target_size >= total:
@@ -360,12 +370,12 @@ def build_stage2_id_ood_split(
 
 
 # ── Reporting ─────────────────────────────────────────────────────────────
-def print_stage2_distribution(entries: list, label: str) -> None:
+def print_stage2_distribution(entries: list, label: str, type_key: str = "type") -> None:
     action_types: list[str] = []
     for entry in entries:
         try:
             action = json.loads(entry["messages"][-1]["value"])
-            action_types.append(action.get("type", "unknown"))
+            action_types.append(action.get(type_key, "unknown"))
         except (json.JSONDecodeError, KeyError):
             action_types.append("parse_error")
 
@@ -376,6 +386,151 @@ def print_stage2_distribution(entries: list, label: str) -> None:
         return
     for atype, count in counts.most_common():
         print(f"    {atype}: {count} ({count / total:.1%})")
+
+
+# ── AC_3 (state_pred + action_pred ratio mix) ─────────────────────────────
+def _parse_ratios(spec: str) -> list[tuple[int, int]]:
+    """``"7:3,3:7,5:5"`` → ``[(7, 3), (3, 7), (5, 5)]``."""
+    out: list[tuple[int, int]] = []
+    for chunk in spec.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        a, b = chunk.split(":")
+        ra, rb = int(a), int(b)
+        if ra <= 0 or rb <= 0:
+            raise ValueError(f"비율 쌍은 양수여야 함: {chunk}")
+        out.append((ra, rb))
+    if not out:
+        raise ValueError(f"비어 있는 ratio spec: {spec!r}")
+    return out
+
+
+def run_ac3_split(args, dataset_dir: Path) -> int:
+    state_pred_path  = dataset_dir / "gui-model_stage1_state_pred.jsonl"
+    action_pred_path = dataset_dir / "gui-model_stage1_action_pred.jsonl"
+    meta_path        = dataset_dir / "episodes_meta.jsonl"
+
+    for p in (state_pred_path, action_pred_path, meta_path):
+        if not p.exists():
+            print(f"[ERROR] AC_3 split 에 필요한 파일이 없습니다: {p}", file=sys.stderr)
+            return 1
+
+    try:
+        ratios = _parse_ratios(args.ac3_ratios)
+    except ValueError as exc:
+        print(f"[ERROR] --ac3-ratios 파싱 실패: {exc}", file=sys.stderr)
+        return 1
+
+    total = args.ac3_train_total
+    test_id_size = args.stage1_test_id_size
+    test_ood_size = args.stage1_test_ood_size
+    seed = args.seed
+
+    # 단일 task 가 한 EXP 에서 가져갈 최대 row 수 (ID partition budget 산정용)
+    max_per_side = max(
+        max(total * rs // (rs + ra) for rs, ra in ratios),
+        max(total - total * rs // (rs + ra) for rs, ra in ratios),
+    )
+
+    print(f"Dataset: AC_3 ({dataset_dir})")
+    print(f"Seed: {seed}")
+    print(f"EXP ratios (state:action): "
+          f"{', '.join(f'{a}:{b}' for a, b in ratios)}")
+    print(f"Train total per EXP: {total}")
+    print()
+
+    sp_entries = load_jsonl(state_pred_path)
+    ap_entries = load_jsonl(action_pred_path)
+    meta_entries = load_jsonl(meta_path)
+
+    # 두 파일은 같은 episode set 을 공유 → action_pred 기준 1회 partition.
+    id_apps, ood_apps, _, _, ep_to_app = compute_app_partition(
+        ap_entries, meta_entries,
+        ood_row_budget=test_ood_size,
+        id_row_budget=max_per_side + test_id_size,
+        seed=seed,
+    )
+    id_set, ood_set = set(id_apps), set(ood_apps)
+
+    sp_id, sp_ood, sp_null = route_entries_by_app(sp_entries, ep_to_app, id_set, ood_set)
+    ap_id, ap_ood, ap_null = route_entries_by_app(ap_entries, ep_to_app, id_set, ood_set)
+
+    print("=== App Partition (state_pred / action_pred 공유) ===")
+    print(f"  Unique labeled apps: {len(id_apps) + len(ood_apps)}")
+    print(f"  IN-DOMAIN apps:  {len(id_apps)}")
+    print(f"  OUT-OF-DOMAIN apps: {len(ood_apps)}")
+    print(f"  state_pred  ID/OOD pool: {len(sp_id)} / {len(sp_ood)} "
+          f"(null {len(sp_null)})")
+    print(f"  action_pred ID/OOD pool: {len(ap_id)} / {len(ap_ood)} "
+          f"(null {len(ap_null)})")
+    print()
+
+    # state_pred 는 random, action_pred 는 action_type stratified.
+    def sp_subsample(entries, n, s):
+        return random_subsample(entries, n, s)
+
+    def ap_subsample(entries, n, s):
+        return stratified_subsample(entries, n, s, type_key="action_type")
+
+    # Test 표본 (각 task 별 3000)
+    sp_test_id  = sp_subsample(sp_id,  test_id_size,  seed + 11)
+    sp_test_ood = sp_subsample(sp_ood, test_ood_size, seed + 12)
+    ap_test_id  = ap_subsample(ap_id,  test_id_size,  seed + 21)
+    ap_test_ood = ap_subsample(ap_ood, test_ood_size, seed + 22)
+
+    # train pool: ID pool 에서 test_id 제거 (episode 가 아닌 row id 단위)
+    def _disjoint(pool, test):
+        marks = {id(e) for e in test}
+        return [e for e in pool if id(e) not in marks]
+    sp_train_pool = _disjoint(sp_id, sp_test_id)
+    ap_train_pool = _disjoint(ap_id, ap_test_id)
+
+    # Test 4 파일 작성
+    test_id_sp_path  = dataset_dir / "gui-model_stage1_test_id_state_pred.jsonl"
+    test_id_ap_path  = dataset_dir / "gui-model_stage1_test_id_action_pred.jsonl"
+    test_ood_sp_path = dataset_dir / "gui-model_stage1_test_ood_state_pred.jsonl"
+    test_ood_ap_path = dataset_dir / "gui-model_stage1_test_ood_action_pred.jsonl"
+    write_jsonl(sp_test_id,  test_id_sp_path)
+    write_jsonl(ap_test_id,  test_id_ap_path)
+    write_jsonl(sp_test_ood, test_ood_sp_path)
+    write_jsonl(ap_test_ood, test_ood_ap_path)
+
+    print("=== Stage 1 Test Sets ===")
+    print(f"  → {test_id_sp_path.name}  ({len(sp_test_id)})")
+    print(f"  → {test_id_ap_path.name}  ({len(ap_test_id)})")
+    print(f"  → {test_ood_sp_path.name} ({len(sp_test_ood)})")
+    print(f"  → {test_ood_ap_path.name} ({len(ap_test_ood)})")
+    print_stage2_distribution(ap_test_id,  "action_pred test_id",  type_key="action_type")
+    print_stage2_distribution(ap_test_ood, "action_pred test_ood", type_key="action_type")
+    print()
+
+    # EXP ratio mixing
+    print("=== EXP Ratio Mix (state_pred : action_pred) ===")
+    for i, (rs, ra) in enumerate(ratios):
+        n_state = total * rs // (rs + ra)
+        n_action = total - n_state
+        if n_state > len(sp_train_pool):
+            print(f"[warn] state_pred {n_state} > pool {len(sp_train_pool)}; "
+                  f"truncating to pool size.", file=sys.stderr)
+        if n_action > len(ap_train_pool):
+            print(f"[warn] action_pred {n_action} > pool {len(ap_train_pool)}; "
+                  f"truncating to pool size.", file=sys.stderr)
+        state_chunk  = sp_subsample(sp_train_pool,  n_state,  seed + 100 + i)
+        action_chunk = ap_subsample(ap_train_pool, n_action, seed + 200 + i)
+        mixed = state_chunk + action_chunk
+        random.Random(seed + 300 + i).shuffle(mixed)
+
+        out_path = dataset_dir / f"gui-model_stage1_train_{rs}_{ra}.jsonl"
+        write_jsonl(mixed, out_path)
+        print(f"  EXP {rs}:{ra} → {out_path.name} "
+              f"({len(mixed)} = state {len(state_chunk)} + action {len(action_chunk)})")
+        print_stage2_distribution(
+            action_chunk, f"  action_pred chunk ({rs}:{ra})", type_key="action_type"
+        )
+    print()
+    print("Done.")
+    return 0
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────
@@ -422,6 +577,17 @@ def main() -> int:
         help="Drop episodes with null primary_app instead of pooling them into train.",
     )
 
+    # AC_3 (state_pred + action_pred ratio mixing)
+    parser.add_argument(
+        "--ac3-train-total", type=int, default=70000,
+        help="AC_3 EXP 별 train 파일의 총 row 수 (default 70000).",
+    )
+    parser.add_argument(
+        "--ac3-ratios", type=str, default="7:3,3:7,5:5",
+        help="AC_3 EXP 비율 list (state:action), 콤마 구분. "
+             "Default '7:3,3:7,5:5' → 출력 파일명 train_7_3 / train_3_7 / train_5_5.",
+    )
+
     args = parser.parse_args()
 
     if args.dataset in _STAGE1_ONLY and not args.skip_stage2:
@@ -437,6 +603,10 @@ def main() -> int:
     if not dataset_dir.exists():
         print(f"[ERROR] Dataset directory not found: {dataset_dir}", file=sys.stderr)
         return 1
+
+    # AC_3 는 stage1 이 (state_pred, action_pred) 두 파일이라 별도 흐름.
+    if args.dataset in _AC3_RATIO_MIX:
+        return run_ac3_split(args, dataset_dir)
 
     stage1_path = dataset_dir / "gui-model_stage1.jsonl"
     stage2_path = dataset_dir / "gui-model_stage2.jsonl"
