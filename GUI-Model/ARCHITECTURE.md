@@ -85,6 +85,8 @@ Python env      notebook            엔진                              모델
 
 `min_tokens=4` 는 family 공통. YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family default 에 dataset override 를 token-aware 로 덮어써 자동 주입한다. 평가측 `scripts/_common.sh::build_infer_cmd` 는 `TRAIN_DATASET` 글로벌 (parse_args 에서 set) 로 학습 DS 를 식별해 동일 budget 을 적용한다.
 
+`cutoff_len` 은 DS 별로 다르다 — AC / AC_2 는 8192, **AC_3 는 10240** 이다. AC_3 는 state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패하기 때문이다. 노트북 Cell 8 의 Stage 1 inline YAML 과 `LlamaFactory/examples/custom/GUI-Model-AC_3_*` yaml 모두 10240 으로 통일한다.
+
 ### 하이퍼파라미터 — 3 단 머지 구조
 
 CONFIGS 빌더가 다음 순서로 `dict.update()` 한다:
