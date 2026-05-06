@@ -39,11 +39,12 @@
 ### Notebook 실행 순서나 YAML 생성 흐름
 - [`gui-model.ipynb`](./gui-model.ipynb) 와 [`scripts/stage1_*.sh`](./scripts/stage1_train.sh) / [`scripts/stage2_*.sh`](./scripts/stage2_train.sh) 를 함께 맞춘다.
 - 노트북 Cell 8 (Stage 1 YAML) / Cell 10 (Stage 2 YAML) 이 학습 YAML 생성. **Merge YAML 은 사전 생성하지 않는다** — `stage{1,2}_merge.sh` 가 runtime 에 임시 YAML 을 만든다.
+- 노트북 Section 3 / 4 / 6 / 7 은 **단일 변형 walkthrough** 다 — Section 3 / 4 는 `qwen3-vl-8b` + `--stage1-mode full`, Section 6 / 7 은 `qwen3-vl-8b` + `--stage2-mode lora`. 다른 모델 / 모드 / DS 는 cell 을 추가하지 말고 shell 인자 (`--model`, `--stage1-mode`, `--stage2-mode`, `--dataset`) 만 바꿔 실행한다 (모델 레지스트리는 `_common.sh::MODELS`). 매트릭스 sweep 은 `--model all` / `--dataset all`. Section 5 / 8 의 평가 cell (variant matrix · plot) 은 그대로 유지한다.
 
 ### 데이터 분할 규칙
 - [`scripts/split_data.py`](./scripts/split_data.py) 가 기준. AC 는 Stage 1 / Stage 2 모두 app-level ID/OOD (단일 partition 공유), MC 는 Stage 1 random split (메타 없음, 자동 fallback), AC_2 는 사전 분할 데이터, MB 는 split 없음.
 - AC 메타데이터: [`scripts/extract_androidcontrol_metadata.py`](./scripts/extract_androidcontrol_metadata.py) 가 `episodes_meta.jsonl` 생성 (`uv pip install android-env` 별도 필요). 스크린샷은 [`scripts/extract_androidcontrol_images.py`](./scripts/extract_androidcontrol_images.py) 가 GCS REST API 로 pull (TF 의존 없음).
-- AC_3 분할: `split_data.py --dataset AC_3 --ac3-ratios 3_7,5_5,7_3 --ac3-train-total 70000` 가 `gui-model_stage1_state_pred.jsonl` + `gui-model_stage1_action_pred.jsonl` 를 재료로 ratio 별 train 3 개 + task × split 4 test 를 산출. `run_ac3_split` 함수가 `state_pred` 는 random, `action_pred` 는 action-type stratified 샘플링을 사용해 OOD 앱 partition 을 공유한다.
+- AC_3 분할: `split_data.py --dataset AC_3 --ac3-ratios 3_7,5_5,7_3 --ac3-train-total 50000` 가 `gui-model_stage1_state_pred.jsonl` + `gui-model_stage1_action_pred.jsonl` 를 재료로 ratio 별 train 3 개 + task × split 4 test 를 산출. `run_ac3_split` 함수가 `state_pred` 는 random, `action_pred` 는 action-type stratified 샘플링을 사용해 OOD 앱 partition 을 공유한다.
 
 ### Stage 1 평가
 - [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) 가 기준 (`score` 서브커맨드만 유지). single-pair (`--test/--pred`) 와 ID/OOD (`--test-id/--pred-id/--test-ood/--pred-ood`) 두 모드 지원 — ID/OOD 모드는 `hungarian_metrics.json` 에 `overall` / `in_domain` / `out_of_domain` 3 섹션 기록.

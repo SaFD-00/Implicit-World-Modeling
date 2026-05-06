@@ -164,7 +164,7 @@ python scripts/split_data.py --dataset AndroidControl
 ```bash
 # state_pred + action_pred 두 task 를 ratio (state:action) 3 종으로 혼합한
 # train + (id, ood) × (state, action) 4 test 산출.
-python scripts/split_data.py --dataset AC_3 --ac3-ratios 3_7,5_5,7_3 --ac3-train-total 70000
+python scripts/split_data.py --dataset AC_3 --ac3-ratios 3_7,5_5,7_3 --ac3-train-total 50000
 # → gui-model_stage1_train_{3_7,5_5,7_3}.jsonl
 # → gui-model_stage1_test_{id,ood}_{state,action}_pred.jsonl
 ```
@@ -201,14 +201,14 @@ split 불필요. `data/MobiBench/gui-model_stage{1,2}.jsonl` 두 단일 파일�
 |---------|------|
 | 0 | 환경, dataset / 모델 / family / size config 정의, Stage 1 · Stage 2 학습 YAML 일괄 생성 |
 | 1-2 | `dataset_info.json` 등록 (AC: 6 entry, AC_2: 4 entry, MC: 2 entry, MB: eval-only 2 entry) |
-| 3 | Stage 1 SFT 학습 (8 모델 × 3 DS × {full, lora}) |
-| 4 | Stage 1 merge (모든 epoch local merge + HF Hub push) |
+| 3 | Stage 1 SFT 학습 (`qwen3-vl-8b` + Full FT, AC · AC_2 · AC_3) |
+| 4 | Stage 1 merge (`qwen3-vl-8b` + Full FT, 모든 epoch local merge + HF Hub push) |
 | 5 | Stage 1 평가 (HF Hub merged sweep, EVAL_DS = AC, AC_2, MC, MB) |
-| 6 | Stage 2 SFT 학습 (8 모델 × {AC, AC_2}, MC 제외) |
-| 7 | Stage 2 merge (variant × 모든 epoch + HF push) |
+| 6 | Stage 2 SFT 학습 (`qwen3-vl-8b` + LoRA, AC · AC_2) |
+| 7 | Stage 2 merge (`qwen3-vl-8b` + LoRA, variant × 모든 epoch + HF push) |
 | 8 | Stage 2 평가 (ID + OOD 동시 sweep, `action_metrics.json` 3 섹션) |
 
-> 노트북의 학습/머지 셀은 explicit (model × dataset) 펼침 구조를 유지한다 — 부분 실행 시 셀 단위로 주석 처리 / 실행. 전체 sweep 은 셀 안의 `--model` / `--dataset` 인자를 빼고 한 번 호출하면 된다.
+> Section 3 / 4 / 6 / 7 은 **단일 변형 walkthrough** 다 — Stage 1 = `qwen3-vl-8b` + `full`, Stage 2 = `qwen3-vl-8b` + `lora`. 다른 모델 / 모드 / 데이터셋은 cell 을 추가하지 말고 shell 호출에서 `--model` / `--stage1-mode` / `--stage2-mode` / `--dataset` 인자만 바꿔 실행한다 (등록된 모델은 [`scripts/_common.sh::MODELS`](./scripts/_common.sh) 참조). 매트릭스 sweep 은 `--model all` / `--dataset all` 사용. Section 5 / 8 의 평가 cell 은 base + variant matrix 정의와 plot 코드를 보존한다.
 
 ### 2. shell script 경로
 

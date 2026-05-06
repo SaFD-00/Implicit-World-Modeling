@@ -209,7 +209,7 @@ data/
 - **Stage 1 (MC)**: 메타 없음 → 자동 random split (`--stage1-ratio`, 기본 0.95). `_STAGE1_ONLY` guard 로 Stage 2 자동 skip.
 - **Stage 2 (AC only, ID/OOD)**: 같은 (id_apps, ood_apps) 에서 각 풀별 action-type **stratified** 샘플링 (largest-remainder). train 은 `null` primary_app 에피소드까지 흡수해 regular 크기 유지.
 - **AC_2 (Stage 1 + 2, 단일 test)**: 사전 분할 데이터 — `split_data.py` 를 다시 돌리지 않는다. 평가는 single-pair `overall` 모드로 채점.
-- **AC_3 (Stage 1 전용, state + action ratio mix)**: `run_ac3_split` 이 `state_pred` (random) + `action_pred` (action-type stratified) 두 풀을 ID/OOD 앱 partition (AC 와 공유) 으로 라우팅 후 ratio (state:action ∈ {3:7, 5:5, 7:3}) 로 혼합한 train 3 종 + (id, ood) × (state, action) 4 test 를 산출. ratio 별로 학습 가중치가 다르므로 `--ac3-ratios` 가 sweep 단위, `--ac3-train-total` 이 train 합계 (기본 70K).
+- **AC_3 (Stage 1 전용, state + action ratio mix)**: `run_ac3_split` 이 `state_pred` (random) + `action_pred` (action-type stratified) 두 풀을 ID/OOD 앱 partition (AC 와 공유) 으로 라우팅 후 ratio (state:action ∈ {3:7, 5:5, 7:3}) 로 혼합한 train 3 종 + (id, ood) × (state, action) 4 test 를 산출. ratio 별로 학습 가중치가 다르므로 `--ac3-ratios` 가 sweep 단위, `--ac3-train-total` 이 train 합계 (기본 50K).
 - **MB**: split 없음. 평가 전용.
 
 ### `episodes_meta.jsonl` 스키마 (AC only)
@@ -491,7 +491,7 @@ Reference baselines (해석용):
 - `scroll` majority baseline (`down`): 79.0%
 - `finish.status` constant baseline: 100% (해석 무의미)
 
-정본은 `scripts/_action_eval.py` 이며, 노트북 Section 8 의 Cell 218 이 이 파일과 글자 단위 동치를 유지한다 (디버깅 reference 용). 회귀 테스트 `tests/test_action_eval.py` 48 케이스 — `parse_action` / `evaluate_single` / `evaluate_predictions` 분기, unknown type 집계, `cond_*` n=0, `predict`/`output` fallback, ID+OOD 통합 집계 커버.
+정본은 `scripts/_action_eval.py` 이며, 노트북 Section 8 의 마지막 reference cell 이 이 파일과 글자 단위 동치를 유지한다 (디버깅 reference 용). 회귀 테스트 `tests/test_action_eval.py` 48 케이스 — `parse_action` / `evaluate_single` / `evaluate_predictions` 분기, unknown type 집계, `cond_*` n=0, `predict`/`output` fallback, ID+OOD 통합 집계 커버.
 
 ---
 

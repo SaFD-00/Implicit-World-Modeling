@@ -579,8 +579,8 @@ def main() -> int:
 
     # AC_3 (state_pred + action_pred ratio mixing)
     parser.add_argument(
-        "--ac3-train-total", type=int, default=70000,
-        help="AC_3 EXP 별 train 파일의 총 row 수 (default 70000).",
+        "--ac3-train-total", type=int, default=50000,
+        help="AC_3 EXP 별 train 파일의 총 row 수 (default 50000).",
     )
     parser.add_argument(
         "--ac3-ratios", type=str, default="7:3,3:7,5:5",
