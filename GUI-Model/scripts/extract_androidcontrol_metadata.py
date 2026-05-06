@@ -46,8 +46,10 @@ from extract_androidcontrol_images import (
 )
 
 # Per-step binary/huge features we never want to emit to JSONL. Screenshots are
-# PNG bytes; accessibility_trees is a serialized proto that we parse out-of-band
-# to derive ``primary_app`` (see ``extract_primary_app_from_trees``).
+# PNG bytes in the source TFRecord (re-encoded to JPEG by
+# extract_androidcontrol_images.py); accessibility_trees is a serialized proto
+# that we parse out-of-band to derive ``primary_app`` (see
+# ``extract_primary_app_from_trees``).
 SKIP_FEATURES = {"screenshots", "accessibility_trees"}
 
 # Canonical JSON key order for each emitted episode. TFRecord feature iteration

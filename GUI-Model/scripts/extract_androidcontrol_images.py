@@ -17,6 +17,7 @@ Usage:
 import os
 import sys
 import gzip
+import io
 import json
 import time
 import struct
@@ -25,12 +26,15 @@ import tempfile
 import urllib.request
 import urllib.error
 
+from PIL import Image
+
 GCS_BUCKET = "gresearch"
 GCS_PREFIX = "android_control/android_control"
 GCS_API = "https://storage.googleapis.com/storage/v1"
 GCS_MEDIA = "https://storage.googleapis.com"
 
 PNG_MAGIC = b"\x89PNG"
+JPEG_QUALITY = 95
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +316,7 @@ def main():
                 ep_skipped = 0
 
                 for step_idx, png_bytes in enumerate(screenshots):
-                    filename = f"episode_{episode_id:06d}_step_{step_idx:04d}.png"
+                    filename = f"episode_{episode_id:06d}_step_{step_idx:04d}.jpg"
                     filepath = os.path.join(args.output, filename)
 
                     if args.skip_existing and os.path.exists(filepath):
@@ -328,8 +332,10 @@ def main():
                             )
                         continue
 
-                    with open(filepath, "wb") as f:
-                        f.write(png_bytes)
+                    with Image.open(io.BytesIO(png_bytes)) as im:
+                        if im.mode != "RGB":
+                            im = im.convert("RGB")
+                        im.save(filepath, "JPEG", quality=JPEG_QUALITY)
                     ep_saved += 1
 
                 file_saved += ep_saved
