@@ -109,6 +109,34 @@ if [ -f "$BASE_DIR/.env" ]; then
   set +a
 fi
 
+# --- RTX5090 + DeepSpeed CPU offload: CUDA toolkit 정렬 가드 -----------------
+# RTX5090 환경에서는 yaml 이 ds_z3_offload_config.json 으로 swap 되어 있어
+# DeepSpeed 가 DeepSpeedCPUAdam → CPUAdamBuilder 를 JIT 컴파일한다. 이 빌드는
+# nvcc 와 cu 헤더가 torch 가 빌드된 cu 버전과 정확히 일치해야 하며,
+# 불일치 시 학습 시작 직후 CUDAMismatchException 으로 죽는다.
+# CUDA_HOME 미설정 + 시스템 PATH 에서 다른 cu 버전 nvcc (예: 13.x) 가 잡히는
+# 사고를 막기 위해 RTX5090 일 때만 /usr/local/cuda 를 강제 export 후 검증한다.
+# (다른 GPU_TYPE 은 offload 를 안 쓰므로 가드 미적용.)
+if [[ "${GPU_TYPE:-}" == "RTX5090" ]]; then
+  export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+  if [[ ! -x "$CUDA_HOME/bin/nvcc" ]]; then
+    echo "[!] RTX5090: nvcc 가 $CUDA_HOME/bin 에 없습니다." >&2
+    echo "    cu12.8 toolkit (nvcc + cuda.h 헤더 + lib64) 를 설치 후 /usr/local/cuda 로 link 하세요." >&2
+    exit 1
+  fi
+  _nvcc_ver="$("$CUDA_HOME/bin/nvcc" --version | sed -nE 's/.*release ([0-9]+\.[0-9]+).*/\1/p' | head -n1)"
+  _torch_cuda="$(python3 -c 'import sys,torch; sys.stdout.write(torch.version.cuda or "")' 2>/dev/null || true)"
+  if [[ -n "$_torch_cuda" && "$_nvcc_ver" != "$_torch_cuda" ]]; then
+    echo "[!] CUDA mismatch: $CUDA_HOME nvcc=$_nvcc_ver != torch.version.cuda=$_torch_cuda" >&2
+    echo "    DeepSpeed CPUAdamBuilder JIT 빌드 시 CUDAMismatchException 발생합니다." >&2
+    echo "    /usr/local/cuda 가 cu$_torch_cuda toolkit 을 가리키도록 link 를 갱신하세요." >&2
+    exit 1
+  fi
+  export PATH="$CUDA_HOME/bin:$PATH"
+  export LD_LIBRARY_PATH="$CUDA_HOME/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  unset _nvcc_ver _torch_cuda
+fi
+
 # --- dataset prefix / HF slug / data dir 매핑 (Cell 3 _DATASET_CONFIG 와 일치) -
 # MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC, AC_2, AC_3, MC}.
 # MB entry 는 평가 스크립트가 dataset_info 이름/slug 를 조합하는 데 사용.
