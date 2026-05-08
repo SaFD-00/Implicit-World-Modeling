@@ -21,6 +21,11 @@ Stage 2 (Action Prediction)
 AndroidAccessibilityForest proto 에서 전경 application window 의
 ``package_name`` 을 다수결로 집계해 생성한다.
 
+AC_3 는 항상 ``gui-model_stage1_{state,action}_pred_filtered.jsonl`` 을
+입력으로 사용한다 (mm-expanded length > cutoff_len 샘플을 사전 제거한
+파일). 필터는 ``scripts/filter_long_samples.py`` 가 만든다 — 누락 시
+명시적으로 에러를 발생시킨다.
+
 Usage
 -----
   # AC: Stage 1 + Stage 2 모두 ID/OOD (defaults: train=50000, test_id=3000, test_ood=3000)
@@ -407,14 +412,25 @@ def _parse_ratios(spec: str) -> list[tuple[int, int]]:
 
 
 def run_ac3_split(args, dataset_dir: Path) -> int:
-    state_pred_path  = dataset_dir / "gui-model_stage1_state_pred.jsonl"
-    action_pred_path = dataset_dir / "gui-model_stage1_action_pred.jsonl"
+    # AC_3 는 항상 _filtered 소스만 사용 (mm-expanded length > cutoff_len 샘플
+    # 제거 후의 jsonl). 학습 시 Qwen3-VL get_rope_index 의 broadcast shape
+    # mismatch 를 피하기 위함. 필터 산출은 scripts/filter_long_samples.py.
+    state_pred_path  = dataset_dir / "gui-model_stage1_state_pred_filtered.jsonl"
+    action_pred_path = dataset_dir / "gui-model_stage1_action_pred_filtered.jsonl"
     meta_path        = dataset_dir / "episodes_meta.jsonl"
 
-    for p in (state_pred_path, action_pred_path, meta_path):
+    for p in (state_pred_path, action_pred_path):
         if not p.exists():
-            print(f"[ERROR] AC_3 split 에 필요한 파일이 없습니다: {p}", file=sys.stderr)
+            print(
+                f"[ERROR] AC_3 source 가 없습니다: {p}\n"
+                f"        먼저 `python scripts/filter_long_samples.py --dataset AC_3` 로 "
+                f"_filtered.jsonl 을 생성하세요.",
+                file=sys.stderr,
+            )
             return 1
+    if not meta_path.exists():
+        print(f"[ERROR] AC_3 split 에 필요한 파일이 없습니다: {meta_path}", file=sys.stderr)
+        return 1
 
     try:
         ratios = _parse_ratios(args.ac3_ratios)
