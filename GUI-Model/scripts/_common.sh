@@ -188,6 +188,39 @@ is_ac3_ratio() {
   esac
 }
 
+# DS 키 → outputs/ 1-level 디렉토리 코드 (notebook Cell 5 의 output_prefix 와 동치).
+# AC_3 ratio variant 3 키는 단일 부모 'AC_3' 로 모인다.
+ds_outputs_code() {
+  case "$1" in
+    AC_3_r37|AC_3_r55|AC_3_r73) echo "AC_3" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# DS 키 → adapters/ + merged/ 의 모델 디렉토리 이름에 붙일 suffix.
+# AC_3 ratio variant 만 _r{37,55,73} 을 갖고, 다른 DS 는 빈 문자열.
+ds_model_suffix() {
+  case "$1" in
+    AC_3_r37) echo "_r37" ;;
+    AC_3_r55) echo "_r55" ;;
+    AC_3_r73) echo "_r73" ;;
+    *) echo "" ;;
+  esac
+}
+
+# DS 키 → eval/ 의 모델 디렉토리 이름에 붙일 suffix.
+# AC/AC_2 는 DS 코드 자체를 lower 로, AC_3 ratio 는 ratio 만, MC 는 빈 문자열.
+ds_eval_suffix() {
+  case "$1" in
+    AC) echo "_ac" ;;
+    AC_2) echo "_ac_2" ;;
+    AC_3_r37) echo "_r37" ;;
+    AC_3_r55) echo "_r55" ;;
+    AC_3_r73) echo "_r73" ;;
+    *) echo "" ;;
+  esac
+}
+
 # --- 모델 레지스트리 (Cell 3 _MODEL_CONFIG 와 일치) ---------------------------
 declare -A MODEL_ID=(
   [qwen2-vl-2b]="Qwen/Qwen2-VL-2B-Instruct"
@@ -658,16 +691,18 @@ hf_repo_id_stage2_world_model() {
 }
 
 # --- Local merged 디렉토리 경로 ---------------------------------------------
-# stage1: merged/{MODEL}_stage1_{MODE}_world-model/epoch-{E}
+# stage1: merged/{MODEL}{SFX}_stage1_{MODE}_world-model/epoch-{E}
 #   variant_key = MODE (full|lora). Stage 1 은 항상 world-model 학습이므로 접미 고정.
-# stage2: merged/{MODEL}_stage2_{variant_key}/epoch-{E}
-#   variant_key 예: "{full|lora}_base",
-#                   "{full|lora}_world-model_from_{full|lora}-ep{E1}".
+#   SFX = ds_model_suffix(ds) — AC_3 ratio variant 만 _r{37,55,73}, 그 외는 "".
+#   outputs/ 1-level 디렉토리는 ds_outputs_code(ds) 로 정규화 (AC_3_r* → AC_3).
+# stage2: merged/{MODEL}_stage2_{variant_key}/epoch-{E}  (Stage 2 는 변경 없음)
 local_merged_epoch_dir() {
   local stage="$1" model_short="$2" ds="$3" variant_key="$4" epoch="$5"
+  local out_ds; out_ds="$(ds_outputs_code "$ds")"
+  local sfx;    sfx="$(ds_model_suffix "$ds")"
   case "$stage" in
-    stage1) printf '%s/outputs/%s/merged/%s_stage1_%s_world-model/epoch-%s' \
-              "$BASE_DIR" "$ds" "$model_short" "$variant_key" "$epoch" ;;
+    stage1) printf '%s/outputs/%s/merged/%s%s_stage1_%s_world-model/epoch-%s' \
+              "$BASE_DIR" "$out_ds" "$model_short" "$sfx" "$variant_key" "$epoch" ;;
     stage2) printf '%s/outputs/%s/merged/%s_stage2_%s/epoch-%s' \
               "$BASE_DIR" "$ds" "$model_short" "$variant_key" "$epoch" ;;
     *) echo "[!] local_merged_epoch_dir: unknown stage '$stage'" >&2; return 1 ;;

@@ -33,12 +33,14 @@
 #   주의: AC_3-action 분기는 _action_eval.py 가 --exclude-action 미지원이라 woa 미산출.
 #
 # 산출물:
-#   outputs/{TRAIN_DS}/eval/{MODEL}/stage1_eval/{variant}[/epoch-{E}]/on-{EVAL_DS}/
+#   outputs/{OUT_DS}/eval/{MODEL}{EVAL_SFX}/stage1_eval/{variant}[/epoch-{E}]/on-{EVAL_DS}/
+#     OUT_DS   = ds_outputs_code(TRAIN_DS)  — AC_3_r* → AC_3, 그 외는 그대로.
+#     EVAL_SFX = ds_eval_suffix(TRAIN_DS)   — AC=_ac, AC_2=_ac_2, AC_3_r*=_r{37,55,73}, MC="".
 #     EVAL_DS=AC          : generated_predictions_{id,ood}.jsonl + hungarian_metrics.json
 #     EVAL_DS=MC / MB     : generated_predictions.jsonl          + hungarian_metrics.json (overall only)
 #     EVAL_DS=AC_3-state  : generated_predictions_{id,ood}.jsonl + hungarian_metrics.json
 #     EVAL_DS=AC_3-action : generated_predictions_{id,ood}.jsonl + action_metrics.json
-#   outputs/{TRAIN_DS}/eval/{MODEL}/stage1_eval/{variant}[/epoch-{E}]/on-{EVAL_DS}-without-open_app/
+#   outputs/{OUT_DS}/eval/{MODEL}{EVAL_SFX}/stage1_eval/{variant}[/epoch-{E}]/on-{EVAL_DS}-without-open_app/
 #     동일 파일 구조 + predict_results.json (정규 eval 의 schema 와 동일)
 
 # shellcheck source=./_common.sh
@@ -271,7 +273,11 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   BASE_MODEL="${MODEL_ID[$MODEL_SHORT]}"
   TEMPLATE="${MODEL_TEMPLATE[$MODEL_SHORT]}"
 
-  EVAL_DIR_REL="../outputs/${TRAIN_DS}/eval/${MODEL_SHORT}/stage1_eval"
+  # outputs/ 1-level 디렉토리는 ds_outputs_code 로 정규화 (AC_3_r* → AC_3),
+  # 모델 디렉토리에는 ds_eval_suffix (AC=_ac, AC_2=_ac_2, AC_3_r*=_r{37,55,73}) 를 붙인다.
+  OUT_DS="$(ds_outputs_code "$TRAIN_DS")"
+  EVAL_SFX="$(ds_eval_suffix "$TRAIN_DS")"
+  EVAL_DIR_REL="../outputs/${OUT_DS}/eval/${MODEL_SHORT}${EVAL_SFX}/stage1_eval"
 
   for VARIANT in "${VARIANTS[@]}"; do
     case "$VARIANT" in
