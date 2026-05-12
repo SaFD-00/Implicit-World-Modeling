@@ -695,7 +695,9 @@ hf_repo_id_stage2_world_model() {
 #   variant_key = MODE (full|lora). Stage 1 은 항상 world-model 학습이므로 접미 고정.
 #   SFX = ds_model_suffix(ds) — AC_3 ratio variant 만 _r{37,55,73}, 그 외는 "".
 #   outputs/ 1-level 디렉토리는 ds_outputs_code(ds) 로 정규화 (AC_3_r* → AC_3).
-# stage2: merged/{MODEL}_stage2_{variant_key}/epoch-{E}  (Stage 2 는 변경 없음)
+# stage2: merged/{MODEL}{SFX}_stage2_{variant_key}/epoch-{E}
+#   AC_3 ratio variant 가 같은 outputs/AC_3/ 부모를 공유하므로 model 디렉토리에
+#   ratio suffix 를 붙여 r37/r55/r73 산출물을 구분한다.
 local_merged_epoch_dir() {
   local stage="$1" model_short="$2" ds="$3" variant_key="$4" epoch="$5"
   local out_ds; out_ds="$(ds_outputs_code "$ds")"
@@ -703,8 +705,8 @@ local_merged_epoch_dir() {
   case "$stage" in
     stage1) printf '%s/outputs/%s/merged/%s%s_stage1_%s_world-model/epoch-%s' \
               "$BASE_DIR" "$out_ds" "$model_short" "$sfx" "$variant_key" "$epoch" ;;
-    stage2) printf '%s/outputs/%s/merged/%s_stage2_%s/epoch-%s' \
-              "$BASE_DIR" "$ds" "$model_short" "$variant_key" "$epoch" ;;
+    stage2) printf '%s/outputs/%s/merged/%s%s_stage2_%s/epoch-%s' \
+              "$BASE_DIR" "$out_ds" "$model_short" "$sfx" "$variant_key" "$epoch" ;;
     *) echo "[!] local_merged_epoch_dir: unknown stage '$stage'" >&2; return 1 ;;
   esac
 }
