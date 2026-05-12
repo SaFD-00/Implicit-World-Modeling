@@ -85,7 +85,7 @@ Python env      notebook            엔진                              모델
 
 `min_tokens=4` 는 family 공통. YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family default 에 dataset override 를 token-aware 로 덮어써 자동 주입한다. 평가측 `scripts/_common.sh::build_infer_cmd` 는 `TRAIN_DATASET` 글로벌 (parse_args 에서 set) 로 학습 DS 를 식별해 동일 budget 을 적용한다.
 
-`cutoff_len` 은 DS 별로 다르다 — AC / AC_2 는 8192, **AC_3 는 9216** 이다. AC_3 는 state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패하기 때문이다. 관측치 8521 + headroom 으로 9216 을 채택 (직전 10240 에서 하향). 노트북 Cell 8 의 Stage 1 inline YAML 과 `LlamaFactory/examples/custom/GUI-Model-AC_3_*` yaml 모두 9216 으로 통일한다.
+`cutoff_len` 은 DS 별로 다르다 — AC / AC_2 는 8192, **AC_3 는 Stage 1 / Stage 2 모두 16384** 이다 (2026-05-12 상향, 직전 stage1 9216 / stage2 10000). AC_3 는 state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패한다 — 9216 은 그 회피용 최소 컷이었고, 16384 는 multi-frame trajectory 의 추가 truncation 가능성까지 제거하기 위한 상한이다. 노트북 Cell 8 의 Stage 1/2 inline YAML 과 `LlamaFactory/examples/custom/GUI-Model-AC_3_*` yaml 모두 16384 로 통일한다. (`scripts/filter_long_samples.py --threshold` 의 default 9216 은 RoPE 안전 컷 의미로 그대로 유지 — 학습 cutoff 와 별개의 사전 필터.)
 
 ### 하이퍼파라미터 — 3 단 머지 구조
 
