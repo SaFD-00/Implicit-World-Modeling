@@ -6,7 +6,7 @@
 
 - 실행 엔트리포인트는 단일 노트북 [`gui-model.ipynb`](./gui-model.ipynb) 와 [`scripts/`](./scripts) 다. 노트북은 uv 가 관리하는 단일 `.venv` (`uv sync --extra llamafactory`) 를 전제로 한다.
 - **8 개 Vision-Language 모델 (모두 Qwen 계열)**: Qwen2-VL ×2, Qwen2.5-VL ×2, Qwen3-VL ×2, Qwen3.5-Base ×2 (`template=qwen3_5_nothink`, LlamaFactory `hf_model_type=qwen3_5` multimodal 그룹).
-- **4 학습 데이터셋 + 1 평가 전용 벤치마크**: AC, AC_2, AC_3, MC 가 학습 대상, MB 는 평가 전용. AC_3 는 Stage 1 전용 + ratio mix (state_pred:action_pred = 3:7, 5:5, 7:3) 3 종을 sweep 해 별개의 가중치를 산출.
+- **4 학습 데이터셋 + 1 평가 전용 벤치마크**: AC, AC_2, AC_3, MC 가 학습 대상, MB 는 평가 전용. AC_3 는 ratio mix Stage 1 학습 (state_pred:action_pred = 3:7, 5:5, 7:3) 3 종을 sweep 해 별개의 가중치를 산출. `split_data.py --dataset AC_3` 는 Stage 1 분할 외에 Stage 2 ID/OOD split (Stage 1 action_pred app partition 공유) 도 함께 산출하지만, 노트북/스크립트의 `_STAGE1_ONLY` 게이트가 `AndroidControl_3_r{37,55,73}` 3 키를 포함하고 있어 **Stage 2 학습/평가 파이프라인은 현재 skip** (데이터만 디스크에 존재).
 - **모든 stage 의 흐름은 `train → merge → eval`** 로 통일. eval 은 HF Hub merged repo 만 pull 하므로 학습 머신이 아닌 환경에서도 재실행 가능.
 - **GPU-aware `per_device_train_batch_size`**: `.env` 의 `GPU_TYPE` (`RTX5090` / `A100` / `H100`) 와 모델 size 로 `_PER_DEVICE_BS_BY_SIZE` 표를 조회 (Cell 5 의 `lf_per_device_bs(size)` 헬퍼). `NPROC_PER_NODE ∈ {1,2,4,8}` 만 허용. 4 가지 GPU 수 모두에서 `GLOBAL_BATCH_SIZE=64` 가 정수로 나뉘도록 표 값을 유지해야 한다.
 - 모델 레지스트리는 두 곳에 있다: 노트북 Cell 5 의 `_MODEL_CONFIG` 와 `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS`. 두 곳을 동시에 수정해야 한다.
@@ -17,10 +17,10 @@
 - **데이터셋 역할 분리**:
   - 학습 대상 DS: `AndroidControl` (AC), `AndroidControl_2` (AC_2), `AndroidControl_3` (AC_3), `MonkeyCollection` (MC).
   - `MobiBench` (MB) 는 **평가 전용 벤치마크**. 학습/merge 스크립트에서 `--dataset MB` 는 `parse_args` 에서 거절된다.
-  - MC / AC_3 는 Stage 1 전용 — Stage 2 파이프라인에서 `_STAGE1_ONLY` guard 로 skip.
+  - MC 는 Stage 1 전용 (Stage 2 데이터 자체가 없음). AC_3 는 `split_data.py` 가 Stage 2 split 파일 (`gui-model_stage2_{train,test_id,test_ood}.jsonl`) 까지 산출하지만 노트북/스크립트의 `_STAGE1_ONLY` 게이트가 AC_3 ratio 3 키를 포함해 Stage 2 학습/평가 파이프라인에서 자동 skip.
   - AC_2 는 AC 와 schema 동일하지만 **단일 test (ID/OOD 분리 없음)** 로 사전 분할 제공. `_SINGLE_TEST` 플래그로 등록 루프가 분기 (Stage 1 + Stage 2 모두 단일 test). `images/` 디렉토리 없이 JSONL `images` 가 `AndroidControl/images/...` 를 참조 (AC 와 공유).
   - **AC_3 는 dual-task** (`_DUAL_TASK_TEST` flag): `state_pred` (Stage1 채점, `_hungarian_eval.py`) + `action_pred` (Stage2 채점, `_action_eval.py`) 두 task 를 비율 (3:7, 5:5, 7:3) 로 혼합한 train + (id, ood) × (state, action) 4 test. ratio 별로 **별개의 학습 가중치** 가 산출되며 (`AC_3_r37`, `AC_3_r55`, `AC_3_r73`) HF slug 도 ratio 별 (`ac-3-r37-` 등). 평가 sweep 은 단일 ratio (`--ac3-ratio r55` 기본). `--dataset AC_3` 는 ratio 3 종을 자동 expand (`--ac3-ratios r55,r73` 로 부분 실행).
-  - 평가 스크립트는 `--train-dataset {AC|AC_2|AC_3|MC}` + `--eval-datasets AC,AC_2,AC_3,MC,MB` 로 학습 DS 와 평가 DS 를 분리 (Stage 2 eval 은 `AC | AC_2` 만 — MC / AC_3 는 Stage 2 데이터 없음).
+  - 평가 스크립트는 `--train-dataset {AC|AC_2|AC_3|MC}` + `--eval-datasets AC,AC_2,AC_3,MC,MB` 로 학습 DS 와 평가 DS 를 분리. Stage 2 eval 은 `AC | AC_2` 만 — MC 는 데이터 없음, AC_3 는 데이터는 존재하나 `_STAGE1_ONLY` 게이트로 미연동.
 
 ## 어디를 수정해야 하는가
 
@@ -44,7 +44,7 @@
 ### 데이터 분할 규칙
 - [`scripts/split_data.py`](./scripts/split_data.py) 가 기준. AC 는 Stage 1 / Stage 2 모두 app-level ID/OOD (단일 partition 공유), MC 는 Stage 1 random split (메타 없음, 자동 fallback), AC_2 는 사전 분할 데이터, MB 는 split 없음.
 - AC 메타데이터: [`scripts/extract_androidcontrol_metadata.py`](./scripts/extract_androidcontrol_metadata.py) 가 `episodes_meta.jsonl` 생성 (`uv pip install android-env` 별도 필요). 스크린샷은 [`scripts/extract_androidcontrol_images.py`](./scripts/extract_androidcontrol_images.py) 가 GCS REST API 로 pull (TF 의존 없음).
-- AC_3 분할: `split_data.py --dataset AC_3 --ac3-ratios 3_7,5_5,7_3 --ac3-train-total 50000` 가 `gui-model_stage1_state_pred.jsonl` + `gui-model_stage1_action_pred.jsonl` 를 재료로 ratio 별 train 3 개 + task × split 4 test 를 산출. `run_ac3_split` 함수가 `state_pred` 는 random, `action_pred` 는 action-type stratified 샘플링을 사용해 OOD 앱 partition 을 공유한다.
+- AC_3 분할: 선행으로 `python scripts/filter_long_samples.py --dataset AC_3` 가 mm-expanded length > cutoff_len 샘플을 제거해 `gui-model_stage1_{state,action}_pred_filtered.jsonl` 을 만든다 (Qwen3-VL `get_rope_index` broadcast 회피). 그 위에서 `split_data.py --dataset AC_3 --ac3-ratios 7:3,3:7,5:5 --ac3-train-total 50000` (콜론 구분, default 동일) 가 `run_ac3_split` 으로 `gui-model_stage1_train_{3_7,5_5,7_3}.jsonl` 3 개 + task × split 4 test (`gui-model_stage1_test_{id,ood}_{state,action}_pred.jsonl`) 를 산출하고, 이어서 같은 (id_apps, ood_apps) partition 으로 Stage 2 split `gui-model_stage2_{train,test_id,test_ood}.jsonl` (15K / 3K / 3K, action_type stratified) 까지 만든다. `state_pred` 는 random, `action_pred` 는 action-type stratified 샘플링. Stage 2 마지막 메시지의 `<thought>…</thought>\n<action>{...}</action>` 래핑은 `_parse_action_payload` regex helper 가 분리해 `action_type` 을 추출한다.
 
 ### Stage 1 평가
 - [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) 가 기준 (`score` 서브커맨드만 유지). single-pair (`--test/--pred`) 와 ID/OOD (`--test-id/--pred-id/--test-ood/--pred-ood`) 두 모드 지원 — ID/OOD 모드는 `hungarian_metrics.json` 에 `overall` / `in_domain` / `out_of_domain` 3 섹션 기록.
@@ -83,7 +83,7 @@
 
 - `LlamaFactory/` 내부 파일은 마지막 수단으로만 수정한다. 가능하면 노트북, local shell script, custom YAML (`LlamaFactory/examples/custom/...`), 평가 helper 로 해결.
 - transformers 버전을 바꿀 때는 [`pyproject.toml`](./pyproject.toml) 의 주석과 [`setup.py`](./setup.py) `EXTRAS["llamafactory"]` 의 transformers pin 을 함께 수정한다. 현재 `>=4.56.0,<4.57` 로 고정. 서브프로젝트 (`LlamaFactory/pyproject.toml`) 는 건드리지 않는다.
-- 문서나 스크립트에서 `outputs/{DS}/{category}/...` 의 `{DS}` 는 `AC` / `AC_2` / `MC`, `{category}` 는 `adapters | eval | merged`. `adapters/` 는 flat 네이밍 `{MODEL}_{detail}/` (Stage1: `{MODEL}_stage1_{MODE}_world-model/`, Stage2: `{MODEL}_stage2_{MODE2}_{base|world-model_from_{MODE1}-ep{E1}}/`). `merged/` 는 `{MODEL}_{detail}/epoch-{E}/` 로 epoch 별 서브디렉토리 분리. `eval/` 은 `{MODEL}/stage{1,2}_eval/.../epoch-{E}/` 중첩. `BEST_CHECKPOINT` 파일은 더 이상 생성되지 않는다.
+- 문서나 스크립트에서 `outputs/{DS}/{category}/...` 의 `{DS}` 는 `AC` / `AC_2` / `AC_3` / `MC`. AC_3 의 ratio (`r37/r55/r73`) 는 디렉토리가 아니라 그 아래 모델 디렉토리의 suffix 로 운반되며 (`{MODEL}_stage1_{MODE}_world-model_r{37,55,73}/`), 모든 ratio 산출물이 `outputs/AC_3/` 단일 부모 아래에 모인다. `{category}` 는 `adapters | eval | merged`. `adapters/` 는 flat 네이밍 `{MODEL}_{detail}/` (Stage1: `{MODEL}_stage1_{MODE}_world-model/`, Stage2: `{MODEL}_stage2_{MODE2}_{base|world-model_from_{MODE1}-ep{E1}}/`). `merged/` 는 `{MODEL}_{detail}/epoch-{E}/` 로 epoch 별 서브디렉토리 분리. `eval/` 은 `{MODEL}/stage{1,2}_eval/.../epoch-{E}/` 중첩. `BEST_CHECKPOINT` 파일은 더 이상 생성되지 않는다.
 - `data/` 아래 실제 디렉토리명은 `AndroidControl`, `AndroidControl_2`, `MonkeyCollection`, `MobiBench` (평가 전용). MobiBench 는 `gui-model_stage{1,2}.jsonl` 두 단일 파일만. AndroidControl_2 는 `images/` 디렉토리 없이 AC 의 `images/` 를 JSONL `images` 필드로 참조 (canonical prefix `AndroidControl/images/...`).
 - eval script 에서 `vllm_infer.py` 호출 시 `--dataset_dir '$LF_ROOT/data'` (절대 경로) 를 반드시 전달한다. 상대 경로 사용 시 HF datasets 캐시 오염으로 이미지 `FileNotFoundError` 가 발생할 수 있다.
 - **MobiBench dataset_info 자동 보장**: `_common.sh::ensure_eval_only_dataset_info()` 가 source 시점에 `dataset_info.json` 에 `GUI-Model-MB_stage{1,2}` 단일 파일 엔트리를 idempotent 하게 추가한다.

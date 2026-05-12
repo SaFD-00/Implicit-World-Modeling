@@ -85,7 +85,7 @@ Python env      notebook            엔진                              모델
 
 `min_tokens=4` 는 family 공통. YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family default 에 dataset override 를 token-aware 로 덮어써 자동 주입한다. 평가측 `scripts/_common.sh::build_infer_cmd` 는 `TRAIN_DATASET` 글로벌 (parse_args 에서 set) 로 학습 DS 를 식별해 동일 budget 을 적용한다.
 
-`cutoff_len` 은 DS 별로 다르다 — AC / AC_2 는 8192, **AC_3 는 10240** 이다. AC_3 는 state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패하기 때문이다. 노트북 Cell 8 의 Stage 1 inline YAML 과 `LlamaFactory/examples/custom/GUI-Model-AC_3_*` yaml 모두 10240 으로 통일한다.
+`cutoff_len` 은 DS 별로 다르다 — AC / AC_2 는 8192, **AC_3 는 9216** 이다. AC_3 는 state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패하기 때문이다. 관측치 8521 + headroom 으로 9216 을 채택 (직전 10240 에서 하향). 노트북 Cell 8 의 Stage 1 inline YAML 과 `LlamaFactory/examples/custom/GUI-Model-AC_3_*` yaml 모두 9216 으로 통일한다.
 
 ### 하이퍼파라미터 — 3 단 머지 구조
 
@@ -186,12 +186,15 @@ data/
 │   ├── gui-model_stage2_{train,test}.jsonl                   # ~28K / ~1.5K
 │   └── episodes_meta.jsonl
 │   # NOTE: images/ 디렉토리 없음 — JSONL `images` 가 "AndroidControl/images/..." 참조 (AC 와 공유).
-├── AndroidControl_3/                 # Stage 1 전용 학습 + 평가 (state_pred + action_pred ratio mix)
+├── AndroidControl_3/                 # Stage 1 ratio mix 학습 + Stage 2 ID/OOD split (학습 게이트는 별도; `_STAGE1_ONLY` 가 Stage 2 학습/평가는 skip)
 │   ├── gui-model_stage1_state_pred.jsonl                     # 원천: state-transition task
 │   ├── gui-model_stage1_action_pred.jsonl                    # 원천: action-prediction task
+│   ├── gui-model_stage1_{state,action}_pred_filtered.jsonl   # filter_long_samples.py --dataset AC_3 산출 (mm-expanded length > cutoff_len 제거)
 │   ├── gui-model_stage1_train_{3_7,5_5,7_3}.jsonl            # split_data.py --dataset AC_3 산출, ratio 별 (state:action)
 │   ├── gui-model_stage1_test_{id,ood}_state_pred.jsonl       # state task, app-level partition
 │   ├── gui-model_stage1_test_{id,ood}_action_pred.jsonl      # action task, app-level partition
+│   ├── gui-model_stage2.jsonl                                # 원천: Stage 2 action-prediction
+│   ├── gui-model_stage2_{train,test_id,test_ood}.jsonl       # split_data.py 가 함께 산출, 15K / 3K / 3K (action_type stratified, Stage 1 action_pred app partition 공유)
 │   ├── episodes_meta.jsonl
 │   # NOTE: images/ 디렉토리는 AndroidControl 와 공유 (JSONL `images` 가 "AndroidControl/images/..." 참조).
 ├── MonkeyCollection/                 # Stage 1 전용 학습 + 평가
@@ -211,7 +214,7 @@ data/
 - **Stage 1 (MC)**: 메타 없음 → 자동 random split (`--stage1-ratio`, 기본 0.95). `_STAGE1_ONLY` guard 로 Stage 2 자동 skip.
 - **Stage 2 (AC only, ID/OOD)**: 같은 (id_apps, ood_apps) 에서 각 풀별 action-type **stratified** 샘플링 (largest-remainder). train 은 `null` primary_app 에피소드까지 흡수해 regular 크기 유지.
 - **AC_2 (Stage 1 + 2, 단일 test)**: 사전 분할 데이터 — `split_data.py` 를 다시 돌리지 않는다. 평가는 single-pair `overall` 모드로 채점.
-- **AC_3 (Stage 1 전용, state + action ratio mix)**: `run_ac3_split` 이 `state_pred` (random) + `action_pred` (action-type stratified) 두 풀을 ID/OOD 앱 partition (AC 와 공유) 으로 라우팅 후 ratio (state:action ∈ {3:7, 5:5, 7:3}) 로 혼합한 train 3 종 + (id, ood) × (state, action) 4 test 를 산출. ratio 별로 학습 가중치가 다르므로 `--ac3-ratios` 가 sweep 단위, `--ac3-train-total` 이 train 합계 (기본 50K).
+- **AC_3 (Stage 1 ratio mix + Stage 2 ID/OOD split, 학습은 Stage 1 만)**: 선행으로 `scripts/filter_long_samples.py --dataset AC_3` 가 mm-expanded length > `cutoff_len` 인 row 를 제거해 `gui-model_stage1_{state,action}_pred_filtered.jsonl` 을 만든다 (Qwen3-VL `get_rope_index` broadcast 회피용; `run_ac3_split` 은 항상 `_filtered` 만 입력으로 사용한다). 그 위에서 `run_ac3_split` 이 `state_pred` (random) + `action_pred` (action-type stratified) 두 풀을 ID/OOD 앱 partition 으로 라우팅 후 ratio (state:action ∈ {7:3, 3:7, 5:5}, default `7:3,3:7,5:5`) 로 혼합한 Stage 1 train 3 종 + (id, ood) × (state, action) 4 test 를 산출. 같은 `run_ac3_split` 이 같은 (id_apps, ood_apps) 를 재사용해 Stage 2 split (`gui-model_stage2_{train,test_id,test_ood}.jsonl`, 기본 15K / 3K / 3K, action_type stratified) 까지 함께 산출 — Stage 1 ↔ Stage 2 OOD app 집합 일치. **다만 노트북/스크립트의 `_STAGE1_ONLY` 게이트가 `AndroidControl_3_r{37,55,73}` 3 키를 포함하고 있어 Stage 2 학습/평가 파이프라인은 현재 skip** (split 산출물만 디스크에 남음). ratio 별로 학습 가중치가 다르므로 `--ac3-ratios` 가 sweep 단위, `--ac3-train-total` 이 Stage 1 train 합계 (기본 50K). Stage 2 학습 데이터의 last-message wrapping (`<thought>…</thought>\n<action>{...}</action>`) 은 `_parse_action_payload` regex helper 가 분리.
 - **MB**: split 없음. 평가 전용.
 
 ### `episodes_meta.jsonl` 스키마 (AC only)
@@ -232,9 +235,9 @@ data/
 | `data/` 실제 디렉토리 | `AndroidControl` | `AndroidControl_2` | `AndroidControl_3` | `MonkeyCollection` | `MobiBench` |
 | shell 단축 코드 | `AC` | `AC_2` | `AC_3` (ratio 별 가상 키 `AC_3_r{37,55,73}` 으로 expand) | `MC` | `MB` (eval 전용) |
 | LF dataset prefix | `GUI-Model-AC` | `GUI-Model-AC_2` | `GUI-Model-AC_3` (test 공유) + `..._train_r{37,55,73}` | `GUI-Model-MC` | `GUI-Model-MB` |
-| `outputs/` 최상위 | `AC` | `AC_2` | `AC_3_r37` / `AC_3_r55` / `AC_3_r73` | `MC` | — (TRAIN_DS 산하 `on-MB/`) |
+| `outputs/` 최상위 | `AC` | `AC_2` | `AC_3` (ratio 는 아래 model dir 의 `_r{37,55,73}` suffix 로 운반) | `MC` | — (TRAIN_DS 산하 `on-MB/`) |
 | test split | ID/OOD 2 파일 | 단일 test | (id, ood) × (state, action) 4 파일 | 단일 test | 단일 파일 |
-| Stage 2 지원 | ✓ (ID/OOD 3 섹션) | ✓ (single-pair overall) | ✗ (`_STAGE1_ONLY`) | ✗ (`_STAGE1_ONLY`) | ✓ (single-pair overall) |
+| Stage 2 지원 | ✓ (ID/OOD 3 섹션) | ✓ (single-pair overall) | split 데이터만 산출 (`_STAGE1_ONLY` 가 학습/평가 skip) | ✗ (데이터 없음, `_STAGE1_ONLY`) | ✓ (single-pair overall) |
 
 ### LLaMA-Factory 등록
 
