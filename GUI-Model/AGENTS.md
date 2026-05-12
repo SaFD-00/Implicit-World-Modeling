@@ -6,7 +6,7 @@
 
 - 실행 엔트리포인트는 단일 노트북 [`gui-model.ipynb`](./gui-model.ipynb) 와 [`scripts/`](./scripts) 다. 노트북은 uv 가 관리하는 단일 `.venv` (`uv sync --extra llamafactory`) 를 전제로 한다.
 - **8 개 Vision-Language 모델 (모두 Qwen 계열)**: Qwen2-VL ×2, Qwen2.5-VL ×2, Qwen3-VL ×2, Qwen3.5-Base ×2 (`template=qwen3_5_nothink`, LlamaFactory `hf_model_type=qwen3_5` multimodal 그룹).
-- **4 학습 데이터셋 + 1 평가 전용 벤치마크**: AC, AC_2, AC_3, MC 가 학습 대상, MB 는 평가 전용. AC_3 는 ratio mix Stage 1 학습 (state_pred:action_pred = 3:7, 5:5, 7:3) 3 종을 sweep 해 별개의 가중치를 산출. `split_data.py --dataset AC_3` 는 Stage 1 분할 외에 Stage 2 ID/OOD split (Stage 1 action_pred app partition 공유) 도 함께 산출하지만, 노트북/스크립트의 `_STAGE1_ONLY` 게이트가 `AndroidControl_3_r{37,55,73}` 3 키를 포함하고 있어 **Stage 2 학습/평가 파이프라인은 현재 skip** (데이터만 디스크에 존재).
+- **4 학습 데이터셋 + 1 평가 전용 벤치마크**: AC, AC_2, AC_3, MC 가 학습 대상, MB 는 평가 전용. AC_3 는 Stage 1 ratio mix (state_pred:action_pred = 3:7, 5:5, 7:3) 3 종을 sweep 해 별개의 가중치를 산출하고, **Stage 2 도 같은 ratio sweep 으로 활성** — Stage 1 ratio merged 를 base 로 같은 stage2 데이터 (`gui-model_stage2_{train,test_id,test_ood}.jsonl`) 를 학습. stage2 데이터 자체는 ratio 와 무관 (3 ratio 공유) 이며, ratio 차원은 **stage1 → stage2 base 계보** 로만 흐른다. `_STAGE1_ONLY = {"MonkeyCollection"}` 로 축소되어 AC_3 는 Stage 1/2 모두 파이프라인에 참여한다.
 - **모든 stage 의 흐름은 `train → merge → eval`** 로 통일. eval 은 HF Hub merged repo 만 pull 하므로 학습 머신이 아닌 환경에서도 재실행 가능.
 - **GPU-aware `per_device_train_batch_size`**: `.env` 의 `GPU_TYPE` (`RTX5090` / `A100` / `H100`) 와 모델 size 로 `_PER_DEVICE_BS_BY_SIZE` 표를 조회 (Cell 5 의 `lf_per_device_bs(size)` 헬퍼). `NPROC_PER_NODE ∈ {1,2,4,8}` 만 허용. 4 가지 GPU 수 모두에서 `GLOBAL_BATCH_SIZE=64` 가 정수로 나뉘도록 표 값을 유지해야 한다.
 - 모델 레지스트리는 두 곳에 있다: 노트북 Cell 5 의 `_MODEL_CONFIG` 와 `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS`. 두 곳을 동시에 수정해야 한다.
@@ -17,10 +17,10 @@
 - **데이터셋 역할 분리**:
   - 학습 대상 DS: `AndroidControl` (AC), `AndroidControl_2` (AC_2), `AndroidControl_3` (AC_3), `MonkeyCollection` (MC).
   - `MobiBench` (MB) 는 **평가 전용 벤치마크**. 학습/merge 스크립트에서 `--dataset MB` 는 `parse_args` 에서 거절된다.
-  - MC 는 Stage 1 전용 (Stage 2 데이터 자체가 없음). AC_3 는 `split_data.py` 가 Stage 2 split 파일 (`gui-model_stage2_{train,test_id,test_ood}.jsonl`) 까지 산출하지만 노트북/스크립트의 `_STAGE1_ONLY` 게이트가 AC_3 ratio 3 키를 포함해 Stage 2 학습/평가 파이프라인에서 자동 skip.
+  - MC 는 Stage 1 전용 (Stage 2 데이터 자체가 없음, `_STAGE1_ONLY = {"MonkeyCollection"}`). AC_3 는 Stage 2 도 활성 — `split_data.py::run_ac3_split` 이 Stage 1 action_pred app partition 을 그대로 재사용해 `gui-model_stage2_{train,test_id,test_ood}.jsonl` (15K/3K/3K) 까지 만들고, stage2 학습은 ratio 별 Stage 1 merged 를 base 로 같은 stage2 데이터를 그대로 사용.
   - AC_2 는 AC 와 schema 동일하지만 **단일 test (ID/OOD 분리 없음)** 로 사전 분할 제공. `_SINGLE_TEST` 플래그로 등록 루프가 분기 (Stage 1 + Stage 2 모두 단일 test). `images/` 디렉토리 없이 JSONL `images` 가 `AndroidControl/images/...` 를 참조 (AC 와 공유).
-  - **AC_3 는 dual-task** (`_DUAL_TASK_TEST` flag): `state_pred` (Stage1 채점, `_hungarian_eval.py`) + `action_pred` (Stage2 채점, `_action_eval.py`) 두 task 를 비율 (3:7, 5:5, 7:3) 로 혼합한 train + (id, ood) × (state, action) 4 test. ratio 별로 **별개의 학습 가중치** 가 산출되며 (`AC_3_r37`, `AC_3_r55`, `AC_3_r73`) HF slug 도 ratio 별 (`ac-3-r37-` 등). 평가 sweep 은 단일 ratio (`--ac3-ratio r55` 기본). `--dataset AC_3` 는 ratio 3 종을 자동 expand (`--ac3-ratios r55,r73` 로 부분 실행).
-  - 평가 스크립트는 `--train-dataset {AC|AC_2|AC_3|MC}` + `--eval-datasets AC,AC_2,AC_3,MC,MB` 로 학습 DS 와 평가 DS 를 분리. Stage 2 eval 은 `AC | AC_2` 만 — MC 는 데이터 없음, AC_3 는 데이터는 존재하나 `_STAGE1_ONLY` 게이트로 미연동.
+  - **AC_3 는 dual-task** (`_DUAL_TASK_TEST` flag, Stage 1 한정): Stage 1 은 `state_pred` (Stage1 채점, `_hungarian_eval.py`) + `action_pred` (Stage2 채점, `_action_eval.py`) 두 task 를 비율 (3:7, 5:5, 7:3) 로 혼합한 train + (id, ood) × (state, action) 4 test. ratio 별로 **별개의 학습 가중치** 가 산출되며 (`AC_3_r37`, `AC_3_r55`, `AC_3_r73`) HF slug 도 ratio 별 (`ac-3-r37-` 등). Stage 2 는 dual-task 가 아니라 일반 action prediction (id/ood 2 파일) 이며 ratio 차원은 stage1 → stage2 계보로만 흐른다. 평가 sweep 은 단일 ratio (`--ac3-ratio r55` 기본). `--dataset AC_3` 는 ratio 3 종을 자동 expand (`--ac3-ratios r55,r73` 로 부분 실행).
+  - 평가 스크립트는 `--train-dataset {AC|AC_2|AC_3|MC}` + `--eval-datasets AC,AC_2,AC_3,MC,MB` 로 학습 DS 와 평가 DS 를 분리. Stage 2 eval 은 `AC | AC_2 | AC_3` (MC 미지원 — 데이터 없음). AC_3 는 `--ac3-ratio` 로 학습 모델 ratio 를 단일 지정.
 
 ## 어디를 수정해야 하는가
 
@@ -61,14 +61,14 @@
 
 ### Stage 2 평가
 - [`scripts/_action_eval.py`](./scripts/_action_eval.py) 가 기준 (`score` 서브커맨드만 유지, single-pair / ID+OOD 모드 모두 제공). winner / `BEST_CHECKPOINT` 개념 제거.
-- 흐름: `stage2_train.sh → stage2_merge.sh → stage2_eval.sh`. TRAIN_DATASET 은 `AC | AC_2` (MC 는 Stage 2 데이터 없음).
+- 흐름: `stage2_train.sh → stage2_merge.sh → stage2_eval.sh`. TRAIN_DATASET 은 `AC | AC_2 | AC_3` (MC 는 Stage 2 데이터 없음). AC_3 는 `--ac3-ratio {r37|r55|r73}` 단일 ratio 로 학습 모델을 지정.
 - EVAL_DS 별 분기:
-  - **EVAL_DS=AC**: ID + OOD 두 test 파일 (`gui-model_stage2_test_{id,ood}.jsonl`) 함께 추론 → `action_metrics.json` 에 `overall` / `in_domain` / `out_of_domain` 3 섹션.
+  - **EVAL_DS=AC / AC_3**: ID + OOD 두 test 파일 (`gui-model_stage2_test_{id,ood}.jsonl`) 함께 추론 → `action_metrics.json` 에 `overall` / `in_domain` / `out_of_domain` 3 섹션.
   - **EVAL_DS=AC_2**: 단일 파일 `gui-model_stage2_test.jsonl` 1 회 추론 → single-pair `overall` 1 섹션.
   - **EVAL_DS=MB**: 단일 파일 `gui-model_stage2.jsonl` 1 회 추론 → single-pair `overall` 1 섹션.
-- HF 네이밍: base variant `SaFD-00/{short}-{slug}base-stage2-{MODE2}-epoch{E2}`, world-model variant `SaFD-00/{short}-{slug}world-model-stage1-{MODE1}-epoch{E1}-stage2-{MODE2}-epoch{E2}`.
-- 산출 경로: `outputs/{TRAIN_DS}/eval/{MODEL}/stage2_eval/{variant_path}[_from_{M1}-ep{E1}][/epoch-{E2}]/on-{EVAL_DS}/` (variant_path 는 CLI VARIANT 의 `world_model` → `world-model` 치환).
-- Stage 2 world-model train/merge 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{DS}/merged/{MODEL}_stage1_${MODE1}_world-model/epoch-${N}/` 를 base 로 사용. 학습 결과는 `outputs/{DS}/{adapters,merged}/{MODEL}_stage2_${MODE2}_world-model_from_${MODE1}-ep${N}/` 에 stage1 epoch 별 분리 저장 (stage2_train.sh 가 YAML `__STAGE1_EPOCH__` 플레이스홀더 sed 치환).
+- HF 네이밍: base variant `SaFD-00/{short}-{slug}base-stage2-{MODE2}-epoch{E2}`, world-model variant `SaFD-00/{short}-{slug}world-model-stage1-{MODE1}-epoch{E1}-stage2-{MODE2}-epoch{E2}`. `{slug}` 는 AC_3 ratio 별로 다름 (`ac-3-r37-/ac-3-r55-/ac-3-r73-`).
+- 산출 경로: `outputs/{OUT_DS}/eval/{MODEL}{SFX}/stage2_eval/{variant_path}[_from_{M1}-ep{E1}][/epoch-{E2}]/on-{EVAL_DS}/`. AC/AC_2 는 OUT_DS=TRAIN_DS, SFX=`""`. AC_3 는 OUT_DS=`AC_3`, SFX=`_r{37,55,73}` (variant_path 는 CLI VARIANT 의 `world_model` → `world-model` 치환).
+- Stage 2 world-model train/merge 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_${MODE1}_world-model/epoch-${N}/` 를 base 로 사용. 학습 결과는 `outputs/{OUT_DS}/{adapters,merged}/{MODEL}{SFX}_stage2_${MODE2}_world-model_from_${MODE1}-ep${N}/` 에 stage1 epoch 별 분리 저장 (stage2_train.sh 가 YAML `__STAGE1_EPOCH__` 플레이스홀더 sed 치환, `_common.sh::local_merged_epoch_dir` 가 stage1/stage2 양쪽에 ratio suffix 부여).
 - 재실행 시 marker (`action_metrics.json`) 존재 unit 은 variant × EVAL_DS 조합 별로 독립 skip.
 - 회귀 테스트: [`tests/test_action_eval.py`](./tests/test_action_eval.py) 48 케이스. 메트릭 정의는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §6.
 
@@ -83,20 +83,20 @@
 
 - `LlamaFactory/` 내부 파일은 마지막 수단으로만 수정한다. 가능하면 노트북, local shell script, custom YAML (`LlamaFactory/examples/custom/...`), 평가 helper 로 해결.
 - transformers 버전을 바꿀 때는 [`pyproject.toml`](./pyproject.toml) 의 주석과 [`setup.py`](./setup.py) `EXTRAS["llamafactory"]` 의 transformers pin 을 함께 수정한다. 현재 `>=4.56.0,<4.57` 로 고정. 서브프로젝트 (`LlamaFactory/pyproject.toml`) 는 건드리지 않는다.
-- 문서나 스크립트에서 `outputs/{DS}/{category}/...` 의 `{DS}` 는 `AC` / `AC_2` / `AC_3` / `MC`. AC_3 의 ratio (`r37/r55/r73`) 는 디렉토리가 아니라 그 아래 모델 디렉토리의 suffix 로 운반되며 (`{MODEL}_stage1_{MODE}_world-model_r{37,55,73}/`), 모든 ratio 산출물이 `outputs/AC_3/` 단일 부모 아래에 모인다. `{category}` 는 `adapters | eval | merged`. `adapters/` 는 flat 네이밍 `{MODEL}_{detail}/` (Stage1: `{MODEL}_stage1_{MODE}_world-model/`, Stage2: `{MODEL}_stage2_{MODE2}_{base|world-model_from_{MODE1}-ep{E1}}/`). `merged/` 는 `{MODEL}_{detail}/epoch-{E}/` 로 epoch 별 서브디렉토리 분리. `eval/` 은 `{MODEL}/stage{1,2}_eval/.../epoch-{E}/` 중첩. `BEST_CHECKPOINT` 파일은 더 이상 생성되지 않는다.
+- 문서나 스크립트에서 `outputs/{DS}/{category}/...` 의 `{DS}` 는 `AC` / `AC_2` / `AC_3` / `MC`. AC_3 의 ratio (`r37/r55/r73`) 는 디렉토리가 아니라 그 아래 모델 디렉토리의 suffix 로 운반되며 (Stage 1: `{MODEL}_r{37,55,73}_stage1_{MODE}_world-model/`, Stage 2: `{MODEL}_r{37,55,73}_stage2_{MODE2}_{base|world-model_from_{MODE1}-ep{E1}}/`), 모든 ratio 산출물이 `outputs/AC_3/` 단일 부모 아래에 모인다. `{category}` 는 `adapters | eval | merged`. `adapters/` 는 flat 네이밍, `merged/` 는 `{MODEL}{SFX}_{detail}/epoch-{E}/` 로 epoch 별 서브디렉토리 분리. `eval/` 은 `{MODEL}{SFX}/stage{1,2}_eval/.../epoch-{E}/` 중첩 (AC/AC_2 는 SFX=`""`, AC_3 는 `_r{37,55,73}`). `BEST_CHECKPOINT` 파일은 더 이상 생성되지 않는다.
 - `data/` 아래 실제 디렉토리명은 `AndroidControl`, `AndroidControl_2`, `MonkeyCollection`, `MobiBench` (평가 전용). MobiBench 는 `gui-model_stage{1,2}.jsonl` 두 단일 파일만. AndroidControl_2 는 `images/` 디렉토리 없이 AC 의 `images/` 를 JSONL `images` 필드로 참조 (canonical prefix `AndroidControl/images/...`).
 - eval script 에서 `vllm_infer.py` 호출 시 `--dataset_dir '$LF_ROOT/data'` (절대 경로) 를 반드시 전달한다. 상대 경로 사용 시 HF datasets 캐시 오염으로 이미지 `FileNotFoundError` 가 발생할 수 있다.
 - **MobiBench dataset_info 자동 보장**: `_common.sh::ensure_eval_only_dataset_info()` 가 source 시점에 `dataset_info.json` 에 `GUI-Model-MB_stage{1,2}` 단일 파일 엔트리를 idempotent 하게 추가한다.
 - **JSONL `images` canonical prefix**: 모든 JSONL 의 `images` 필드는 `{DATASET_NAME}/images/...` 형태여야 한다. 이 contract 는 `LF_ROOT/data/{DATASET_NAME}` symlink + `--dataset_dir $LF_ROOT/data` 조합과 맞물려 있어 prefix 가 없으면 `Image.open()` 이 cwd 기준으로 풀려 실패한다.
 - Stage 1/2 merge 는 `outputs/{DS}/adapters/.../checkpoint-*` 가 하나라도 없는 슬롯에서 `[WARN]` SKIP 한다 (`--model all` sweep 친화). 모든 epoch 을 순회해서 local merge + HF push.
-- Stage 2 train/merge (world-model variant) 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{DS}/merged/{MODEL}_stage1_${STAGE1_MODE}/epoch-${N}/` 가 선행돼야 한다. Stage 2 train 은 YAML 의 `model_name_or_path` 를 런타임에 sed 치환하므로 노트북 YAML 생성 시 placeholder 값 (HF id) 은 무시된다. Stage 2 eval 은 HF Hub merged repo 만 pull 하고 `--stage1-epoch` 값을 HF 레포명 계보 번호로 주입.
+- Stage 2 train/merge (world-model variant) 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_${STAGE1_MODE}_world-model/epoch-${N}/` 가 선행돼야 한다 (AC_3 ratio variant 는 SFX=`_r{37,55,73}`). Stage 2 train 은 YAML 의 `model_name_or_path` 를 런타임에 sed 치환하므로 노트북 YAML 생성 시 placeholder 값 (HF id) 은 무시된다. Stage 2 eval 은 HF Hub merged repo 만 pull 하고 `--stage1-epoch` 값을 HF 레포명 계보 번호로 주입.
 - HF repo id 조립은 `_common.sh::hf_repo_id_stage1` / `hf_repo_id_stage2_base` / `hf_repo_id_stage2_world_model` 세 헬퍼에 단일화.
 - [`scripts/stage1_train.sh`](./scripts/stage1_train.sh) 는 `FORCE_TORCHRUN=1 NNODES=1 NPROC_PER_NODE=${NPROC_PER_NODE}` 를 붙여 실행하지만, [`scripts/stage2_train.sh`](./scripts/stage2_train.sh) 는 의도적으로 torchrun prefix 를 붙이지 않는다. `NPROC_PER_NODE` 와 `GPU_TYPE` 은 `.env` 에서 관리 (기본 `NPROC_PER_NODE=2`, `GPU_TYPE=H100`). 노트북 Cell 5 가 (size, GPU_TYPE) 표에서 `per_device_train_batch_size` 를 정하고, YAML 생성 셀이 그 값으로 `gradient_accumulation_steps` 를 역계산 (`64 / (per_device * NPROC_PER_NODE)`) 해 global batch size 를 64 로 유지한다. **`.env` 변경 후에는 노트북 Cell 5 + Stage 1/2 YAML 생성 셀을 다시 실행해야 새 값이 YAML 에 반영된다.** `NPROC_PER_NODE` 는 `{1, 2, 4, 8}` 중 하나, `GPU_TYPE` 은 `{RTX5090, A100, H100}` 중 하나여야 하며 다른 값은 `ValueError` 로 거부된다.
 - [`scripts/split_data.py`](./scripts/split_data.py) 는 Stage 1 + Stage 2 분할을 모두 담당. **AC**: Stage 1 / Stage 2 모두 `episodes_meta.jsonl.primary_app` 기반 app-level ID/OOD split, 단일 partition 공유. 산출 파일 `gui-model_stage{1,2}_{train,test_id,test_ood}.jsonl`. **MC**: 메타 없음 → Stage 1 random split (`_train` / `_test`) 자동 fallback. MC 는 `_STAGE1_ONLY` 라 Stage 2 자동 skip. **AC_2 / MB**: split 미수행. AC 메타는 [`scripts/extract_androidcontrol_metadata.py`](./scripts/extract_androidcontrol_metadata.py), 스크린샷은 [`scripts/extract_androidcontrol_images.py`](./scripts/extract_androidcontrol_images.py) 가 생성한다.
 - bash 자동화는 bash 4+ 전제.
 - shell script CLI 공통 플래그:
-  - **학습/merge (`stage{1,2}_{train,merge}.sh`)**: `--model MODEL --dataset {AC|AC_2|MC|all} --stage1-mode {full|lora}`. `--dataset MB` 는 거절. `stage2_*`: `--stage2-mode {full|lora}` (기본 lora), `--stage1-epoch N` (world-model variant 전용). `--dataset all` = AC + AC_2 + MC.
-  - **평가 (`stage{1,2}_eval.sh`)**: `--model MODEL --train-dataset {AC|AC_2|MC} --eval-datasets LIST --stage1-mode ... --stage2-mode ... --stage1-epoch N --epochs LIST --variants LIST`. `--eval-datasets` 는 콤마 구분, 허용 `AC,AC_2,MC,MB`, 기본값은 `--train-dataset` 단일값. Stage 2 eval 은 `--train-dataset {AC|AC_2}` 만.
+  - **학습/merge (`stage{1,2}_{train,merge}.sh`)**: `--model MODEL --dataset {AC|AC_2|AC_3|MC|all} --stage1-mode {full|lora} --ac3-ratios LIST`. `--dataset MB` 는 거절. `--dataset all` = AC + AC_2 + MC (AC_3 는 명시적). `stage2_*`: `--stage2-mode {full|lora}` (기본 lora), `--stage1-epoch N` (world-model variant 전용). AC_3 sweep 부분 실행은 `--ac3-ratios r55,r73`.
+  - **평가 (`stage{1,2}_eval.sh`)**: `--model MODEL --train-dataset {AC|AC_2|AC_3|MC} --eval-datasets LIST --stage1-mode ... --stage2-mode ... --stage1-epoch N --epochs LIST --variants LIST --ac3-ratio {r37|r55|r73}`. `--eval-datasets` 는 콤마 구분, 허용 `AC,AC_2,AC_3,MC,MB`, 기본값은 `--train-dataset` 단일값 (AC_3 의 기본 eval 은 raw `AC_3`). Stage 2 eval 은 `--train-dataset {AC|AC_2|AC_3}` 만 (MC 미지원). AC_3 학습 모델 평가는 ratio 정확히 1 개 (`--ac3-ratio r55` 기본).
     - Stage 1 variants: `base`, `full_world_model`, `lora_world_model`.
     - Stage 2 variants: `base`, `full_base`, `lora_base`, `full_world_model`, `lora_world_model`.
 
