@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Stage 2 Evaluation — HF Hub merged repo sweep × 교차 데이터셋.
 #
-# 학습 DS (TRAIN_DATASET ∈ {AC, AC_2}) 에서 얻은 merged 모델을
+# 학습 DS (TRAIN_DATASET ∈ {AC, AC_2, AC_3}) 에서 얻은 merged 모델을
 # 여러 평가 DS 에서 sweep. MC 는 Stage 2 학습 데이터/YAML 부재로 미지원.
+# AC_3 는 --ac3-ratio {r37|r55|r73} 으로 ratio 별 학습 모델을 지정한다 (Stage 1 과 동일 패턴).
 # EVAL_DS 별 섹션 구성:
-#   AC : test_id + test_ood 2-회 inference → action_metrics.json
+#   AC / AC_3 : test_id + test_ood 2-회 inference → action_metrics.json
 #        (overall / in_domain / out_of_domain 3-섹션)
 #   MB : 단일 파일 gui-model_stage2.jsonl 1-회 inference → action_metrics.json
 #        (overall 1-섹션, single-pair 모드)
@@ -34,13 +35,13 @@ SCRIPT_TAG="stage2_eval"
 TRAIN_DS="$TRAIN_DATASET"
 
 case "$TRAIN_DS" in
-  AC|AC_2) ;;
+  AC|AC_2|AC_3_r37|AC_3_r55|AC_3_r73) ;;
   MC)
     echo "[!] Stage 2 는 MonkeyCollection(MC) 학습 데이터를 갖지 않습니다 (got '$TRAIN_DS')." >&2
-    echo "    --train-dataset 는 AC | AC_2 만 사용하세요." >&2
+    echo "    --train-dataset 는 AC | AC_2 | AC_3 만 사용하세요." >&2
     exit 2 ;;
   *)
-    echo "[!] Stage 2 eval --train-dataset 는 AC | AC_2 만 지원합니다 (got '$TRAIN_DS')." >&2
+    echo "[!] Stage 2 eval --train-dataset 는 AC | AC_2 | AC_3 만 지원합니다 (got '$TRAIN_DS')." >&2
     exit 2 ;;
 esac
 
@@ -132,7 +133,12 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   BASE_MODEL="${MODEL_ID[$MODEL_SHORT]}"
   TEMPLATE="${MODEL_TEMPLATE[$MODEL_SHORT]}"
 
-  EVAL_DIR_REL="../outputs/${TRAIN_DS}/eval/${MODEL_SHORT}/stage2_eval"
+  # outputs/ 1-level 디렉토리는 ds_outputs_code 로 정규화 (AC_3_r* → AC_3),
+  # AC_3 ratio variant 만 model 디렉토리에 _r{37,55,73} suffix 를 붙여 충돌 방지.
+  # AC/AC_2 는 기존 산출 경로(suffix 없음) 를 유지한다.
+  OUT_DS="$(ds_outputs_code "$TRAIN_DS")"
+  EVAL_SFX="$(ds_model_suffix "$TRAIN_DS")"
+  EVAL_DIR_REL="../outputs/${OUT_DS}/eval/${MODEL_SHORT}${EVAL_SFX}/stage2_eval"
 
   for VARIANT in "${VARIANTS[@]}"; do
     case "$VARIANT" in

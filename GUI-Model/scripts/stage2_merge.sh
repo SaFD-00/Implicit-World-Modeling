@@ -43,13 +43,17 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   BASE_MODEL="${MODEL_ID[$MODEL_SHORT]}"
 
   for DS in "${DATASETS[@]}"; do
+    # AC_3 ratio variant: outputs/AC_3 단일 부모 + model dir 에 _r{37,55,73} suffix.
+    OUT_DS="$(ds_outputs_code "$DS")"
+    SFX="$(ds_model_suffix "$DS")"
+
     # Stage 1 local merged base (world-model variant 전용). --stage1-epoch 기반.
     S1_WINNER_AVAILABLE=0
     S1_WINNER_ABS=""
     S1_WINNER_REL=""
     if [[ -n "$STAGE1_EPOCH" ]]; then
       S1_WINNER_ABS="$(local_merged_epoch_dir stage1 "$MODEL_SHORT" "$DS" "$STAGE1_MODE" "$STAGE1_EPOCH")"
-      S1_WINNER_REL="../outputs/${DS}/merged/${MODEL_SHORT}_stage1_${STAGE1_MODE}_world-model/epoch-${STAGE1_EPOCH}"
+      S1_WINNER_REL="../outputs/${OUT_DS}/merged/${MODEL_SHORT}${SFX}_stage1_${STAGE1_MODE}_world-model/epoch-${STAGE1_EPOCH}"
       if [ -d "$S1_WINNER_ABS" ]; then
         S1_WINNER_AVAILABLE=1
       else
@@ -80,8 +84,8 @@ for MODEL_SHORT in "${MODELS[@]}"; do
       fi
 
       ADAPTER_SUFFIX="${VARIANT_ADAPTER_SUFFIX[$VARIANT]}"
-      TRAIN_DIR="$BASE_DIR/outputs/${DS}/adapters/${MODEL_SHORT}_stage2_${ADAPTER_SUFFIX}"
-      TRAIN_DIR_REL="../outputs/${DS}/adapters/${MODEL_SHORT}_stage2_${ADAPTER_SUFFIX}"
+      TRAIN_DIR="$BASE_DIR/outputs/${OUT_DS}/adapters/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}"
+      TRAIN_DIR_REL="../outputs/${OUT_DS}/adapters/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}"
 
       shopt -s nullglob
       CKPTS=("$TRAIN_DIR"/checkpoint-*/)
@@ -107,7 +111,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
           HUB_ID=$(hf_repo_id_stage2_world_model "$MODEL_SHORT" "$DS" \
             "$STAGE1_MODE" "$STAGE1_EPOCH" "$STAGE2_MODE" "$EPOCH")
         fi
-        MERGED_REL="../outputs/${DS}/merged/${MODEL_SHORT}_stage2_${ADAPTER_SUFFIX}/epoch-${EPOCH}"
+        MERGED_REL="../outputs/${OUT_DS}/merged/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}/epoch-${EPOCH}"
         LOCAL_DIR="$(local_merged_epoch_dir stage2 "$MODEL_SHORT" "$DS" "$ADAPTER_SUFFIX" "$EPOCH")"
         ADAPTER_REL="${TRAIN_DIR_REL}/${CKPT_NAME}"
 
