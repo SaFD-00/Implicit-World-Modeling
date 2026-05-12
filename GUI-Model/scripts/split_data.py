@@ -12,7 +12,9 @@ Stage 1 (World Modeling)
         Stage 2 OOD 앱이 world-modeling 학습에서도 노출되지 않게 한다.
     MC: meta 없음 → 자동 random split (단일 ``_test.jsonl``).
 Stage 2 (Action Prediction)
-    AC: app-level ID/OOD split (Stage 1 과 partition 공유).
+    AC, AC_2, AC_3: app-level ID/OOD split (Stage 1 과 partition 공유).
+        AC_3 는 Stage 1 partition (action_pred 기준) 을 그대로 재사용해
+        Stage 1↔Stage 2 OOD app 집합을 일치시킨다.
     MC: 데이터 없음 → 자동 skip (``--skip-stage2`` 기본 적용).
 
 ``primary_app`` 값은 앱 라벨이 아닌 package 식별자 (예:
@@ -21,10 +23,12 @@ Stage 2 (Action Prediction)
 AndroidAccessibilityForest proto 에서 전경 application window 의
 ``package_name`` 을 다수결로 집계해 생성한다.
 
-AC_3 는 항상 ``gui-model_stage1_{state,action}_pred_filtered.jsonl`` 을
-입력으로 사용한다 (mm-expanded length > cutoff_len 샘플을 사전 제거한
+AC_3 Stage 1 은 항상 ``gui-model_stage1_{state,action}_pred_filtered.jsonl``
+을 입력으로 사용한다 (mm-expanded length > cutoff_len 샘플을 사전 제거한
 파일). 필터는 ``scripts/filter_long_samples.py`` 가 만든다 — 누락 시
-명시적으로 에러를 발생시킨다.
+명시적으로 에러를 발생시킨다. Stage 2 는 ``gui-model_stage2.jsonl`` 원본
+을 그대로 사용한다 (마지막 message 가 ``<thought>...</thought>
+<action>{...}</action>`` 래핑이라 ``_parse_action_payload`` 로 추출).
 
 Usage
 -----
@@ -556,6 +560,56 @@ def run_ac3_split(args, dataset_dir: Path) -> int:
             action_chunk, f"  action_pred chunk ({rs}:{ra})", type_key="action_type"
         )
     print()
+
+    # ── Stage 2 (Action Prediction, ID/OOD) ─────────────────────────────
+    # Stage 1 partition (id_apps/ood_apps) 을 그대로 적용해 Stage 1↔Stage 2
+    # OOD app 집합을 일치시킨다.
+    stage2_path = dataset_dir / "gui-model_stage2.jsonl"
+    if args.skip_stage2:
+        print("[skip] Stage 2 split (per --skip-stage2)")
+    elif not stage2_path.exists():
+        print(f"[skip] Stage 2 file not found: {stage2_path}")
+    else:
+        s2_entries = load_jsonl(stage2_path)
+        s2_id, s2_ood, s2_null = route_entries_by_app(
+            s2_entries, ep_to_app, id_set, ood_set
+        )
+
+        s2_test_id = stratified_subsample(
+            s2_id, args.stage2_test_id_size, seed + 31, type_key="action_type"
+        )
+        marks = {id(e) for e in s2_test_id}
+        s2_id_remaining = [e for e in s2_id if id(e) not in marks]
+        s2_train_pool = list(s2_id_remaining)
+        if not args.stage2_exclude_null_app:
+            s2_train_pool.extend(s2_null)
+        s2_train = stratified_subsample(
+            s2_train_pool, args.stage2_train_size, seed, type_key="action_type"
+        )
+        s2_test_ood = stratified_subsample(
+            s2_ood, args.stage2_test_ood_size, seed + 32, type_key="action_type"
+        )
+
+        s2_train_path   = dataset_dir / "gui-model_stage2_train.jsonl"
+        s2_test_id_path = dataset_dir / "gui-model_stage2_test_id.jsonl"
+        s2_test_ood_path = dataset_dir / "gui-model_stage2_test_ood.jsonl"
+        write_jsonl(s2_train,    s2_train_path)
+        write_jsonl(s2_test_id,  s2_test_id_path)
+        write_jsonl(s2_test_ood, s2_test_ood_path)
+
+        print("=== Stage 2 (Action Prediction, ID/OOD) ===")
+        print(f"  Total rows: {len(s2_entries)} "
+              f"(labeled {len(s2_id) + len(s2_ood)}, null {len(s2_null)})")
+        print(f"  IN-DOMAIN pool: {len(s2_id)} rows")
+        print(f"  OUT-OF-DOMAIN pool: {len(s2_ood)} rows")
+        print(f"  → {s2_train_path.name} ({len(s2_train)})")
+        print(f"  → {s2_test_id_path.name} ({len(s2_test_id)})")
+        print(f"  → {s2_test_ood_path.name} ({len(s2_test_ood)})")
+        print_stage2_distribution(s2_train,    "train",    type_key="action_type")
+        print_stage2_distribution(s2_test_id,  "test_id",  type_key="action_type")
+        print_stage2_distribution(s2_test_ood, "test_ood", type_key="action_type")
+        print()
+
     print("Done.")
     return 0
 
@@ -596,7 +650,7 @@ def main() -> int:
     )
 
     # Stage 2
-    parser.add_argument("--stage2-train-size", type=int, default=50000)
+    parser.add_argument("--stage2-train-size", type=int, default=15000)
     parser.add_argument("--stage2-test-id-size", type=int, default=3000)
     parser.add_argument("--stage2-test-ood-size", type=int, default=3000)
     parser.add_argument(
