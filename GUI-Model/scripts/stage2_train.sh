@@ -49,6 +49,16 @@ resolve_stage1_base() {
 for MODEL_SHORT in "${MODELS[@]}"; do
   for DS in "${DATASETS[@]}"; do
     VARIANTS_LOCAL=("base" "world-model-${STAGE1_MODE}")
+    # --variants 로 일부 variant 만 선택 (예: world-model-lora).
+    if [[ "${#VARIANTS[@]}" -gt 0 ]]; then
+      FILTERED=()
+      for v in "${VARIANTS_LOCAL[@]}"; do
+        for w in "${VARIANTS[@]}"; do
+          if [[ "$v" == "$w" ]]; then FILTERED+=("$v"); break; fi
+        done
+      done
+      VARIANTS_LOCAL=("${FILTERED[@]}")
+    fi
 
     for VARIANT in "${VARIANTS_LOCAL[@]}"; do
       # world-model variant 는 --stage1-epoch 가 필수.
