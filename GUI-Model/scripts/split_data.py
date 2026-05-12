@@ -68,6 +68,17 @@ _STAGE1_ONLY = {"MonkeyCollection", "MC"}
 _AC3_RATIO_MIX = {"AndroidControl_3", "AC_3"}
 
 EPISODE_RE = re.compile(r"episode_(\d+)")
+_ACTION_TAG_RE = re.compile(r"<action>(.*?)</action>", re.DOTALL)
+
+
+def _parse_action_payload(value: str) -> dict:
+    """messages[-1].value 에서 action JSON dict 추출.
+
+    AC stage2 / AC_3 stage1 action_pred 는 pure JSON,
+    AC_3 stage2 는 ``<thought>...</thought>\\n<action>{...}</action>`` 래핑."""
+    m = _ACTION_TAG_RE.search(value)
+    payload = m.group(1) if m else value
+    return json.loads(payload)
 
 
 # ── IO helpers ────────────────────────────────────────────────────────────
@@ -112,7 +123,7 @@ def stratified_subsample(
     rng = random.Random(seed)
     type_groups = defaultdict(list)
     for entry in entries:
-        action = json.loads(entry["messages"][-1]["value"])
+        action = _parse_action_payload(entry["messages"][-1]["value"])
         type_groups[action.get(type_key, "unknown")].append(entry)
 
     total = len(entries)
@@ -379,7 +390,7 @@ def print_stage2_distribution(entries: list, label: str, type_key: str = "type")
     action_types: list[str] = []
     for entry in entries:
         try:
-            action = json.loads(entry["messages"][-1]["value"])
+            action = _parse_action_payload(entry["messages"][-1]["value"])
             action_types.append(action.get(type_key, "unknown"))
         except (json.JSONDecodeError, KeyError):
             action_types.append("parse_error")
