@@ -207,8 +207,8 @@ def main() -> int:
     )
     parser.add_argument("--dataset", choices=sorted(DATASET_TO_DIR), default="AC_3")
     parser.add_argument("--data-dir", default=None, help="Data root (default: <repo>/data)")
-    parser.add_argument("--threshold", type=int, default=9216,
-                        help="mm-expanded length 기준 컷 (default 9216 = stage1 cutoff_len).")
+    parser.add_argument("--threshold", type=int, default=10000,
+                        help="mm-expanded length 기준 컷 (default 10000 = stage1/2 cutoff_len).")
     parser.add_argument("--image-max-pixels", type=int, default=2097152,
                         help="stage1 yaml 의 image_max_pixels 와 일치해야 함 (default 2097152).")
     parser.add_argument("--image-min-pixels", type=int, default=4096,
