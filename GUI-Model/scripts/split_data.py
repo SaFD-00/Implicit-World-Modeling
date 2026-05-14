@@ -23,12 +23,13 @@ Stage 2 (Action Prediction)
 AndroidAccessibilityForest proto 에서 전경 application window 의
 ``package_name`` 을 다수결로 집계해 생성한다.
 
-AC_3 Stage 1 은 항상 ``gui-model_stage1_{state,action}_pred_filtered.jsonl``
-을 입력으로 사용한다 (mm-expanded length > cutoff_len 샘플을 사전 제거한
-파일). 필터는 ``scripts/filter_long_samples.py`` 가 만든다 — 누락 시
-명시적으로 에러를 발생시킨다. Stage 2 는 ``gui-model_stage2.jsonl`` 원본
-을 그대로 사용한다 (마지막 message 가 ``<thought>...</thought>
-<action>{...}</action>`` 래핑이라 ``_parse_action_payload`` 로 추출).
+AC_3 Stage 1 / Stage 2 는 항상 ``_filtered`` 입력을 사용한다
+(``gui-model_stage1_{state,action}_pred_filtered.jsonl`` 두 파일 +
+``gui-model_stage2_filtered.jsonl``; mm-expanded length > cutoff_len 샘플
+사전 제거). 필터는 ``scripts/filter_long_samples.py`` 가 만든다 — 누락
+시 명시적으로 에러를 발생시킨다. Stage 2 마지막 message 의
+``<thought>...</thought><action>{...}</action>`` 래핑은
+``_parse_action_payload`` 로 추출한다.
 
 Usage
 -----
@@ -563,12 +564,18 @@ def run_ac3_split(args, dataset_dir: Path) -> int:
 
     # ── Stage 2 (Action Prediction, ID/OOD) ─────────────────────────────
     # Stage 1 partition (id_apps/ood_apps) 을 그대로 적용해 Stage 1↔Stage 2
-    # OOD app 집합을 일치시킨다.
-    stage2_path = dataset_dir / "gui-model_stage2.jsonl"
+    # OOD app 집합을 일치시킨다. Stage 1 과 동일하게 _filtered 입력만 사용.
+    stage2_path = dataset_dir / "gui-model_stage2_filtered.jsonl"
     if args.skip_stage2:
         print("[skip] Stage 2 split (per --skip-stage2)")
     elif not stage2_path.exists():
-        print(f"[skip] Stage 2 file not found: {stage2_path}")
+        print(
+            f"[ERROR] AC_3 Stage 2 source 가 없습니다: {stage2_path}\n"
+            f"        먼저 `python scripts/filter_long_samples.py --dataset AC_3` 로 "
+            f"gui-model_stage2_filtered.jsonl 을 생성하세요.",
+            file=sys.stderr,
+        )
+        return 1
     else:
         s2_entries = load_jsonl(stage2_path)
         s2_id, s2_ood, s2_null = route_entries_by_app(
