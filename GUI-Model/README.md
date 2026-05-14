@@ -163,14 +163,16 @@ python scripts/split_data.py --dataset AndroidControl
 
 ```bash
 # (선행) mm-expanded length > cutoff_len 인 샘플을 제거해 _filtered.jsonl 산출.
+#       Stage 1 (state_pred / action_pred) + Stage 2 모두 사전 필터 (3 파일).
 #       split 은 항상 _filtered 만 입력으로 사용한다 (Qwen3-VL get_rope_index broadcast 회피).
+#       Default image_max_pixels=2097152 는 Qwen3-VL family 기준 (Qwen2/2.5-VL 학습 시 --image-max-pixels 1605632 등 override).
 python scripts/filter_long_samples.py --dataset AC_3
 
 # Stage 1 ratio mix + Stage 2 ID/OOD split 을 한 번에 산출.
 python scripts/split_data.py --dataset AC_3 --ac3-ratios 3:7,5:5,7:3 --ac3-train-total 50000
 # Stage 1 → gui-model_stage1_train_{3_7,5_5,7_3}.jsonl
 #         + gui-model_stage1_test_{id,ood}_{state,action}_pred.jsonl
-# Stage 2 → gui-model_stage2_{train,test_id,test_ood}.jsonl   (15K / 3K / 3K, Stage 1 action_pred app partition 공유)
+# Stage 2 → gui-model_stage2_{train,test_id,test_ood}.jsonl   (15K / 3K / 3K, _filtered 풀에서 산출, Stage 1 action_pred app partition 공유)
 ```
 
 ratio 별로 **별개의 학습 가중치** 가 산출되므로 train/merge/eval 모두 `--dataset AC_3` 한 번에 ratio 3 종을 sweep 한다 (`--ac3-ratios r55,r73` 로 부분 실행 가능). 평가는 ratio 단일 (`--ac3-ratio r55` 기본) 로 고정. **Stage 1** 은 state/action **두 task 를 각각 채점** (`_hungarian_eval.py` / `_action_eval.py`). **Stage 2** 도 같은 ratio sweep 으로 활성 — Stage 1 ratio merged 를 base 로 같은 `gui-model_stage2_{train,test_id,test_ood}.jsonl` 을 학습. stage2 데이터 자체는 ratio 와 무관 (3 ratio 공유) 이며 ratio 차원은 stage1 → stage2 base 계보로만 흐른다 (산출 디렉토리/HF slug 는 ratio 별 분리).
