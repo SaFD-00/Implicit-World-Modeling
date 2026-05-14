@@ -166,6 +166,7 @@ python scripts/split_data.py --dataset AndroidControl
 #       Stage 1 (state_pred / action_pred) + Stage 2 모두 사전 필터 (3 파일).
 #       split 은 항상 _filtered 만 입력으로 사용한다 (Qwen3-VL get_rope_index broadcast 회피).
 #       Default image_max_pixels=2097152 는 Qwen3-VL family 기준 (Qwen2/2.5-VL 학습 시 --image-max-pixels 1605632 등 override).
+#       이미 만들어진 _filtered.jsonl 이 있으면 --skip-existing 으로 누락된 source 만 처리 가능.
 python scripts/filter_long_samples.py --dataset AC_3
 
 # Stage 1 ratio mix + Stage 2 ID/OOD split 을 한 번에 산출.

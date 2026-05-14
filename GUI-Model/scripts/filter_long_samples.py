@@ -218,6 +218,8 @@ def main() -> int:
     parser.add_argument("--image-min-pixels", type=int, default=4096,
                         help="stage1 yaml 의 image_min_pixels 와 일치해야 함 (default 4096).")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Processor / tokenizer model id.")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="대응하는 _filtered.jsonl 이 이미 있으면 그 source 를 처리하지 않음.")
     args = parser.parse_args()
 
     if args.data_dir:
@@ -239,6 +241,17 @@ def main() -> int:
             print(f"[ERROR] source not found: {p}", file=sys.stderr)
             return 1
 
+    pending: list[Path] = []
+    for src in sources:
+        dst = src.with_name(src.stem + "_filtered" + src.suffix)
+        if args.skip_existing and dst.exists():
+            print(f"[skip] {dst.name} already exists (--skip-existing).")
+            continue
+        pending.append(src)
+    if not pending:
+        print("[done] 모든 source 의 _filtered.jsonl 이 이미 존재합니다.")
+        return 0
+
     print(f"Dataset: {args.dataset} ({ds_dir})")
     print(f"Threshold: {args.threshold}")
     print(f"image_max_pixels={args.image_max_pixels} image_min_pixels={args.image_min_pixels}")
@@ -252,7 +265,7 @@ def main() -> int:
 
     print()
     summaries: list[dict] = []
-    for src in sources:
+    for src in pending:
         dst = src.with_name(src.stem + "_filtered" + src.suffix)
         print(f"[filter] {src.name} → {dst.name}", flush=True)
         info = filter_jsonl(src, dst, data_root, length_of, args.threshold)
