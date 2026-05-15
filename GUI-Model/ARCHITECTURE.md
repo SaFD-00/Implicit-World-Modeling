@@ -1,6 +1,6 @@
 # GUI-Model Architecture
 
-`GUI-Model` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **8 개 Qwen 계열 Vision-Language 모델** (Qwen2-VL ×2, Qwen2.5-VL ×2, Qwen3-VL ×2, Qwen3.5-Base ×2) 을 지원하며, uv 가 관리하는 단일 `.venv` + 노트북 [`gui-model.ipynb`](./gui-model.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 `.venv` 에 editable 로 묶인 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, eval 은 HF Hub 에 push 된 merged repo 만 pull 한다.
+`GUI-Model` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **8 개 Qwen 계열 Vision-Language 모델** (Qwen2-VL ×2, Qwen2.5-VL ×2, Qwen3-VL ×2, Qwen3.5-Base ×2) 을 지원하며, uv 가 관리하는 단일 `.venv` + 노트북 [`gui-model.ipynb`](./gui-model.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 `.venv` 에 editable 로 묶인 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. 현재 eval 은 HF Hub 에 push 된 merged repo 만 pull 한다.
 
 ---
 
@@ -45,10 +45,10 @@ Python env      notebook            엔진                              모델
 | 1 | 11–13 | Stage 1 ShareGPT 변환 + `dataset_info.json` 등록 |
 | 2 | 14–17 | Stage 2 ShareGPT 변환 + ID/OOD app 분할 + 등록 |
 | 3 | 18–84 | Stage 1 SFT (8 모델 × 3 DS × {full, lora}) — explicit per-cell |
-| 4 | 85–151 | Stage 1 merge (모든 epoch local merge + HF Hub push) |
+| 4 | 85–151 | Stage 1 merge (모든 epoch local merge + 선택적 HF Hub push; `--no-hf-upload` 지원) |
 | 5 | 152–159 | Stage 1 평가 — HF Hub merged sweep, Hungarian metric |
 | 6 | 160–186 | Stage 2 SFT (8 모델 × {AC, AC_2}) |
-| 7 | 187–213 | Stage 2 merge (variant × 모든 epoch + HF push) |
+| 7 | 187–213 | Stage 2 merge (variant × 모든 epoch local merge + 선택적 HF push; `--no-hf-upload` 지원) |
 | 8 | 214–218 | Stage 2 평가 — ID + OOD 동시 sweep, `action_metrics.json` 3 섹션 |
 
 > **Stage 2 머지 YAML 은 사전 생성하지 않는다** — `scripts/stage{1,2}_merge.sh` 가 runtime 에 임시 YAML 을 만든다. `BEST_CHECKPOINT` 개념은 제거됐고 epoch 번호는 `trainer_state.json.epoch` 으로 결정된다.
@@ -275,8 +275,8 @@ data/
   - full YAML 은 `finetuning_type: full`, lora YAML 은 `finetuning_type: lora` + `lora_rank/alpha/target/dropout` 블록 포함
 - **`scripts/stage1_merge.sh`**
   - `outputs/{DS}/adapters/{MODEL}_stage1_${MODE}_world-model/checkpoint-*` 전수 loop. 각 ckpt 에서 `trainer_state.json.epoch` 을 `int(round(...))` 로 추출
-  - 임시 merge YAML 생성 → `llamafactory-cli export`
-  - 산출 (epoch 별): `outputs/{DS}/merged/{MODEL}_stage1_${MODE}_world-model/epoch-{E}/` + HF Hub push `SaFD-00/...stage1-{MODE}-world-model-epoch{E}` (헬퍼: `_common.sh::hf_repo_id_stage1`)
+  - 임시 merge YAML 생성 → `llamafactory-cli export` (`--no-hf-upload` 시 `export_hub_model_id` 생략)
+  - 산출 (epoch 별): `outputs/{DS}/merged/{MODEL}_stage1_${MODE}_world-model/epoch-{E}/` + 선택적 HF Hub push `SaFD-00/...stage1-{MODE}-world-model-epoch{E}` (헬퍼: `_common.sh::hf_repo_id_stage1`)
   - **Skip 동작**: checkpoint 가 없는 슬롯은 `[WARN]` SKIP, 다음 슬롯 진행. 요약에 `merged / skipped / failed` 카운트.
 - **`scripts/stage1_eval.sh`**
   - Phase A (baseline zero-shot) + Phase B (`--epochs` 정수 리스트로 **HF Hub merged repo sweep**, 기본 `1,2,3`)
@@ -299,6 +299,7 @@ data/
   - 각 variant 의 `adapters/{M}_stage2_${STAGE2_MODE}_{base|world-model_from_${STAGE1_MODE}-ep${STAGE1_EPOCH}}/checkpoint-*` 전수 loop
   - Full FT: checkpoint 자체가 전체 모델 → merge YAML 의 `model_name_or_path` 에 직접 전달 (adapter 블록 없음)
   - LoRA: `model_name_or_path: {base}` + `adapter_name_or_path: {ckpt}` + `finetuning_type: lora`
+  - `--no-hf-upload` 시 merge YAML 에서 `export_hub_model_id` 를 생략해 local export 만 수행
   - HF 네이밍 (`_common.sh`):
     - base: `hf_repo_id_stage2_base(MODEL, DS, STAGE2_MODE, E2)` → `...base-stage2-{M2}-epoch{E2}`
     - world: `hf_repo_id_stage2_world_model(MODEL, DS, STAGE1_MODE, STAGE1_EPOCH, STAGE2_MODE, E2)` → `...world-model-stage1-{M1}-epoch{E1}-stage2-{M2}-epoch{E2}`
@@ -318,6 +319,7 @@ data/
 bash scripts/stage1_train.sh --model qwen3-vl-8b --dataset AC                        # full (default)
 bash scripts/stage1_merge.sh --model qwen3-vl-8b --dataset AC
 bash scripts/stage1_train.sh --model qwen3-vl-4b --dataset MC --stage1-mode lora
+bash scripts/stage1_merge.sh --model qwen3-vl-4b --dataset MC --stage1-mode lora --no-hf-upload
 # AC_3 는 ratio 3 종 자동 sweep (--ac3-ratios r55,r73 로 부분 실행).
 bash scripts/stage1_train.sh --model qwen3-vl-8b --dataset AC_3 --stage1-mode full
 bash scripts/stage1_merge.sh --model qwen3-vl-8b --dataset AC_3 --stage1-mode full
@@ -325,6 +327,8 @@ bash scripts/stage2_train.sh --model qwen3-vl-8b --dataset AC \
      --stage1-mode full --stage1-epoch 3 --stage2-mode lora
 bash scripts/stage2_merge.sh --model qwen3-vl-8b --dataset AC \
      --stage1-mode full --stage1-epoch 3 --stage2-mode lora
+bash scripts/stage2_merge.sh --model qwen3-vl-8b --dataset AC \
+     --stage1-mode full --stage1-epoch 3 --stage2-mode lora --no-hf-upload
 # Stage 2 AC_3 ratio sweep (Stage 1 ratio merged 를 base 로 stage2 데이터 학습)
 bash scripts/stage2_train.sh --model qwen3-vl-8b --dataset AC_3 \
      --stage1-mode full --stage1-epoch 1 --stage2-mode lora --ac3-ratios r37,r55,r73
@@ -514,7 +518,7 @@ Reference baselines (해석용):
 - `gui_model/` 패키지에는 핵심 파이프라인 로직이 없다. 변경 작업은 노트북, shell script, custom YAML 경로를 우선 검토.
 - merge 스크립트는 `outputs/{DS}/adapters/.../checkpoint-*` 가 하나라도 없으면 `[WARN]` SKIP (전 epoch loop). 실패가 아니라 스킵이므로 sweep 친화.
 - Stage 2 train/merge (world-model variant) 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_{full|lora}_world-model/epoch-${N}/` 이 반드시 선행돼야 한다 (stage1_train → stage1_merge; AC_3 ratio variant 는 SFX=`_r{37,55,73}`). Stage 2 eval 은 HF Hub merged repo 만 pull 하며 `--stage1-epoch` 값을 HF 레포명 계보 번호로 주입.
-- merge / eval 스크립트는 `.env` 또는 환경변수의 `HF_TOKEN` (HF Hub push/pull) 과 Python `pyyaml` 을 전제.
+- merge / eval 스크립트는 Python `pyyaml` 을 전제한다. `HF_TOKEN` 은 HF Hub push 또는 eval pull 시 필요하며, merge 를 `--no-hf-upload` 로만 수행할 때는 불필요하다.
 - shell automation 은 bash 4+ 환경 요구.
 - 모델 추가 시 `gui-model.ipynb` 의 `_MODEL_CONFIG` 와 `_common.sh` `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS` 를 동시에 동기화. 새 family 라면 노트북 Cell 5 의 `MODEL_FAMILY_CONFIG` 에 image budget 도 추가.
 - **transformers 버전**: `setup.py::EXTRAS["llamafactory"]` 에서 `transformers>=4.56.0,<4.57` 로 고정. `pyproject.toml` 의 주석도 이와 일치. 두 파일을 함께 변경한다. 서브프로젝트 `LlamaFactory/pyproject.toml` 은 수정하지 않는다.

@@ -12,9 +12,11 @@
 # 부분 실행은 --ac3-ratios r55,r73.
 #
 # --stage1-mode full (default) | lora.
+# --no-hf-upload 시 local merge 만 수행하고 HF Hub push 는 생략.
 #
 # 임시 merge YAML 생성 → llamafactory-cli export
-# (lora 모드는 base model + adapter_name_or_path 블록 추가)
+# (lora 모드는 base model + adapter_name_or_path 블록 추가,
+#  --no-hf-upload 시 export_hub_model_id 를 생략)
 #
 # HF repo id 규칙 (단일 정의: _common.sh::hf_repo_id_stage1):
 #   SaFD-00/{short}-{slug}world-model-stage1-{MODE}-epoch{E}
@@ -22,7 +24,7 @@
 # 로컬 산출물 (사용자 정책: 전부 보존):
 #   outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_{MODE}_world-model/epoch-{E}/
 #
-# 요구: HF_TOKEN (.env 또는 환경변수)
+# 요구: HF Hub upload 시 HF_TOKEN (.env 또는 환경변수)
 
 # shellcheck source=./_common.sh
 source "$(dirname "$0")/_common.sh"
@@ -62,12 +64,18 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         FAILED_COUNT=$((FAILED_COUNT + 1)); continue
       }
 
-      HUB_ID=$(hf_repo_id_stage1 "$MODEL_SHORT" "$DS" "$STAGE1_MODE" "$EPOCH")
+      if [ "$HF_UPLOAD" -eq 1 ]; then
+        HUB_ID=$(hf_repo_id_stage1 "$MODEL_SHORT" "$DS" "$STAGE1_MODE" "$EPOCH")
+        TARGET_DESC="$HUB_ID"
+      else
+        HUB_ID=""
+        TARGET_DESC="local-only"
+      fi
       MERGED_REL="../outputs/${OUT_DS}/merged/${MODEL_SHORT}${SFX}_stage1_${STAGE1_MODE}_world-model/epoch-${EPOCH}"
       LOCAL_DIR="$(local_merged_epoch_dir stage1 "$MODEL_SHORT" "$DS" "$STAGE1_MODE" "$EPOCH")"
       CKPT_REL="./${TRAIN_DIR_REL}/${CKPT_NAME}"
 
-      echo "[+] [$MODEL_SHORT][$DS][$STAGE1_MODE] ${CKPT_NAME} (epoch=${EPOCH}) → ${HUB_ID}" >&2
+      echo "[+] [$MODEL_SHORT][$DS][$STAGE1_MODE] ${CKPT_NAME} (epoch=${EPOCH}) → ${TARGET_DESC}" >&2
 
       TMP_YAML=$(mktemp -t "stage1_merge_${MODEL_SHORT}_${DS}_${STAGE1_MODE}_ep${EPOCH}_XXXXXX.yaml")
       if [ "$STAGE1_MODE" = "full" ]; then
@@ -82,7 +90,6 @@ export_dir: ${MERGED_REL}
 export_size: 5
 export_device: cpu
 export_legacy_format: false
-export_hub_model_id: ${HUB_ID}
 EOF
       else
         cat > "$TMP_YAML" <<EOF
@@ -98,6 +105,10 @@ export_dir: ${MERGED_REL}
 export_size: 5
 export_device: cpu
 export_legacy_format: false
+EOF
+      fi
+      if [ "$HF_UPLOAD" -eq 1 ]; then
+        cat >> "$TMP_YAML" <<EOF
 export_hub_model_id: ${HUB_ID}
 EOF
       fi

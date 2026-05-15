@@ -12,6 +12,7 @@
 #   --stage1-epoch N             Stage 1 local merged/{MODEL}_stage1_{MODE}_world-model/epoch-N
 #                                world-model variant 전용. base variant 에서는 무시.
 #   --stage2-mode {full|lora}    Stage 2 학습 방식 (adapter 디렉토리 + HF suffix 결정)
+#   --no-hf-upload               local merge 만 수행하고 HF Hub push 는 생략
 #   --model / --dataset          (공통)
 #
 # HF repo id 규칙 (단일 정의: _common.sh):
@@ -27,7 +28,7 @@
 #   · full:  model_name_or_path=ckpt (adapter 블록 없음)
 #   · lora:  model_name_or_path=base + adapter_name_or_path=ckpt
 #
-# 요구: HF_TOKEN (.env 또는 환경변수)
+# 요구: HF Hub upload 시 HF_TOKEN (.env 또는 환경변수)
 
 # shellcheck source=./_common.sh
 source "$(dirname "$0")/_common.sh"
@@ -105,17 +106,23 @@ for MODEL_SHORT in "${MODELS[@]}"; do
           FAILED_COUNT=$((FAILED_COUNT + 1)); continue
         }
 
-        if [ "$VARIANT" = "base" ]; then
-          HUB_ID=$(hf_repo_id_stage2_base "$MODEL_SHORT" "$DS" "$STAGE2_MODE" "$EPOCH")
+        if [ "$HF_UPLOAD" -eq 1 ]; then
+          if [ "$VARIANT" = "base" ]; then
+            HUB_ID=$(hf_repo_id_stage2_base "$MODEL_SHORT" "$DS" "$STAGE2_MODE" "$EPOCH")
+          else
+            HUB_ID=$(hf_repo_id_stage2_world_model "$MODEL_SHORT" "$DS" \
+              "$STAGE1_MODE" "$STAGE1_EPOCH" "$STAGE2_MODE" "$EPOCH")
+          fi
+          TARGET_DESC="$HUB_ID"
         else
-          HUB_ID=$(hf_repo_id_stage2_world_model "$MODEL_SHORT" "$DS" \
-            "$STAGE1_MODE" "$STAGE1_EPOCH" "$STAGE2_MODE" "$EPOCH")
+          HUB_ID=""
+          TARGET_DESC="local-only"
         fi
         MERGED_REL="../outputs/${OUT_DS}/merged/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}/epoch-${EPOCH}"
         LOCAL_DIR="$(local_merged_epoch_dir stage2 "$MODEL_SHORT" "$DS" "$ADAPTER_SUFFIX" "$EPOCH")"
         ADAPTER_REL="${TRAIN_DIR_REL}/${CKPT_NAME}"
 
-        echo "[+] [$MODEL_SHORT][$DS][stage2_${ADAPTER_SUFFIX}] ${CKPT_NAME} (epoch=${EPOCH}) → ${HUB_ID}" >&2
+        echo "[+] [$MODEL_SHORT][$DS][stage2_${ADAPTER_SUFFIX}] ${CKPT_NAME} (epoch=${EPOCH}) → ${TARGET_DESC}" >&2
 
         TMP_YAML=$(mktemp -t "stage2_merge_${MODEL_SHORT}_${DS}_${VARIANT}_ep${EPOCH}_XXXXXX.yaml")
         if [ "$STAGE2_MODE" = "full" ]; then
@@ -131,7 +138,6 @@ export_dir: ${MERGED_REL}
 export_size: 5
 export_device: cpu
 export_legacy_format: false
-export_hub_model_id: ${HUB_ID}
 EOF
         else
           cat > "$TMP_YAML" <<EOF
@@ -147,6 +153,10 @@ export_dir: ${MERGED_REL}
 export_size: 5
 export_device: cpu
 export_legacy_format: false
+EOF
+        fi
+        if [ "$HF_UPLOAD" -eq 1 ]; then
+          cat >> "$TMP_YAML" <<EOF
 export_hub_model_id: ${HUB_ID}
 EOF
         fi

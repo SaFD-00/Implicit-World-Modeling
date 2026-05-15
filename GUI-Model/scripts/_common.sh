@@ -265,6 +265,7 @@ parse_args() {
   local dataset_arg="all"
   local stage1_mode_arg="full"
   local stage2_mode_arg="lora"
+  local hf_upload_arg=1
   local stage1_epoch_arg=""
   local epochs_arg="1,2,3"
   local variants_arg=""
@@ -283,6 +284,8 @@ parse_args() {
       --stage2-mode)
         if [[ -z "${2:-}" ]]; then echo "Error: --stage2-mode requires a value." >&2; exit 2; fi
         stage2_mode_arg="$2"; shift 2 ;;
+      --no-hf-upload)
+        hf_upload_arg=0; shift ;;
       --stage1-epoch)
         if [[ -z "${2:-}" ]]; then echo "Error: --stage1-epoch requires a value." >&2; exit 2; fi
         stage1_epoch_arg="$2"; shift 2 ;;
@@ -299,7 +302,7 @@ parse_args() {
         cat <<EOF
 Usage: $(basename "$0") [--model MODEL] [--dataset DS] [--stage1-mode MODE]
                          [--stage2-mode MODE] [--stage1-epoch N] [--epochs LIST]
-                         [--variants LIST] [--ac3-ratios LIST]
+                         [--variants LIST] [--ac3-ratios LIST] [--no-hf-upload]
 
 Options:
   --model MODEL        모델 short_name 또는 "all" (기본: all)
@@ -309,6 +312,8 @@ Options:
                        'all' 은 (AC AC_2 MC) 만 의미하며 AC_3 는 명시적으로 선택해야 함.
   --stage1-mode MODE   full | lora (기본: full) — Stage 1 학습 방식.
   --stage2-mode MODE   full | lora (기본: lora) — Stage 2 학습 방식 (Stage 2 전용).
+  --no-hf-upload       Hugging Face 업로드를 생략하고 local merge/export 만 수행.
+                       merge 스크립트에서만 의미가 있다.
   --stage1-epoch N     Stage 2 world-model variant 가 상류 base 로 삼을 Stage 1 epoch.
                        stage2_{train,merge,eval}.sh 전용.
   --epochs LIST        콤마로 구분된 epoch 정수 리스트 (기본: 1,2,3)
@@ -340,6 +345,7 @@ EOF
     full|lora) STAGE2_MODE="$stage2_mode_arg" ;;
     *) echo "Error: --stage2-mode must be full | lora (got '$stage2_mode_arg')." >&2; exit 2 ;;
   esac
+  HF_UPLOAD="$hf_upload_arg"
 
   STAGE1_EPOCH=""
   if [[ -n "$stage1_epoch_arg" ]]; then
