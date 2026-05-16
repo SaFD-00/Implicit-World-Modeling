@@ -62,7 +62,7 @@ GUI-Model/
 │   ├── examples/custom/GUI-Model-{AC,AC_2,MC}/  # 노트북이 생성한 학습 YAML
 │   └── scripts/vllm_infer.py     # 추론 도구
 ├── gui_model/                    # 배포용 스텁 (핵심 로직 없음)
-├── tests/test_action_eval.py     # Stage 2 메트릭 회귀 테스트 (48 케이스)
+├── tests/test_action_eval.py     # Stage 2 메트릭 회귀 테스트 (52 케이스)
 ├── pyproject.toml                # 공통 deps + extras["llamafactory"] (pip editable 설치)
 ├── .env.example                  # HF_TOKEN, NPROC_PER_NODE, GPU_TYPE
 ├── README.md                     # (this file)
@@ -362,7 +362,7 @@ Stage 2 Step Accuracy 채점 로직 (`scripts/_action_eval.py`) 회귀 테스트
 
 ```bash
 cd GUI-Model
-pytest tests/test_action_eval.py -v   # 48 케이스
+pytest tests/test_action_eval.py -v   # 52 케이스
 ```
 
 ## 코드 읽기 시작점

@@ -467,7 +467,7 @@ GUI-Model/outputs/{OUT_DS}/             # OUT_DS = AC | AC_2 | AC_3 | MC. AC_3 r
       "click":    {"count": 3337, "type_acc": 0.89, "step_acc": 0.61},
       "scroll":   {"count": 708,  "type_acc": 0.92, "step_acc": 0.73},
       "open_app": {"count": 365,  "type_acc": 0.78, "step_acc": 0.59},
-      "input":    {"count": 401,  "type_acc": 0.71, "step_acc": 0.48},
+      "input_text": {"count": 401, "type_acc": 0.71, "step_acc": 0.48},
       "finish":   {"count": 987,  "type_acc": 0.72, "step_acc": 0.72}
     }
   },
@@ -489,27 +489,31 @@ correct_i = 1 iff (parse_ok ∧ type==gt.type ∧ field_match(type))
          = 0 otherwise
 ```
 
-| GT type | field_match 조건 |
+GT 의 `action_type` 키로 type 판정 (구 `type` 키 fallback 유지). GT last-message
+가 `<thought>…</thought>\n<action>{...}</action>` 로 래핑되므로 GT 도
+`parse_action` 으로 `<action>` JSON 을 추출한 뒤 채점한다 (pred 와 동일 경로).
+
+| GT action_type | field_match 조건 |
 |---|---|
-| `navigate_back` | (검증 필드 없음) → 항상 통과 |
-| `finish` | (status 단일값 `"complete"`) → 항상 통과 |
-| `click`, `long_click` | `str(pred.index) == str(gt.index)` |
-| `scroll` | `norm(direction)` 일치 |
-| `open_app` | `norm(params.app)` 일치 (top-level 평탄화 fallback 허용) |
-| `input` | `norm(params.text)` 일치 (gt.index=null 무시) |
+| `navigate_back`, `navigate_home`, `wait` | (검증 필드 없음) → 항상 통과 |
+| `finish` | (status / answer 비교 안 함) → 항상 통과 |
+| `click`, `long_press` | `str(pred.index) == str(gt.index)` |
+| `scroll` | `norm(direction)` 일치 (index 무시) |
+| `open_app` | `norm(app_name)` 일치 (params 평탄화 fallback 허용) |
+| `input_text` | `norm(text)` 일치 (index 무시) |
 
 `norm(s) = str(s or '').strip().lower()` — 모든 string field 통일.
 
 `action_metrics.json` 각 섹션의 키:
 - 1차: `step_accuracy`
-- 보조: `macro_step_accuracy` (7 type 평균), `parse_rate`, `type_accuracy`, `cond_index_acc` / `cond_dir_acc` / `cond_app_acc` / `cond_text_acc`, `per_type[t] = {count, type_acc, step_acc}`
+- 보조: `macro_step_accuracy` (등장 action_type 평균, 데이터셋 9 type), `parse_rate`, `type_accuracy`, `cond_index_acc` / `cond_dir_acc` / `cond_app_acc` / `cond_text_acc`, `per_type[t] = {count, type_acc, step_acc}`
 
 Reference baselines (해석용):
-- `type` random baseline: 1/7 ≈ 14.3%
+- `action_type` random baseline: 1/9 ≈ 11.1%
 - `scroll` majority baseline (`down`): 79.0%
-- `finish.status` constant baseline: 100% (해석 무의미)
+- `finish` constant baseline: 100% (type-only 정책이라 해석 무의미)
 
-정본은 `scripts/_action_eval.py` 이며, 노트북 Section 8 의 마지막 reference cell 이 이 파일과 글자 단위 동치를 유지한다 (디버깅 reference 용). 회귀 테스트 `tests/test_action_eval.py` 48 케이스 — `parse_action` / `evaluate_single` / `evaluate_predictions` 분기, unknown type 집계, `cond_*` n=0, `predict`/`output` fallback, ID+OOD 통합 집계 커버.
+정본은 `scripts/_action_eval.py` 이며, 노트북 Section 8 의 마지막 reference cell 이 이 파일과 글자 단위 동치를 유지한다 (디버깅 reference 용). 회귀 테스트 `tests/test_action_eval.py` 52 케이스 — `parse_action` (`<thought>/<action>` 래퍼 포함) / `evaluate_single` (AndroidControl_3 `action_type` 스키마 + 구 `type` fallback) / `evaluate_predictions` 분기, unknown type 집계, `cond_*` n=0, `predict`/`output` fallback, ID+OOD 통합 집계 커버.
 
 ---
 

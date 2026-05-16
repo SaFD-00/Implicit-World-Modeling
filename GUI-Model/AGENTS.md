@@ -70,7 +70,7 @@
 - 산출 경로: `outputs/{OUT_DS}/eval/{MODEL}{SFX}/stage2_eval/{variant_path}[_from_{M1}-ep{E1}][/epoch-{E2}]/on-{EVAL_DS}/`. AC/AC_2 는 OUT_DS=TRAIN_DS, SFX=`""`. AC_3 는 OUT_DS=`AC_3`, SFX=`_r{37,55,73}` (variant_path 는 CLI VARIANT 의 `world_model` → `world-model` 치환).
 - Stage 2 world-model train/merge 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_${MODE1}_world-model/epoch-${N}/` 를 base 로 사용. 학습 결과는 `outputs/{OUT_DS}/{adapters,merged}/{MODEL}{SFX}_stage2_${MODE2}_world-model_from_${MODE1}-ep${N}/` 에 stage1 epoch 별 분리 저장 (stage2_train.sh 가 YAML `__STAGE1_EPOCH__` 플레이스홀더 sed 치환, `_common.sh::local_merged_epoch_dir` 가 stage1/stage2 양쪽에 ratio suffix 부여).
 - 재실행 시 marker (`action_metrics.json`) 존재 unit 은 variant × EVAL_DS 조합 별로 독립 skip.
-- 회귀 테스트: [`tests/test_action_eval.py`](./tests/test_action_eval.py) 48 케이스. 메트릭 정의는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §6.
+- 회귀 테스트: [`tests/test_action_eval.py`](./tests/test_action_eval.py) 52 케이스. 메트릭 정의는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §6.
 
 ### shell 실행 공통 규약
 - `AC` / `AC_2` / `MC` / `MB` 매핑 (`DS_PREFIX` / `HF_SLUG` / `DS_DATADIR`), 모델 레지스트리 → [`scripts/_common.sh`](./scripts/_common.sh).
@@ -102,7 +102,7 @@
 
 ## 빠른 검증 포인트
 
-- `pytest tests/test_action_eval.py -q` — 48 케이스 (parse / field_match / 집계 / ID-OOD aggregation / single-pair overall)
+- `pytest tests/test_action_eval.py -q` — 52 케이스 (parse / field_match / 집계 / ID-OOD aggregation / single-pair overall)
 - `bash scripts/stage{1,2}_{train,merge,eval}.sh --help` — 모든 플래그 표기 확인
 - `python scripts/split_data.py --dataset MonkeyCollection --help` (MC: Stage 2 자동 skip)
 - `bash scripts/stage1_train.sh --dataset MB 2>&1` — 거절 메시지 확인
