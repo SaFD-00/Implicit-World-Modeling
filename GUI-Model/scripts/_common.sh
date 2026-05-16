@@ -10,17 +10,14 @@ set -euo pipefail
 # 가 PYTHONUSERBASE 아래에만 설치되어 있으므로 user-site 는 비활성화하지 않는다.
 # 다만 /root/.local/workspace/python-packages/bin 의 낡은 accelerate CLI 는
 # shebang 이 base env python 을 가리킬 때가 있어 `No module named 'torch'` 를
-# 유발한다. Python env (uv .venv 또는 conda) 가 활성화되어 있다면 해당 env 의
-# bin 을 PATH 맨 앞에 고정해 env 소속 CLI (.venv/bin/accelerate 등) 가
+# 유발한다. conda env (`gui-model`) 가 활성화되어 있다면 해당 env 의
+# bin 을 PATH 맨 앞에 고정해 env 소속 CLI ($CONDA_PREFIX/bin/accelerate 등) 가
 # 먼저 잡히도록 강제한다.
-if [[ -n "${VIRTUAL_ENV:-}" ]]; then
-  export PATH="$VIRTUAL_ENV/bin:$PATH"
-elif [[ -n "${CONDA_PREFIX:-}" ]]; then
+if [[ -n "${CONDA_PREFIX:-}" ]]; then
   export PATH="$CONDA_PREFIX/bin:$PATH"
 else
-  echo "[!] Python env 가 활성화되지 않았습니다. 다음 중 하나를 먼저 실행하세요:" >&2
-  echo "      source .venv/bin/activate     # uv 사용 시 (권장)" >&2
-  echo "      conda activate gui-model      # conda 잔존 사용 시" >&2
+  echo "[!] conda env 가 활성화되지 않았습니다. 먼저 실행하세요:" >&2
+  echo "      conda activate gui-model" >&2
   exit 1
 fi
 

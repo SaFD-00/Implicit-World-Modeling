@@ -8,10 +8,11 @@ version = "0.1.0"
 description = "Training and evaluation pipeline for GUI world modeling and action prediction."
 requires-python = ">=3.11,<3.13"
 # 공통 deps. transformers / 서브프로젝트 / deepspeed / vllm 등은 extras 에서 선언한다.
-# 설치는 단일 .venv (uv) 에서:
-#     uv venv --python 3.12
-#     uv sync --extra llamafactory
-#     source .venv/bin/activate
+# 설치는 conda env (`gui-model`) 에서:
+#     conda create -n gui-model python=3.12 -y
+#     conda activate gui-model
+#     pip install -e ".[llamafactory]"
+#     pip install -e ./LlamaFactory   # editable 서브프로젝트
 # transformers 는 `>=4.57.1,<4.58` 로 고정한다 (Qwen3-VL processor 가 4.57+ 에서
 # 도입됐고, vllm 0.11.2 의 `transformers<5` 와 LlamaFactory pin `!=4.57.0,<=5.2.0`
 # 의 교집합. Qwen2.5-VL 학습은 4.57.x 의 token/feature strict mismatch 회귀 영향을
@@ -43,8 +44,8 @@ dependencies = [
   "torchvision>=0.19.0,<0.24",
 ]
 
-# LlamaFactory 전용 (Qwen2/2.5/3-VL 계열). 서브프로젝트는 [tool.uv.sources] 가
-# editable path 로 묶어 함께 해소한다 (별도 `pip install -e ./LlamaFactory` 불필요).
+# LlamaFactory 전용 (Qwen2/2.5/3-VL 계열). 서브프로젝트는 `pip install -e ./LlamaFactory`
+# 로 editable 설치한다 (위 설치 절차 참조).
 [project.optional-dependencies]
 llamafactory = [
   "llamafactory",
@@ -59,7 +60,7 @@ llamafactory = [
   #   0.10.0–0.10.1.1 → torch 2.7.1
   #   0.10.2 / 0.11.0 → torch 2.8.0   ← 우리 가드 (torch<2.9)
   #   0.11.1+         → torch 2.9.0   (Qwen2.5-VL Conv3D 회귀로 사용 불가)
-  # 따라서 torch 2.8 가족과 양립 가능한 vllm 은 0.10.2 / 0.11.0 둘뿐. uv 는
+  # 따라서 torch 2.8 가족과 양립 가능한 vllm 은 0.10.2 / 0.11.0 둘뿐. pip 는
   # 더 높은 0.11.0 을 선택한다.
   # 알려진 0.11.0 한계: Qwen2.5-VL config 의 `rope_parameters.rope_type` (modern) +
   # `type=mrope` (legacy) 동시 존재 케이스에서 pydantic ValidationError. Qwen3-VL /
@@ -80,22 +81,6 @@ llamafactory = [
   "modelscope",
   "hf-transfer",
   "omegaconf",
-]
-
-[tool.uv.sources]
-# LlamaFactory 는 vendored 서브프로젝트로 editable 설치한다. 업스트림 sync 보존을
-# 위해 서브프로젝트의 pyproject.toml 은 건드리지 않고 path source 만 잡는다.
-llamafactory = { path = "./LlamaFactory", editable = true }
-
-[tool.uv]
-# torch 가족 (torch / torchvision / torchaudio) 의 ABI 짝맞춤은 vllm 0.10.2/0.11.0
-# pin (torch==2.8.0, torchvision==0.23.0, torchaudio==2.8.0) 으로 자연스럽게 풀린다.
-# 단 우리는 transitive 도 torch<2.9 로 강제 — 다른 의존이 (예: 미래 추가 dep) torch 2.9+
-# 를 끌어오면 vllm._C ABI 가 깨지므로 가드를 명시적으로 둔다.
-override-dependencies = [
-  "torch>=2.4.0,<2.9",
-  "torchvision>=0.19.0,<0.24",
-  "torchaudio>=2.4.0,<2.9",
 ]
 
 [tool.setuptools.packages.find]

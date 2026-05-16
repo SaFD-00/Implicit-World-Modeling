@@ -4,14 +4,14 @@
 
 ## 현재 코드 기준 요약
 
-- 실행 엔트리포인트는 단일 노트북 [`gui-model.ipynb`](./gui-model.ipynb) 와 [`scripts/`](./scripts) 다. 노트북은 uv 가 관리하는 단일 `.venv` (`uv sync --extra llamafactory`) 를 전제로 한다.
+- 실행 엔트리포인트는 단일 노트북 [`gui-model.ipynb`](./gui-model.ipynb) 와 [`scripts/`](./scripts) 다. 노트북은 conda env (`gui-model`, `pip install -e ".[llamafactory]"`) 를 전제로 한다.
 - **8 개 Vision-Language 모델 (모두 Qwen 계열)**: Qwen2-VL ×2, Qwen2.5-VL ×2, Qwen3-VL ×2, Qwen3.5-Base ×2 (`template=qwen3_5_nothink`, LlamaFactory `hf_model_type=qwen3_5` multimodal 그룹).
 - **4 학습 데이터셋 + 1 평가 전용 벤치마크**: AC, AC_2, AC_3, MC 가 학습 대상, MB 는 평가 전용. AC_3 는 Stage 1 ratio mix (state_pred:action_pred = 3:7, 5:5, 7:3) 3 종을 sweep 해 별개의 가중치를 산출하고, **Stage 2 도 같은 ratio sweep 으로 활성** — Stage 1 ratio merged 를 base 로 같은 stage2 데이터 (`gui-model_stage2_{train,test_id,test_ood}.jsonl`) 를 학습. stage2 데이터 자체는 ratio 와 무관 (3 ratio 공유) 이며, ratio 차원은 **stage1 → stage2 base 계보** 로만 흐른다. `_STAGE1_ONLY = {"MonkeyCollection"}` 로 축소되어 AC_3 는 Stage 1/2 모두 파이프라인에 참여한다.
 - **모든 stage 의 흐름은 `train → merge → eval`** 로 통일. eval 은 HF Hub merged repo 만 pull 하므로 학습 머신이 아닌 환경에서도 재실행 가능.
 - **GPU-aware `per_device_train_batch_size`**: `.env` 의 `GPU_TYPE` (`RTX5090` / `A100` / `H100`) 와 모델 size 로 `_PER_DEVICE_BS_BY_SIZE` 표를 조회 (Cell 5 의 `lf_per_device_bs(size)` 헬퍼). `NPROC_PER_NODE ∈ {1,2,4,8}` 만 허용. 4 가지 GPU 수 모두에서 `GLOBAL_BATCH_SIZE=64` 가 정수로 나뉘도록 표 값을 유지해야 한다.
 - 모델 레지스트리는 두 곳에 있다: 노트북 Cell 5 의 `_MODEL_CONFIG` 와 `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS`. 두 곳을 동시에 수정해야 한다.
 - 모델 family 별 image budget 은 노트북 Cell 5 의 `MODEL_FAMILY_CONFIG` (factor / max_tokens / min_tokens) 와 `_DATASET_CONFIG[ds]["image_overrides"]` 의 token 단위 override 로 관리된다. token 예산은 학습 데이터셋으로 결정 — AC1·MC 학습은 family default `max_tokens=2048` (Qwen2/2.5-VL → 1,605,632 / Qwen3-VL·3.5 → 2,097,152), AC_2 학습은 override `max_tokens=5400` (4,233,600 / 5,529,600). 평가는 `TRAIN_DATASET` 으로 동일 budget 적용.
-- 학습 / export 는 `.venv` 에 editable 로 묶인 `LlamaFactory/` clone + `llamafactory-cli` 가 수행 (uv 의 `[tool.uv.sources]` path source).
+- 학습 / export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 `LlamaFactory/` clone + `llamafactory-cli` 가 수행.
 - 평가 (`scripts/stage{1,2}_eval.sh`) 는 `vllm_infer.py` 가 HF 표준 safetensors / PEFT adapter 를 그대로 로드.
 - [`gui_model/`](./gui_model) 패키지는 사실상 배포용 스텁이며, 핵심 파이프라인 로직은 여기에 없다.
 - **데이터셋 역할 분리**:
@@ -43,7 +43,7 @@
 
 ### 데이터 분할 규칙
 - [`scripts/split_data.py`](./scripts/split_data.py) 가 기준. AC 는 Stage 1 / Stage 2 모두 app-level ID/OOD (단일 partition 공유), MC 는 Stage 1 random split (메타 없음, 자동 fallback), AC_2 는 사전 분할 데이터, MB 는 split 없음.
-- AC 메타데이터: [`scripts/extract_androidcontrol_metadata.py`](./scripts/extract_androidcontrol_metadata.py) 가 `episodes_meta.jsonl` 생성 (`uv pip install android-env` 별도 필요). 스크린샷은 [`scripts/extract_androidcontrol_images.py`](./scripts/extract_androidcontrol_images.py) 가 GCS REST API 로 pull (TF 의존 없음).
+- AC 메타데이터: [`scripts/extract_androidcontrol_metadata.py`](./scripts/extract_androidcontrol_metadata.py) 가 `episodes_meta.jsonl` 생성 (`pip install android-env` 별도 필요). 스크린샷은 [`scripts/extract_androidcontrol_images.py`](./scripts/extract_androidcontrol_images.py) 가 GCS REST API 로 pull (TF 의존 없음).
 - AC_3 분할: 선행으로 `python scripts/filter_long_samples.py --dataset AC_3` 가 mm-expanded length > cutoff_len 샘플을 제거해 `gui-model_stage1_{state,action}_pred_filtered.jsonl` + `gui-model_stage2_filtered.jsonl` (3 파일) 을 만든다 (Qwen3-VL `get_rope_index` broadcast 회피). `--image-max-pixels` 기본값 2097152 는 Qwen3-VL family (factor 32) 기준 — Qwen2/2.5-VL 학습 시 1605632 등으로 override 필요. `--skip-existing` 으로 누락된 source 만 처리 가능 (이미 산출된 _filtered.jsonl 재처리 회피). 그 위에서 `split_data.py --dataset AC_3 --ac3-ratios 7:3,3:7,5:5 --ac3-train-total 50000` (콜론 구분, default 동일) 가 `run_ac3_split` 으로 `gui-model_stage1_train_{3_7,5_5,7_3}.jsonl` 3 개 + task × split 4 test (`gui-model_stage1_test_{id,ood}_{state,action}_pred.jsonl`) 를 산출하고, 이어서 같은 (id_apps, ood_apps) partition 으로 `gui-model_stage2_filtered.jsonl` 풀에서 Stage 2 split `gui-model_stage2_{train,test_id,test_ood}.jsonl` (15K / 3K / 3K, action_type stratified) 까지 만든다 (Stage 2 _filtered 누락 시 hard-fail). `state_pred` 는 random, `action_pred` / Stage 2 는 action-type stratified 샘플링. Stage 2 마지막 메시지의 `<thought>…</thought>\n<action>{...}</action>` 래핑은 `_parse_action_payload` regex helper 가 분리해 `action_type` 을 추출한다.
 
 ### Stage 1 평가

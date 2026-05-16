@@ -1,23 +1,23 @@
 # GUI-Model Architecture
 
-`GUI-Model` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **8 개 Qwen 계열 Vision-Language 모델** (Qwen2-VL ×2, Qwen2.5-VL ×2, Qwen3-VL ×2, Qwen3.5-Base ×2) 을 지원하며, uv 가 관리하는 단일 `.venv` + 노트북 [`gui-model.ipynb`](./gui-model.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 `.venv` 에 editable 로 묶인 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. 현재 eval 은 HF Hub 에 push 된 merged repo 만 pull 한다.
+`GUI-Model` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **8 개 Qwen 계열 Vision-Language 모델** (Qwen2-VL ×2, Qwen2.5-VL ×2, Qwen3-VL ×2, Qwen3.5-Base ×2) 을 지원하며, conda env (`gui-model`) + 노트북 [`gui-model.ipynb`](./gui-model.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. 현재 eval 은 HF Hub 에 push 된 merged repo 만 pull 한다.
 
 ---
 
 ## 0. Runtime Stack
 
 ```
-Python env      notebook            엔진                              모델
+conda env       notebook            엔진                              모델
 ─────────────   ─────────────────   ──────────────────────────────   ─────────────────────────────────
-.venv (uv)      gui-model.ipynb     llamafactory-cli train/export    Qwen2-VL ×2, Qwen2.5-VL ×2,
+gui-model       gui-model.ipynb     llamafactory-cli train/export    Qwen2-VL ×2, Qwen2.5-VL ×2,
                                     YAML: LlamaFactory/examples/      Qwen3-VL ×2, Qwen3.5-Base ×2
                                           custom/GUI-Model-{DS}/
                                           stage{1,2}_{full,lora}
 ```
 
-- `uv sync --extra llamafactory` (LlamaFactory 는 `[tool.uv.sources]` editable path 로 함께 해소)
+- `pip install -e ".[llamafactory]"` + `pip install -e ./LlamaFactory` (editable 서브프로젝트)
 - `transformers>=4.57.1,<4.58` (vllm 0.11.2 의 `transformers<5` 제약 + LlamaFactory 서브프로젝트 `<=5.2.0` 와의 교집합)
-- `deepspeed`, `vllm`, `bitsandbytes` 모두 단일 `.venv` 에 설치된다.
+- `deepspeed`, `vllm`, `bitsandbytes` 모두 conda env `gui-model` 에 설치된다.
 - 평가 파이프라인 (`scripts/stage{1,2}_eval.sh`) 은 `LlamaFactory/scripts/vllm_infer.py` 가 HF 표준 safetensors / PEFT adapter 를 그대로 로드한다.
 
 ---
@@ -26,7 +26,7 @@ Python env      notebook            엔진                              모델
 
 ### 핵심 엔트리포인트
 
-- [`gui-model.ipynb`](./gui-model.ipynb) — `.venv` (uv), 8 개 Qwen 모델
+- [`gui-model.ipynb`](./gui-model.ipynb) — conda `gui-model`, 8 개 Qwen 모델
   - 환경 설치, `_MODEL_CONFIG` (8) + `MODEL_FAMILY_CONFIG` + `_DATASET_CONFIG` (3 학습 DS) + `_SIZE_CONFIG_AC` (3 tier) 정의
   - Stage 1/2 학습 YAML 자동 생성 (Cell 8 = Stage 1, Cell 10 = Stage 2; full / lora 분리)
   - `LlamaFactory/data/dataset_info.json` 등록
@@ -227,7 +227,7 @@ data/
 - `episode_id` 는 **int** (0, 1, 2, ...). 원본 이미지 경로는 zero-padded string. `split_data.py::_norm_ep` 가 `str(int(...))` 로 정규화해 매칭.
 - `primary_app` 은 각 step 의 `accessibility_trees` (`AndroidAccessibilityForest` proto) 에서 전경 `TYPE_APPLICATION` window 의 root `package_name` 을 뽑아 다수결로 정한 값. 시스템/런처 패키지는 다수결에서 제외.
 - 전경 window 미검출 시 `primary_app=None`. 해당 에피소드는 train 풀에만 합류, test 분할에서 제외 (`--stage2-exclude-null-app` 으로 완전 제외 가능).
-- 메타 추출: `scripts/extract_androidcontrol_metadata.py` (TFRecord → 다수결, `uv pip install android-env` 별도 필요). 스크린샷은 `extract_androidcontrol_images.py` 가 GCS REST API 로 pull (TF 의존 없음).
+- 메타 추출: `scripts/extract_androidcontrol_metadata.py` (TFRecord → 다수결, `pip install android-env` 별도 필요). 스크린샷은 `extract_androidcontrol_images.py` 가 GCS REST API 로 pull (TF 의존 없음).
 
 ### 데이터셋 이름 규약
 

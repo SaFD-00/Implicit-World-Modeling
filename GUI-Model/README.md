@@ -63,9 +63,7 @@ GUI-Model/
 │   └── scripts/vllm_infer.py     # 추론 도구
 ├── gui_model/                    # 배포용 스텁 (핵심 로직 없음)
 ├── tests/test_action_eval.py     # Stage 2 메트릭 회귀 테스트 (48 케이스)
-├── pyproject.toml                # 공통 deps + extras["llamafactory"] (uv.lock 으로 재현)
-├── uv.lock                       # uv sync 가 생성/관리하는 잠금 파일 (커밋 대상)
-├── .python-version               # 3.12 (uv 가 자동 선택)
+├── pyproject.toml                # 공통 deps + extras["llamafactory"] (pip editable 설치)
 ├── .env.example                  # HF_TOKEN, NPROC_PER_NODE, GPU_TYPE
 ├── README.md                     # (this file)
 ├── ARCHITECTURE.md               # 시스템 레퍼런스
@@ -74,24 +72,22 @@ GUI-Model/
 
 ## 환경 설치
 
-단일 `.venv` (uv 관리) 에 `pyproject.toml` 의 공통 deps + `[project.optional-dependencies] llamafactory` 를 설치한다. 서브프로젝트 `./LlamaFactory` 는 `[tool.uv.sources]` 의 editable path source 로 함께 해소되며 (별도 단계 불필요), `transformers` 는 우리 extras pin (`>=4.57.1,<4.58`) 과 LlamaFactory 의 `<=5.2.0` 가 겹치는 4.57.x 구간에서 한 번에 풀린다.
+conda env (`gui-model`) 에 `pyproject.toml` 의 공통 deps + `[project.optional-dependencies] llamafactory` 를 pip editable 로 설치한다. 서브프로젝트 `./LlamaFactory` 는 `pip install -e ./LlamaFactory` 로 함께 editable 설치하며, `transformers` 는 우리 extras pin (`>=4.57.1,<4.58`) 과 LlamaFactory 의 `<=5.2.0` 가 겹치는 4.57.x 구간에서 한 번에 풀린다.
 
 ```bash
-# 1) uv 설치 (한 번만)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2) GUI-Model 설치
+# GUI-Model 설치
 cd /path/to/GUI-Model
-uv venv --python 3.12          # .python-version 따라 자동 선택
-uv sync --extra llamafactory   # LlamaFactory editable + extras 함께 해소
-
-# 3) 활성화 (scripts/*.sh 실행 전 필수)
-source .venv/bin/activate
+conda create -n gui-model python=3.12 -y
+conda activate gui-model              # scripts/*.sh 실행 전 필수
+pip install -e ".[llamafactory]"      # 공통 deps + extras
+pip install -e ./LlamaFactory         # editable 서브프로젝트
 ```
 
-deepspeed · vllm · bitsandbytes 모두 단일 `.venv` 에 설치된다. 학습/export 엔진은 `llamafactory-cli train` / `llamafactory-cli export`.
+deepspeed · vllm · bitsandbytes 모두 conda env `gui-model` 에 설치된다. 학습/export 엔진은 `llamafactory-cli train` / `llamafactory-cli export`.
 
-`uv.lock` 은 함께 커밋한다. CI / 다른 머신에서는 `uv sync --frozen --extra llamafactory` 로 동일 환경을 복구한다.
+CI / 다른 머신에서는 동일 절차로 재설치한다.
+
+> **CUDA mismatch 주의**: 기존 `gui-model` env 에 `torch 2.11+cu130` 등 cu13 빌드가 남아 있으면 RTX5090 CUDA 가드(`scripts/_common.sh`)가 `nvcc 12.8` 불일치로 실행을 차단한다. pyproject 는 `torch>=2.4.0,<2.9` 로 pin 하므로 `pip install -e ".[llamafactory]"` 가 PyPI 기본 cu12.8 wheel(torch 2.8.x)로 교체해 정합시킨다. 잔존 시 강제 교정: `pip install --force-reinstall "torch>=2.4,<2.9" "torchvision<0.24"`.
 
 ### `.env` 변수
 
@@ -117,13 +113,13 @@ deepspeed · vllm · bitsandbytes 모두 단일 `.venv` 에 설치된다. 학습
 
 ### 전제
 
-- Python 3.11 이상, 3.13 미만 (`.python-version` 은 3.12 고정 — LlamaFactory 서브프로젝트가 `>=3.11.0` 을 요구하므로 우리도 동일 하한)
+- Python 3.11 이상, 3.13 미만 (conda env 는 3.12 권장 — LlamaFactory 서브프로젝트가 `>=3.11.0` 을 요구하므로 우리도 동일 하한)
 - bash 4+ (`scripts/_common.sh` 기준)
 - `transformers>=4.57.1,<4.58` 로 고정 — 변경 시 [`pyproject.toml`](./pyproject.toml) 의 `dependencies` / `[project.optional-dependencies] llamafactory` 와 주석을 함께 갱신한다. **서브프로젝트 `LlamaFactory/pyproject.toml` 은 건드리지 않는다.**
 
 ### PATH 정책
 
-`scripts/_common.sh` 는 활성 Python env 의 `bin/` 을 PATH 최상단에 고정해 user-site 의 낡은 CLI (`accelerate` 등) 를 가린다. 우선순위는 `VIRTUAL_ENV` (uv `.venv`) → `CONDA_PREFIX` (conda fallback) 순. 둘 다 미활성 상태에서 `scripts/*.sh` 를 실행하면 즉시 중단된다 — 먼저 `source .venv/bin/activate`.
+`scripts/_common.sh` 는 활성 conda env 의 `bin/` 을 PATH 최상단에 고정해 user-site 의 낡은 CLI (`accelerate` 등) 를 가린다. `CONDA_PREFIX` 미설정 상태에서 `scripts/*.sh` 를 실행하면 즉시 중단된다 — 먼저 `conda activate gui-model`.
 
 ## 데이터 준비
 
