@@ -92,9 +92,16 @@ def _norm(s):
 
 # ── Step Accuracy 채점 ───────────────────────────────────────────────────
 _FIELD_MATCH_TYPES = {
-    'navigate_back', 'finish', 'click', 'long_click',
-    'scroll', 'open_app', 'input',
+    'navigate_back', 'navigate_home', 'wait', 'finish',
+    'click', 'long_press', 'scroll', 'open_app', 'input_text',
 }
+
+
+def _atype(action):
+    """AndroidControl 스키마는 'action_type' 키 사용 (구 'type' fallback)."""
+    if action is None:
+        return ''
+    return str(action.get('action_type', action.get('type', ''))).lower()
 
 
 def evaluate_single(gt_action, pred_action):
@@ -110,17 +117,17 @@ def evaluate_single(gt_action, pred_action):
     if pred_action is None:
         return result
 
-    gt_type = str(gt_action.get('type', '')).lower()
-    pred_type = str(pred_action.get('type', '')).lower()
+    gt_type = _atype(gt_action)
+    pred_type = _atype(pred_action)
     result['type_correct'] = (gt_type == pred_type)
     if not result['type_correct']:
         return result
 
-    if gt_type in ('navigate_back', 'finish'):
+    if gt_type in ('navigate_back', 'navigate_home', 'wait', 'finish'):
         result['step_correct'] = True
         return result
 
-    if gt_type in ('click', 'long_click'):
+    if gt_type in ('click', 'long_press'):
         result['has_index_check'] = True
         result['step_correct'] = (
             str(gt_action.get('index')) == str(pred_action.get('index'))
@@ -137,11 +144,11 @@ def evaluate_single(gt_action, pred_action):
     if gt_type == 'open_app':
         result['has_app_check'] = True
         result['step_correct'] = (
-            _norm(_pval(gt_action, 'app')) == _norm(_pval(pred_action, 'app'))
+            _norm(_pval(gt_action, 'app_name')) == _norm(_pval(pred_action, 'app_name'))
         )
         return result
 
-    if gt_type == 'input':
+    if gt_type == 'input_text':
         result['has_text_check'] = True
         result['step_correct'] = (
             _norm(_pval(gt_action, 'text')) == _norm(_pval(pred_action, 'text'))
@@ -181,12 +188,12 @@ def evaluate_pairs(gt_entries, pred_entries):
     step_correct = 0
 
     for gt_entry, pred_entry in zip(gt_entries, pred_entries):
-        gt_action = json.loads(gt_entry['messages'][-1]['value'])
+        gt_action = parse_action(gt_entry['messages'][-1]['value'])
         pred_text = pred_entry.get('predict', pred_entry.get('output', ''))
         pred_action = parse_action(pred_text)
 
         r = evaluate_single(gt_action, pred_action)
-        gt_type = str(gt_action.get('type', 'unknown')).lower()
+        gt_type = _atype(gt_action) or 'unknown'
 
         total += 1
         parsed += int(r['parsed'])
