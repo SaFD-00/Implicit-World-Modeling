@@ -296,6 +296,8 @@ bash scripts/stage2_eval.sh  --model qwen3-vl-8b --train-dataset AC_3 --ac3-rati
 
 `--epochs LIST` (콤마 구분, 기본 `1,2,3`) · `--variants LIST` (콤마 구분) · `--stage1-mode {full|lora}` / `--stage2-mode {full|lora}` / `--stage1-epoch N` (world-model variant 의 상류 Stage 1 epoch).
 
+> **stage2 `--epochs` 에 `0` 포함 (opt-in)**: `{full|lora}_world_model` 은 epoch-0 = stage1 merged repo (`SaFD-00/{short}-{slug}world-model-stage1-{STAGE1_MODE}-epoch{STAGE1_EPOCH}`, stage2 미학습 베이스라인) 를 평가한다 — `hf_repo_id_stage1` 로 해석. `{full|lora}_base` 는 stage1 계보가 없어 epoch-0 = 원본 base 모델(= `base` variant)과 중복이므로 경고 후 skip. `base` variant 는 epoch 무관(원본 모델 zero-shot). 기본값 `1,2,3` 에는 `0` 이 없어 기존 실행에 영향 없음.
+
 > **재실행 시 skip**: 각 unit 의 marker (`hungarian_metrics.json` / `action_metrics.json`) 가 이미 존재하면 `[=] ... skip (already done): ...` 로그만 남긴다. 강제 재평가는 해당 marker 를 `rm` 후 재실행. Stage 1 의 `without_open_app` 산출물은 정규 metric 과 별도 marker 로 독립 skip.
 
 #### Stage 1/2 메트릭 정의
@@ -329,7 +331,7 @@ GUI-Model/outputs/{AC|AC_2|AC_3|MC}/      # AC_3 의 ratio (r37/r55/r73) 는 별
 │   ├── stage1_eval/{base, {full,lora}_world-model/epoch-{E}}/   # 각 variant 안에 on-{EVAL_DS}/ + on-{EVAL_DS}-without-open_app/
 │   └── stage2_eval/{base,
 │                    {full,lora}_base/epoch-{E},
-│                    {full,lora}_world-model_from_{full,lora}-ep{E1}/epoch-{E2}}/
+│                    {full,lora}_world-model_from_{full,lora}-ep{E1}/epoch-{E2}}/   # E2∈{0,1,2,3}: epoch-0 = stage1 merged (stage2 미학습)
 └── merged/
     ├── {model}{SFX}_stage1_{full,lora}_world-model/epoch-{E}/
     ├── {model}{SFX}_stage2_{full,lora}_base/epoch-{E}/

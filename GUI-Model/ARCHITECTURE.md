@@ -305,6 +305,7 @@ data/
     - world: `hf_repo_id_stage2_world_model(MODEL, DS, STAGE1_MODE, STAGE1_EPOCH, STAGE2_MODE, E2)` → `...world-model-stage1-{M1}-epoch{E1}-stage2-{M2}-epoch{E2}`
 - **`scripts/stage2_eval.sh`**
   - `--variants` 로 `base`, `{full|lora}_base`, `{full|lora}_world_model` (CLI 토큰) 중 선택 평가. world-model variant 는 `--stage1-epoch` 로 HF 레포 계보 번호 주입. 출력 경로는 `..._world-model_from_{M1}-ep{E1}/epoch-{E2}/` (path 표기는 hyphen 정규화).
+  - **`--epochs` 에 `0` 포함 시 (opt-in)**: `{full|lora}_world_model` 의 epoch-0 은 stage2 미학습 베이스라인 = stage1 merged repo 로 해석 (`hf_repo_id_stage1(MODEL, DS, STAGE1_MODE, STAGE1_EPOCH)` → `...world-model-stage1-{M1}-epoch{E1}`, `hf_repo_id_stage2_world_model` 대신). full/lora 는 동일 모델이나 variant별 디렉토리(`epoch-0/`)를 각각 산출한다. `{full|lora}_base` 는 stage1 계보가 없어 epoch-0 = `base` variant 와 중복 → 경고 후 skip. 기본 `1,2,3` 에는 미포함.
   - `--train-dataset {AC|AC_2|AC_3}` (MC 거절. AC_3 는 `--ac3-ratio` 로 단일 ratio 지정) + `--eval-datasets LIST` (`AC, AC_2, AC_3, MB`). EVAL_DS 별 분기:
     - **AC / AC_3**: ID + OOD 두 test 파일 함께 추론 → `_action_eval.py score --test-id ... --pred-id ... --test-ood ... --pred-ood ...` 가 **overall / in_domain / out_of_domain** 3 섹션 기록.
     - **AC_2**: 단일 파일 1 회 추론 → `_action_eval.py score --test ... --pred ...` single-pair `overall` 1 섹션.
