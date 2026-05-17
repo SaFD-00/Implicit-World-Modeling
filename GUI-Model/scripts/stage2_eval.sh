@@ -17,6 +17,10 @@
 #     {full|lora}_base        : SaFD-00/{short}-{slug}base-stage2-{mode2}-epoch{E2}
 #     {full|lora}_world_model : SaFD-00/{short}-{slug}world-model-stage1-{STAGE1_MODE}-epoch{STAGE1_EPOCH}-stage2-{mode2}-epoch{E2}
 #   --epochs LIST        콤마 구분 정수 (기본 1,2,3).
+#     0 포함 시: {full|lora}_world_model 은 epoch-0 = stage1 merged repo
+#       (SaFD-00/{short}-{slug}world-model-stage1-{STAGE1_MODE}-epoch{STAGE1_EPOCH},
+#        stage2 미학습 베이스라인) 을 평가. {full|lora}_base 는 원본 base 모델과
+#       중복(=base variant)이라 skip. base variant 는 epoch 무관(원본 모델 zero-shot).
 #   --stage1-mode {full|lora}   world-model variant 의 상류 Stage 1 모드 (기본 full).
 #   --stage1-epoch N            world-model variant 에서 HF repo 계보 번호 주입용. 필수.
 #
@@ -154,6 +158,10 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         MODE2="${VARIANT%_base}"
         echo "[+] [$MODEL_SHORT][train=$TRAIN_DS][$VARIANT] Sweeping stage2 epochs: ${EPOCHS[*]}" >&2
         for EPOCH in "${EPOCHS[@]}"; do
+          if [[ "$EPOCH" == "0" ]]; then
+            echo "[=] [$MODEL_SHORT][train=$TRAIN_DS][$VARIANT] epoch-0 은 stage1 계보가 없어 원본 base 모델과 동일 — skip (base variant 사용)." >&2
+            continue
+          fi
           HUB_ID=$(hf_repo_id_stage2_base "$MODEL_SHORT" "$TRAIN_DS" "$MODE2" "$EPOCH")
           OUT_REL_BASE="${EVAL_DIR_REL}/${VARIANT}/epoch-${EPOCH}"
           for EVAL_DS in "${EVAL_DATASETS[@]}"; do
@@ -172,8 +180,13 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         VARIANT_PATH="${VARIANT/world_model/world-model}"
         echo "[+] [$MODEL_SHORT][train=$TRAIN_DS][$VARIANT] stage1=${STAGE1_MODE}ep${STAGE1_EPOCH} stage2 epochs: ${EPOCHS[*]}" >&2
         for EPOCH in "${EPOCHS[@]}"; do
-          HUB_ID=$(hf_repo_id_stage2_world_model "$MODEL_SHORT" "$TRAIN_DS" \
-            "$STAGE1_MODE" "$STAGE1_EPOCH" "$MODE2" "$EPOCH")
+          if [[ "$EPOCH" == "0" ]]; then
+            # epoch-0 = stage2 미학습 = stage1 merged repo (stage2 mode 무관, 동일 모델).
+            HUB_ID=$(hf_repo_id_stage1 "$MODEL_SHORT" "$TRAIN_DS" "$STAGE1_MODE" "$STAGE1_EPOCH")
+          else
+            HUB_ID=$(hf_repo_id_stage2_world_model "$MODEL_SHORT" "$TRAIN_DS" \
+              "$STAGE1_MODE" "$STAGE1_EPOCH" "$MODE2" "$EPOCH")
+          fi
           OUT_REL_BASE="${EVAL_DIR_REL}/${VARIANT_PATH}_from_${STAGE1_MODE}-ep${STAGE1_EPOCH}/epoch-${EPOCH}"
           for EVAL_DS in "${EVAL_DATASETS[@]}"; do
             run_variant_epoch_eval_on "$MODEL_SHORT" "$TRAIN_DS" "$VARIANT" "$EPOCH" "$HUB_ID" \
