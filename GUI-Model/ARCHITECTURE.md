@@ -198,6 +198,11 @@ data/
 │   ├── gui-model_stage2_{train,test_id,test_ood}.jsonl       # split_data.py 가 _filtered 풀에서 산출, 15K / 3K / 3K (action_type stratified, Stage 1 action_pred app partition 공유)
 │   ├── episodes_meta.jsonl
 │   # NOTE: images/ 디렉토리는 AndroidControl 와 공유 (JSONL `images` 가 "AndroidControl/images/..." 참조).
+├── AndroidControl_4/                 # AC_3 r73 + Stage 1 state-pred diff loss 실험군 (대조군 = AC_3 r73)
+│   ├── gui-model_stage1_train.jsonl                          # AC_3 r73 train + token_weights (scripts/diff_loss/preprocess_dataset.py)
+│   ├── gui-model_stage1_test_{id,ood}_{state,action}_pred.jsonl  # AC_3 에서 복사 (동일 평가셋 — 공정 비교)
+│   ├── gui-model_stage2_{train,test_id,test_ood}.jsonl       # AC_3 에서 복사 (Stage 2 는 diff loss 미적용)
+│   # NOTE: images/ 는 AndroidControl 와 공유. test/Stage2 는 AC_3 와 동일 — 노트북 환경 세팅 셀이 복사.
 ├── MonkeyCollection/                 # Stage 1 전용 학습 + 평가
 │   ├── gui-model_stage1.jsonl              # 약 100K
 │   ├── gui-model_stage1_{train,test}.jsonl # split_data.py --dataset MC (95:5)
@@ -216,6 +221,7 @@ data/
 - **Stage 2 (AC only, ID/OOD)**: 같은 (id_apps, ood_apps) 에서 각 풀별 action-type **stratified** 샘플링 (largest-remainder). train 은 `null` primary_app 에피소드까지 흡수해 regular 크기 유지.
 - **AC_2 (Stage 1 + 2, 단일 test)**: 사전 분할 데이터 — `split_data.py` 를 다시 돌리지 않는다. 평가는 single-pair `overall` 모드로 채점.
 - **AC_3 (Stage 1 ratio mix + Stage 2 ratio sweep)**: 선행으로 `scripts/filter_long_samples.py --dataset AC_3` 가 mm-expanded length > `cutoff_len` 인 row 를 제거해 `gui-model_stage1_{state,action}_pred_filtered.jsonl` + `gui-model_stage2_filtered.jsonl` (3 파일) 을 만든다 (Qwen3-VL `get_rope_index` broadcast 회피용; `run_ac3_split` 은 항상 Stage 1/Stage 2 모두 `_filtered` 만 입력으로 사용한다 — Stage 2 source 누락 시 hard-fail). 그 위에서 `run_ac3_split` 이 `state_pred` (random) + `action_pred` (action-type stratified) 두 풀을 ID/OOD 앱 partition 으로 라우팅 후 ratio (state:action ∈ {7:3, 3:7, 5:5}, default `7:3,3:7,5:5`) 로 혼합한 Stage 1 train 3 종 + (id, ood) × (state, action) 4 test 를 산출. 같은 `run_ac3_split` 이 같은 (id_apps, ood_apps) 를 재사용해 Stage 2 split (`gui-model_stage2_{train,test_id,test_ood}.jsonl`, 기본 15K / 3K / 3K, action_type stratified) 까지 함께 산출 — Stage 1 ↔ Stage 2 OOD app 집합 일치. **Stage 2 파이프라인은 ratio sweep 으로 활성** (`_STAGE1_ONLY = {"MonkeyCollection"}` 만 유지) — stage2 데이터는 ratio 무관 (3 ratio 공유) 이며, ratio 차원은 stage1 → stage2 base 계보 (Stage 1 ratio merged 가 Stage 2 world-model variant 의 base) 로만 흐른다. 산출 디렉토리/HF slug 는 ratio 별 분리 (`outputs/AC_3/{adapters,merged,eval}/{MODEL}_r{37,55,73}_stage2_*`, `SaFD-00/{short}-ac-3-r{37,55,73}-...`). ratio 별로 학습 가중치가 다르므로 `--ac3-ratios` 가 sweep 단위, `--ac3-train-total` 이 Stage 1 train 합계 (기본 50K). Stage 2 학습 데이터의 last-message wrapping (`<thought>…</thought>\n<action>{...}</action>`) 은 `_parse_action_payload` regex helper 가 분리.
+- **AC_4 (Stage 1 state-pred diff loss 실험군)**: split 불필요. `scripts/diff_loss/preprocess_dataset.py` 가 AC_3 r73 train (`gui-model_stage1_train_7_3.jsonl`) 의 future HTML 토큰에 diff 가중치를 부여한 `token_weights` 필드를 추가 — current→future HTML diff 를 헝가리안 매칭으로 ADDED/MODIFIED/UNCHANGED 분류 (가중치 2.0/2.0/1.0). action_pred 샘플은 assistant 가 JSON 이라 diff element 0 개 → `token_weights` 전부 1.0 → 기존 cross-entropy 와 동치 (action 은 기존 loss). test / Stage 2 데이터는 AC_3 에서 복사 (`DS_DATADIR[AC_4]=AndroidControl_4`, 노트북 환경 세팅 셀이 일괄 수행). diff loss 는 LlamaFactory 6 파일 패치 (`use_diff_token_weighted_loss` 인자 + `diff_token_weighted_loss_func` + collator 의 labels 기반 token_weights 복원) 에 의존 — LF 는 gitignore 된 별도 repo 라 `scripts/diff_loss/apply_llamafactory_patch.py` 가 멱등 재적용한다. (`scripts/diff_loss/` 의 `hungarian_metric.py` 는 채점용 `scripts/_hungarian_eval.py` 와 의도적으로 분리된 학습 전처리용 사본.)
 - **MB**: split 없음. 평가 전용.
 
 ### `episodes_meta.jsonl` 스키마 (AC only)
@@ -231,14 +237,14 @@ data/
 
 ### 데이터셋 이름 규약
 
-| 용도 | AndroidControl | AndroidControl_2 | AndroidControl_3 | MonkeyCollection | MobiBench |
-|------|----------------|-------------------|-------------------|-------------------|-----------|
-| `data/` 실제 디렉토리 | `AndroidControl` | `AndroidControl_2` | `AndroidControl_3` | `MonkeyCollection` | `MobiBench` |
-| shell 단축 코드 | `AC` | `AC_2` | `AC_3` (ratio 별 가상 키 `AC_3_r{37,55,73}` 으로 expand) | `MC` | `MB` (eval 전용) |
-| LF dataset prefix | `GUI-Model-AC` | `GUI-Model-AC_2` | `GUI-Model-AC_3` (test 공유) + `..._train_r{37,55,73}` | `GUI-Model-MC` | `GUI-Model-MB` |
-| `outputs/` 최상위 | `AC` | `AC_2` | `AC_3` (ratio 는 아래 model dir 의 `_r{37,55,73}` suffix 로 운반) | `MC` | — (TRAIN_DS 산하 `on-MB/`) |
-| test split | ID/OOD 2 파일 | 단일 test | (id, ood) × (state, action) 4 파일 | 단일 test | 단일 파일 |
-| Stage 2 지원 | ✓ (ID/OOD 3 섹션) | ✓ (single-pair overall) | ✓ (ID/OOD 3 섹션, ratio sweep — stage1 → stage2 계보) | ✗ (데이터 없음, `_STAGE1_ONLY`) | ✓ (single-pair overall) |
+| 용도 | AndroidControl | AndroidControl_2 | AndroidControl_3 | AndroidControl_4 | MonkeyCollection | MobiBench |
+|------|----------------|-------------------|-------------------|-------------------|-------------------|-----------|
+| `data/` 실제 디렉토리 | `AndroidControl` | `AndroidControl_2` | `AndroidControl_3` | `AndroidControl_4` | `MonkeyCollection` | `MobiBench` |
+| shell 단축 코드 | `AC` | `AC_2` | `AC_3` (ratio 별 가상 키 `AC_3_r{37,55,73}` 으로 expand) | `AC_4` | `MC` | `MB` (eval 전용) |
+| LF dataset prefix | `GUI-Model-AC` | `GUI-Model-AC_2` | `GUI-Model-AC_3` (test 공유) + `..._train_r{37,55,73}` | `GUI-Model-AC_4` | `GUI-Model-MC` | `GUI-Model-MB` |
+| `outputs/` 최상위 | `AC` | `AC_2` | `AC_3` (ratio 는 아래 model dir 의 `_r{37,55,73}` suffix 로 운반) | `AC_4` | `MC` | — (TRAIN_DS 산하 `on-MB/`) |
+| test split | ID/OOD 2 파일 | 단일 test | (id, ood) × (state, action) 4 파일 | (id, ood) × (state, action) 4 파일 (AC_3 복사) | 단일 test | 단일 파일 |
+| Stage 2 지원 | ✓ (ID/OOD 3 섹션) | ✓ (single-pair overall) | ✓ (ID/OOD 3 섹션, ratio sweep — stage1 → stage2 계보) | ✓ (ID/OOD 3 섹션, diff loss 미적용) | ✗ (데이터 없음, `_STAGE1_ONLY`) | ✓ (single-pair overall) |
 
 ### LLaMA-Factory 등록
 
@@ -246,6 +252,7 @@ data/
   - **AC** (모두 X): `GUI-Model-AC_stage{1,2}_{train,test_id,test_ood}` 6 entry.
   - **AC_2** (`_SINGLE_TEST` 만): `GUI-Model-AC_2_stage{1,2}_{train,test}` 4 entry.
   - **AC_3** (`_DUAL_TASK_TEST`, ratio 변형 3 종): Stage 1 = `GUI-Model-AC_3_stage1_train_{r37,r55,r73}` (3) + `GUI-Model-AC_3_stage1_test_{id,ood}_{state,action}` (4) — test 4 파일은 ratio 변형 간 공유. Stage 2 = `GUI-Model-AC_3_stage2_{train,test_id,test_ood}` (3) — ratio 무관 공유. 총 10 entry (ratio variant 3 회 등록 시 train_{rXX} 만 ratio 별로 다름).
+  - **AC_4** (`_DUAL_TASK_TEST`, diff loss 실험군): AC_3 와 동일 구조 — Stage 1 = `GUI-Model-AC_4_stage1_train` (1) + `GUI-Model-AC_4_stage1_test_{id,ood}_{state,action}` (4), Stage 2 = `GUI-Model-AC_4_stage2_{train,test_id,test_ood}` (3). 총 8 entry. train JSONL 만 `token_weights` 필드 포함 — `columns` 등록은 불필요 (converter 가 raw 필드를 `_token_weights` 로 직접 전달).
   - **MC** (`_STAGE1_ONLY` + `_SINGLE_TEST`): `GUI-Model-MC_stage1_{train,test}` 2 entry. `_STAGE1_ONLY = {"MonkeyCollection"}` — AC_3 는 더 이상 게이트되지 않는다.
   - **MB**: `_EVAL_ONLY_BENCHMARKS` 루프가 `GUI-Model-MB_stage{1,2}` 단일 파일 entry 등록. `scripts/_common.sh::ensure_eval_only_dataset_info()` 가 source 시점에 idempotent 하게도 보장 → 노트북 미실행 환경에서도 MB 평가 성립.
 - JSONL 파일 경로는 `../../data/{DATASET_NAME}/...` 형태의 **상대 경로** 로 등록.
