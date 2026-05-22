@@ -52,27 +52,28 @@ export DISABLE_VERSION_CHECK=1
 SCRIPT_TAG="stage1_eval"
 TRAIN_DS="$TRAIN_DATASET"
 
-# AC_3 dual-task eval helper.
+# AC_3 / AC_4 dual-task eval helper.
 # state_pred / action_pred 각각 (id + ood) 2-section 으로 독립 채점.
-#   on-AC_3-state/  ← _hungarian_eval.py score (Stage1 채점)
-#   on-AC_3-action/ ← _action_eval.py score    (Stage2 채점)
+#   on-{DS}-state/  ← _hungarian_eval.py score (Stage1 채점)
+#   on-{DS}-action/ ← _action_eval.py score    (Stage2 채점)
 # without_open_app 은 state branch 만 산출 (action branch 의 _action_eval.py 는
 # --exclude-action 미지원).
+# AC_4 는 AC_3 와 동일 test 파일을 쓴다 (DS_DATADIR[AC_4]=AndroidControl_3).
 run_ac3_eval() {
   local model_short="$1" train_ds="$2" variant="$3" epoch="$4" hub_id="$5" \
-        out_rel_base="$6" template="$7"
-  local datadir="AndroidControl_3"
-  local eval_prefix="GUI-Model-AC_3"
+        out_rel_base="$6" template="$7" eval_ds="${8:-AC_3}"
+  local datadir="${DS_DATADIR[$eval_ds]}"
+  local eval_prefix="${DS_PREFIX[$eval_ds]}"
 
   local task subtag scorer metrics_name
   for task in state action; do
-    local out_rel="${out_rel_base}/on-AC_3-${task}"
+    local out_rel="${out_rel_base}/on-${eval_ds}-${task}"
     local out_dir="$LF_ROOT/$out_rel"
     subtag="${SCRIPT_TAG}_${model_short}_${train_ds}_${variant}"
     if [[ -n "$epoch" ]]; then
       subtag="${subtag}_epoch${epoch}"
     fi
-    subtag="${subtag}_on-AC_3-${task}"
+    subtag="${subtag}_on-${eval_ds}-${task}"
 
     if [[ "$task" == "state" ]]; then
       scorer="_hungarian_eval.py"
@@ -89,7 +90,7 @@ run_ac3_eval() {
     local test_id="$BASE_DIR/data/${datadir}/gui-model_stage1_test_id_${task}_pred.jsonl"
     local test_ood="$BASE_DIR/data/${datadir}/gui-model_stage1_test_ood_${task}_pred.jsonl"
     if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
-      echo "[!] [$model_short][train=$train_ds][eval=AC_3-${task}] Missing test jsonl:" >&2
+      echo "[!] [$model_short][train=$train_ds][eval=${eval_ds}-${task}] Missing test jsonl:" >&2
       echo "      $test_id" >&2
       echo "      $test_ood" >&2
       exit 1
@@ -151,10 +152,10 @@ run_variant_epoch_eval_on() {
   local model_short="$1" train_ds="$2" variant="$3" epoch="$4" hub_id="$5" \
         out_rel_base="$6" template="$7" eval_ds="$8"
 
-  # AC_3 는 task 별 독립 채점이라 별도 helper 위임.
-  if [[ "$eval_ds" == "AC_3" ]]; then
+  # AC_3 / AC_4 는 task 별 독립 채점이라 별도 helper 위임.
+  if [[ "$eval_ds" == "AC_3" || "$eval_ds" == "AC_4" ]]; then
     run_ac3_eval "$model_short" "$train_ds" "$variant" "$epoch" "$hub_id" \
-                 "$out_rel_base" "$template"
+                 "$out_rel_base" "$template" "$eval_ds"
     return $?
   fi
 

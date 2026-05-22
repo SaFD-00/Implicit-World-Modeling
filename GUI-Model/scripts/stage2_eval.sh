@@ -39,13 +39,13 @@ SCRIPT_TAG="stage2_eval"
 TRAIN_DS="$TRAIN_DATASET"
 
 case "$TRAIN_DS" in
-  AC|AC_2|AC_3_r37|AC_3_r55|AC_3_r73) ;;
+  AC|AC_2|AC_3_r37|AC_3_r55|AC_3_r73|AC_4) ;;
   MC)
     echo "[!] Stage 2 는 MonkeyCollection(MC) 학습 데이터를 갖지 않습니다 (got '$TRAIN_DS')." >&2
-    echo "    --train-dataset 는 AC | AC_2 | AC_3 만 사용하세요." >&2
+    echo "    --train-dataset 는 AC | AC_2 | AC_3 | AC_4 만 사용하세요." >&2
     exit 2 ;;
   *)
-    echo "[!] Stage 2 eval --train-dataset 는 AC | AC_2 | AC_3 만 지원합니다 (got '$TRAIN_DS')." >&2
+    echo "[!] Stage 2 eval --train-dataset 는 AC | AC_2 | AC_3 | AC_4 만 지원합니다 (got '$TRAIN_DS')." >&2
     exit 2 ;;
 esac
 

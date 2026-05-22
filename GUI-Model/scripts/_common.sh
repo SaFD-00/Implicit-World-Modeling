@@ -149,6 +149,7 @@ declare -A DS_PREFIX=(
   [AC_2]="GUI-Model-AC_2"
   [AC_3]="GUI-Model-AC_3"
   [AC_3_r37]="GUI-Model-AC_3" [AC_3_r55]="GUI-Model-AC_3" [AC_3_r73]="GUI-Model-AC_3"
+  [AC_4]="GUI-Model-AC_4"
   [MC]="GUI-Model-MC"
 )
 declare -A HF_SLUG=(
@@ -157,6 +158,7 @@ declare -A HF_SLUG=(
   [AC_2]="ac-2-"
   [AC_3]="ac-3-"
   [AC_3_r37]="ac-3-r37-" [AC_3_r55]="ac-3-r55-" [AC_3_r73]="ac-3-r73-"
+  [AC_4]="ac-4-"
   [MC]="mc-"
 )
 declare -A DS_DATADIR=(
@@ -165,6 +167,9 @@ declare -A DS_DATADIR=(
   [AC_2]="AndroidControl_2"
   [AC_3]="AndroidControl_3"
   [AC_3_r37]="AndroidControl_3" [AC_3_r55]="AndroidControl_3" [AC_3_r73]="AndroidControl_3"
+  # AC_4 = AC_3 r73 동일 데이터 + Stage1 state-pred diff loss 실험군.
+  # train 은 diff-loss 전처리본, test/Stage2 는 AC_3 에서 복사 — 모두 AndroidControl_4/ 아래.
+  [AC_4]="AndroidControl_4"
   [MC]="MonkeyCollection"
 )
 
@@ -303,10 +308,11 @@ Usage: $(basename "$0") [--model MODEL] [--dataset DS] [--stage1-mode MODE]
 
 Options:
   --model MODEL        모델 short_name 또는 "all" (기본: all)
-  --dataset DS         AC | AC_2 | AC_3 | MC | all (기본: all) — 학습 대상 DS.
+  --dataset DS         AC | AC_2 | AC_3 | AC_4 | MC | all (기본: all) — 학습 대상 DS.
                        AC_3 는 ratio mix (3:7, 5:5, 7:3) 3 종을 모두 sweep 하므로
                        --ac3-ratios 로 부분 실행 가능. MB 는 평가 전용이라 사용 불가.
-                       'all' 은 (AC AC_2 MC) 만 의미하며 AC_3 는 명시적으로 선택해야 함.
+                       AC_4 는 AC_3 r73 동일 데이터 + Stage1 state-pred diff loss 실험군.
+                       'all' 은 (AC AC_2 MC) 만 의미하며 AC_3/AC_4 는 명시적으로 선택해야 함.
   --stage1-mode MODE   full | lora (기본: full) — Stage 1 학습 방식.
   --stage2-mode MODE   full | lora (기본: lora) — Stage 2 학습 방식 (Stage 2 전용).
   --no-hf-upload       Hugging Face 업로드를 생략하고 local merge/export 만 수행.
@@ -383,6 +389,7 @@ EOF
   case "$dataset_arg" in
     AC)   DATASETS=(AC) ;;
     AC_2) DATASETS=(AC_2) ;;
+    AC_4) DATASETS=(AC_4) ;;
     MC)   DATASETS=(MC) ;;
     AC_3)
       DATASETS=()
@@ -395,7 +402,7 @@ EOF
       echo "       교차 평가는 stage{1,2}_eval.sh --train-dataset {AC|AC_2|AC_3|MC} --eval-datasets AC,AC_2,AC_3,MC,MB 를 사용하세요." >&2
       exit 2
       ;;
-    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC | AC_2 | AC_3 | MC | all." >&2; exit 2 ;;
+    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC | AC_2 | AC_3 | AC_4 | MC | all." >&2; exit 2 ;;
   esac
 
   IFS=',' read -r -a EPOCHS <<< "$epochs_arg"
@@ -476,11 +483,11 @@ Usage: $(basename "$0") --train-dataset {AC|AC_2|AC_3|MC} [--eval-datasets LIST]
 
 Options:
   --model MODEL           모델 short_name 또는 "all" (기본: all)
-  --train-dataset DS      AC | AC_2 | AC_3 | MC (필수) — HF Hub merged repo 를 해석할 학습 DS.
+  --train-dataset DS      AC | AC_2 | AC_3 | AC_4 | MC (필수) — HF Hub merged repo 를 해석할 학습 DS.
                           AC_3 는 ratio 하나를 추가로 지정해야 함 (--ac3-ratio).
   --eval-datasets LIST    콤마로 구분된 평가 DS 리스트 (기본: --train-dataset 단일값)
-                          허용값: AC, AC_2, AC_3, MC, MB (MB 는 단일 파일 overall 채점).
-                          AC_3 는 state_pred / action_pred 두 task 를 각각 채점한다.
+                          허용값: AC, AC_2, AC_3, AC_4, MC, MB (MB 는 단일 파일 overall 채점).
+                          AC_3 / AC_4 는 state_pred / action_pred 두 task 를 각각 채점한다.
   --stage1-mode MODE      full | lora (기본: full) — world-model variant 의 상류 Stage1 모드.
   --stage2-mode MODE      full | lora (기본: lora) — Stage 2 merge/eval 전용.
   --stage1-epoch N        Stage 2 world-model variant 의 HF repo 계보 번호.
@@ -505,10 +512,10 @@ EOF
   done
 
   if [[ -z "$train_arg" ]]; then
-    echo "Error: --train-dataset 는 필수입니다 (AC | AC_2 | AC_3 | MC)." >&2; exit 2
+    echo "Error: --train-dataset 는 필수입니다 (AC | AC_2 | AC_3 | AC_4 | MC)." >&2; exit 2
   fi
   case "$train_arg" in
-    AC|AC_2|MC) TRAIN_DATASET="$train_arg" ;;
+    AC|AC_2|AC_4|MC) TRAIN_DATASET="$train_arg" ;;
     AC_3)
       # AC_3 는 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
       # 미지정 시 r55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
@@ -523,7 +530,7 @@ EOF
     MB)
       echo "Error: --train-dataset MB 는 허용되지 않습니다 (MobiBench 는 평가 전용)." >&2
       exit 2 ;;
-    *) echo "Error: --train-dataset must be AC | AC_2 | AC_3 | MC (got '$train_arg')." >&2; exit 2 ;;
+    *) echo "Error: --train-dataset must be AC | AC_2 | AC_3 | AC_4 | MC (got '$train_arg')." >&2; exit 2 ;;
   esac
 
   # --ac3-ratio 는 AC_3 train 일 때만 유효. 다른 train DS 와 함께 주면 에러.
@@ -546,8 +553,8 @@ EOF
     fi
     for _d in "${EVAL_DATASETS[@]}"; do
       case "$_d" in
-        AC|AC_2|AC_3|MC|MB) ;;
-        *) echo "Error: --eval-datasets item '$_d' invalid (use AC | AC_2 | AC_3 | MC | MB)." >&2; exit 2 ;;
+        AC|AC_2|AC_3|AC_4|MC|MB) ;;
+        *) echo "Error: --eval-datasets item '$_d' invalid (use AC | AC_2 | AC_3 | AC_4 | MC | MB)." >&2; exit 2 ;;
       esac
     done
     unset _d
