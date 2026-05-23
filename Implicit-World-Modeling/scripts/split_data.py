@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Train / Test split builder for Implicit-World-Modeling datasets.
 
-학습 대상 DS 는 {AC (AndroidControl), AC_2 (AndroidControl_2), MC (MonkeyCollection)} 를 지원한다.
-AC_2 는 AC 와 동일한 episodes_meta 기반 app-level split 규칙을 따른다.
+학습 대상 DS 는 {AC (AndroidControl), MC (MonkeyCollection), AC_EXP01, AC_EXP02} 를 지원한다.
 MobiBench(MB) 는 평가 전용 벤치마크이므로 split 하지 않는다 —
 ``data/MobiBench/implicit-world-modeling_stage{1,2}.jsonl`` 두 단일 파일이 eval 입력.
 
@@ -12,7 +11,7 @@ Stage 1 (World Modeling)
         Stage 2 OOD 앱이 world-modeling 학습에서도 노출되지 않게 한다.
     MC: meta 없음 → 자동 random split (단일 ``_test.jsonl``).
 Stage 2 (Action Prediction)
-    AC, AC_2, AC_EXP01: app-level ID/OOD split (Stage 1 과 partition 공유).
+    AC, AC_EXP01: app-level ID/OOD split (Stage 1 과 partition 공유).
         AC_EXP01 는 Stage 1 partition (action_pred 기준) 을 그대로 재사용해
         Stage 1↔Stage 2 OOD app 집합을 일치시킨다.
     MC: 데이터 없음 → 자동 skip (``--skip-stage2`` 기본 적용).
@@ -57,8 +56,6 @@ from pathlib import Path
 DATASET_DIRS = {
     "AndroidControl":   "AndroidControl",
     "AC":               "AndroidControl",
-    "AndroidControl_2": "AndroidControl_2",
-    "AC_2":             "AndroidControl_2",
     "AndroidControl_EXP01": "AndroidControl_EXP01",
     "AC_EXP01":             "AndroidControl_EXP01",
     "MonkeyCollection": "MonkeyCollection",

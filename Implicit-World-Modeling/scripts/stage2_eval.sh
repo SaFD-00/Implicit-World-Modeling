@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage 2 Evaluation — HF Hub merged repo sweep × 교차 데이터셋.
 #
-# 학습 DS (TRAIN_DATASET ∈ {AC, AC_2, AC_EXP01, AC_EXP02}) 에서 얻은 merged 모델을
+# 학습 DS (TRAIN_DATASET ∈ {AC, AC_EXP01, AC_EXP02}) 에서 얻은 merged 모델을
 # 여러 평가 DS 에서 sweep. MC 는 Stage 2 학습 데이터/YAML 부재로 미지원.
 # AC_EXP01 은 --exp01-ratio {ratio37|ratio55|ratio73} 으로 ratio 별 학습 모델을 지정한다
 # (Stage 1 과 동일 패턴).
@@ -41,13 +41,13 @@ SCRIPT_TAG="stage2_eval"
 TRAIN_DS="$TRAIN_DATASET"
 
 case "$TRAIN_DS" in
-  AC|AC_2|AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02) ;;
+  AC|AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02) ;;
   MC)
     echo "[!] Stage 2 는 MonkeyCollection(MC) 학습 데이터를 갖지 않습니다 (got '$TRAIN_DS')." >&2
-    echo "    --train-dataset 는 AC | AC_2 | AC_EXP01 | AC_EXP02 만 사용하세요." >&2
+    echo "    --train-dataset 는 AC | AC_EXP01 | AC_EXP02 만 사용하세요." >&2
     exit 2 ;;
   *)
-    echo "[!] Stage 2 eval --train-dataset 는 AC | AC_2 | AC_EXP01 | AC_EXP02 만 지원합니다 (got '$TRAIN_DS')." >&2
+    echo "[!] Stage 2 eval --train-dataset 는 AC | AC_EXP01 | AC_EXP02 만 지원합니다 (got '$TRAIN_DS')." >&2
     exit 2 ;;
 esac
 
@@ -71,17 +71,10 @@ run_variant_epoch_eval_on() {
   local datadir="${DS_DATADIR[$eval_ds]}"
   local eval_prefix="${DS_PREFIX[$eval_ds]}"
 
-  # Single-test 데이터셋 (overall only): MB, AC_2.
-  # AC_2 는 데이터셋 자체가 단일 _test.jsonl 만 갖는다 (_common.sh::_SINGLE_TEST 와 정합).
-  if [[ "$eval_ds" == "MB" || "$eval_ds" == "AC_2" ]]; then
-    local test_jsonl ds_test
-    if [[ "$eval_ds" == "MB" ]]; then
-      test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2.jsonl"
-      ds_test="${eval_prefix}_stage2"
-    else  # AC_2
-      test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2_test.jsonl"
-      ds_test="${eval_prefix}_stage2_test"
-    fi
+  # Single-test 데이터셋 (overall only): MB.
+  if [[ "$eval_ds" == "MB" ]]; then
+    local test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2.jsonl"
+    local ds_test="${eval_prefix}_stage2"
     if [ ! -f "$test_jsonl" ]; then
       echo "[!] [$model_short][train=$train_ds][eval=$eval_ds] Missing test file: $test_jsonl" >&2
       exit 1
@@ -141,7 +134,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
 
   # outputs/ 1-level 디렉토리는 ds_outputs_code 로 정규화 (AC_EXP01_ratio* → AndroidControl_EXP01),
   # AC_EXP01 ratio variant 만 model 디렉토리에 _ratio{37,55,73} suffix 를 붙여 충돌 방지.
-  # AC/AC_2 는 기존 산출 경로(suffix 없음) 를 유지한다.
+  # AC 는 기존 산출 경로(suffix 없음) 를 유지한다.
   OUT_DS="$(ds_outputs_code "$TRAIN_DS")"
   EVAL_SFX="$(ds_model_suffix "$TRAIN_DS")"
   EVAL_DIR_REL="../outputs/${OUT_DS}/eval/${MODEL_SHORT}${EVAL_SFX}/stage2_eval"

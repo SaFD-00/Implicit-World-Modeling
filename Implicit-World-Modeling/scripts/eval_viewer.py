@@ -71,28 +71,10 @@ STAGE_CONFIG: dict[int, dict] = {
     },
 }
 
-# `--data-dir` 별 STAGE_CONFIG override. AC_2 는 split 없는 단일 test 파일을 사용하므로
-# `data_dir` 와 `datasets` 만 덮어쓰면 됨 (metric_files / metric_keys / eval_subdir 은 동일).
+# `--data-dir` 별 STAGE_CONFIG override 자리. 현재는 모든 학습 DS 가 동일 stage config
+# 를 쓰므로 비어있음 — 새 데이터셋이 별도 test 구조를 가지면 여기에 등록.
 DATA_DIR_OVERRIDES: dict[str, dict[int, dict]] = {
     "AC": {},
-    "AC_2": {
-        1: {
-            "data_dir": "AC_2",
-            "datasets": {
-                "on-AC":                  REPO / "data/AndroidControl_2/implicit-world-modeling_stage1_test.jsonl",
-                "on-AC-without-open_app": REPO / "data/AndroidControl_2/implicit-world-modeling_stage1_test_without_open_app.jsonl",
-                "on-MB":                  REPO / "data/MobiBench/implicit-world-modeling_stage1.jsonl",
-                "on-MB-without-open_app": REPO / "data/MobiBench/implicit-world-modeling_stage1_without_open_app.jsonl",
-            },
-        },
-        2: {
-            "data_dir": "AC_2",
-            "datasets": {
-                "on-AC": REPO / "data/AndroidControl_2/implicit-world-modeling_stage2_test.jsonl",
-                "on-MB": REPO / "data/MobiBench/implicit-world-modeling_stage2.jsonl",
-            },
-        },
-    },
 }
 
 
@@ -363,7 +345,7 @@ def parse_args() -> argparse.Namespace:
         "--data-dir",
         choices=list(DATA_DIR_OVERRIDES.keys()),
         default="AC",
-        help="Output/data directory. AC=AndroidControl (default), AC_2=AndroidControl_2.",
+        help="Output/data directory. AC=AndroidControl (default).",
     )
     p.add_argument(
         "--model",
