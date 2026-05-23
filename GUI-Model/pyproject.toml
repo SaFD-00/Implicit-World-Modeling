@@ -3,14 +3,14 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gui-model"
+name = "implicit-world-modeling"
 version = "0.1.0"
-description = "Training and evaluation pipeline for GUI world modeling and action prediction."
+description = "Training and evaluation pipeline for implicit world modeling and action prediction on GUI agents."
 requires-python = ">=3.11,<3.13"
 # 공통 deps. transformers / 서브프로젝트 / deepspeed / vllm 등은 extras 에서 선언한다.
-# 설치는 conda env (`gui-model`) 에서:
-#     conda create -n gui-model python=3.12 -y
-#     conda activate gui-model
+# 설치는 conda env (`implicit-world-modeling`) 에서:
+#     conda create -n implicit-world-modeling python=3.12 -y
+#     conda activate implicit-world-modeling
 #     pip install -e ".[llamafactory]"
 #     pip install -e ./LlamaFactory   # editable 서브프로젝트
 # transformers 는 `>=4.57.1,<4.58` 로 고정한다 (Qwen3-VL processor 가 4.57+ 에서
@@ -84,4 +84,4 @@ llamafactory = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["gui_model*"]
+include = ["implicit_world_modeling*"]
