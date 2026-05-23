@@ -135,7 +135,7 @@ if [[ "${GPU_TYPE:-}" == "RTX5090" ]]; then
 fi
 
 # --- dataset prefix / HF slug / data dir 매핑 (Cell 3 _DATASET_CONFIG 와 일치) -
-# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC, AC_EXP01, AC_EXP02, MC}.
+# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC_EXP01, AC_EXP02, MC}.
 # MB entry 는 평가 스크립트가 dataset_info 이름/slug 를 조합하는 데 사용.
 #
 # AC_EXP01 (AndroidControl_EXP01) 은 state_pred / action_pred 두 task 를 비율
@@ -147,9 +147,11 @@ fi
 #
 # AC_EXP02 (AndroidControl_EXP02) 는 AC_EXP01 ratio73 동일 데이터 + Stage1
 # state-pred diff loss 실험군.
+#
+# 원본 AndroidControl/ 디렉토리는 EXP01/EXP02 의 source jsonl + 이미지 자산으로만
+# 사용된다 (학습/평가 entry 아님). DS_DATADIR 에는 등재하지 않는다.
 declare -A DS_PREFIX=(
   [MB]="IWM-MB"
-  [AC]="IWM-AC"
   [AC_EXP01]="IWM-AC_EXP01"
   [AC_EXP01_ratio37]="IWM-AC_EXP01"
   [AC_EXP01_ratio55]="IWM-AC_EXP01"
@@ -159,7 +161,6 @@ declare -A DS_PREFIX=(
 )
 declare -A HF_SLUG=(
   [MB]="mb-"
-  [AC]="ac-"
   [AC_EXP01]="ac-exp01-"
   [AC_EXP01_ratio37]="ac-exp01-ratio37-"
   [AC_EXP01_ratio55]="ac-exp01-ratio55-"
@@ -169,7 +170,6 @@ declare -A HF_SLUG=(
 )
 declare -A DS_DATADIR=(
   [MB]="MobiBench"
-  [AC]="AndroidControl"
   [AC_EXP01]="AndroidControl_EXP01"
   [AC_EXP01_ratio37]="AndroidControl_EXP01"
   [AC_EXP01_ratio55]="AndroidControl_EXP01"
@@ -220,10 +220,9 @@ ds_model_suffix() {
 }
 
 # DS 키 → eval/ 의 모델 디렉토리 이름에 붙일 suffix.
-# AC 는 DS 코드 자체를 lower 로, AC_EXP01 ratio 는 ratio 만, MC 는 빈 문자열.
+# AC_EXP01 ratio 는 ratio 만, 그 외는 빈 문자열.
 ds_eval_suffix() {
   case "$1" in
-    AC) echo "_ac" ;;
     AC_EXP01_ratio37) echo "_ratio37" ;;
     AC_EXP01_ratio55) echo "_ratio55" ;;
     AC_EXP01_ratio73) echo "_ratio73" ;;
@@ -247,17 +246,18 @@ ALL_MODELS=(
 
 # --- CLI 인자 파싱 (학습/merge 스크립트용): --model MODEL --dataset DS --------
 # 사용법:
-#   bash script.sh --model qwen3-vl-8b --dataset AC
-#   bash script.sh --model qwen3-vl-8b --stage1-mode lora
-#   bash script.sh --stage1-mode lora           # 전체 모델 LoRA 학습/평가/merge
-#   bash script.sh                               # 기본값: 전체 모델 + 전체 학습 DS + full
+#   bash script.sh --model qwen3-vl-8b --dataset AC_EXP01
+#   bash script.sh --model qwen3-vl-8b --dataset AC_EXP02 --stage1-mode lora
+#   bash script.sh --model qwen3-vl-8b --dataset MC
 #
-# 학습 대상 DS 는 {AC, MC} 만 (+ AC_EXP01 ratio sweep, AC_EXP02). MobiBench(MB) 는
-# 평가 전용 벤치마크이므로 --dataset MB 입력은 거절된다. 교차 평가는
-# stage{1,2}_eval.sh 가 제공하는 parse_eval_args (--train-dataset / --eval-datasets) 를 사용한다.
+# 학습 대상 DS 는 {AC_EXP01, AC_EXP02, MC}. 각 DS 는 명시적으로 선택해야 하며,
+# `--dataset all` 같은 일괄 sweep 모드는 지원하지 않는다.
+# MobiBench(MB) 는 평가 전용 벤치마크이므로 --dataset MB 입력은 거절된다.
+# 교차 평가는 stage{1,2}_eval.sh 가 제공하는 parse_eval_args
+# (--train-dataset / --eval-datasets) 를 사용한다.
 parse_args() {
   local model_arg="all"
-  local dataset_arg="all"
+  local dataset_arg=""
   local stage1_mode_arg="full"
   local stage2_mode_arg="lora"
   local hf_upload_arg=1
@@ -301,13 +301,11 @@ Usage: $(basename "$0") [--model MODEL] [--dataset DS] [--stage1-mode MODE]
 
 Options:
   --model MODEL        모델 short_name 또는 "all" (기본: all)
-  --dataset DS         AC | AC_EXP01 | AC_EXP02 | MC | all (기본: all) — 학습 대상 DS.
+  --dataset DS         AC_EXP01 | AC_EXP02 | MC (필수) — 학습 대상 DS.
                        AC_EXP01 은 ratio mix (3:7, 5:5, 7:3) 3 종을 모두 sweep 하므로
                        --exp01-ratios 로 부분 실행 가능. MB 는 평가 전용이라 사용 불가.
                        AC_EXP02 는 AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred
                        diff loss 실험군.
-                       'all' 은 (AC MC) 만 의미하며 AC_EXP01/AC_EXP02 는
-                       명시적으로 선택해야 함.
   --stage1-mode MODE   full | lora (기본: full) — Stage 1 학습 방식.
   --stage2-mode MODE   full | lora (기본: lora) — Stage 2 학습 방식 (Stage 2 전용).
   --no-hf-upload       Hugging Face 업로드를 생략하고 local merge/export 만 수행.
@@ -382,7 +380,6 @@ EOF
 
   # AC_EXP01 → 내부 ratio variant DS 키들로 expand. 다른 DS 는 그대로 전달.
   case "$dataset_arg" in
-    AC)       DATASETS=(AC) ;;
     AC_EXP02) DATASETS=(AC_EXP02) ;;
     MC)       DATASETS=(MC) ;;
     AC_EXP01)
@@ -390,13 +387,14 @@ EOF
       for _r in "${exp01_ratios[@]}"; do DATASETS+=("AC_EXP01_${_r}"); done
       unset _r
       ;;
-    all)  DATASETS=(AC MC) ;;
+    "")
+      echo "Error: --dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | MC)." >&2; exit 2 ;;
     MB)
       echo "Error: MobiBench (MB) 는 평가 전용 벤치마크입니다. 학습/merge 에는 사용할 수 없습니다." >&2
-      echo "       교차 평가는 stage{1,2}_eval.sh --train-dataset {AC|AC_EXP01|MC} --eval-datasets AC,AC_EXP01,MC,MB 를 사용하세요." >&2
+      echo "       교차 평가는 stage{1,2}_eval.sh --train-dataset {AC_EXP01|AC_EXP02|MC} --eval-datasets AC_EXP01,AC_EXP02,MC,MB 를 사용하세요." >&2
       exit 2
       ;;
-    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC | AC_EXP01 | AC_EXP02 | MC | all." >&2; exit 2 ;;
+    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC_EXP01 | AC_EXP02 | MC." >&2; exit 2 ;;
   esac
 
   IFS=',' read -r -a EPOCHS <<< "$epochs_arg"
@@ -421,14 +419,14 @@ EOF
 # 학습 DS (HF Hub merged repo 식별용) 와 평가 DS (test JSONL 경로) 를 분리한다.
 #
 # 사용법:
-#   bash stage1_eval.sh --model qwen3-vl-8b --train-dataset AC --eval-datasets AC,MC,MB
-#   bash stage2_eval.sh --model qwen3-vl-8b --train-dataset AC --eval-datasets AC,MB \
+#   bash stage1_eval.sh --model qwen3-vl-8b --train-dataset AC_EXP01 --exp01-ratio ratio55 --eval-datasets AC_EXP01,MC,MB
+#   bash stage2_eval.sh --model qwen3-vl-8b --train-dataset AC_EXP02 --eval-datasets AC_EXP02,MB \
 #        --stage1-mode full --stage1-epoch 3 --stage2-mode lora
 #
 # 생성 변수:
 #   MODELS          ALL_MODELS 또는 단일 모델 배열
-#   TRAIN_DATASET   AC | AC_EXP01 | AC_EXP02 | MC  (필수, 단일)
-#   EVAL_DATASETS   (AC|AC_EXP01|AC_EXP02|MC|MB)+ 배열  (기본: 단일값 = TRAIN_DATASET)
+#   TRAIN_DATASET   AC_EXP01 | AC_EXP02 | MC  (필수, 단일)
+#   EVAL_DATASETS   (AC_EXP01|AC_EXP02|MC|MB)+ 배열  (기본: 단일값 = TRAIN_DATASET)
 #   STAGE1_MODE, STAGE2_MODE, STAGE1_EPOCH, EPOCHS, VARIANTS  (parse_args 와 동일)
 parse_eval_args() {
   local model_arg="all"
@@ -471,16 +469,16 @@ parse_eval_args() {
         exp01_ratio_arg="$2"; shift 2 ;;
       -h|--help)
         cat <<EOF
-Usage: $(basename "$0") --train-dataset {AC|AC_EXP01|AC_EXP02|MC} [--eval-datasets LIST] [--model MODEL]
+Usage: $(basename "$0") --train-dataset {AC_EXP01|AC_EXP02|MC} [--eval-datasets LIST] [--model MODEL]
                          [--stage1-mode MODE] [--stage2-mode MODE] [--stage1-epoch N]
                          [--epochs LIST] [--variants LIST] [--exp01-ratio RATIO]
 
 Options:
   --model MODEL           모델 short_name 또는 "all" (기본: all)
-  --train-dataset DS      AC | AC_EXP01 | AC_EXP02 | MC (필수) — HF Hub merged repo 를
+  --train-dataset DS      AC_EXP01 | AC_EXP02 | MC (필수) — HF Hub merged repo 를
                           해석할 학습 DS. AC_EXP01 은 ratio 하나를 추가로 지정해야 함 (--exp01-ratio).
   --eval-datasets LIST    콤마로 구분된 평가 DS 리스트 (기본: --train-dataset 단일값)
-                          허용값: AC, AC_EXP01, AC_EXP02, MC, MB (MB 는 단일 파일 overall 채점).
+                          허용값: AC_EXP01, AC_EXP02, MC, MB (MB 는 단일 파일 overall 채점).
                           AC_EXP01 / AC_EXP02 는 state_pred / action_pred 두 task 를 각각 채점한다.
   --stage1-mode MODE      full | lora (기본: full) — world-model variant 의 상류 Stage1 모드.
   --stage2-mode MODE      full | lora (기본: lora) — Stage 2 merge/eval 전용.
@@ -506,10 +504,10 @@ EOF
   done
 
   if [[ -z "$train_arg" ]]; then
-    echo "Error: --train-dataset 는 필수입니다 (AC | AC_EXP01 | AC_EXP02 | MC)." >&2; exit 2
+    echo "Error: --train-dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | MC)." >&2; exit 2
   fi
   case "$train_arg" in
-    AC|AC_EXP02|MC) TRAIN_DATASET="$train_arg" ;;
+    AC_EXP02|MC) TRAIN_DATASET="$train_arg" ;;
     AC_EXP01)
       # AC_EXP01 은 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
       # 미지정 시 ratio55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
@@ -524,7 +522,7 @@ EOF
     MB)
       echo "Error: --train-dataset MB 는 허용되지 않습니다 (MobiBench 는 평가 전용)." >&2
       exit 2 ;;
-    *) echo "Error: --train-dataset must be AC | AC_EXP01 | AC_EXP02 | MC (got '$train_arg')." >&2; exit 2 ;;
+    *) echo "Error: --train-dataset must be AC_EXP01 | AC_EXP02 | MC (got '$train_arg')." >&2; exit 2 ;;
   esac
 
   # --exp01-ratio 는 AC_EXP01 train 일 때만 유효. 다른 train DS 와 함께 주면 에러.
@@ -547,8 +545,8 @@ EOF
     fi
     for _d in "${EVAL_DATASETS[@]}"; do
       case "$_d" in
-        AC|AC_EXP01|AC_EXP02|MC|MB) ;;
-        *) echo "Error: --eval-datasets item '$_d' invalid (use AC | AC_EXP01 | AC_EXP02 | MC | MB)." >&2; exit 2 ;;
+        AC_EXP01|AC_EXP02|MC|MB) ;;
+        *) echo "Error: --eval-datasets item '$_d' invalid (use AC_EXP01 | AC_EXP02 | MC | MB)." >&2; exit 2 ;;
       esac
     done
     unset _d

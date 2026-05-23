@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 """Train / Test split builder for Implicit-World-Modeling datasets.
 
-학습 대상 DS 는 {AC (AndroidControl), MC (MonkeyCollection), AC_EXP01, AC_EXP02} 를 지원한다.
+학습 대상 DS 는 {AC_EXP01, MC (MonkeyCollection)} 를 지원한다.
+AndroidControl(AC) 은 학습/평가 entry 가 아니라 EXP01 의 **원본 source 자산**
+(이미지 + 원본 jsonl + ``episodes_meta.jsonl``) 으로만 사용된다 — split_data.py 의
+source root 는 항상 ``data/AndroidControl/`` 이고, 산출물은 DS 별 OUTPUT_DIR
+(``data/AndroidControl_EXP01/``) 에 쓰여진다.
+
 MobiBench(MB) 는 평가 전용 벤치마크이므로 split 하지 않는다 —
 ``data/MobiBench/implicit-world-modeling_stage{1,2}.jsonl`` 두 단일 파일이 eval 입력.
 
+AC_EXP02 는 AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred diff loss 전처리본을
+별도 스크립트가 만들기 때문에 split_data.py 는 직접 지원하지 않는다.
+
 Stage 1 (World Modeling)
-    AC: ``episodes_meta.jsonl.primary_app`` 기반 **app-level ID/OOD** split.
-        Stage 2 와 동일 partition 을 공유 (한 번 계산 → 양쪽 재사용) 해
-        Stage 2 OOD 앱이 world-modeling 학습에서도 노출되지 않게 한다.
+    AC_EXP01: state_pred / action_pred 두 task 를 비율 혼합한 3 종 train
+        (3:7, 5:5, 7:3) 으로 학습. ID/OOD partition 은 Stage 2 와 공유한다.
     MC: meta 없음 → 자동 random split (단일 ``_test.jsonl``).
 Stage 2 (Action Prediction)
-    AC, AC_EXP01: app-level ID/OOD split (Stage 1 과 partition 공유).
-        AC_EXP01 는 Stage 1 partition (action_pred 기준) 을 그대로 재사용해
-        Stage 1↔Stage 2 OOD app 집합을 일치시킨다.
+    AC_EXP01: app-level ID/OOD split. Stage 1 partition (action_pred 기준) 을 그대로
+        재사용해 Stage 1↔Stage 2 OOD app 집합을 일치시킨다.
     MC: 데이터 없음 → 자동 skip (``--skip-stage2`` 기본 적용).
 
 ``primary_app`` 값은 앱 라벨이 아닌 package 식별자 (예:
@@ -25,21 +31,19 @@ AndroidAccessibilityForest proto 에서 전경 application window 의
 AC_EXP01 Stage 1 / Stage 2 는 항상 ``_filtered`` 입력을 사용한다
 (``implicit-world-modeling_stage1_{state,action}_pred_filtered.jsonl`` 두 파일 +
 ``implicit-world-modeling_stage2_filtered.jsonl``; mm-expanded length > cutoff_len 샘플
-사전 제거). 필터는 ``scripts/filter_long_samples.py`` 가 만든다 — 누락
-시 명시적으로 에러를 발생시킨다. Stage 2 마지막 message 의
+사전 제거). 모든 _filtered 파일은 source root ``data/AndroidControl/`` 에 있으며,
+필터는 ``scripts/filter_long_samples.py`` 가 만든다 — 누락 시 명시적으로 에러.
+Stage 2 마지막 message 의
 ``<thought>...</thought><action>{...}</action>`` 래핑은
 ``_parse_action_payload`` 로 추출한다.
 
 Usage
 -----
-  # AC: Stage 1 + Stage 2 모두 ID/OOD (defaults: train=50000, test_id=3000, test_ood=3000)
-  python scripts/split_data.py --dataset AndroidControl
+  # AC_EXP01: state_pred/action_pred ratio mix train + dual-task ID/OOD test
+  python scripts/split_data.py --dataset AC_EXP01
 
   # MC: Stage 1 random split 만 수행 (Stage 2 자동 skip, meta 없음)
-  python scripts/split_data.py --dataset MonkeyCollection
-
-  # AC 인데 Stage 1 만 random 으로 강제하고 싶을 때
-  python scripts/split_data.py --dataset AndroidControl --stage1-mode random
+  python scripts/split_data.py --dataset MC
 """
 
 from __future__ import annotations
@@ -53,13 +57,20 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 
-DATASET_DIRS = {
-    "AndroidControl":   "AndroidControl",
-    "AC":               "AndroidControl",
-    "AndroidControl_EXP01": "AndroidControl_EXP01",
+# 학습 대상 DS → (source dir, output dir).
+# source 는 모든 EXP 가 공통으로 사용하는 원본 자산 폴더 (data/AndroidControl/) 또는
+# 자체 폴더 (MC). output 은 산출물(_train/_test 등)을 쓰는 폴더.
+SOURCE_DIR = {
+    "AC_EXP01":             "AndroidControl",
+    "AndroidControl_EXP01": "AndroidControl",
+    "MC":                   "MonkeyCollection",
+    "MonkeyCollection":     "MonkeyCollection",
+}
+OUTPUT_DIR = {
     "AC_EXP01":             "AndroidControl_EXP01",
-    "MonkeyCollection": "MonkeyCollection",
-    "MC":               "MonkeyCollection",
+    "AndroidControl_EXP01": "AndroidControl_EXP01",
+    "MC":                   "MonkeyCollection",
+    "MonkeyCollection":     "MonkeyCollection",
 }
 
 # Stage 2 분할을 지원하지 않는 데이터셋 (Stage 1 전용).
@@ -424,13 +435,14 @@ def _parse_ratios(spec: str) -> list[tuple[int, int]]:
     return out
 
 
-def run_exp01_split(args, dataset_dir: Path) -> int:
+def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
     # AC_EXP01 는 항상 _filtered 소스만 사용 (mm-expanded length > cutoff_len 샘플
     # 제거 후의 jsonl). 학습 시 Qwen3-VL get_rope_index 의 broadcast shape
     # mismatch 를 피하기 위함. 필터 산출은 scripts/filter_long_samples.py.
-    state_pred_path  = dataset_dir / "implicit-world-modeling_stage1_state_pred_filtered.jsonl"
-    action_pred_path = dataset_dir / "implicit-world-modeling_stage1_action_pred_filtered.jsonl"
-    meta_path        = dataset_dir / "episodes_meta.jsonl"
+    # source_dir = data/AndroidControl/ (원본 자산), output_dir = data/AndroidControl_EXP01/.
+    state_pred_path  = source_dir / "implicit-world-modeling_stage1_state_pred_filtered.jsonl"
+    action_pred_path = source_dir / "implicit-world-modeling_stage1_action_pred_filtered.jsonl"
+    meta_path        = source_dir / "episodes_meta.jsonl"
 
     for p in (state_pred_path, action_pred_path):
         if not p.exists():
@@ -444,6 +456,8 @@ def run_exp01_split(args, dataset_dir: Path) -> int:
     if not meta_path.exists():
         print(f"[ERROR] AC_EXP01 split 에 필요한 파일이 없습니다: {meta_path}", file=sys.stderr)
         return 1
+
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         ratios = _parse_ratios(args.exp01_ratios)
@@ -462,7 +476,7 @@ def run_exp01_split(args, dataset_dir: Path) -> int:
         max(total - total * rs // (rs + ra) for rs, ra in ratios),
     )
 
-    print(f"Dataset: AC_EXP01 ({dataset_dir})")
+    print(f"Dataset: AC_EXP01 (source={source_dir}, output={output_dir})")
     print(f"Seed: {seed}")
     print(f"EXP ratios (state:action): "
           f"{', '.join(f'{a}:{b}' for a, b in ratios)}")
@@ -515,11 +529,11 @@ def run_exp01_split(args, dataset_dir: Path) -> int:
     sp_train_pool = _disjoint(sp_id, sp_test_id)
     ap_train_pool = _disjoint(ap_id, ap_test_id)
 
-    # Test 4 파일 작성
-    test_id_sp_path  = dataset_dir / "implicit-world-modeling_stage1_test_id_state_pred.jsonl"
-    test_id_ap_path  = dataset_dir / "implicit-world-modeling_stage1_test_id_action_pred.jsonl"
-    test_ood_sp_path = dataset_dir / "implicit-world-modeling_stage1_test_ood_state_pred.jsonl"
-    test_ood_ap_path = dataset_dir / "implicit-world-modeling_stage1_test_ood_action_pred.jsonl"
+    # Test 4 파일 작성 (output_dir 에 write)
+    test_id_sp_path  = output_dir / "implicit-world-modeling_stage1_test_id_state_pred.jsonl"
+    test_id_ap_path  = output_dir / "implicit-world-modeling_stage1_test_id_action_pred.jsonl"
+    test_ood_sp_path = output_dir / "implicit-world-modeling_stage1_test_ood_state_pred.jsonl"
+    test_ood_ap_path = output_dir / "implicit-world-modeling_stage1_test_ood_action_pred.jsonl"
     write_jsonl(sp_test_id,  test_id_sp_path)
     write_jsonl(ap_test_id,  test_id_ap_path)
     write_jsonl(sp_test_ood, test_ood_sp_path)
@@ -550,7 +564,7 @@ def run_exp01_split(args, dataset_dir: Path) -> int:
         mixed = state_chunk + action_chunk
         random.Random(seed + 300 + i).shuffle(mixed)
 
-        out_path = dataset_dir / f"implicit-world-modeling_stage1_train_{rs}_{ra}.jsonl"
+        out_path = output_dir / f"implicit-world-modeling_stage1_train_{rs}_{ra}.jsonl"
         write_jsonl(mixed, out_path)
         print(f"  EXP {rs}:{ra} → {out_path.name} "
               f"({len(mixed)} = state {len(state_chunk)} + action {len(action_chunk)})")
@@ -562,7 +576,7 @@ def run_exp01_split(args, dataset_dir: Path) -> int:
     # ── Stage 2 (Action Prediction, ID/OOD) ─────────────────────────────
     # Stage 1 partition (id_apps/ood_apps) 을 그대로 적용해 Stage 1↔Stage 2
     # OOD app 집합을 일치시킨다. Stage 1 과 동일하게 _filtered 입력만 사용.
-    stage2_path = dataset_dir / "implicit-world-modeling_stage2_filtered.jsonl"
+    stage2_path = source_dir / "implicit-world-modeling_stage2_filtered.jsonl"
     if args.skip_stage2:
         print("[skip] Stage 2 split (per --skip-stage2)")
     elif not stage2_path.exists():
@@ -594,9 +608,9 @@ def run_exp01_split(args, dataset_dir: Path) -> int:
             s2_ood, args.stage2_test_ood_size, seed + 32, type_key="action_type"
         )
 
-        s2_train_path   = dataset_dir / "implicit-world-modeling_stage2_train.jsonl"
-        s2_test_id_path = dataset_dir / "implicit-world-modeling_stage2_test_id.jsonl"
-        s2_test_ood_path = dataset_dir / "implicit-world-modeling_stage2_test_ood.jsonl"
+        s2_train_path   = output_dir / "implicit-world-modeling_stage2_train.jsonl"
+        s2_test_id_path = output_dir / "implicit-world-modeling_stage2_test_id.jsonl"
+        s2_test_ood_path = output_dir / "implicit-world-modeling_stage2_test_ood.jsonl"
         write_jsonl(s2_train,    s2_train_path)
         write_jsonl(s2_test_id,  s2_test_id_path)
         write_jsonl(s2_test_ood, s2_test_ood_path)
@@ -624,8 +638,8 @@ def main() -> int:
         description="Train/Test split builder (Stage 1/2 ID/OOD; MC Stage 1 random)",
     )
     parser.add_argument(
-        "--dataset", required=True, choices=sorted(DATASET_DIRS),
-        help="Dataset short or full name",
+        "--dataset", required=True, choices=sorted(SOURCE_DIR),
+        help="Dataset short or full name. AC_EXP01 은 source=AndroidControl/ 에서 read.",
     )
     parser.add_argument(
         "--data-dir", default=None,
@@ -679,20 +693,24 @@ def main() -> int:
         print(f"[info] {args.dataset} 은 Stage 1 전용입니다. Stage 2 는 자동 skip.")
         args.skip_stage2 = True
 
-    ds_dir_name = DATASET_DIRS[args.dataset]
+    source_name = SOURCE_DIR[args.dataset]
+    output_name = OUTPUT_DIR[args.dataset]
     if args.data_dir:
         data_root = Path(args.data_dir)
     else:
         data_root = Path(__file__).resolve().parent.parent / "data"
-    dataset_dir = data_root / ds_dir_name
-    if not dataset_dir.exists():
-        print(f"[ERROR] Dataset directory not found: {dataset_dir}", file=sys.stderr)
+    source_dir = data_root / source_name
+    output_dir = data_root / output_name
+    if not source_dir.exists():
+        print(f"[ERROR] Source directory not found: {source_dir}", file=sys.stderr)
         return 1
 
     # AC_EXP01 는 stage1 이 (state_pred, action_pred) 두 파일이라 별도 흐름.
     if args.dataset in _EXP01_RATIO_MIX:
-        return run_exp01_split(args, dataset_dir)
+        return run_exp01_split(args, source_dir, output_dir)
 
+    # MC: source == output 인 단일 폴더 흐름 (random stage1 split).
+    dataset_dir = source_dir  # alias — MC 는 source/output 가 동일.
     stage1_path = dataset_dir / "implicit-world-modeling_stage1.jsonl"
     stage2_path = dataset_dir / "implicit-world-modeling_stage2.jsonl"
     meta_path = dataset_dir / "episodes_meta.jsonl"
@@ -704,7 +722,7 @@ def main() -> int:
         stage1_mode = "id-ood" if meta_available else "random"
     if stage1_mode == "id-ood" and not meta_available:
         print(f"[ERROR] Stage 1 id-ood requires {meta_path} — run "
-              f"extract_{ds_dir_name.lower()}_metadata.py first.", file=sys.stderr)
+              f"extract_{source_name.lower()}_metadata.py first.", file=sys.stderr)
         return 1
 
     print(f"Dataset: {args.dataset} ({dataset_dir})")

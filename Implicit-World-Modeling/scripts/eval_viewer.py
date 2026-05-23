@@ -5,7 +5,7 @@ one HTML and adds in-page checkboxes to toggle prediction columns / metric rows.
 
 Output (per stage, written next to the existing variant dirs):
   outputs/{data_dir}/eval/{model}/stage{N}_eval/
-    pairs_on-AC.html
+    pairs_on-AC_EXP01.html
     pairs_on-MB.html
     pairs_summary.md
 """
@@ -21,14 +21,13 @@ REPO = Path(__file__).resolve().parent.parent
 
 STAGE_CONFIG: dict[int, dict] = {
     1: {
-        "data_dir": "AC",
+        "data_dir": "AC_EXP01",
         "eval_subdir": "stage1_eval",
         "datasets": {
-            # AC 는 Stage 1 도 ID/OOD split 이라 GT 가 두 파일로 분리됨.
-            # 현 viewer 는 단일 GT 파일만 다루므로 ID 파일을 anchor 로 사용.
-            # ID/OOD 양쪽을 한 화면에 보려면 viewer 자체 확장이 필요 (TODO).
-            "on-AC":                  REPO / "data/AndroidControl/implicit-world-modeling_stage1_test_id.jsonl",
-            "on-AC-without-open_app": REPO / "data/AndroidControl/implicit-world-modeling_stage1_test_id_without_open_app.jsonl",
+            # AC_EXP01 / AC_EXP02 는 Stage 1 이 state_pred / action_pred dual-task ID/OOD.
+            # 현 viewer 는 단일 GT 파일만 다루므로 state ID 를 anchor 로 사용 (필요 시 확장).
+            "on-AC_EXP01-state":  REPO / "data/AndroidControl_EXP01/implicit-world-modeling_stage1_test_id_state_pred.jsonl",
+            "on-AC_EXP01-action": REPO / "data/AndroidControl_EXP01/implicit-world-modeling_stage1_test_id_action_pred.jsonl",
             "on-MB":                  REPO / "data/MobiBench/implicit-world-modeling_stage1.jsonl",
             "on-MB-without-open_app": REPO / "data/MobiBench/implicit-world-modeling_stage1_without_open_app.jsonl",
         },
@@ -48,11 +47,11 @@ STAGE_CONFIG: dict[int, dict] = {
         ],
     },
     2: {
-        "data_dir": "AC",
+        "data_dir": "AC_EXP01",
         "eval_subdir": "stage2_eval",
         "datasets": {
-            "on-AC": REPO / "data/AndroidControl/implicit-world-modeling_stage2_test.jsonl",
-            "on-MB": REPO / "data/MobiBench/implicit-world-modeling_stage2.jsonl",
+            "on-AC_EXP01": REPO / "data/AndroidControl_EXP01/implicit-world-modeling_stage2_test_id.jsonl",
+            "on-MB":       REPO / "data/MobiBench/implicit-world-modeling_stage2.jsonl",
         },
         "metric_files": ["predict_results.json", "action_metrics.json"],
         "metric_keys": [
@@ -74,7 +73,9 @@ STAGE_CONFIG: dict[int, dict] = {
 # `--data-dir` 별 STAGE_CONFIG override 자리. 현재는 모든 학습 DS 가 동일 stage config
 # 를 쓰므로 비어있음 — 새 데이터셋이 별도 test 구조를 가지면 여기에 등록.
 DATA_DIR_OVERRIDES: dict[str, dict[int, dict]] = {
-    "AC": {},
+    "AC_EXP01": {},
+    "AC_EXP02": {},
+    "MC":       {},
 }
 
 
@@ -344,8 +345,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--data-dir",
         choices=list(DATA_DIR_OVERRIDES.keys()),
-        default="AC",
-        help="Output/data directory. AC=AndroidControl (default).",
+        default="AC_EXP01",
+        help="Output/data directory. AC_EXP01=AndroidControl_EXP01 (default).",
     )
     p.add_argument(
         "--model",
@@ -357,7 +358,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--datasets",
         nargs="+",
-        default=["on-AC", "on-AC-without-open_app", "on-MB", "on-MB-without-open_app"],
+        default=["on-AC_EXP01-state", "on-AC_EXP01-action", "on-MB", "on-MB-without-open_app"],
         help="Stage 1 은 정규/필터 4개가 기본. Stage 2 는 -without-open_app 을 산출하지 않으므로 "
              "해당 항목은 자동 skip.",
     )
@@ -381,7 +382,7 @@ def main() -> None:
                 continue
 
             # discover_variants 는 단일 ds_marker 가 모든 variant 에 존재한다고 가정.
-            # Stage 1 이면 정규 on-AC 가 anchor, Stage 2 면 첫 stage2 dataset (현재는 on-AC).
+            # Stage 1 이면 on-AC_EXP01-state 가 anchor, Stage 2 면 on-AC_EXP01.
             ds_marker = next((d for d in args.datasets if d in cfg["datasets"]), None)
             if ds_marker is None:
                 print(f"skip {model}/stage{stage}: no datasets matched stage{stage} config")
