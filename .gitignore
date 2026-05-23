@@ -4,8 +4,8 @@
 **/exports/
 **/saves/
 **/logs/
-GUI-Model/LlamaFactory/
-GUI-Model/unsloth/
+Implicit-World-Modeling/LlamaFactory/
+Implicit-World-Modeling/unsloth/
 Monkey-Collector/app_candidates.csv
 
 # Cache (HuggingFace models, Python tooling, ML logs)
