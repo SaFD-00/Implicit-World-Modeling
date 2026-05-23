@@ -177,8 +177,8 @@ data/
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_action_pred.jsonl      # action task, app-level partition
 │   ├── implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl       # split_data.py 가 원본 _filtered 풀에서 산출, 15K / 3K / 3K (action_type stratified, Stage 1 action_pred app partition 공유)
 │   # NOTE: images/ + episodes_meta.jsonl 은 원본 AndroidControl/ 의 것을 그대로 참조 (JSONL `images` 가 "AndroidControl/images/..." prefix).
-├── AndroidControl_EXP02/                 # AC_EXP01 r73 + Stage 1 state-pred diff loss 실험군 (대조군 = AC_EXP01 r73)
-│   ├── implicit-world-modeling_stage1_train.jsonl                          # AC_EXP01 r73 train + token_weights (scripts/diff_loss/preprocess_dataset.py)
+├── AndroidControl_EXP02/                 # AC_EXP01 ratio73 + Stage 1 state-pred diff loss 실험군 (대조군 = AC_EXP01 ratio73)
+│   ├── implicit-world-modeling_stage1_train.jsonl                          # AC_EXP01 ratio73 train + token_weights (scripts/diff_loss/preprocess_dataset.py)
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_{state,action}_pred.jsonl  # AC_EXP01 에서 복사 (동일 평가셋 — 공정 비교)
 │   ├── implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl       # AC_EXP01 에서 복사 (Stage 2 는 diff loss 미적용)
 │   # NOTE: images/ + episodes_meta.jsonl 은 원본 AndroidControl/ 의 것을 공유 참조.
@@ -196,8 +196,8 @@ data/
 
 - **App partition (AC_EXP01 / AC_EXP02 공유 — 원본 `data/AndroidControl/episodes_meta.jsonl`)**: `compute_app_partition` 이 Stage 2 행 수를 budget 으로 (id_apps, ood_apps) 를 한 번 계산하고, Stage 1 은 같은 partition 으로 entries 를 라우팅. Stage 2 OOD 앱이 Stage 1 train 에도 포함되지 않아 world-modeling 학습이 OOD 앱을 한 번도 보지 않는다.
 - **Stage 1 (MC)**: 메타 없음 → 자동 random split (`--stage1-ratio`, 기본 0.95). `_STAGE1_ONLY` guard 로 Stage 2 자동 skip.
-- **AC_EXP01 (Stage 1 ratio mix + Stage 2 ratio sweep)**: split_data.py 의 source 는 항상 원본 `data/AndroidControl/` 이고, 산출물은 `data/AndroidControl_EXP01/` 에 쓰여진다. 선행으로 `scripts/filter_long_samples.py --dataset AC_EXP01` 가 mm-expanded length > `cutoff_len` 인 row 를 제거해 **원본 폴더 안에** `implicit-world-modeling_stage1_{state,action}_pred_filtered.jsonl` + `implicit-world-modeling_stage2_filtered.jsonl` (3 파일) 을 만든다 (Qwen3-VL `get_rope_index` broadcast 회피용). `run_exp01_split` 은 항상 Stage 1/Stage 2 모두 `_filtered` 만 입력으로 사용 — Stage 2 source 누락 시 hard-fail. 그 위에서 `state_pred` (random) + `action_pred` (action-type stratified) 두 풀을 ID/OOD 앱 partition 으로 라우팅 후 ratio (state:action ∈ {7:3, 3:7, 5:5}, default `7:3,3:7,5:5`) 로 혼합한 Stage 1 train 3 종 + (id, ood) × (state, action) 4 test 를 산출. 같은 (id_apps, ood_apps) 를 재사용해 Stage 2 split (`implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl`, 기본 15K / 3K / 3K, action_type stratified) 까지 함께 산출 — Stage 1 ↔ Stage 2 OOD app 집합 일치. **Stage 2 파이프라인은 ratio sweep 으로 활성** (`_STAGE1_ONLY = {"MonkeyCollection"}` 만 유지) — stage2 데이터는 ratio 무관 (3 ratio 공유) 이며, ratio 차원은 stage1 → stage2 base 계보 (Stage 1 ratio merged 가 Stage 2 world-model variant 의 base) 로만 흐른다. 산출 디렉토리/HF slug 는 ratio 별 분리 (`outputs/AndroidControl_EXP01/{adapters,merged,eval}/{MODEL}_ratio{37,55,73}_stage2_*`, `SaFD-00/{short}-ac-exp01-r{37,55,73}-...`). ratio 별로 학습 가중치가 다르므로 `--exp01-ratios` 가 sweep 단위, `--exp01-train-total` 이 Stage 1 train 합계 (기본 50K). Stage 2 학습 데이터의 last-message wrapping (`<thought>…</thought>\n<action>{...}</action>`) 은 `_parse_action_payload` regex helper 가 분리.
-- **AC_EXP02 (Stage 1 state-pred diff loss 실험군)**: split 불필요. `scripts/diff_loss/preprocess_dataset.py` 가 AC_EXP01 r73 train (`implicit-world-modeling_stage1_train_7_3.jsonl`) 의 future HTML 토큰에 diff 가중치를 부여한 `token_weights` 필드를 추가 — current→future HTML diff 를 헝가리안 매칭으로 ADDED/MODIFIED/UNCHANGED 분류 (가중치 2.0/2.0/1.0). action_pred 샘플은 assistant 가 JSON 이라 diff element 0 개 → `token_weights` 전부 1.0 → 기존 cross-entropy 와 동치 (action 은 기존 loss). test / Stage 2 데이터는 AC_EXP01 에서 복사 (`DS_DATADIR[AC_EXP02]=AndroidControl_EXP02`, 노트북 환경 세팅 셀이 일괄 수행). diff loss 는 LlamaFactory 6 파일 패치 (`use_diff_token_weighted_loss` 인자 + `diff_token_weighted_loss_func` + collator 의 labels 기반 token_weights 복원) 에 의존 — LF 는 gitignore 된 별도 repo 라 `scripts/diff_loss/apply_llamafactory_patch.py` 가 멱등 재적용한다. (`scripts/diff_loss/` 의 `hungarian_metric.py` 는 채점용 `scripts/_hungarian_eval.py` 와 의도적으로 분리된 학습 전처리용 사본.)
+- **AC_EXP01 (Stage 1 ratio mix + Stage 2 ratio sweep)**: split_data.py 의 source 는 항상 원본 `data/AndroidControl/` 이고, 산출물은 `data/AndroidControl_EXP01/` 에 쓰여진다. 선행으로 `scripts/filter_long_samples.py --dataset AC_EXP01` 가 mm-expanded length > `cutoff_len` 인 row 를 제거해 **원본 폴더 안에** `implicit-world-modeling_stage1_{state,action}_pred_filtered.jsonl` + `implicit-world-modeling_stage2_filtered.jsonl` (3 파일) 을 만든다 (Qwen3-VL `get_rope_index` broadcast 회피용). `run_exp01_split` 은 항상 Stage 1/Stage 2 모두 `_filtered` 만 입력으로 사용 — Stage 2 source 누락 시 hard-fail. 그 위에서 `state_pred` (random) + `action_pred` (action-type stratified) 두 풀을 ID/OOD 앱 partition 으로 라우팅 후 ratio (state:action ∈ {7:3, 3:7, 5:5}, default `7:3,3:7,5:5`) 로 혼합한 Stage 1 train 3 종 + (id, ood) × (state, action) 4 test 를 산출. 같은 (id_apps, ood_apps) 를 재사용해 Stage 2 split (`implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl`, 기본 15K / 3K / 3K, action_type stratified) 까지 함께 산출 — Stage 1 ↔ Stage 2 OOD app 집합 일치. **Stage 2 파이프라인은 ratio sweep 으로 활성** (`_STAGE1_ONLY = {"MonkeyCollection"}` 만 유지) — stage2 데이터는 ratio 무관 (3 ratio 공유) 이며, ratio 차원은 stage1 → stage2 base 계보 (Stage 1 ratio merged 가 Stage 2 world-model variant 의 base) 로만 흐른다. 산출 디렉토리/HF slug 는 ratio 별 분리 (`outputs/AndroidControl_EXP01/{adapters,merged,eval}/{MODEL}_ratio{37,55,73}_stage2_*`, `SaFD-00/{short}-ac-exp01-ratio{37,55,73}-...`). ratio 별로 학습 가중치가 다르므로 `--exp01-ratios` 가 sweep 단위, `--exp01-train-total` 이 Stage 1 train 합계 (기본 50K). Stage 2 학습 데이터의 last-message wrapping (`<thought>…</thought>\n<action>{...}</action>`) 은 `_parse_action_payload` regex helper 가 분리.
+- **AC_EXP02 (Stage 1 state-pred diff loss 실험군)**: split 불필요. `scripts/diff_loss/preprocess_dataset.py` 가 AC_EXP01 ratio73 train (`implicit-world-modeling_stage1_train_7_3.jsonl`) 의 future HTML 토큰에 diff 가중치를 부여한 `token_weights` 필드를 추가 — current→future HTML diff 를 헝가리안 매칭으로 ADDED/MODIFIED/UNCHANGED 분류 (가중치 2.0/2.0/1.0). action_pred 샘플은 assistant 가 JSON 이라 diff element 0 개 → `token_weights` 전부 1.0 → 기존 cross-entropy 와 동치 (action 은 기존 loss). test / Stage 2 데이터는 AC_EXP01 에서 복사 (`DS_DATADIR[AC_EXP02]=AndroidControl_EXP02`, 노트북 환경 세팅 셀이 일괄 수행). diff loss 는 LlamaFactory 6 파일 패치 (`use_diff_token_weighted_loss` 인자 + `diff_token_weighted_loss_func` + collator 의 labels 기반 token_weights 복원) 에 의존 — LF 는 gitignore 된 별도 repo 라 `scripts/diff_loss/apply_llamafactory_patch.py` 가 멱등 재적용한다. (`scripts/diff_loss/` 의 `hungarian_metric.py` 는 채점용 `scripts/_hungarian_eval.py` 와 의도적으로 분리된 학습 전처리용 사본.)
 - **MB**: split 없음. 평가 전용.
 
 ### `episodes_meta.jsonl` 스키마 (원본 `data/AndroidControl/`)
@@ -299,7 +299,7 @@ data/
 # 학습/merge — --dataset {AC_EXP01|AC_EXP02|MC}. MB 거절. Stage 2 는 MC 미지원 (데이터 없음). --dataset all 은 지원하지 않음 (명시적 선택 필수). AC_EXP01 는 Stage 1/2 모두 ratio sweep.
 bash scripts/stage1_train.sh --model qwen3-vl-4b --dataset MC --stage1-mode lora
 bash scripts/stage1_merge.sh --model qwen3-vl-4b --dataset MC --stage1-mode lora --no-hf-upload
-# AC_EXP01 는 ratio 3 종 자동 sweep (--exp01-ratios r55,r73 로 부분 실행).
+# AC_EXP01 는 ratio 3 종 자동 sweep (--exp01-ratios ratio55,ratio73 로 부분 실행).
 bash scripts/stage1_train.sh --model qwen3-vl-8b --dataset AC_EXP01 --stage1-mode full
 bash scripts/stage1_merge.sh --model qwen3-vl-8b --dataset AC_EXP01 --stage1-mode full
 # AC_EXP02 (diff loss 실험군)
@@ -307,15 +307,15 @@ bash scripts/stage1_train.sh --model qwen3-vl-8b --dataset AC_EXP02 --stage1-mod
 bash scripts/stage1_merge.sh --model qwen3-vl-8b --dataset AC_EXP02 --stage1-mode full
 # Stage 2 AC_EXP01 ratio sweep (Stage 1 ratio merged 를 base 로 stage2 데이터 학습)
 bash scripts/stage2_train.sh --model qwen3-vl-8b --dataset AC_EXP01 \
-     --stage1-mode full --stage1-epoch 1 --stage2-mode lora --exp01-ratios r37,r55,r73
+     --stage1-mode full --stage1-epoch 1 --stage2-mode lora --exp01-ratios ratio37,ratio55,ratio73
 bash scripts/stage2_merge.sh --model qwen3-vl-8b --dataset AC_EXP01 \
-     --stage1-mode full --stage1-epoch 1 --stage2-mode lora --exp01-ratios r37,r55,r73
+     --stage1-mode full --stage1-epoch 1 --stage2-mode lora --exp01-ratios ratio37,ratio55,ratio73
 
 # 평가 — --train-dataset 로 HF repo, --eval-datasets 로 test 셋 (교차 평가).
 # AC_EXP01 학습 모델은 --exp01-ratio 단일 (Stage 1: state + action 두 task 채점, Stage 2: id/ood 3 섹션).
-bash scripts/stage1_eval.sh  --model qwen3-vl-8b --train-dataset AC_EXP01 --exp01-ratio r55 \
+bash scripts/stage1_eval.sh  --model qwen3-vl-8b --train-dataset AC_EXP01 --exp01-ratio ratio55 \
      --eval-datasets AC_EXP01,MB --epochs 1,2,3
-bash scripts/stage2_eval.sh  --model qwen3-vl-8b --train-dataset AC_EXP01 --exp01-ratio r55 \
+bash scripts/stage2_eval.sh  --model qwen3-vl-8b --train-dataset AC_EXP01 --exp01-ratio ratio55 \
      --eval-datasets AC_EXP01,MB --stage1-mode full --stage1-epoch 3 --stage2-mode lora \
      --variants base,full_world_model,lora_world_model --epochs 1,2,3
 bash scripts/stage2_eval.sh  --model qwen3-vl-8b --train-dataset AC_EXP02 --eval-datasets AC_EXP02,MB \
@@ -334,7 +334,7 @@ bash scripts/stage2_eval.sh  --model qwen3-vl-8b --train-dataset AC_EXP02 --eval
 ## 5. 실행 데이터 흐름
 
 ```
-raw JSONL + screenshots  (AndroidControl: 원본 source-only, AC_EXP01: Stage 1 ratio mix + Stage 2 ID/OOD, AC_EXP02: AC_EXP01 r73 diff-loss train + AC_EXP01 test 복사, MC: Stage1 전용, MB: eval-only 단일 파일)
+raw JSONL + screenshots  (AndroidControl: 원본 source-only, AC_EXP01: Stage 1 ratio mix + Stage 2 ID/OOD, AC_EXP02: AC_EXP01 ratio73 diff-loss train + AC_EXP01 test 복사, MC: Stage1 전용, MB: eval-only 단일 파일)
   -> extract_androidcontrol_images.py     (data/AndroidControl/images/ : GCS TFRecord → PNG)
   -> extract_androidcontrol_metadata.py   (data/AndroidControl/episodes_meta.jsonl : primary_app = 전경 앱)
   -> filter_long_samples.py --dataset AC_EXP01   (data/AndroidControl/ 원본에 _filtered.jsonl 산출)
@@ -368,7 +368,7 @@ raw JSONL + screenshots  (AndroidControl: 원본 source-only, AC_EXP01: Stage 1 
 모든 산출물은 `Implicit-World-Modeling/outputs/` 단일 루트 아래 **데이터셋 중심 + category 분리** 구조. merged/eval 은 `epoch-{E}/` 서브디렉토리로 epoch 별 분리. full/lora 산출물은 경로 접미사로 분리되어 공존.
 
 ```
-Implicit-World-Modeling/outputs/{OUT_DS}/             # OUT_DS = AndroidControl_EXP01 | AndroidControl_EXP02 | MC. AC_EXP01 ratio (r37/r55/r73) 는 아래 {model}{SFX} 의 SFX 로 운반 (AC_EXP02/MC: SFX="", AC_EXP01: SFX=_ratio37/_ratio55/_ratio73)
+Implicit-World-Modeling/outputs/{OUT_DS}/             # OUT_DS = AndroidControl_EXP01 | AndroidControl_EXP02 | MC. AC_EXP01 ratio (ratio37/ratio55/ratio73) 는 아래 {model}{SFX} 의 SFX 로 운반 (AC_EXP02/MC: SFX="", AC_EXP01: SFX=_ratio37/_ratio55/_ratio73)
 ├── adapters/
 │   ├── {model}{SFX}_stage1_{full,lora}_world-model/
 │   ├── {model}{SFX}_stage2_{full,lora}_base/
