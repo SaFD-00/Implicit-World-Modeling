@@ -44,7 +44,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   BASE_MODEL="${MODEL_ID[$MODEL_SHORT]}"
 
   for DS in "${DATASETS[@]}"; do
-    # AC_3 ratio variant: outputs/AC_3 단일 부모 + model dir 에 _r{37,55,73} suffix.
+    # AC_EXP01 ratio variant: outputs/AndroidControl_EXP01 단일 부모 + model dir 에 _ratio{37,55,73} suffix.
     OUT_DS="$(ds_outputs_code "$DS")"
     SFX="$(ds_model_suffix "$DS")"
 

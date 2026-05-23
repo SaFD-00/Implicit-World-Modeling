@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for GUI-Model stage{1,2}_{train,eval,merge}.sh
+# Shared helpers for Implicit-World-Modeling stage{1,2}_{train,eval,merge}.sh
 # Source from sibling scripts:  source "$(dirname "$0")/_common.sh"
 # Requires: bash 4+ (associative array 사용). Linux 기본 bash 는 4+ 이므로 통상 OK.
 #           macOS 기본 bash 는 3.2 → `brew install bash` 후 `/opt/homebrew/bin/bash` 권장.
@@ -10,14 +10,14 @@ set -euo pipefail
 # 가 PYTHONUSERBASE 아래에만 설치되어 있으므로 user-site 는 비활성화하지 않는다.
 # 다만 /root/.local/workspace/python-packages/bin 의 낡은 accelerate CLI 는
 # shebang 이 base env python 을 가리킬 때가 있어 `No module named 'torch'` 를
-# 유발한다. conda env (`gui-model`) 가 활성화되어 있다면 해당 env 의
+# 유발한다. conda env (`implicit-world-modeling`) 가 활성화되어 있다면 해당 env 의
 # bin 을 PATH 맨 앞에 고정해 env 소속 CLI ($CONDA_PREFIX/bin/accelerate 등) 가
 # 먼저 잡히도록 강제한다.
 if [[ -n "${CONDA_PREFIX:-}" ]]; then
   export PATH="$CONDA_PREFIX/bin:$PATH"
 else
   echo "[!] conda env 가 활성화되지 않았습니다. 먼저 실행하세요:" >&2
-  echo "      conda activate gui-model" >&2
+  echo "      conda activate implicit-world-modeling" >&2
   exit 1
 fi
 
@@ -70,14 +70,14 @@ tags = OrderedDict([
 ])
 def entry(stage):
     return OrderedDict([
-        ("file_name", f"../../data/MobiBench/gui-model_stage{stage}.jsonl"),
+        ("file_name", f"../../data/MobiBench/implicit-world-modeling_stage{stage}.jsonl"),
         ("formatting", "sharegpt"),
         ("columns", OrderedDict([("messages","messages"),("images","images")])),
         ("tags", tags),
     ])
 changed = False
-for stage, anchor in ((1, "GUI-Model-MB_stage1_train"), (2, "GUI-Model-MB_stage2_train")):
-    key = f"GUI-Model-MB_stage{stage}"
+for stage, anchor in ((1, "IWM-MB_stage1_train"), (2, "IWM-MB_stage2_train")):
+    key = f"IWM-MB_stage{stage}"
     if key in d:
         continue
     new_d = OrderedDict()
@@ -135,121 +135,118 @@ if [[ "${GPU_TYPE:-}" == "RTX5090" ]]; then
 fi
 
 # --- dataset prefix / HF slug / data dir 매핑 (Cell 3 _DATASET_CONFIG 와 일치) -
-# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC, AC_2, AC_3, MC}.
+# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC, AC_EXP01, AC_EXP02, MC}.
 # MB entry 는 평가 스크립트가 dataset_info 이름/slug 를 조합하는 데 사용.
 #
-# AC_3 (AndroidControl_3) 은 state_pred / action_pred 두 task 를 비율 혼합한
-# 3 종 train (3:7, 5:5, 7:3) 으로 학습한다. ratio 가 학습 산출물의 정체성에
-#영향을 주므로 내부적으로 ratio 별 가상 키 (AC_3_r37, AC_3_r55, AC_3_r73) 로
-# 펼친다. 사용자 facing CLI 는 --dataset AC_3 (학습/merge) 또는
-# --train-dataset AC_3 + --ac3-ratio r55 (eval) 만 받고 expansion 은 내부에서 처리.
+# AC_EXP01 (AndroidControl_EXP01) 은 state_pred / action_pred 두 task 를 비율
+# 혼합한 3 종 train (3:7, 5:5, 7:3) 으로 학습한다. ratio 가 학습 산출물의
+# 정체성에 영향을 주므로 내부적으로 ratio 별 가상 키 (AC_EXP01_ratio37,
+# AC_EXP01_ratio55, AC_EXP01_ratio73) 로 펼친다. 사용자 facing CLI 는
+# --dataset AC_EXP01 (학습/merge) 또는 --train-dataset AC_EXP01 + --exp01-ratio
+# ratio55 (eval) 만 받고 expansion 은 내부에서 처리.
+#
+# AC_EXP02 (AndroidControl_EXP02) 는 AC_EXP01 ratio73 동일 데이터 + Stage1
+# state-pred diff loss 실험군.
 declare -A DS_PREFIX=(
-  [MB]="GUI-Model-MB"
-  [AC]="GUI-Model-AC"
-  [AC_2]="GUI-Model-AC_2"
-  [AC_3]="GUI-Model-AC_3"
-  [AC_3_r37]="GUI-Model-AC_3" [AC_3_r55]="GUI-Model-AC_3" [AC_3_r73]="GUI-Model-AC_3"
-  [AC_4]="GUI-Model-AC_4"
-  [MC]="GUI-Model-MC"
+  [MB]="IWM-MB"
+  [AC]="IWM-AC"
+  [AC_2]="IWM-AC_2"
+  [AC_EXP01]="IWM-AC_EXP01"
+  [AC_EXP01_ratio37]="IWM-AC_EXP01"
+  [AC_EXP01_ratio55]="IWM-AC_EXP01"
+  [AC_EXP01_ratio73]="IWM-AC_EXP01"
+  [AC_EXP02]="IWM-AC_EXP02"
+  [MC]="IWM-MC"
 )
 declare -A HF_SLUG=(
   [MB]="mb-"
   [AC]="ac-"
   [AC_2]="ac-2-"
-  [AC_3]="ac-3-"
-  [AC_3_r37]="ac-3-r37-" [AC_3_r55]="ac-3-r55-" [AC_3_r73]="ac-3-r73-"
-  [AC_4]="ac-4-"
+  [AC_EXP01]="ac-exp01-"
+  [AC_EXP01_ratio37]="ac-exp01-ratio37-"
+  [AC_EXP01_ratio55]="ac-exp01-ratio55-"
+  [AC_EXP01_ratio73]="ac-exp01-ratio73-"
+  [AC_EXP02]="ac-exp02-"
   [MC]="mc-"
 )
 declare -A DS_DATADIR=(
   [MB]="MobiBench"
   [AC]="AndroidControl"
   [AC_2]="AndroidControl_2"
-  [AC_3]="AndroidControl_3"
-  [AC_3_r37]="AndroidControl_3" [AC_3_r55]="AndroidControl_3" [AC_3_r73]="AndroidControl_3"
-  # AC_4 = AC_3 r73 동일 데이터 + Stage1 state-pred diff loss 실험군.
-  # train 은 diff-loss 전처리본, test/Stage2 는 AC_3 에서 복사 — 모두 AndroidControl_4/ 아래.
-  [AC_4]="AndroidControl_4"
+  [AC_EXP01]="AndroidControl_EXP01"
+  [AC_EXP01_ratio37]="AndroidControl_EXP01"
+  [AC_EXP01_ratio55]="AndroidControl_EXP01"
+  [AC_EXP01_ratio73]="AndroidControl_EXP01"
+  # AC_EXP02 = AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred diff loss 실험군.
+  # train 은 diff-loss 전처리본, test/Stage2 는 AC_EXP01 에서 복사 — 모두 AndroidControl_EXP02/ 아래.
+  [AC_EXP02]="AndroidControl_EXP02"
   [MC]="MonkeyCollection"
 )
 
-# AC_3 ratio variant 메타: ratio 키 ↔ split_data.py 산출 파일 stem.
+# AC_EXP01 ratio variant 메타: ratio 키 ↔ split_data.py 산출 파일 stem.
 # split_data.py 는 train_3_7.jsonl / train_5_5.jsonl / train_7_3.jsonl 을 생성한다.
-declare -A AC3_RATIO_FILE=(
-  [AC_3_r37]="train_3_7"
-  [AC_3_r55]="train_5_5"
-  [AC_3_r73]="train_7_3"
+declare -A EXP01_RATIO_FILE=(
+  [AC_EXP01_ratio37]="train_3_7"
+  [AC_EXP01_ratio55]="train_5_5"
+  [AC_EXP01_ratio73]="train_7_3"
 )
-AC3_ALL_RATIOS=(r37 r55 r73)
+EXP01_ALL_RATIOS=(ratio37 ratio55 ratio73)
 
-# AC_3 ratio variant 인지 검사. usage: if is_ac3_ratio "$DS"; then ...
-is_ac3_ratio() {
+# AC_EXP01 ratio variant 인지 검사. usage: if is_ac_exp01_ratio "$DS"; then ...
+is_ac_exp01_ratio() {
   case "$1" in
-    AC_3_r37|AC_3_r55|AC_3_r73) return 0 ;;
+    AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73) return 0 ;;
     *) return 1 ;;
   esac
 }
 
 # DS 키 → outputs/ 1-level 디렉토리 코드 (notebook Cell 5 의 output_prefix 와 동치).
-# AC_3 ratio variant 3 키는 단일 부모 'AC_3' 로 모인다.
+# AC_EXP01 ratio variant 3 키는 단일 부모 'AndroidControl_EXP01' 로 모인다.
+# AC_EXP02 는 단일 폴더 'AndroidControl_EXP02'.
 ds_outputs_code() {
   case "$1" in
-    AC_3_r37|AC_3_r55|AC_3_r73) echo "AC_3" ;;
+    AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP01) echo "AndroidControl_EXP01" ;;
+    AC_EXP02) echo "AndroidControl_EXP02" ;;
     *) echo "$1" ;;
   esac
 }
 
 # DS 키 → adapters/ + merged/ 의 모델 디렉토리 이름에 붙일 suffix.
-# AC_3 ratio variant 만 _r{37,55,73} 을 갖고, 다른 DS 는 빈 문자열.
+# AC_EXP01 ratio variant 만 _ratio{37,55,73} 을 갖고, 다른 DS 는 빈 문자열.
 ds_model_suffix() {
   case "$1" in
-    AC_3_r37) echo "_r37" ;;
-    AC_3_r55) echo "_r55" ;;
-    AC_3_r73) echo "_r73" ;;
+    AC_EXP01_ratio37) echo "_ratio37" ;;
+    AC_EXP01_ratio55) echo "_ratio55" ;;
+    AC_EXP01_ratio73) echo "_ratio73" ;;
     *) echo "" ;;
   esac
 }
 
 # DS 키 → eval/ 의 모델 디렉토리 이름에 붙일 suffix.
-# AC/AC_2 는 DS 코드 자체를 lower 로, AC_3 ratio 는 ratio 만, MC 는 빈 문자열.
+# AC/AC_2 는 DS 코드 자체를 lower 로, AC_EXP01 ratio 는 ratio 만, MC 는 빈 문자열.
 ds_eval_suffix() {
   case "$1" in
     AC) echo "_ac" ;;
     AC_2) echo "_ac_2" ;;
-    AC_3_r37) echo "_r37" ;;
-    AC_3_r55) echo "_r55" ;;
-    AC_3_r73) echo "_r73" ;;
+    AC_EXP01_ratio37) echo "_ratio37" ;;
+    AC_EXP01_ratio55) echo "_ratio55" ;;
+    AC_EXP01_ratio73) echo "_ratio73" ;;
     *) echo "" ;;
   esac
 }
 
 # --- 모델 레지스트리 (Cell 3 _MODEL_CONFIG 와 일치) ---------------------------
 declare -A MODEL_ID=(
-  [qwen2-vl-2b]="Qwen/Qwen2-VL-2B-Instruct"
-  [qwen2-vl-7b]="Qwen/Qwen2-VL-7B-Instruct"
-  [qwen2.5-vl-3b]="Qwen/Qwen2.5-VL-3B-Instruct"
-  [qwen2.5-vl-7b]="Qwen/Qwen2.5-VL-7B-Instruct"
   [qwen3-vl-4b]="Qwen/Qwen3-VL-4B-Instruct"
   [qwen3-vl-8b]="Qwen/Qwen3-VL-8B-Instruct"
-  [qwen3.5-4b-base]="Qwen/Qwen3.5-4B-Base"
-  [qwen3.5-9b-base]="Qwen/Qwen3.5-9B-Base"
 )
 declare -A MODEL_TEMPLATE=(
-  [qwen2-vl-2b]="qwen2_vl"
-  [qwen2-vl-7b]="qwen2_vl"
-  [qwen2.5-vl-3b]="qwen2_vl"
-  [qwen2.5-vl-7b]="qwen2_vl"
   [qwen3-vl-4b]="qwen3_vl_nothink"
   [qwen3-vl-8b]="qwen3_vl_nothink"
-  [qwen3.5-4b-base]="qwen3_5_nothink"
-  [qwen3.5-9b-base]="qwen3_5_nothink"
 )
-# 정렬 순서: Qwen 이전세대 → 최신세대. 세대 내 작은 모델 먼저.
+# 정렬 순서: 작은 모델 먼저.
 ALL_MODELS=(
-  qwen2-vl-2b qwen2-vl-7b
-  qwen2.5-vl-3b qwen2.5-vl-7b
   qwen3-vl-4b qwen3-vl-8b
-  qwen3.5-4b-base qwen3.5-9b-base
 )
 
 # --- CLI 인자 파싱 (학습/merge 스크립트용): --model MODEL --dataset DS --------
@@ -271,7 +268,7 @@ parse_args() {
   local stage1_epoch_arg=""
   local epochs_arg="1,2,3"
   local variants_arg=""
-  local ac3_ratios_arg=""
+  local exp01_ratios_arg=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --model)
@@ -297,22 +294,24 @@ parse_args() {
       --variants)
         if [[ -z "${2:-}" ]]; then echo "Error: --variants requires a value." >&2; exit 2; fi
         variants_arg="$2"; shift 2 ;;
-      --ac3-ratios)
-        if [[ -z "${2:-}" ]]; then echo "Error: --ac3-ratios requires a value." >&2; exit 2; fi
-        ac3_ratios_arg="$2"; shift 2 ;;
+      --exp01-ratios)
+        if [[ -z "${2:-}" ]]; then echo "Error: --exp01-ratios requires a value." >&2; exit 2; fi
+        exp01_ratios_arg="$2"; shift 2 ;;
       -h|--help)
         cat <<EOF
 Usage: $(basename "$0") [--model MODEL] [--dataset DS] [--stage1-mode MODE]
                          [--stage2-mode MODE] [--stage1-epoch N] [--epochs LIST]
-                         [--variants LIST] [--ac3-ratios LIST] [--no-hf-upload]
+                         [--variants LIST] [--exp01-ratios LIST] [--no-hf-upload]
 
 Options:
   --model MODEL        모델 short_name 또는 "all" (기본: all)
-  --dataset DS         AC | AC_2 | AC_3 | AC_4 | MC | all (기본: all) — 학습 대상 DS.
-                       AC_3 는 ratio mix (3:7, 5:5, 7:3) 3 종을 모두 sweep 하므로
-                       --ac3-ratios 로 부분 실행 가능. MB 는 평가 전용이라 사용 불가.
-                       AC_4 는 AC_3 r73 동일 데이터 + Stage1 state-pred diff loss 실험군.
-                       'all' 은 (AC AC_2 MC) 만 의미하며 AC_3/AC_4 는 명시적으로 선택해야 함.
+  --dataset DS         AC | AC_2 | AC_EXP01 | AC_EXP02 | MC | all (기본: all) — 학습 대상 DS.
+                       AC_EXP01 은 ratio mix (3:7, 5:5, 7:3) 3 종을 모두 sweep 하므로
+                       --exp01-ratios 로 부분 실행 가능. MB 는 평가 전용이라 사용 불가.
+                       AC_EXP02 는 AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred
+                       diff loss 실험군.
+                       'all' 은 (AC AC_2 MC) 만 의미하며 AC_EXP01/AC_EXP02 는
+                       명시적으로 선택해야 함.
   --stage1-mode MODE   full | lora (기본: full) — Stage 1 학습 방식.
   --stage2-mode MODE   full | lora (기본: lora) — Stage 2 학습 방식 (Stage 2 전용).
   --no-hf-upload       Hugging Face 업로드를 생략하고 local merge/export 만 수행.
@@ -324,8 +323,8 @@ Options:
   --variants LIST      콤마로 구분된 변형 목록. stage{1,2}_eval.sh 전용.
                        Stage1: base, full_world_model, lora_world_model
                        Stage2: base, full_base, lora_base, full_world_model, lora_world_model
-  --ac3-ratios LIST    콤마로 구분된 AC_3 ratio 목록 (기본: r37,r55,r73).
-                       --dataset AC_3 일 때만 의미가 있다.
+  --exp01-ratios LIST  콤마로 구분된 AC_EXP01 ratio 목록 (기본: ratio37,ratio55,ratio73).
+                       --dataset AC_EXP01 일 때만 의미가 있다.
   -h, --help           이 도움말 표시
 
 Available models:
@@ -370,39 +369,39 @@ EOF
     exit 2
   fi
 
-  # AC_3 ratio 선택 파싱 (--ac3-ratios LIST). 기본: 3 ratio 전체.
-  local ac3_ratios=()
-  if [[ -n "$ac3_ratios_arg" ]]; then
-    IFS=',' read -r -a ac3_ratios <<< "$ac3_ratios_arg"
-    for _r in "${ac3_ratios[@]}"; do
+  # AC_EXP01 ratio 선택 파싱 (--exp01-ratios LIST). 기본: 3 ratio 전체.
+  local exp01_ratios=()
+  if [[ -n "$exp01_ratios_arg" ]]; then
+    IFS=',' read -r -a exp01_ratios <<< "$exp01_ratios_arg"
+    for _r in "${exp01_ratios[@]}"; do
       case "$_r" in
-        r37|r55|r73) ;;
-        *) echo "Error: --ac3-ratios item '$_r' invalid (use r37 | r55 | r73)." >&2; exit 2 ;;
+        ratio37|ratio55|ratio73) ;;
+        *) echo "Error: --exp01-ratios item '$_r' invalid (use ratio37 | ratio55 | ratio73)." >&2; exit 2 ;;
       esac
     done
     unset _r
   else
-    ac3_ratios=("${AC3_ALL_RATIOS[@]}")
+    exp01_ratios=("${EXP01_ALL_RATIOS[@]}")
   fi
 
-  # AC_3 → 내부 ratio variant DS 키들로 expand. 다른 DS 는 그대로 전달.
+  # AC_EXP01 → 내부 ratio variant DS 키들로 expand. 다른 DS 는 그대로 전달.
   case "$dataset_arg" in
-    AC)   DATASETS=(AC) ;;
-    AC_2) DATASETS=(AC_2) ;;
-    AC_4) DATASETS=(AC_4) ;;
-    MC)   DATASETS=(MC) ;;
-    AC_3)
+    AC)       DATASETS=(AC) ;;
+    AC_2)     DATASETS=(AC_2) ;;
+    AC_EXP02) DATASETS=(AC_EXP02) ;;
+    MC)       DATASETS=(MC) ;;
+    AC_EXP01)
       DATASETS=()
-      for _r in "${ac3_ratios[@]}"; do DATASETS+=("AC_3_${_r}"); done
+      for _r in "${exp01_ratios[@]}"; do DATASETS+=("AC_EXP01_${_r}"); done
       unset _r
       ;;
     all)  DATASETS=(AC AC_2 MC) ;;
     MB)
       echo "Error: MobiBench (MB) 는 평가 전용 벤치마크입니다. 학습/merge 에는 사용할 수 없습니다." >&2
-      echo "       교차 평가는 stage{1,2}_eval.sh --train-dataset {AC|AC_2|AC_3|MC} --eval-datasets AC,AC_2,AC_3,MC,MB 를 사용하세요." >&2
+      echo "       교차 평가는 stage{1,2}_eval.sh --train-dataset {AC|AC_2|AC_EXP01|MC} --eval-datasets AC,AC_2,AC_EXP01,MC,MB 를 사용하세요." >&2
       exit 2
       ;;
-    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC | AC_2 | AC_3 | AC_4 | MC | all." >&2; exit 2 ;;
+    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC | AC_2 | AC_EXP01 | AC_EXP02 | MC | all." >&2; exit 2 ;;
   esac
 
   IFS=',' read -r -a EPOCHS <<< "$epochs_arg"
@@ -445,7 +444,7 @@ parse_eval_args() {
   local stage1_epoch_arg=""
   local epochs_arg="1,2,3"
   local variants_arg=""
-  local ac3_ratio_arg=""
+  local exp01_ratio_arg=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --model)
@@ -472,22 +471,22 @@ parse_eval_args() {
       --variants)
         if [[ -z "${2:-}" ]]; then echo "Error: --variants requires a value." >&2; exit 2; fi
         variants_arg="$2"; shift 2 ;;
-      --ac3-ratio)
-        if [[ -z "${2:-}" ]]; then echo "Error: --ac3-ratio requires a value." >&2; exit 2; fi
-        ac3_ratio_arg="$2"; shift 2 ;;
+      --exp01-ratio)
+        if [[ -z "${2:-}" ]]; then echo "Error: --exp01-ratio requires a value." >&2; exit 2; fi
+        exp01_ratio_arg="$2"; shift 2 ;;
       -h|--help)
         cat <<EOF
-Usage: $(basename "$0") --train-dataset {AC|AC_2|AC_3|MC} [--eval-datasets LIST] [--model MODEL]
+Usage: $(basename "$0") --train-dataset {AC|AC_2|AC_EXP01|MC} [--eval-datasets LIST] [--model MODEL]
                          [--stage1-mode MODE] [--stage2-mode MODE] [--stage1-epoch N]
-                         [--epochs LIST] [--variants LIST] [--ac3-ratio RATIO]
+                         [--epochs LIST] [--variants LIST] [--exp01-ratio RATIO]
 
 Options:
   --model MODEL           모델 short_name 또는 "all" (기본: all)
-  --train-dataset DS      AC | AC_2 | AC_3 | AC_4 | MC (필수) — HF Hub merged repo 를 해석할 학습 DS.
-                          AC_3 는 ratio 하나를 추가로 지정해야 함 (--ac3-ratio).
+  --train-dataset DS      AC | AC_2 | AC_EXP01 | AC_EXP02 | MC (필수) — HF Hub merged repo 를
+                          해석할 학습 DS. AC_EXP01 은 ratio 하나를 추가로 지정해야 함 (--exp01-ratio).
   --eval-datasets LIST    콤마로 구분된 평가 DS 리스트 (기본: --train-dataset 단일값)
-                          허용값: AC, AC_2, AC_3, AC_4, MC, MB (MB 는 단일 파일 overall 채점).
-                          AC_3 / AC_4 는 state_pred / action_pred 두 task 를 각각 채점한다.
+                          허용값: AC, AC_2, AC_EXP01, AC_EXP02, MC, MB (MB 는 단일 파일 overall 채점).
+                          AC_EXP01 / AC_EXP02 는 state_pred / action_pred 두 task 를 각각 채점한다.
   --stage1-mode MODE      full | lora (기본: full) — world-model variant 의 상류 Stage1 모드.
   --stage2-mode MODE      full | lora (기본: lora) — Stage 2 merge/eval 전용.
   --stage1-epoch N        Stage 2 world-model variant 의 HF repo 계보 번호.
@@ -495,8 +494,8 @@ Options:
   --variants LIST         콤마 구분 평가 변형 목록.
                           Stage1: base, full_world_model, lora_world_model
                           Stage2: base, full_base, lora_base, full_world_model, lora_world_model
-  --ac3-ratio RATIO       AC_3 학습 모델 식별용 단일 ratio (r37 | r55 | r73, 기본 r55).
-                          --train-dataset AC_3 일 때만 의미가 있다.
+  --exp01-ratio RATIO     AC_EXP01 학습 모델 식별용 단일 ratio (ratio37 | ratio55 | ratio73, 기본 ratio55).
+                          --train-dataset AC_EXP01 일 때만 의미가 있다.
   -h, --help              이 도움말 표시
 
 Available models:
@@ -512,37 +511,37 @@ EOF
   done
 
   if [[ -z "$train_arg" ]]; then
-    echo "Error: --train-dataset 는 필수입니다 (AC | AC_2 | AC_3 | AC_4 | MC)." >&2; exit 2
+    echo "Error: --train-dataset 는 필수입니다 (AC | AC_2 | AC_EXP01 | AC_EXP02 | MC)." >&2; exit 2
   fi
   case "$train_arg" in
-    AC|AC_2|AC_4|MC) TRAIN_DATASET="$train_arg" ;;
-    AC_3)
-      # AC_3 는 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
-      # 미지정 시 r55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
-      local _r="${ac3_ratio_arg:-r55}"
+    AC|AC_2|AC_EXP02|MC) TRAIN_DATASET="$train_arg" ;;
+    AC_EXP01)
+      # AC_EXP01 은 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
+      # 미지정 시 ratio55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
+      local _r="${exp01_ratio_arg:-ratio55}"
       case "$_r" in
-        r37|r55|r73) ;;
-        *) echo "Error: --ac3-ratio must be r37 | r55 | r73 (got '$_r')." >&2; exit 2 ;;
+        ratio37|ratio55|ratio73) ;;
+        *) echo "Error: --exp01-ratio must be ratio37 | ratio55 | ratio73 (got '$_r')." >&2; exit 2 ;;
       esac
-      TRAIN_DATASET="AC_3_${_r}"
-      AC3_RATIO="$_r"
+      TRAIN_DATASET="AC_EXP01_${_r}"
+      EXP01_RATIO="$_r"
       unset _r ;;
     MB)
       echo "Error: --train-dataset MB 는 허용되지 않습니다 (MobiBench 는 평가 전용)." >&2
       exit 2 ;;
-    *) echo "Error: --train-dataset must be AC | AC_2 | AC_3 | AC_4 | MC (got '$train_arg')." >&2; exit 2 ;;
+    *) echo "Error: --train-dataset must be AC | AC_2 | AC_EXP01 | AC_EXP02 | MC (got '$train_arg')." >&2; exit 2 ;;
   esac
 
-  # --ac3-ratio 는 AC_3 train 일 때만 유효. 다른 train DS 와 함께 주면 에러.
-  if [[ -n "$ac3_ratio_arg" && "$train_arg" != "AC_3" ]]; then
-    echo "Error: --ac3-ratio 는 --train-dataset AC_3 와 함께만 사용할 수 있습니다." >&2
+  # --exp01-ratio 는 AC_EXP01 train 일 때만 유효. 다른 train DS 와 함께 주면 에러.
+  if [[ -n "$exp01_ratio_arg" && "$train_arg" != "AC_EXP01" ]]; then
+    echo "Error: --exp01-ratio 는 --train-dataset AC_EXP01 와 함께만 사용할 수 있습니다." >&2
     exit 2
   fi
 
   if [[ -z "$eval_arg" ]]; then
-    # AC_3 train 의 eval 기본값은 raw 'AC_3' (test 파일은 ratio 와 무관).
-    if [[ "$train_arg" == "AC_3" ]]; then
-      EVAL_DATASETS=(AC_3)
+    # AC_EXP01 train 의 eval 기본값은 raw 'AC_EXP01' (test 파일은 ratio 와 무관).
+    if [[ "$train_arg" == "AC_EXP01" ]]; then
+      EVAL_DATASETS=(AC_EXP01)
     else
       EVAL_DATASETS=("$TRAIN_DATASET")
     fi
@@ -553,8 +552,8 @@ EOF
     fi
     for _d in "${EVAL_DATASETS[@]}"; do
       case "$_d" in
-        AC|AC_2|AC_3|AC_4|MC|MB) ;;
-        *) echo "Error: --eval-datasets item '$_d' invalid (use AC | AC_2 | AC_3 | AC_4 | MC | MB)." >&2; exit 2 ;;
+        AC|AC_2|AC_EXP01|AC_EXP02|MC|MB) ;;
+        *) echo "Error: --eval-datasets item '$_d' invalid (use AC | AC_2 | AC_EXP01 | AC_EXP02 | MC | MB)." >&2; exit 2 ;;
       esac
     done
     unset _d
@@ -675,7 +674,7 @@ PY
 
 # --- HF Hub repo id 조립 (단일 실패 지점) ------------------------------------
 # Stage 1: SaFD-00/{short}-{slug}world-model-stage1-{mode}-epoch{E}
-#   ex: SaFD-00/qwen2.5-vl-7b-ac-world-model-stage1-full-epoch1
+#   ex: SaFD-00/qwen3-vl-8b-ac-exp01-ratio37-world-model-stage1-lora-epoch1
 hf_repo_id_stage1() {
   local model_short="$1" ds="$2" mode="$3" epoch="$4"
   printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s' \
@@ -684,7 +683,7 @@ hf_repo_id_stage1() {
 
 # Stage 2 (base variant):
 #   SaFD-00/{short}-{slug}base-stage2-{mode2}-epoch{E2}
-#   ex: SaFD-00/qwen2.5-vl-7b-ac-base-stage2-full-epoch1
+#   ex: SaFD-00/qwen3-vl-8b-ac-exp01-ratio37-base-stage2-lora-epoch1
 hf_repo_id_stage2_base() {
   local model_short="$1" ds="$2" mode2="$3" epoch2="$4"
   printf 'SaFD-00/%s-%sbase-stage2-%s-epoch%s' \
@@ -693,7 +692,7 @@ hf_repo_id_stage2_base() {
 
 # Stage 2 (world-model variant — Stage 1 계보 포함):
 #   SaFD-00/{short}-{slug}world-model-stage1-{mode1}-epoch{E1}-stage2-{mode2}-epoch{E2}
-#   ex: SaFD-00/qwen2.5-vl-7b-ac-world-model-stage1-full-epoch3-stage2-lora-epoch1
+#   ex: SaFD-00/qwen3-vl-8b-ac-exp01-ratio37-world-model-stage1-lora-epoch3-stage2-lora-epoch1
 hf_repo_id_stage2_world_model() {
   local model_short="$1" ds="$2" mode1="$3" epoch1="$4" mode2="$5" epoch2="$6"
   printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s-stage2-%s-epoch%s' \
@@ -703,11 +702,11 @@ hf_repo_id_stage2_world_model() {
 # --- Local merged 디렉토리 경로 ---------------------------------------------
 # stage1: merged/{MODEL}{SFX}_stage1_{MODE}_world-model/epoch-{E}
 #   variant_key = MODE (full|lora). Stage 1 은 항상 world-model 학습이므로 접미 고정.
-#   SFX = ds_model_suffix(ds) — AC_3 ratio variant 만 _r{37,55,73}, 그 외는 "".
-#   outputs/ 1-level 디렉토리는 ds_outputs_code(ds) 로 정규화 (AC_3_r* → AC_3).
+#   SFX = ds_model_suffix(ds) — AC_EXP01 ratio variant 만 _ratio{37,55,73}, 그 외는 "".
+#   outputs/ 1-level 디렉토리는 ds_outputs_code(ds) 로 정규화 (AC_EXP01_ratio* → AndroidControl_EXP01).
 # stage2: merged/{MODEL}{SFX}_stage2_{variant_key}/epoch-{E}
-#   AC_3 ratio variant 가 같은 outputs/AC_3/ 부모를 공유하므로 model 디렉토리에
-#   ratio suffix 를 붙여 r37/r55/r73 산출물을 구분한다.
+#   AC_EXP01 ratio variant 가 같은 outputs/AndroidControl_EXP01/ 부모를 공유하므로
+#   model 디렉토리에 ratio suffix 를 붙여 ratio37/ratio55/ratio73 산출물을 구분한다.
 local_merged_epoch_dir() {
   local stage="$1" model_short="$2" ds="$3" variant_key="$4" epoch="$5"
   local out_ds; out_ds="$(ds_outputs_code "$ds")"

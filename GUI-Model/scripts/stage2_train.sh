@@ -14,7 +14,7 @@
 #   --model / --dataset          (공통)
 #
 # YAML 위치:
-#   examples/custom/GUI-Model-${DS}/stage2_{MODE}/{MODEL}_{VARIANT}.yaml
+#   examples/custom/IWM-${DS}/stage2_{MODE}/{MODEL}_{VARIANT}.yaml
 #
 # world-model variant 는 노트북이 생성한 YAML 의 model_name_or_path 를 런타임에
 # Stage 1 local merged 경로로 sed 치환한다 (임시 YAML). 또한 output_dir 의
@@ -33,7 +33,7 @@ SCRIPT_TAG="stage2_train_${STAGE2_MODE}_from_${STAGE1_MODE}"
 
 resolve_stage1_base() {
   # 반환: LF cwd 기준 상대경로 "../outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_{MODE}_world-model/epoch-N".
-  # AC_3 ratio variant 는 OUT_DS=AC_3, SFX=_r{37,55,73} 로 ratio 별 stage1 merged 를 가리킨다.
+  # AC_EXP01 ratio variant 는 OUT_DS=AndroidControl_EXP01, SFX=_ratio{37,55,73} 로 ratio 별 stage1 merged 를 가리킨다.
   local model_short="$1" ds="$2" mode="$3" epoch="$4"
   local abs; abs="$(local_merged_epoch_dir stage1 "$model_short" "$ds" "$mode" "$epoch")"
   if [ ! -d "$abs" ]; then
@@ -69,7 +69,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         fi
       fi
 
-      YAML_REL="examples/custom/GUI-Model-${DS}/stage2_${STAGE2_MODE}/${MODEL_SHORT}_${VARIANT}.yaml"
+      YAML_REL="examples/custom/IWM-${DS}/stage2_${STAGE2_MODE}/${MODEL_SHORT}_${VARIANT}.yaml"
       YAML_ABS="$LF_ROOT/$YAML_REL"
       require_yaml "$YAML_REL" "run notebook Cell (Stage 2 ${STAGE2_MODE}) to generate this YAML"
       RUN_YAML_REL="$YAML_REL"
@@ -80,7 +80,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         sed -e "0,/^model_name_or_path:/{s|^model_name_or_path:.*|model_name_or_path: ${S1_BASE}|}" \
             -e "s|__STAGE1_EPOCH__|${STAGE1_EPOCH}|g" \
           "$YAML_ABS" > "$TMP_YAML"
-        LINK_REL="examples/custom/GUI-Model-${DS}/stage2_${STAGE2_MODE}/.${MODEL_SHORT}_${VARIANT}.runtime.yaml"
+        LINK_REL="examples/custom/IWM-${DS}/stage2_${STAGE2_MODE}/.${MODEL_SHORT}_${VARIANT}.runtime.yaml"
         ln -sfn "$TMP_YAML" "$LF_ROOT/$LINK_REL"
         RUN_YAML_REL="$LINK_REL"
         echo "[+] [$MODEL_SHORT][$DS][$VARIANT][stage2=${STAGE2_MODE}] Stage 1 base = $S1_BASE" >&2

@@ -3,7 +3,7 @@
 Standalone Stage 2 Action Prediction evaluator.
 
 본 스크립트는 Stage 2 Action Prediction 채점의 **정본** 이며, 노트북
-``gui-model.ipynb`` Section 8 의 정본 셀이 이 파일과 글자 단위로 동일하게
+``implicit-world-modeling.ipynb`` Section 8 의 정본 셀이 이 파일과 글자 단위로 동일하게
 유지된다. 메트릭은 AndroidControl 데이터셋의 실제 스키마
 (``bounds`` 필드 영구 부재, element-index 기반 grounding) 에 맞춘
 **Step Accuracy (SA)** 단일 1차 지표를 사용한다.
@@ -17,15 +17,15 @@ Examples
 --------
   # 1. 기본 (단일 pair) — overall 만 기록
   python scripts/_action_eval.py score \\
-      --test   data/AndroidControl/gui-model_stage2_test_id.jsonl \\
+      --test   data/AndroidControl/implicit-world-modeling_stage2_test_id.jsonl \\
       --pred   .../epoch-1/generated_predictions_id.jsonl \\
       --output .../epoch-1/action_metrics.json
 
   # 2. ID + OOD 동시 입력 — overall/in_domain/out_of_domain 3 섹션
   python scripts/_action_eval.py score \\
-      --test-id   data/AndroidControl/gui-model_stage2_test_id.jsonl \\
+      --test-id   data/AndroidControl/implicit-world-modeling_stage2_test_id.jsonl \\
       --pred-id   .../epoch-1/generated_predictions_id.jsonl \\
-      --test-ood  data/AndroidControl/gui-model_stage2_test_ood.jsonl \\
+      --test-ood  data/AndroidControl/implicit-world-modeling_stage2_test_ood.jsonl \\
       --pred-ood  .../epoch-1/generated_predictions_ood.jsonl \\
       --output    .../epoch-1/action_metrics.json
 

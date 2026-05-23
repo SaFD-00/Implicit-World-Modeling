@@ -2,7 +2,7 @@
 """
 Extract AndroidControl per-episode metadata (goal, step_instructions, actions,
 primary_app, ...) from GCS TFRecord files into a single JSONL, so it can be
-joined with gui-model_stage{1,2}.jsonl by episode_id.
+joined with implicit-world-modeling_stage{1,2}.jsonl by episode_id.
 
 ``primary_app`` is recovered from the ``accessibility_trees`` proto
 (``AndroidAccessibilityForest``): for each step we pick the foreground

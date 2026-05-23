@@ -13,33 +13,33 @@
 #   --epochs LIST        콤마 구분 정수 (기본 1,2,3). world-model variant 대상.
 #
 # EVAL_DS 별 분기 (Stage 2 와 동일 패턴):
-#   AC   : test_id + test_ood 2-회 inference → hungarian_metrics.json
-#          (overall / in_domain / out_of_domain 3-섹션)
-#   MC   : 단일 파일 gui-model_stage1_test.jsonl 1-회 (random split 산출물)
-#          → hungarian_metrics.json (overall 1-섹션, single-pair)
-#   MB   : 단일 파일 gui-model_stage1.jsonl 1-회 (벤치마크 단일 파일)
-#          → hungarian_metrics.json (overall 1-섹션, single-pair)
-#   AC_3 : task 별 독립 평가 (state_pred + action_pred). 각 task 는 id/ood 2-section.
-#          on-AC_3-state/  ← _hungarian_eval.py score (Stage1 채점, state transition)
-#          on-AC_3-action/ ← _action_eval.py score    (Stage2 채점, action prediction)
-#          ratio 차원은 학습 산출물(TRAIN_DATASET=AC_3_r{37,55,73}) 에 박혀있고
-#          test 파일은 ratio 와 무관하게 4 개로 고정.
+#   AC       : test_id + test_ood 2-회 inference → hungarian_metrics.json
+#              (overall / in_domain / out_of_domain 3-섹션)
+#   MC       : 단일 파일 implicit-world-modeling_stage1_test.jsonl 1-회 (random split 산출물)
+#              → hungarian_metrics.json (overall 1-섹션, single-pair)
+#   MB       : 단일 파일 implicit-world-modeling_stage1.jsonl 1-회 (벤치마크 단일 파일)
+#              → hungarian_metrics.json (overall 1-섹션, single-pair)
+#   AC_EXP01 : task 별 독립 평가 (state_pred + action_pred). 각 task 는 id/ood 2-section.
+#              on-AC_EXP01-state/  ← _hungarian_eval.py score (Stage1 채점, state transition)
+#              on-AC_EXP01-action/ ← _action_eval.py score    (Stage2 채점, action prediction)
+#              ratio 차원은 학습 산출물(TRAIN_DATASET=AC_EXP01_ratio{37,55,73}) 에 박혀있고
+#              test 파일은 ratio 와 무관하게 4 개로 고정.
 #
 # without_open_app 자동 산출:
 #   각 (variant, EVAL_DS) 마다 정규 eval 직후 추론 재실행 없이
 #   _hungarian_eval.py score --exclude-action open_app 한 번을 더 돌려
 #   sibling on-{EVAL_DS}-without-open_app/ 디렉토리에 필터된 jsonl + 메트릭을 산출.
 #   skip marker 가 별도라서 정규/필터 각각 독립 idempotent.
-#   주의: AC_3-action 분기는 _action_eval.py 가 --exclude-action 미지원이라 woa 미산출.
+#   주의: AC_EXP01-action 분기는 _action_eval.py 가 --exclude-action 미지원이라 woa 미산출.
 #
 # 산출물:
 #   outputs/{OUT_DS}/eval/{MODEL}{EVAL_SFX}/stage1_eval/{variant}[/epoch-{E}]/on-{EVAL_DS}/
-#     OUT_DS   = ds_outputs_code(TRAIN_DS)  — AC_3_r* → AC_3, 그 외는 그대로.
-#     EVAL_SFX = ds_eval_suffix(TRAIN_DS)   — AC=_ac, AC_2=_ac_2, AC_3_r*=_r{37,55,73}, MC="".
-#     EVAL_DS=AC          : generated_predictions_{id,ood}.jsonl + hungarian_metrics.json
-#     EVAL_DS=MC / MB     : generated_predictions.jsonl          + hungarian_metrics.json (overall only)
-#     EVAL_DS=AC_3-state  : generated_predictions_{id,ood}.jsonl + hungarian_metrics.json
-#     EVAL_DS=AC_3-action : generated_predictions_{id,ood}.jsonl + action_metrics.json
+#     OUT_DS   = ds_outputs_code(TRAIN_DS)  — AC_EXP01_ratio* → AndroidControl_EXP01, 그 외는 그대로.
+#     EVAL_SFX = ds_eval_suffix(TRAIN_DS)   — AC=_ac, AC_2=_ac_2, AC_EXP01_ratio*=_ratio{37,55,73}, MC="".
+#     EVAL_DS=AC                : generated_predictions_{id,ood}.jsonl + hungarian_metrics.json
+#     EVAL_DS=MC / MB           : generated_predictions.jsonl          + hungarian_metrics.json (overall only)
+#     EVAL_DS=AC_EXP01-state    : generated_predictions_{id,ood}.jsonl + hungarian_metrics.json
+#     EVAL_DS=AC_EXP01-action   : generated_predictions_{id,ood}.jsonl + action_metrics.json
 #   outputs/{OUT_DS}/eval/{MODEL}{EVAL_SFX}/stage1_eval/{variant}[/epoch-{E}]/on-{EVAL_DS}-without-open_app/
 #     동일 파일 구조 + predict_results.json (정규 eval 의 schema 와 동일)
 
@@ -52,16 +52,16 @@ export DISABLE_VERSION_CHECK=1
 SCRIPT_TAG="stage1_eval"
 TRAIN_DS="$TRAIN_DATASET"
 
-# AC_3 / AC_4 dual-task eval helper.
+# AC_EXP01 / AC_EXP02 dual-task eval helper.
 # state_pred / action_pred 각각 (id + ood) 2-section 으로 독립 채점.
 #   on-{DS}-state/  ← _hungarian_eval.py score (Stage1 채점)
 #   on-{DS}-action/ ← _action_eval.py score    (Stage2 채점)
 # without_open_app 은 state branch 만 산출 (action branch 의 _action_eval.py 는
 # --exclude-action 미지원).
-# AC_4 는 AC_3 와 동일 test 파일을 쓴다 (DS_DATADIR[AC_4]=AndroidControl_3).
-run_ac3_eval() {
+# AC_EXP02 는 AndroidControl_EXP02 폴더의 자체 test 파일을 쓴다 (DS_DATADIR[AC_EXP02]=AndroidControl_EXP02).
+run_exp01_eval() {
   local model_short="$1" train_ds="$2" variant="$3" epoch="$4" hub_id="$5" \
-        out_rel_base="$6" template="$7" eval_ds="${8:-AC_3}"
+        out_rel_base="$6" template="$7" eval_ds="${8:-AC_EXP01}"
   local datadir="${DS_DATADIR[$eval_ds]}"
   local eval_prefix="${DS_PREFIX[$eval_ds]}"
 
@@ -87,8 +87,8 @@ run_ac3_eval() {
       continue
     fi
 
-    local test_id="$BASE_DIR/data/${datadir}/gui-model_stage1_test_id_${task}_pred.jsonl"
-    local test_ood="$BASE_DIR/data/${datadir}/gui-model_stage1_test_ood_${task}_pred.jsonl"
+    local test_id="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_id_${task}_pred.jsonl"
+    local test_ood="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_ood_${task}_pred.jsonl"
     if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
       echo "[!] [$model_short][train=$train_ds][eval=${eval_ds}-${task}] Missing test jsonl:" >&2
       echo "      $test_id" >&2
@@ -143,19 +143,19 @@ run_ac3_eval() {
 }
 
 # 한 (MODEL, TRAIN_DS, VARIANT, EPOCH, HUB_ID, EVAL_DS) 조합 평가 실행.
-# - EVAL_DS=AC   : test_id + test_ood → 3-섹션 hungarian_metrics.
-# - EVAL_DS=MC   : 단일 파일 gui-model_stage1_test.jsonl  → overall only.
-# - EVAL_DS=MB   : 단일 파일 gui-model_stage1.jsonl       → overall only.
-# - EVAL_DS=AC_3 : state_pred / action_pred 두 task 독립 채점.
-#                  state → hungarian_metrics, action → action_metrics.
+# - EVAL_DS=AC       : test_id + test_ood → 3-섹션 hungarian_metrics.
+# - EVAL_DS=MC       : 단일 파일 implicit-world-modeling_stage1_test.jsonl → overall only.
+# - EVAL_DS=MB       : 단일 파일 implicit-world-modeling_stage1.jsonl      → overall only.
+# - EVAL_DS=AC_EXP01 : state_pred / action_pred 두 task 독립 채점.
+#                      state → hungarian_metrics, action → action_metrics.
 run_variant_epoch_eval_on() {
   local model_short="$1" train_ds="$2" variant="$3" epoch="$4" hub_id="$5" \
         out_rel_base="$6" template="$7" eval_ds="$8"
 
-  # AC_3 / AC_4 는 task 별 독립 채점이라 별도 helper 위임.
-  if [[ "$eval_ds" == "AC_3" || "$eval_ds" == "AC_4" ]]; then
-    run_ac3_eval "$model_short" "$train_ds" "$variant" "$epoch" "$hub_id" \
-                 "$out_rel_base" "$template" "$eval_ds"
+  # AC_EXP01 / AC_EXP02 는 task 별 독립 채점이라 별도 helper 위임.
+  if [[ "$eval_ds" == "AC_EXP01" || "$eval_ds" == "AC_EXP02" ]]; then
+    run_exp01_eval "$model_short" "$train_ds" "$variant" "$epoch" "$hub_id" \
+                   "$out_rel_base" "$template" "$eval_ds"
     return $?
   fi
 
@@ -174,8 +174,8 @@ run_variant_epoch_eval_on() {
   local eval_prefix="${DS_PREFIX[$eval_ds]}"
 
   if [[ "$eval_ds" == "AC" ]]; then
-    local test_id="$BASE_DIR/data/${datadir}/gui-model_stage1_test_id.jsonl"
-    local test_ood="$BASE_DIR/data/${datadir}/gui-model_stage1_test_ood.jsonl"
+    local test_id="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_id.jsonl"
+    local test_ood="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_ood.jsonl"
     if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
       echo "[!] [$model_short][train=$train_ds][eval=$eval_ds] Missing test_id/test_ood jsonl:" >&2
       echo "      $test_id" >&2
@@ -228,10 +228,10 @@ run_variant_epoch_eval_on() {
     local test_jsonl
     local ds_test
     if [[ "$eval_ds" == "MB" ]]; then
-      test_jsonl="$BASE_DIR/data/${datadir}/gui-model_stage1.jsonl"
+      test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1.jsonl"
       ds_test="${eval_prefix}_stage1"
     else  # MC (random split)
-      test_jsonl="$BASE_DIR/data/${datadir}/gui-model_stage1_test.jsonl"
+      test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test.jsonl"
       ds_test="${eval_prefix}_stage1_test"
     fi
     if [ ! -f "$test_jsonl" ]; then
@@ -274,8 +274,8 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   BASE_MODEL="${MODEL_ID[$MODEL_SHORT]}"
   TEMPLATE="${MODEL_TEMPLATE[$MODEL_SHORT]}"
 
-  # outputs/ 1-level 디렉토리는 ds_outputs_code 로 정규화 (AC_3_r* → AC_3),
-  # 모델 디렉토리에는 ds_eval_suffix (AC=_ac, AC_2=_ac_2, AC_3_r*=_r{37,55,73}) 를 붙인다.
+  # outputs/ 1-level 디렉토리는 ds_outputs_code 로 정규화 (AC_EXP01_ratio* → AndroidControl_EXP01),
+  # 모델 디렉토리에는 ds_eval_suffix (AC=_ac, AC_2=_ac_2, AC_EXP01_ratio*=_ratio{37,55,73}) 를 붙인다.
   OUT_DS="$(ds_outputs_code "$TRAIN_DS")"
   EVAL_SFX="$(ds_eval_suffix "$TRAIN_DS")"
   EVAL_DIR_REL="../outputs/${OUT_DS}/eval/${MODEL_SHORT}${EVAL_SFX}/stage1_eval"

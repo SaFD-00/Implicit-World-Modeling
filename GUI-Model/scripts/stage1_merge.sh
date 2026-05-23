@@ -4,12 +4,13 @@
 # train → merge → eval 흐름 전환: BEST_CHECKPOINT 의존 제거. 모든
 # outputs/{OUT_DS}/adapters/{MODEL}{SFX}_stage1_{MODE}_world-model/checkpoint-*/
 # 를 순회하며 epoch 별로 local merge + 개별 HF repo push 한다.
-# (OUT_DS = ds_outputs_code(DS), SFX = ds_model_suffix(DS) — AC_3_r* → AC_3 + _r37/_r55/_r73)
+# (OUT_DS = ds_outputs_code(DS), SFX = ds_model_suffix(DS) — AC_EXP01_ratio* → AndroidControl_EXP01 + _ratio{37,55,73})
 #
-# AC_3: --dataset AC_3 입력 시 parse_args 가 DATASETS=(AC_3_r37 AC_3_r55 AC_3_r73)
-# 로 펼쳐, 모두 단일 부모 outputs/AC_3/ 아래에서 model dir 의 ratio suffix 로 분리된다.
-# HF repo slug 는 (ac-3-r37-, ac-3-r55-, ac-3-r73-) 그대로 ratio 별로 push.
-# 부분 실행은 --ac3-ratios r55,r73.
+# AC_EXP01: --dataset AC_EXP01 입력 시 parse_args 가
+# DATASETS=(AC_EXP01_ratio37 AC_EXP01_ratio55 AC_EXP01_ratio73) 로 펼쳐, 모두 단일 부모
+# outputs/AndroidControl_EXP01/ 아래에서 model dir 의 ratio suffix 로 분리된다.
+# HF repo slug 는 (ac-exp01-ratio37-, ac-exp01-ratio55-, ac-exp01-ratio73-) 그대로 ratio 별로 push.
+# 부분 실행은 --exp01-ratios ratio55,ratio73.
 #
 # --stage1-mode full (default) | lora.
 # --no-hf-upload 시 local merge 만 수행하고 HF Hub push 는 생략.
@@ -39,7 +40,7 @@ FAILED_COUNT=0
 for MODEL_SHORT in "${MODELS[@]}"; do
   BASE_MODEL="${MODEL_ID[$MODEL_SHORT]}"
   for DS in "${DATASETS[@]}"; do
-    # AC_3 ratio variant 는 outputs/AC_3/ 단일 부모 + model dir 에 _r{37,55,73} suffix.
+    # AC_EXP01 ratio variant 는 outputs/AndroidControl_EXP01/ 단일 부모 + model dir 에 _ratio{37,55,73} suffix.
     OUT_DS="$(ds_outputs_code "$DS")"
     SFX="$(ds_model_suffix "$DS")"
     # LF cwd 기준 상대경로 (= BASE_DIR 기준 "outputs/...").

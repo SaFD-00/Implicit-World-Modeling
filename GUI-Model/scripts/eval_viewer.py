@@ -27,10 +27,10 @@ STAGE_CONFIG: dict[int, dict] = {
             # AC 는 Stage 1 도 ID/OOD split 이라 GT 가 두 파일로 분리됨.
             # 현 viewer 는 단일 GT 파일만 다루므로 ID 파일을 anchor 로 사용.
             # ID/OOD 양쪽을 한 화면에 보려면 viewer 자체 확장이 필요 (TODO).
-            "on-AC":                  REPO / "data/AndroidControl/gui-model_stage1_test_id.jsonl",
-            "on-AC-without-open_app": REPO / "data/AndroidControl/gui-model_stage1_test_id_without_open_app.jsonl",
-            "on-MB":                  REPO / "data/MobiBench/gui-model_stage1.jsonl",
-            "on-MB-without-open_app": REPO / "data/MobiBench/gui-model_stage1_without_open_app.jsonl",
+            "on-AC":                  REPO / "data/AndroidControl/implicit-world-modeling_stage1_test_id.jsonl",
+            "on-AC-without-open_app": REPO / "data/AndroidControl/implicit-world-modeling_stage1_test_id_without_open_app.jsonl",
+            "on-MB":                  REPO / "data/MobiBench/implicit-world-modeling_stage1.jsonl",
+            "on-MB-without-open_app": REPO / "data/MobiBench/implicit-world-modeling_stage1_without_open_app.jsonl",
         },
         "metric_files": ["predict_results.json", "hungarian_metrics.json"],
         "metric_keys": [
@@ -51,8 +51,8 @@ STAGE_CONFIG: dict[int, dict] = {
         "data_dir": "AC",
         "eval_subdir": "stage2_eval",
         "datasets": {
-            "on-AC": REPO / "data/AndroidControl/gui-model_stage2_test.jsonl",
-            "on-MB": REPO / "data/MobiBench/gui-model_stage2.jsonl",
+            "on-AC": REPO / "data/AndroidControl/implicit-world-modeling_stage2_test.jsonl",
+            "on-MB": REPO / "data/MobiBench/implicit-world-modeling_stage2.jsonl",
         },
         "metric_files": ["predict_results.json", "action_metrics.json"],
         "metric_keys": [
@@ -79,17 +79,17 @@ DATA_DIR_OVERRIDES: dict[str, dict[int, dict]] = {
         1: {
             "data_dir": "AC_2",
             "datasets": {
-                "on-AC":                  REPO / "data/AndroidControl_2/gui-model_stage1_test.jsonl",
-                "on-AC-without-open_app": REPO / "data/AndroidControl_2/gui-model_stage1_test_without_open_app.jsonl",
-                "on-MB":                  REPO / "data/MobiBench/gui-model_stage1.jsonl",
-                "on-MB-without-open_app": REPO / "data/MobiBench/gui-model_stage1_without_open_app.jsonl",
+                "on-AC":                  REPO / "data/AndroidControl_2/implicit-world-modeling_stage1_test.jsonl",
+                "on-AC-without-open_app": REPO / "data/AndroidControl_2/implicit-world-modeling_stage1_test_without_open_app.jsonl",
+                "on-MB":                  REPO / "data/MobiBench/implicit-world-modeling_stage1.jsonl",
+                "on-MB-without-open_app": REPO / "data/MobiBench/implicit-world-modeling_stage1_without_open_app.jsonl",
             },
         },
         2: {
             "data_dir": "AC_2",
             "datasets": {
-                "on-AC": REPO / "data/AndroidControl_2/gui-model_stage2_test.jsonl",
-                "on-MB": REPO / "data/MobiBench/gui-model_stage2.jsonl",
+                "on-AC": REPO / "data/AndroidControl_2/implicit-world-modeling_stage2_test.jsonl",
+                "on-MB": REPO / "data/MobiBench/implicit-world-modeling_stage2.jsonl",
             },
         },
     },

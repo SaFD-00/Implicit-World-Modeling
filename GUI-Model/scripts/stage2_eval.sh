@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Stage 2 Evaluation — HF Hub merged repo sweep × 교차 데이터셋.
 #
-# 학습 DS (TRAIN_DATASET ∈ {AC, AC_2, AC_3}) 에서 얻은 merged 모델을
+# 학습 DS (TRAIN_DATASET ∈ {AC, AC_2, AC_EXP01, AC_EXP02}) 에서 얻은 merged 모델을
 # 여러 평가 DS 에서 sweep. MC 는 Stage 2 학습 데이터/YAML 부재로 미지원.
-# AC_3 는 --ac3-ratio {r37|r55|r73} 으로 ratio 별 학습 모델을 지정한다 (Stage 1 과 동일 패턴).
+# AC_EXP01 은 --exp01-ratio {ratio37|ratio55|ratio73} 으로 ratio 별 학습 모델을 지정한다
+# (Stage 1 과 동일 패턴).
+# AC_EXP02 는 AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred diff loss 실험군.
 # EVAL_DS 별 섹션 구성:
-#   AC / AC_3 : test_id + test_ood 2-회 inference → action_metrics.json
+#   AC / AC_EXP01 / AC_EXP02 : test_id + test_ood 2-회 inference → action_metrics.json
 #        (overall / in_domain / out_of_domain 3-섹션)
-#   MB : 단일 파일 gui-model_stage2.jsonl 1-회 inference → action_metrics.json
+#   MB : 단일 파일 implicit-world-modeling_stage2.jsonl 1-회 inference → action_metrics.json
 #        (overall 1-섹션, single-pair 모드)
 #
 # Flags (공통은 _common.sh::parse_eval_args 참고):
@@ -39,13 +41,13 @@ SCRIPT_TAG="stage2_eval"
 TRAIN_DS="$TRAIN_DATASET"
 
 case "$TRAIN_DS" in
-  AC|AC_2|AC_3_r37|AC_3_r55|AC_3_r73|AC_4) ;;
+  AC|AC_2|AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02) ;;
   MC)
     echo "[!] Stage 2 는 MonkeyCollection(MC) 학습 데이터를 갖지 않습니다 (got '$TRAIN_DS')." >&2
-    echo "    --train-dataset 는 AC | AC_2 | AC_3 | AC_4 만 사용하세요." >&2
+    echo "    --train-dataset 는 AC | AC_2 | AC_EXP01 | AC_EXP02 만 사용하세요." >&2
     exit 2 ;;
   *)
-    echo "[!] Stage 2 eval --train-dataset 는 AC | AC_2 | AC_3 | AC_4 만 지원합니다 (got '$TRAIN_DS')." >&2
+    echo "[!] Stage 2 eval --train-dataset 는 AC | AC_2 | AC_EXP01 | AC_EXP02 만 지원합니다 (got '$TRAIN_DS')." >&2
     exit 2 ;;
 esac
 
@@ -74,10 +76,10 @@ run_variant_epoch_eval_on() {
   if [[ "$eval_ds" == "MB" || "$eval_ds" == "AC_2" ]]; then
     local test_jsonl ds_test
     if [[ "$eval_ds" == "MB" ]]; then
-      test_jsonl="$BASE_DIR/data/${datadir}/gui-model_stage2.jsonl"
+      test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2.jsonl"
       ds_test="${eval_prefix}_stage2"
     else  # AC_2
-      test_jsonl="$BASE_DIR/data/${datadir}/gui-model_stage2_test.jsonl"
+      test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2_test.jsonl"
       ds_test="${eval_prefix}_stage2_test"
     fi
     if [ ! -f "$test_jsonl" ]; then
@@ -98,8 +100,8 @@ run_variant_epoch_eval_on() {
           --pred   '$out_dir/generated_predictions.jsonl' \
           --output '$out_dir/action_metrics.json'"
   else
-    local test_id="$BASE_DIR/data/${datadir}/gui-model_stage2_test_id.jsonl"
-    local test_ood="$BASE_DIR/data/${datadir}/gui-model_stage2_test_ood.jsonl"
+    local test_id="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2_test_id.jsonl"
+    local test_ood="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2_test_ood.jsonl"
     if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
       echo "[!] [$model_short][train=$train_ds][eval=$eval_ds] Missing test_id/test_ood jsonl:" >&2
       echo "      $test_id" >&2
@@ -137,8 +139,8 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   BASE_MODEL="${MODEL_ID[$MODEL_SHORT]}"
   TEMPLATE="${MODEL_TEMPLATE[$MODEL_SHORT]}"
 
-  # outputs/ 1-level 디렉토리는 ds_outputs_code 로 정규화 (AC_3_r* → AC_3),
-  # AC_3 ratio variant 만 model 디렉토리에 _r{37,55,73} suffix 를 붙여 충돌 방지.
+  # outputs/ 1-level 디렉토리는 ds_outputs_code 로 정규화 (AC_EXP01_ratio* → AndroidControl_EXP01),
+  # AC_EXP01 ratio variant 만 model 디렉토리에 _ratio{37,55,73} suffix 를 붙여 충돌 방지.
   # AC/AC_2 는 기존 산출 경로(suffix 없음) 를 유지한다.
   OUT_DS="$(ds_outputs_code "$TRAIN_DS")"
   EVAL_SFX="$(ds_model_suffix "$TRAIN_DS")"

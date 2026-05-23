@@ -3,7 +3,7 @@
 Standalone Hungarian/BLEU/ROUGE evaluator for Stage 1 World-Modeling predictions.
 
 Ported from the Stage 1 evaluation section of the project notebook
-(gui-model.ipynb, Section 5). Used by scripts/stage1_eval.sh.
+(implicit-world-modeling.ipynb, Section 5). Used by scripts/stage1_eval.sh.
 
 Subcommand
 ----------
@@ -17,22 +17,22 @@ Examples
 --------
   # 1. Single-pair (MC / MB) — overall 만 기록
   python scripts/_hungarian_eval.py score \\
-      --test  data/MonkeyCollection/gui-model_stage1_test.jsonl \\
+      --test  data/MonkeyCollection/implicit-world-modeling_stage1_test.jsonl \\
       --pred  .../generated_predictions.jsonl \\
       --output .../hungarian_metrics.json
 
   # 2. ID + OOD 동시 입력 (AC) — overall/in_domain/out_of_domain 3 섹션
   python scripts/_hungarian_eval.py score \\
-      --test-id   data/AndroidControl/gui-model_stage1_test_id.jsonl \\
+      --test-id   data/AndroidControl/implicit-world-modeling_stage1_test_id.jsonl \\
       --pred-id   .../generated_predictions_id.jsonl \\
-      --test-ood  data/AndroidControl/gui-model_stage1_test_ood.jsonl \\
+      --test-ood  data/AndroidControl/implicit-world-modeling_stage1_test_ood.jsonl \\
       --pred-ood  .../generated_predictions_ood.jsonl \\
       --output    .../hungarian_metrics.json
 
   # 3. 필터 산출 (open_app 행 제외) — 정규 eval 산출물을 재활용해 sibling 디렉토리에
   #    필터 jsonl + hungarian_metrics + predict_results 를 idempotent 저장
   python scripts/_hungarian_eval.py score \\
-      --test  data/MobiBench/gui-model_stage1.jsonl \\
+      --test  data/MobiBench/implicit-world-modeling_stage1.jsonl \\
       --pred  on-MB/generated_predictions.jsonl \\
       --exclude-action open_app \\
       --filtered-test-dir data/MobiBench \\
@@ -339,8 +339,8 @@ def _write_jsonl_idempotent(records, path):
 
 
 def _filtered_test_name(src_path, exclude_action):
-    """data/MobiBench/gui-model_stage1.jsonl + open_app
-       → gui-model_stage1_without_open_app.jsonl"""
+    """data/MobiBench/implicit-world-modeling_stage1.jsonl + open_app
+       → implicit-world-modeling_stage1_without_open_app.jsonl"""
     p = Path(src_path)
     return f"{p.stem}_without_{exclude_action}{p.suffix}"
 

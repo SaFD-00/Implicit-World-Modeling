@@ -4,7 +4,7 @@ apply_llamafactory_patch.py
 ────────────────────────────────────────────────────────────────
 diff token weighted loss 를 위한 LlamaFactory 소스 6파일 패치를 멱등 적용한다.
 
-LlamaFactory 는 GUI-Model 메인 repo 에서 gitignore 된 별도 repo 이므로
+LlamaFactory 는 Implicit-World-Modeling 메인 repo 에서 gitignore 된 별도 repo 이므로
 diff loss 패치는 git 에 커밋하지 않고, 이 스크립트로 working tree 에 재적용한다.
 notebook 환경 세팅 셀에서 호출된다.
 
@@ -258,7 +258,7 @@ PATCHES: dict[str, list[tuple[str, str]]] = {
 
 
 def _default_lf_root() -> Path:
-    # scripts/diff_loss/apply_llamafactory_patch.py → parents[2] = GUI-Model 루트
+    # scripts/diff_loss/apply_llamafactory_patch.py → parents[2] = Implicit-World-Modeling 루트
     return Path(__file__).resolve().parents[2] / "LlamaFactory"
 
 
@@ -301,7 +301,7 @@ def main() -> None:
         "--lf-root",
         type=Path,
         default=_default_lf_root(),
-        help="LlamaFactory 루트 경로 (기본: GUI-Model/LlamaFactory)",
+        help="LlamaFactory 루트 경로 (기본: Implicit-World-Modeling/LlamaFactory)",
     )
     args = parser.parse_args()
 
