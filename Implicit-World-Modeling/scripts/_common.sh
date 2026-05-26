@@ -713,6 +713,48 @@ local_merged_epoch_dir() {
   esac
 }
 
+# --- Eval 모델 경로 해석 (local 우선 → HF Hub fallback) ----------------------
+# stage{1,2}_eval.sh 가 vllm_infer 에 넘길 model_path 를 결정한다.
+# local merged dir (local_merged_epoch_dir) 가 존재하면 그 절대경로를, 없으면
+# 기존 HF Hub repo id 를 반환한다. HF push 없이 local merge 만 수행한 워크플로우
+# (stage1_merge.sh --no-hf-upload) 에서도 eval 이 동작하게 한다.
+# 사용:
+#   resolve_eval_model_path stage1       <model_short> <ds> <mode>           <epoch>
+#   resolve_eval_model_path stage2_base  <model_short> <ds> <mode2>          <epoch2>
+#   resolve_eval_model_path stage2_world <model_short> <ds> <mode1> <epoch1> <mode2> <epoch2>
+# Stage 2 world-model epoch-0 (stage2 미학습 = stage1 merged 동일) 은 호출부에서
+# stage1 helper 로 위임 (기존 분기 그대로).
+resolve_eval_model_path() {
+  local kind="$1"; shift
+  local local_dir="" hub_id=""
+  case "$kind" in
+    stage1)
+      local _ms="$1" _ds="$2" _mode="$3" _ep="$4"
+      local_dir="$(local_merged_epoch_dir stage1 "$_ms" "$_ds" "$_mode" "$_ep")"
+      hub_id="$(hf_repo_id_stage1 "$_ms" "$_ds" "$_mode" "$_ep")"
+      ;;
+    stage2_base)
+      local _ms="$1" _ds="$2" _m2="$3" _ep2="$4"
+      local_dir="$(local_merged_epoch_dir stage2 "$_ms" "$_ds" "${_m2}_base" "$_ep2")"
+      hub_id="$(hf_repo_id_stage2_base "$_ms" "$_ds" "$_m2" "$_ep2")"
+      ;;
+    stage2_world)
+      local _ms="$1" _ds="$2" _m1="$3" _ep1="$4" _m2="$5" _ep2="$6"
+      local_dir="$(local_merged_epoch_dir stage2 "$_ms" "$_ds" "${_m2}_world-model_from_${_m1}-ep${_ep1}" "$_ep2")"
+      hub_id="$(hf_repo_id_stage2_world_model "$_ms" "$_ds" "$_m1" "$_ep1" "$_m2" "$_ep2")"
+      ;;
+    *)
+      echo "[!] resolve_eval_model_path: unknown kind '$kind'" >&2; return 1 ;;
+  esac
+  if [ -d "$local_dir" ]; then
+    echo "[=] resolve_eval_model_path[$kind]: local hit → $local_dir" >&2
+    printf '%s' "$local_dir"
+  else
+    echo "[=] resolve_eval_model_path[$kind]: local miss → HF fallback $hub_id" >&2
+    printf '%s' "$hub_id"
+  fi
+}
+
 # --- Variant 유효성 체크 + 기본값 ---------------------------------------------
 # Stage 1 변형: base, full_world_model, lora_world_model
 STAGE1_ALL_VARIANTS=(base full_world_model lora_world_model)

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Stage 1 Evaluation — HF Hub merged repo sweep × 교차 데이터셋.
+# Stage 1 Evaluation — local merged 우선 + HF Hub fallback sweep × 교차 데이터셋.
 #
-# 학습 DS (TRAIN_DATASET, HF repo 식별) 와 평가 DS (EVAL_DATASETS, test JSONL)
+# 학습 DS (TRAIN_DATASET, merged 모델 식별) 와 평가 DS (EVAL_DATASETS, test JSONL)
 # 를 분리한다. 학습한 모델 하나를 여러 벤치마크에서 sweep 할 수 있다.
+# (variant, epoch) 별 model path 는 _common.sh::resolve_eval_model_path 가
+# local merged dir (outputs/.../merged/.../epoch-{E}/) 존재 여부로 결정한다 —
+# 있으면 그 절대 경로, 없으면 HF Hub repo id 로 fallback.
 #
 # Flags (공통은 _common.sh::parse_eval_args 참고):
 #   --model / --train-dataset / --eval-datasets
@@ -238,7 +241,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         VARIANT_PATH="${VARIANT/world_model/world-model}"
         echo "[+] [$MODEL_SHORT][train=$TRAIN_DS][$VARIANT] Sweeping epochs: ${EPOCHS[*]}" >&2
         for EPOCH in "${EPOCHS[@]}"; do
-          HUB_ID=$(hf_repo_id_stage1 "$MODEL_SHORT" "$TRAIN_DS" "$MODE" "$EPOCH")
+          HUB_ID=$(resolve_eval_model_path stage1 "$MODEL_SHORT" "$TRAIN_DS" "$MODE" "$EPOCH")
           OUT_REL_BASE="${EVAL_DIR_REL}/${VARIANT_PATH}/epoch-${EPOCH}"
           for EVAL_DS in "${EVAL_DATASETS[@]}"; do
             run_variant_epoch_eval_on "$MODEL_SHORT" "$TRAIN_DS" "$VARIANT" "$EPOCH" "$HUB_ID" \

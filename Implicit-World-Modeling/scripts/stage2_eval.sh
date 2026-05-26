@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Stage 2 Evaluation — HF Hub merged repo sweep × 교차 데이터셋.
+# Stage 2 Evaluation — local merged 우선 + HF Hub fallback sweep × 교차 데이터셋.
 #
 # 학습 DS (TRAIN_DATASET ∈ {AC_EXP01, AC_EXP02}) 에서 얻은 merged 모델을
 # 여러 평가 DS 에서 sweep. MC 는 Stage 2 학습 데이터/YAML 부재로 미지원.
+# (variant, epoch) 별 model path 는 _common.sh::resolve_eval_model_path
+# (kind=stage2_base | stage2_world | stage1 for epoch-0) 가 결정하며, local
+# merged dir 이 존재하면 그 경로, 없으면 HF Hub repo id 로 fallback.
 # AC_EXP01 은 --exp01-ratio {ratio37|ratio55|ratio73} 으로 ratio 별 학습 모델을 지정한다
 # (Stage 1 과 동일 패턴).
 # AC_EXP02 는 AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred diff loss 실험군.
@@ -156,7 +159,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
             echo "[=] [$MODEL_SHORT][train=$TRAIN_DS][$VARIANT] epoch-0 은 stage1 계보가 없어 원본 base 모델과 동일 — skip (base variant 사용)." >&2
             continue
           fi
-          HUB_ID=$(hf_repo_id_stage2_base "$MODEL_SHORT" "$TRAIN_DS" "$MODE2" "$EPOCH")
+          HUB_ID=$(resolve_eval_model_path stage2_base "$MODEL_SHORT" "$TRAIN_DS" "$MODE2" "$EPOCH")
           OUT_REL_BASE="${EVAL_DIR_REL}/${VARIANT}/epoch-${EPOCH}"
           for EVAL_DS in "${EVAL_DATASETS[@]}"; do
             run_variant_epoch_eval_on "$MODEL_SHORT" "$TRAIN_DS" "$VARIANT" "$EPOCH" "$HUB_ID" \
@@ -176,9 +179,9 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         for EPOCH in "${EPOCHS[@]}"; do
           if [[ "$EPOCH" == "0" ]]; then
             # epoch-0 = stage2 미학습 = stage1 merged repo (stage2 mode 무관, 동일 모델).
-            HUB_ID=$(hf_repo_id_stage1 "$MODEL_SHORT" "$TRAIN_DS" "$STAGE1_MODE" "$STAGE1_EPOCH")
+            HUB_ID=$(resolve_eval_model_path stage1 "$MODEL_SHORT" "$TRAIN_DS" "$STAGE1_MODE" "$STAGE1_EPOCH")
           else
-            HUB_ID=$(hf_repo_id_stage2_world_model "$MODEL_SHORT" "$TRAIN_DS" \
+            HUB_ID=$(resolve_eval_model_path stage2_world "$MODEL_SHORT" "$TRAIN_DS" \
               "$STAGE1_MODE" "$STAGE1_EPOCH" "$MODE2" "$EPOCH")
           fi
           OUT_REL_BASE="${EVAL_DIR_REL}/${VARIANT_PATH}_from_${STAGE1_MODE}-ep${STAGE1_EPOCH}/epoch-${EPOCH}"
