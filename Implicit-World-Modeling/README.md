@@ -290,15 +290,26 @@ bash scripts/stage2_eval.sh  --model qwen3-vl-8b --train-dataset AC_EXP01 --exp0
 
 ### 평가 결과 시각 비교 (`scripts/eval_viewer.py`)
 
-`stage{1,2}_eval.sh` 산출물을 행 정렬된 HTML 로 비교한다.
+`stage{1,2}_eval.sh` 산출물을 행 정렬된 HTML 로 비교한다. (EXP, MODEL) 쌍 1 개를 `--include` 로 주면 그 EXP 의 eval/ 디렉토리에, 2 개 이상이면 `outputs/_compare/` 에 cross-EXP 비교 HTML 을 산출한다.
 
 ```bash
-python scripts/eval_viewer.py
-python scripts/eval_viewer.py --stages 1 --datasets on-AC_EXP01-state
-python scripts/eval_viewer.py --stages 1 --variants base full_world_model/epoch-3
+# 단일 EXP — 결과는 outputs/{data_dir}/eval/{MODEL}/stage{N}_eval/pairs_*.html
+python scripts/eval_viewer.py --include AC_EXP02:qwen3-vl-8b
+python scripts/eval_viewer.py --include AC_EXP01:qwen3-vl-8b_ratio73 --stages 2
+
+# 다중 EXP 동급 stage cross-compare — 결과는 outputs/_compare/stage{N}_eval/pairs_*.html
+python scripts/eval_viewer.py --include AC_EXP01:qwen3-vl-8b_ratio73 AC_EXP02:qwen3-vl-8b
+
+# 데이터셋/variant 필터
+python scripts/eval_viewer.py --include AC_EXP02:qwen3-vl-8b \
+    --datasets on-AC-state-id on-AC-action-id \
+    --variants "lora_world-model/epoch-1"
 ```
 
-`--data-dir {AC_EXP01|AC_EXP02|MC}` 로 데이터/산출물 루트를 선택 (기본 `AC_EXP01`). 산출 위치: `outputs/{data_dir}/eval/{MODEL}/stage{1,2}_eval/{pairs_*.html, pairs_summary.md}`.
+- `--include EXP:MODEL` (필수, 1 개 이상): `EXP ∈ {AC_EXP01, AC_EXP02, MC}`, `MODEL` 은 `outputs/<DS_DATADIR(EXP)>/eval/` 아래 디렉토리 명 (AC_EXP01 ratio variant 는 `qwen3-vl-8b_ratio{37,55,73}`, AC_EXP02 는 `qwen3-vl-8b`).
+- `--stages {1,2}` (기본 둘 다), `--datasets` 는 **logical key** (예: `on-AC-state-id`, `on-AC-state-id-without-open_app`, `on-AC-action-id`, `on-MB`, `on-MC`; Stage 2 는 `on-AC-id`, `on-AC-ood`, `on-MB`).
+- multi-EXP 모드 variant 라벨은 `[EXP] MODEL/variant_path` 로 컬럼/메트릭 행에 노출되며, in-page checkbox 로 토글한다.
+- 동일 logical key 에 대한 prediction row count 는 모든 spec 에서 일치해야 한다 (AC_EXP01 ↔ AC_EXP02 의 test 데이터는 byte-identical copy — `data/AndroidControl_EXP02/` 가 AC_EXP01 에서 복사됨).
 
 ## 산출물
 

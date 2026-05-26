@@ -244,7 +244,7 @@ data/
 - [`scripts/split_data.py`](./scripts/split_data.py) — split (AC_EXP01 source=AndroidControl/ → output=AndroidControl_EXP01/, MC random)
 - [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) — Stage 1 metric (`score` 서브커맨드)
 - [`scripts/_action_eval.py`](./scripts/_action_eval.py) — Stage 2 metric, ID/OOD/overall 3 섹션 산출 (`score` 서브커맨드)
-- [`scripts/eval_viewer.py`](./scripts/eval_viewer.py) — Stage 1/2 산출물 비교 HTML 빌더. `pairs_on-{AC_EXP01-state,AC_EXP01-action,MB}.html` + `pairs_summary.md` 생성.
+- [`scripts/eval_viewer.py`](./scripts/eval_viewer.py) — Stage 1/2 산출물 비교 HTML 빌더. `--include EXP:MODEL` 다중 spec 으로 단일 EXP 자체 비교 (산출: `outputs/{DS_DATADIR(EXP)}/eval/{MODEL}/stage{N}_eval/`) 와 EXP 간 동급 stage cross-compare (산출: `outputs/_compare/stage{N}_eval/`) 를 단일 CLI 로 처리. logical key 별 `pairs_<key>.html` + `pairs_summary.md` 생성 (Stage 1: `on-AC-state-{id,ood}[-without-open_app]`, `on-AC-action-{id,ood}`, `on-MB`, `on-MB-without-open_app`, `on-MC`; Stage 2: `on-AC-{id,ood}`, `on-MB`).
 
 ### Stage 1 automation
 

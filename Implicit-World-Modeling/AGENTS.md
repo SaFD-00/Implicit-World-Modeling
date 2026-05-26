@@ -53,7 +53,7 @@
   - **EVAL_DS=MC**: 단일 파일 `implicit-world-modeling_stage1_test.jsonl` (random split) → single-pair overall.
   - **EVAL_DS=MB**: 단일 파일 `implicit-world-modeling_stage1.jsonl` (벤치마크 단일 파일) → single-pair overall.
 - 산출 경로: `outputs/{TRAIN_DS}/eval/{MODEL}/stage1_eval/{variant_path}[/epoch-{E}]/on-{EVAL_DS}/` (variant_path 는 CLI VARIANT 의 `world_model` → `world-model` 치환: 예 `full_world-model`, `lora_world-model`). 어떤 epoch 을 쓸지는 사용자가 결과를 보고 수동 결정 (자동 winner 선정 없음).
-- 재실행 시 marker (`hungarian_metrics.json`) 존재 unit 은 skip. 정본은 노트북 Section 5. 시각 비교는 [`scripts/eval_viewer.py`](./scripts/eval_viewer.py).
+- 재실행 시 marker (`hungarian_metrics.json`) 존재 unit 은 skip. 정본은 노트북 Section 5. 시각 비교는 [`scripts/eval_viewer.py`](./scripts/eval_viewer.py) — `--include EXP:MODEL` 다중 spec 으로 단일 EXP 자체 비교 와 EXP 간 동급 stage cross-compare 를 동일 CLI 로 처리하며, cross-compare 산출은 `outputs/_compare/stage{N}_eval/` 로 분리.
 - **without_open_app 자동 산출**: 각 `(variant, EVAL_DS)` 마다 정규 score 직후 추론 재실행 없이 `_hungarian_eval.py score --exclude-action open_app --filtered-test-dir data/{DATADIR} --filtered-pred-dir on-{EVAL_DS}-without-open_app/` 가 한 번 더 호출되어 GT `## Action.type=="open_app"` 행을 양쪽에서 동시 drop 한 메트릭 + 필터된 jsonl + `predict_results.json` 을 sibling `on-{EVAL_DS}-without-open_app/` 에 idempotent 저장. 정규 산출과 동일한 파일 구조 (섹션 수, `_id` / `_ood` 분리) 미러링. 필터 test JSONL 은 `data/{DATADIR}/{prefix}_stage1{,_test{_id,_ood}}_without_open_app.jsonl` 로 영구 저장 (idempotent 재사용). skip marker 별도라 정규/필터 각각 독립 idempotent.
 
 ### Stage 2 평가
