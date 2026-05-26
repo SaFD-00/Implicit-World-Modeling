@@ -827,7 +827,7 @@ build_infer_cmd() {
       --cutoff_len 8192 \
       --image_max_pixels $mm_max \
       $enable_thinking_flag \
-      --vllm_config '{\"gpu_memory_utilization\": 0.80, \"mm_processor_kwargs\": {\"min_pixels\": $mm_min, \"max_pixels\": $mm_max}}' \
+      --vllm_config '{\"gpu_memory_utilization\": ${VLLM_GPU_MEM_UTIL:-0.80}, \"mm_processor_kwargs\": {\"min_pixels\": $mm_min, \"max_pixels\": $mm_max}}' \
       --save_name        '$save_rel' \
       --matrix_save_name '$matrix_rel'"
 }

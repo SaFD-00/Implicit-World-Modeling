@@ -78,6 +78,8 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 
 `min_tokens=4` 는 family 공통. YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family default 에 dataset override 를 token-aware 로 덮어써 자동 주입한다. 평가측 `scripts/_common.sh::build_infer_cmd` 는 `TRAIN_DATASET` 글로벌 (parse_args 에서 set) 로 학습 DS 를 식별해 동일 budget 을 적용한다.
 
+> vLLM `gpu_memory_utilization` 은 `build_infer_cmd` 내부에서 기본 `0.80`, 환경변수 `VLLM_GPU_MEM_UTIL` 로 호출 단위 override. `build_infer_cmd` 는 `stage{1,2}_eval.sh` 양쪽에서 공통으로 호출되므로 stage1/2 모두 동일하게 적용된다 (예: 동일 GPU 에서 학습 병행 / OOM 마진 확보 시 `VLLM_GPU_MEM_UTIL=0.6 bash ./scripts/stage2_eval.sh ...`). 미설정 시 0.80 그대로.
+
 `cutoff_len` 은 **AC_EXP01 / AC_EXP02 Stage 1 / Stage 2 모두 10000** 이다 (2026-05-13 16384 → 10000 하향). state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패한다 — 10000 은 실측 분포 기준 multi-frame 안전 마진과 메모리/throughput 사이 tradeoff 를 잡은 운영 기준이다. 노트북 Cell 8 의 Stage 1/2 inline YAML 과 `LlamaFactory/examples/custom/IWM-AC_EXP01_*` yaml 모두 10000 으로 통일한다. (`scripts/filter_long_samples.py --threshold` 의 default 도 10000 으로 동기 — 사전 필터와 학습 cutoff 를 같은 기준으로 통일.)
 
 ### 하이퍼파라미터 — 3 단 머지 구조
