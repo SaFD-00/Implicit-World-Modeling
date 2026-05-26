@@ -1,13 +1,33 @@
 """Build pair-aligned HTML comparison of Stage 1/2 eval outputs.
 
-For each (stage, eval-DS) combination, bakes all model-variant predictions into
-one HTML and adds in-page checkboxes to toggle prediction columns / metric rows.
+각 (stage × logical-dataset) 별로 (EXP × MODEL × variant) prediction 을 하나의
+HTML 로 묶고, in-page checkbox 로 column/row 를 토글한다. 같은 EXP 안의 비교
+와 EXP 간 동일 stage 비교를 단일 CLI (`--include EXP:MODEL ...`) 로 처리한다.
 
-Output (per stage, written next to the existing variant dirs):
-  outputs/{data_dir}/eval/{model}/stage{N}_eval/
-    pairs_on-AC_EXP01.html
-    pairs_on-MB.html
-    pairs_summary.md
+Output
+------
+Single spec  : outputs/{DS_DATADIR(exp)}/eval/{model}/stage{N}_eval/pairs_*.html
+Multi spec   : outputs/_compare/stage{N}_eval/pairs_*.html
+(같은 위치에 `pairs_summary.md` 도 생성.)
+
+Examples
+--------
+    # 단일 EXP — 그 EXP 의 eval/ 디렉토리에 산출
+    python scripts/eval_viewer.py --include AC_EXP02:qwen3-vl-8b
+    python scripts/eval_viewer.py --include AC_EXP01:qwen3-vl-8b_ratio73 --stages 2
+
+    # 다중 EXP cross-compare — outputs/_compare/ 에 산출
+    python scripts/eval_viewer.py --include AC_EXP01:qwen3-vl-8b_ratio73 AC_EXP02:qwen3-vl-8b
+
+    # 데이터셋/variant 필터
+    python scripts/eval_viewer.py --include AC_EXP02:qwen3-vl-8b \\
+        --datasets on-AC-state-id on-AC-action-id \\
+        --variants "lora_world-model/epoch-1"
+
+EVAL_DATASETS 는 (stage, EXP, logical_key) → on-disk dir / predictions jsonl /
+test jsonl / metric files 를 단일 매핑으로 갖는다. 디렉토리 명명은
+`scripts/stage{1,2}_eval.sh` (`on-{EVAL_DS}[-state|-action][-without-open_app]`)
+와 `scripts/_common.sh::DS_DATADIR` 에 정합.
 """
 from __future__ import annotations
 
@@ -19,70 +39,207 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-STAGE_CONFIG: dict[int, dict] = {
-    1: {
-        "data_dir": "AC_EXP01",
-        "eval_subdir": "stage1_eval",
-        "datasets": {
-            # AC_EXP01 / AC_EXP02 는 Stage 1 이 state_pred / action_pred dual-task ID/OOD.
-            # 현 viewer 는 단일 GT 파일만 다루므로 state ID 를 anchor 로 사용 (필요 시 확장).
-            "on-AC_EXP01-state":  REPO / "data/AndroidControl_EXP01/implicit-world-modeling_stage1_test_id_state_pred.jsonl",
-            "on-AC_EXP01-action": REPO / "data/AndroidControl_EXP01/implicit-world-modeling_stage1_test_id_action_pred.jsonl",
-            "on-MB":                  REPO / "data/MobiBench/implicit-world-modeling_stage1.jsonl",
-            "on-MB-without-open_app": REPO / "data/MobiBench/implicit-world-modeling_stage1_without_open_app.jsonl",
+# DS key → outputs/ 직속 디렉토리 (scripts/_common.sh::DS_DATADIR 와 정합).
+DS_DATADIR: dict[str, str] = {
+    "AC_EXP01": "AndroidControl_EXP01",
+    "AC_EXP02": "AndroidControl_EXP02",
+    "MC":       "MonkeyCollection",
+}
+
+STATE_METRIC_KEYS = [
+    "total", "exact_match_rate",
+    "avg_bleu", "avg_rouge_l",
+    "avg_hungarian_ea", "avg_hungarian_f1",
+    "avg_hungarian_prec", "avg_hungarian_rec",
+    "avg_hungarian_text", "avg_hungarian_idx",
+    "predict_bleu-4", "predict_rouge-l",
+]
+ACTION_METRIC_KEYS = [
+    "total", "parse_rate",
+    "type_accuracy", "step_accuracy", "macro_step_accuracy",
+    "cond_index_acc", "cond_dir_acc", "cond_app_acc", "cond_text_acc",
+    "predict_bleu-4", "predict_rouge-l",
+]
+
+
+def _ac_stage1_entries(exp: str) -> dict:
+    """AC_EXP01/AC_EXP02 stage1 dual-task entries (ID/OOD × state/action × ±without-open_app)."""
+    ds = DS_DATADIR[exp]
+    data = REPO / "data" / ds
+    actual = f"on-{exp}"  # on-AC_EXP01 / on-AC_EXP02
+    return {
+        "on-AC-state-id": {
+            "dir":  f"{actual}-state",
+            "pred": "generated_predictions_id.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_id_state_pred.jsonl",
+            "metric_files": [
+                ("predict_results_id.json", None),
+                ("hungarian_metrics.json", "in_domain"),
+            ],
+            "metric_keys": STATE_METRIC_KEYS,
         },
-        "metric_files": ["predict_results.json", "hungarian_metrics.json"],
-        "metric_keys": [
-            "predict_bleu-4",
-            "predict_rouge-l",
-            "exact_match_rate",
-            "avg_bleu",
-            "avg_rouge_l",
-            "avg_hungarian_ea",
-            "avg_hungarian_f1",
-            "avg_hungarian_prec",
-            "avg_hungarian_rec",
-            "avg_hungarian_text",
-            "avg_hungarian_idx",
-        ],
+        "on-AC-state-ood": {
+            "dir":  f"{actual}-state",
+            "pred": "generated_predictions_ood.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_ood_state_pred.jsonl",
+            "metric_files": [
+                ("predict_results_ood.json", None),
+                ("hungarian_metrics.json", "out_of_domain"),
+            ],
+            "metric_keys": STATE_METRIC_KEYS,
+        },
+        "on-AC-state-id-without-open_app": {
+            "dir":  f"{actual}-state-without-open_app",
+            "pred": "generated_predictions_id.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_id_state_pred_without_open_app.jsonl",
+            "metric_files": [
+                ("predict_results.json", None),
+                ("hungarian_metrics.json", "in_domain"),
+            ],
+            "metric_keys": STATE_METRIC_KEYS,
+        },
+        "on-AC-state-ood-without-open_app": {
+            "dir":  f"{actual}-state-without-open_app",
+            "pred": "generated_predictions_ood.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_ood_state_pred_without_open_app.jsonl",
+            "metric_files": [
+                ("predict_results.json", None),
+                ("hungarian_metrics.json", "out_of_domain"),
+            ],
+            "metric_keys": STATE_METRIC_KEYS,
+        },
+        "on-AC-action-id": {
+            "dir":  f"{actual}-action",
+            "pred": "generated_predictions_id.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_id_action_pred.jsonl",
+            "metric_files": [
+                ("predict_results_id.json", None),
+                ("action_metrics.json", "in_domain"),
+            ],
+            "metric_keys": ACTION_METRIC_KEYS,
+        },
+        "on-AC-action-ood": {
+            "dir":  f"{actual}-action",
+            "pred": "generated_predictions_ood.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_ood_action_pred.jsonl",
+            "metric_files": [
+                ("predict_results_ood.json", None),
+                ("action_metrics.json", "out_of_domain"),
+            ],
+            "metric_keys": ACTION_METRIC_KEYS,
+        },
+    }
+
+
+def _mb_stage1_entries() -> dict:
+    data = REPO / "data" / "MobiBench"
+    return {
+        "on-MB": {
+            "dir":  "on-MB",
+            "pred": "generated_predictions.jsonl",
+            "test": data / "implicit-world-modeling_stage1.jsonl",
+            "metric_files": [
+                ("predict_results.json", None),
+                ("hungarian_metrics.json", None),     # single-pair: top-level flat
+                ("hungarian_metrics.json", "overall"),  # 호환: 혹시 nested 면 overall
+            ],
+            "metric_keys": STATE_METRIC_KEYS,
+        },
+        "on-MB-without-open_app": {
+            "dir":  "on-MB-without-open_app",
+            "pred": "generated_predictions.jsonl",
+            "test": data / "implicit-world-modeling_stage1_without_open_app.jsonl",
+            "metric_files": [
+                ("predict_results.json", None),
+                ("hungarian_metrics.json", None),
+                ("hungarian_metrics.json", "overall"),
+            ],
+            "metric_keys": STATE_METRIC_KEYS,
+        },
+    }
+
+
+def _mc_stage1_entries() -> dict:
+    data = REPO / "data" / "MonkeyCollection"
+    return {
+        "on-MC": {
+            "dir":  "on-MC",
+            "pred": "generated_predictions.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test.jsonl",
+            "metric_files": [
+                ("predict_results.json", None),
+                ("hungarian_metrics.json", None),
+                ("hungarian_metrics.json", "overall"),
+            ],
+            "metric_keys": STATE_METRIC_KEYS,
+        },
+        # MC 의 without-open_app GT 는 data/MonkeyCollection/ 에 없으므로 등록하지 않는다.
+    }
+
+
+def _ac_stage2_entries(exp: str) -> dict:
+    ds = DS_DATADIR[exp]
+    data = REPO / "data" / ds
+    actual = f"on-{exp}"
+    return {
+        "on-AC-id": {
+            "dir":  actual,
+            "pred": "generated_predictions_id.jsonl",
+            "test": data / "implicit-world-modeling_stage2_test_id.jsonl",
+            "metric_files": [
+                ("predict_results_id.json", None),
+                ("action_metrics.json", "in_domain"),
+            ],
+            "metric_keys": ACTION_METRIC_KEYS,
+        },
+        "on-AC-ood": {
+            "dir":  actual,
+            "pred": "generated_predictions_ood.jsonl",
+            "test": data / "implicit-world-modeling_stage2_test_ood.jsonl",
+            "metric_files": [
+                ("predict_results_ood.json", None),
+                ("action_metrics.json", "out_of_domain"),
+            ],
+            "metric_keys": ACTION_METRIC_KEYS,
+        },
+    }
+
+
+def _mb_stage2_entries() -> dict:
+    data = REPO / "data" / "MobiBench"
+    return {
+        "on-MB": {
+            "dir":  "on-MB",
+            "pred": "generated_predictions.jsonl",
+            "test": data / "implicit-world-modeling_stage2.jsonl",
+            "metric_files": [
+                ("predict_results.json", None),
+                ("action_metrics.json", None),
+                ("action_metrics.json", "overall"),
+            ],
+            "metric_keys": ACTION_METRIC_KEYS,
+        },
+    }
+
+
+STAGE_CONFIG: dict[int, dict] = {
+    1: {"eval_subdir": "stage1_eval"},
+    2: {"eval_subdir": "stage2_eval"},
+}
+
+# (stage, EXP) → {logical_key: entry}
+EVAL_DATASETS: dict[int, dict[str, dict[str, dict]]] = {
+    1: {
+        "AC_EXP01": {**_ac_stage1_entries("AC_EXP01"), **_mb_stage1_entries(), **_mc_stage1_entries()},
+        "AC_EXP02": {**_ac_stage1_entries("AC_EXP02"), **_mb_stage1_entries(), **_mc_stage1_entries()},
+        "MC":       {**_mc_stage1_entries(), **_mb_stage1_entries()},
     },
     2: {
-        "data_dir": "AC_EXP01",
-        "eval_subdir": "stage2_eval",
-        "datasets": {
-            "on-AC_EXP01": REPO / "data/AndroidControl_EXP01/implicit-world-modeling_stage2_test_id.jsonl",
-            "on-MB":       REPO / "data/MobiBench/implicit-world-modeling_stage2.jsonl",
-        },
-        "metric_files": ["predict_results.json", "action_metrics.json"],
-        "metric_keys": [
-            "total",
-            "parse_rate",
-            "type_accuracy",
-            "step_accuracy",
-            "macro_step_accuracy",
-            "cond_index_acc",
-            "cond_dir_acc",
-            "cond_app_acc",
-            "cond_text_acc",
-            "predict_bleu-4",
-            "predict_rouge-l",
-        ],
+        "AC_EXP01": {**_ac_stage2_entries("AC_EXP01"), **_mb_stage2_entries()},
+        "AC_EXP02": {**_ac_stage2_entries("AC_EXP02"), **_mb_stage2_entries()},
     },
 }
 
-# `--data-dir` 별 STAGE_CONFIG override 자리. 현재는 모든 학습 DS 가 동일 stage config
-# 를 쓰므로 비어있음 — 새 데이터셋이 별도 test 구조를 가지면 여기에 등록.
-DATA_DIR_OVERRIDES: dict[str, dict[int, dict]] = {
-    "AC_EXP01": {},
-    "AC_EXP02": {},
-    "MC":       {},
-}
-
-
-def resolve_cfg(stage: int, data_dir: str) -> dict:
-    base = STAGE_CONFIG[stage]
-    override = DATA_DIR_OVERRIDES.get(data_dir, {}).get(stage, {})
-    return {**base, **override}
 
 PROMPT_RE = re.compile(
     r"^system\n(?P<sys>.*?)\nuser\n\n## Current State\n(?P<xml>.*?)\n\n## Action\n(?P<act>.*?)\nassistant\n?$",
@@ -98,7 +255,7 @@ def split_prompt(prompt: str) -> tuple[str, str, str]:
 
 
 def esc(s: str) -> str:
-    return html.escape(s, quote=False)
+    return html.escape(s, quote=True)
 
 
 def action_oneliner(act_json: str) -> str:
@@ -118,37 +275,69 @@ def action_oneliner(act_json: str) -> str:
 
 
 def fmt_num(v):
-    if isinstance(v, (int, float)):
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
         return f"{v:.4f}" if isinstance(v, float) else str(v)
     return str(v) if v is not None else ""
 
 
-def load_metrics(model_dir: Path, metric_files: list[str]) -> dict:
+def load_metrics(target_dir: Path, metric_files: list[tuple[str, str | None]]) -> dict:
+    """metric_files = [(filename, section_or_None)] 을 차례로 읽어 flat dict 로 합친다.
+
+    section 이 None 이면 JSON top-level 의 numeric scalar 만 merge.
+    section 이 str 이면 JSON[section] 이 dict 일 때만 그 안의 numeric scalar 만 merge.
+    파일/섹션 부재는 silent skip.
+    """
     merged: dict = {}
-    for fn in metric_files:
-        p = model_dir / fn
-        if p.exists():
+    for fn, section in metric_files:
+        p = target_dir / fn
+        if not p.exists():
+            continue
+        try:
             data = json.loads(p.read_text())
-            for k, v in data.items():
-                if not isinstance(v, (dict, list)):
-                    merged[k] = v
+        except json.JSONDecodeError:
+            continue
+        if section is not None:
+            data = data.get(section)
+        if not isinstance(data, dict):
+            continue
+        for k, v in data.items():
+            if not isinstance(v, (dict, list)):
+                merged.setdefault(k, v)
     return merged
 
 
-def discover_variants(eval_root: Path, ds_marker: str) -> list[str]:
+def discover_variants(eval_root: Path, actual_dir: str, pred_filename: str) -> list[str]:
+    """eval_root 아래에서 `{variant_path}/{actual_dir}/{pred_filename}` 가 존재하는 variant_path 들을 찾는다.
+
+    variant_path 는 1-level (예: `base`) 또는 2-level (예: `lora_world-model/epoch-3`).
+    """
     found: list[str] = []
     if not eval_root.is_dir():
         return found
+
+    def has_target(v: Path) -> bool:
+        return (v / actual_dir / pred_filename).is_file()
+
     for child in sorted(eval_root.iterdir()):
         if not child.is_dir():
             continue
-        if (child / ds_marker).is_dir():
+        if has_target(child):
             found.append(child.name)
-        else:
-            for sub in sorted(child.iterdir()):
-                if sub.is_dir() and (sub / ds_marker).is_dir():
-                    found.append(f"{child.name}/{sub.name}")
+            continue
+        for sub in sorted(child.iterdir()):
+            if sub.is_dir() and has_target(sub):
+                found.append(f"{child.name}/{sub.name}")
     return found
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    out: list[dict] = []
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            out.append(json.loads(line))
+    return out
 
 
 CSS = """
@@ -208,44 +397,68 @@ JS = """
 """
 
 
-def read_jsonl(path: Path) -> list[dict]:
-    out: list[dict] = []
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            line = line.rstrip("\n")
-            if not line.strip():
-                continue
-            out.append(json.loads(line))
-    return out
+def variant_label(exp: str, model: str, variant_path: str, multi: bool) -> str:
+    """multi-spec 일 때는 `[EXP] model/variant_path`, 단일이면 `variant_path` 그대로."""
+    if multi:
+        return f"[{exp}] {model}/{variant_path}"
+    return variant_path
 
 
 def build_dataset(
     stage: int,
-    ds_name: str,
-    test_path: Path,
-    eval_root: Path,
-    variants: list[str],
-    metric_files: list[str],
-    metric_keys: list[str],
+    logical_key: str,
+    spec_variants: list[tuple[str, str, str, dict, Path]],
+    multi: bool,
 ) -> tuple[str, dict, int]:
-    test_recs = read_jsonl(test_path)
-    n = len(test_recs)
-    images = [r.get("images", [""])[0] for r in test_recs]
+    """spec_variants = [(exp, model, variant_path, entry, eval_root)]"""
+    metric_keys = spec_variants[0][3]["metric_keys"]
 
-    pred_recs: dict[str, list[dict]] = {}
-    metrics: dict[str, dict] = {}
-    for v in variants:
-        ds_dir = eval_root / v / ds_name
-        recs = read_jsonl(ds_dir / "generated_predictions.jsonl")
-        assert len(recs) == n, f"{v}/{ds_name}: {len(recs)} != {n}"
-        pred_recs[v] = recs
-        metrics[v] = load_metrics(ds_dir, metric_files)
+    # predictions 적재. 첫 spec 의 entry 의 test 파일이 있으면 anchor 로 사용.
+    pred_lists: dict[str, list[dict]] = {}
+    metrics_by_label: dict[str, dict] = {}
+    anchor_label: str | None = None
+    anchor_test: Path | None = None
 
-    # control panel
+    for exp, model, vpath, entry, eval_root in spec_variants:
+        label = variant_label(exp, model, vpath, multi)
+        target_dir = eval_root / vpath / entry["dir"]
+        recs = read_jsonl(target_dir / entry["pred"])
+        pred_lists[label] = recs
+        metrics_by_label[label] = load_metrics(target_dir, entry["metric_files"])
+        if anchor_test is None:
+            tp = entry.get("test")
+            if tp is not None and Path(tp).is_file():
+                anchor_test = Path(tp)
+                anchor_label = label
+
+    # 행 수 일관성 검증 — 모든 prediction 의 row 수가 같아야 같은 인덱스로 정렬됨.
+    lengths = {label: len(recs) for label, recs in pred_lists.items()}
+    n_set = set(lengths.values())
+    if len(n_set) > 1:
+        raise SystemExit(
+            f"stage{stage}/{logical_key}: prediction row count mismatch — {lengths}. "
+            "EXP01/EXP02 stage 데이터는 byte-identical copy 여야 cross-compare 가 가능합니다."
+        )
+    n = n_set.pop()
+
+    # images[]: anchor_test 가 있으면 거기서, 없으면 빈 문자열.
+    if anchor_test is not None:
+        test_recs = read_jsonl(anchor_test)
+        if len(test_recs) != n:
+            raise SystemExit(
+                f"stage{stage}/{logical_key}: anchor test ({anchor_test.relative_to(REPO)}) "
+                f"len {len(test_recs)} != predictions len {n}"
+            )
+        images = [r.get("images", [""])[0] if r.get("images") else "" for r in test_recs]
+    else:
+        images = ["" for _ in range(n)]
+
+    labels = list(pred_lists.keys())
+
     cb_html = "".join(
-        f'<label><input type="checkbox" data-variant="{esc(v)}"'
-        f'{" checked" if v == "base" else ""}> {esc(v)}</label>'
-        for v in variants
+        f'<label><input type="checkbox" data-variant="{esc(lab)}"'
+        f'{" checked" if i < 4 else ""}> {esc(lab)}</label>'
+        for i, lab in enumerate(labels)
     )
     controls = (
         '<div id="variant-controls"><strong>모델 선택:</strong>'
@@ -256,34 +469,38 @@ def build_dataset(
         "</span></div>"
     )
 
-    # metric table
     metric_header = "".join(f"<th>{esc(k)}</th>" for k in metric_keys)
     metric_body = ""
-    for v in variants:
-        d = metrics[v]
+    for lab in labels:
+        d = metrics_by_label[lab]
         cells = "".join(f"<td>{fmt_num(d.get(k))}</td>" for k in metric_keys)
-        metric_body += f'<tr data-variant="{esc(v)}"><th>{esc(v)}</th>{cells}</tr>'
+        metric_body += f'<tr data-variant="{esc(lab)}"><th>{esc(lab)}</th>{cells}</tr>'
     metric_table = (
         f'<table class="metric"><thead><tr><th>variant</th>{metric_header}</tr></thead>'
         f"<tbody>{metric_body}</tbody></table>"
     )
 
+    anchor_rel = (
+        str(anchor_test.relative_to(REPO))
+        if anchor_test is not None
+        else "(no GT jsonl — prediction file 의 prompt/label 만 사용)"
+    )
     parts: list[str] = [
         "<!doctype html><html><head><meta charset='utf-8'>",
-        f"<title>Eval pairs · stage{stage} · {ds_name}</title>",
+        f"<title>Eval pairs · stage{stage} · {logical_key}</title>",
         f"<style>{CSS}</style></head><body>",
-        f"<h1>Eval pairs · stage{stage} · {ds_name} · n={n}</h1>",
-        f'<div class="meta">test: {esc(str(test_path.relative_to(REPO)))}<br>',
-        f"eval_root: {esc(str(eval_root.relative_to(REPO)))}",
+        f"<h1>Eval pairs · stage{stage} · {logical_key} · n={n}</h1>",
+        f'<div class="meta">test: {esc(anchor_rel)}<br>',
+        f"variants: {len(labels)} (multi-spec)" if multi else f"variants: {len(labels)} (single-spec)",
         "</div>",
         controls,
         metric_table,
     ]
 
-    base_variant = variants[0]
+    base_label = labels[0]
     for i in range(n):
-        anchor = pred_recs[base_variant][i]
-        sys_msg, cur_xml, act_json = split_prompt(anchor["prompt"])
+        anchor = pred_lists[base_label][i]
+        sys_msg, cur_xml, act_json = split_prompt(anchor.get("prompt", ""))
         label_xml = anchor.get("label", "")
         summary_line = (
             f'<span class="idx">#{i:04d}</span> · '
@@ -303,11 +520,11 @@ def build_dataset(
         parts.append(
             f'<section class="col-label"><h3>Label</h3><pre class="xml">{esc(label_xml)}</pre></section>'
         )
-        for v in variants:
-            pred = pred_recs[v][i].get("predict", "")
+        for lab in labels:
+            pred = pred_lists[lab][i].get("predict", "")
             parts.append(
-                f'<section class="col-pred" data-variant="{esc(v)}">'
-                f"<h3>{esc(v)}</h3>"
+                f'<section class="col-pred" data-variant="{esc(lab)}">'
+                f"<h3>{esc(lab)}</h3>"
                 f'<pre class="xml">{esc(pred)}</pre>'
                 "</section>"
             )
@@ -315,122 +532,140 @@ def build_dataset(
 
     parts.append(f"<script>{JS}</script>")
     parts.append("</body></html>")
-    return "".join(parts), metrics, n
+    return "".join(parts), metrics_by_label, n
 
 
 def build_summary_md(
     stage: int,
-    eval_root: Path,
-    metric_keys: list[str],
-    per_ds: dict[str, tuple[dict, int]],
+    out_root: Path,
+    per_ds: dict[str, tuple[list[str], dict[str, dict], int]],
+    spec_specs: list[tuple[str, str]],
 ) -> str:
     out = [f"# Eval pairs summary · stage{stage}", ""]
-    out.append(f"- eval_root: `{eval_root.relative_to(REPO)}`")
-    out.append(f"- script: `scripts/eval_viewer.py`")
+    out.append(f"- out_root: `{out_root.relative_to(REPO)}`")
+    out.append("- script: `scripts/eval_viewer.py`")
+    out.append(f"- include: {', '.join(f'`{e}:{m}`' for e, m in spec_specs)}")
     out.append("")
-    for ds, (metrics_by_variant, n) in per_ds.items():
+    for ds, (metric_keys, metrics_by_label, n) in per_ds.items():
         out.append(f"## {ds} (n={n})")
         out.append("")
         out.append("| variant | " + " | ".join(metric_keys) + " |")
         out.append("|" + "---|" * (len(metric_keys) + 1))
-        for v, d in metrics_by_variant.items():
-            row = "| " + v + " | " + " | ".join(fmt_num(d.get(k)) for k in metric_keys) + " |"
+        for lab, d in metrics_by_label.items():
+            row = "| " + lab + " | " + " | ".join(fmt_num(d.get(k)) for k in metric_keys) + " |"
             out.append(row)
         out.append("")
     return "\n".join(out)
 
 
+def parse_spec(s: str) -> tuple[str, str]:
+    if ":" not in s:
+        raise SystemExit(f"--include 항목 '{s}' 은 EXP:MODEL 형식이어야 함 (예: AC_EXP02:qwen3-vl-8b).")
+    exp, model = s.split(":", 1)
+    exp = exp.strip()
+    model = model.strip()
+    if exp not in DS_DATADIR:
+        raise SystemExit(
+            f"--include 항목 '{s}' 의 EXP '{exp}' 미등록 — 허용: {sorted(DS_DATADIR)}"
+        )
+    if not model:
+        raise SystemExit(f"--include 항목 '{s}' 의 MODEL 이 비어있음.")
+    return exp, model
+
+
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
-        "--data-dir",
-        choices=list(DATA_DIR_OVERRIDES.keys()),
-        default="AC_EXP01",
-        help="Output/data directory. AC_EXP01=AndroidControl_EXP01 (default).",
+        "--include", nargs="+", required=True, metavar="EXP:MODEL",
+        help="비교할 (EXP, MODEL) 쌍. 1개면 단일-EXP 모드, 2개 이상이면 cross-EXP 모드. "
+             "EXP ∈ {AC_EXP01, AC_EXP02, MC}, MODEL = outputs/<DS_DATADIR(EXP)>/eval/ 아래 디렉토리 명. "
+             "예: --include AC_EXP01:qwen3-vl-8b_ratio73 AC_EXP02:qwen3-vl-8b",
     )
     p.add_argument(
-        "--model",
-        nargs="+",
-        default=["qwen2.5-vl-7b"],
-        help="Model dir(s) under outputs/{data_dir}/eval/. Multiple allowed.",
-    )
-    p.add_argument("--stages", type=int, nargs="+", choices=[1, 2], default=[1, 2])
-    p.add_argument(
-        "--datasets",
-        nargs="+",
-        default=["on-AC_EXP01-state", "on-AC_EXP01-action", "on-MB", "on-MB-without-open_app"],
-        help="Stage 1 은 정규/필터 4개가 기본. Stage 2 는 -without-open_app 을 산출하지 않으므로 "
-             "해당 항목은 자동 skip.",
+        "--stages", type=int, nargs="+", choices=[1, 2], default=[1, 2],
+        help="처리할 stage (기본 1 2 모두).",
     )
     p.add_argument(
-        "--variants",
-        nargs="+",
-        default=None,
-        help="Variant dirs (e.g. base full_world-model/epoch-3). Default: auto-discover.",
+        "--datasets", nargs="+", default=None, metavar="LOGICAL_KEY",
+        help="처리할 logical key (예: on-AC-state-id, on-MB). 기본 = 각 EXP 가 가진 logical key 합집합.",
+    )
+    p.add_argument(
+        "--variants", nargs="+", default=None,
+        help="처리할 variant_path 화이트리스트 (예: base 'lora_world-model/epoch-3'). 기본 = auto-discover.",
     )
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    for model in args.model:
-        for stage in args.stages:
-            cfg = resolve_cfg(stage, args.data_dir)
-            eval_root = REPO / "outputs" / cfg["data_dir"] / "eval" / model / cfg["eval_subdir"]
-            if not eval_root.is_dir():
-                print(f"skip {model}/stage{stage}: {eval_root.relative_to(REPO)} not found")
+    specs: list[tuple[str, str]] = [parse_spec(s) for s in args.include]
+    multi = len(specs) > 1
+
+    for stage in args.stages:
+        eval_subdir = STAGE_CONFIG[stage]["eval_subdir"]
+
+        # 처리할 logical key 결정
+        if args.datasets is not None:
+            logical_keys = list(args.datasets)
+        else:
+            seen: set[str] = set()
+            logical_keys = []
+            for exp, _ in specs:
+                for k in EVAL_DATASETS[stage].get(exp, {}):
+                    if k not in seen:
+                        seen.add(k)
+                        logical_keys.append(k)
+
+        if not logical_keys:
+            print(f"skip stage{stage}: spec 들이 가진 logical key 없음")
+            continue
+
+        # 출력 경로 분기
+        if multi:
+            out_root = REPO / "outputs" / "_compare" / eval_subdir
+        else:
+            exp, model = specs[0]
+            out_root = REPO / "outputs" / DS_DATADIR[exp] / "eval" / model / eval_subdir
+        out_root.mkdir(parents=True, exist_ok=True)
+
+        per_ds: dict[str, tuple[list[str], dict[str, dict], int]] = {}
+        for logical_key in logical_keys:
+            spec_variants: list[tuple[str, str, str, dict, Path]] = []
+            for exp, model in specs:
+                entry = EVAL_DATASETS[stage].get(exp, {}).get(logical_key)
+                if entry is None:
+                    continue
+                eval_root = REPO / "outputs" / DS_DATADIR[exp] / "eval" / model / eval_subdir
+                discovered = discover_variants(eval_root, entry["dir"], entry["pred"])
+                if args.variants is not None:
+                    discovered = [v for v in discovered if v in args.variants]
+                for v in discovered:
+                    spec_variants.append((exp, model, v, entry, eval_root))
+
+            if not spec_variants:
+                print(f"skip stage{stage}/{logical_key}: no variants found across specs")
                 continue
 
-            # discover_variants 는 단일 ds_marker 가 모든 variant 에 존재한다고 가정.
-            # Stage 1 이면 on-AC_EXP01-state 가 anchor, Stage 2 면 on-AC_EXP01.
-            ds_marker = next((d for d in args.datasets if d in cfg["datasets"]), None)
-            if ds_marker is None:
-                print(f"skip {model}/stage{stage}: no datasets matched stage{stage} config")
-                continue
-            discovered = discover_variants(eval_root, ds_marker)
-            if args.variants is not None:
-                unknown = [v for v in args.variants if v not in discovered]
-                if unknown:
-                    raise SystemExit(
-                        f"{model}/stage{stage}: unknown variant(s) {unknown}. discovered: {discovered}"
-                    )
-                variants = list(args.variants)
-            else:
-                variants = discovered
-            if not variants:
-                print(f"skip {model}/stage{stage}: no variants found under {eval_root}")
+            try:
+                doc, metrics_by_label, n = build_dataset(stage, logical_key, spec_variants, multi)
+            except SystemExit:
+                raise
+            except Exception as e:
+                print(f"error stage{stage}/{logical_key}: {e}")
                 continue
 
-            per_ds: dict[str, tuple[dict, int]] = {}
-            for ds_name in args.datasets:
-                if ds_name not in cfg["datasets"]:
-                    # Stage 2 에는 -without-open_app 항목이 없음. 자동 skip.
-                    continue
-                test_path = cfg["datasets"][ds_name]
-                ds_variants = [v for v in variants if (eval_root / v / ds_name).is_dir()]
-                if not ds_variants:
-                    print(f"skip {model}/stage{stage}/{ds_name}: no variants have this DS")
-                    continue
-                doc, metrics, n = build_dataset(
-                    stage,
-                    ds_name,
-                    test_path,
-                    eval_root,
-                    ds_variants,
-                    cfg["metric_files"],
-                    cfg["metric_keys"],
-                )
-                target = eval_root / f"pairs_{ds_name}.html"
-                target.write_text(doc)
-                size_mb = target.stat().st_size / 1024 / 1024
-                print(
-                    f"wrote {target.relative_to(REPO)}  rows={n}  variants={len(ds_variants)}  size={size_mb:.1f}MB"
-                )
-                per_ds[ds_name] = (metrics, n)
-            if per_ds:
-                summary_path = eval_root / "pairs_summary.md"
-                summary_path.write_text(build_summary_md(stage, eval_root, cfg["metric_keys"], per_ds))
-                print(f"wrote {summary_path.relative_to(REPO)}")
+            target = out_root / f"pairs_{logical_key}.html"
+            target.write_text(doc)
+            size_mb = target.stat().st_size / 1024 / 1024
+            print(
+                f"wrote {target.relative_to(REPO)}  rows={n}  variants={len(spec_variants)}  size={size_mb:.1f}MB"
+            )
+            per_ds[logical_key] = (spec_variants[0][3]["metric_keys"], metrics_by_label, n)
+
+        if per_ds:
+            summary_path = out_root / "pairs_summary.md"
+            summary_path.write_text(build_summary_md(stage, out_root, per_ds, specs))
+            print(f"wrote {summary_path.relative_to(REPO)}")
 
 
 if __name__ == "__main__":
