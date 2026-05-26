@@ -1,6 +1,6 @@
 # Implicit-World-Modeling Architecture
 
-`Implicit-World-Modeling` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **2 개 Qwen3-VL Vision-Language 모델** (`Qwen/Qwen3-VL-4B-Instruct`, `Qwen/Qwen3-VL-8B-Instruct`) 을 지원하며, conda env (`implicit-world-modeling`) + 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. 현재 eval 은 HF Hub 에 push 된 merged repo 만 pull 한다.
+`Implicit-World-Modeling` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **2 개 Qwen3-VL Vision-Language 모델** (`Qwen/Qwen3-VL-4B-Instruct`, `Qwen/Qwen3-VL-8B-Instruct`) 을 지원하며, conda env (`implicit-world-modeling`) + 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. eval 은 **local merged dir (`outputs/.../merged/.../epoch-{E}/`) 우선 + HF Hub merged repo fallback** (`_common.sh::resolve_eval_model_path`) — local merge 한 머신에서도 같은 머신 안에서 바로 eval 까지 이어 돌 수 있다.
 
 ---
 
@@ -46,7 +46,7 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 | 2 | 14–17 | Stage 2 ShareGPT 변환 + ID/OOD app 분할 + 등록 |
 | 3 | 18–84 | Stage 1 SFT (2 모델 × 3 DS × {full, lora}) — explicit per-cell |
 | 4 | 85–151 | Stage 1 merge (모든 epoch local merge + 선택적 HF Hub push; `--no-hf-upload` 지원) |
-| 5 | 152–159 | Stage 1 평가 — HF Hub merged sweep, Hungarian metric |
+| 5 | 152–159 | Stage 1 평가 — local merged 우선 + HF Hub fallback sweep, Hungarian metric |
 | 6 | 160–186 | Stage 2 SFT (2 모델 × {AC_EXP01, AC_EXP02}) |
 | 7 | 187–213 | Stage 2 merge (variant × 모든 epoch local merge + 선택적 HF push; `--no-hf-upload` 지원) |
 | 8 | 214–218 | Stage 2 평가 — ID + OOD 동시 sweep, `action_metrics.json` 3 섹션 |
@@ -260,8 +260,8 @@ data/
   - 산출 (epoch 별): `outputs/{DS}/merged/{MODEL}_stage1_${MODE}_world-model/epoch-{E}/` + 선택적 HF Hub push `SaFD-00/...stage1-{MODE}-world-model-epoch{E}` (헬퍼: `_common.sh::hf_repo_id_stage1`)
   - **Skip 동작**: checkpoint 가 없는 슬롯은 `[WARN]` SKIP, 다음 슬롯 진행. 요약에 `merged / skipped / failed` 카운트.
 - **`scripts/stage1_eval.sh`**
-  - Phase A (baseline zero-shot) + Phase B (`--epochs` 정수 리스트로 **HF Hub merged repo sweep**, 기본 `1,2,3`)
-  - `vllm_infer.py --model_name_or_path <HF repo id>` 만 전달 (merged 이므로 adapter 인자 / `max_lora_rank` 불필요)
+  - Phase A (baseline zero-shot) + Phase B (`--epochs` 정수 리스트로 **merged sweep**, 기본 `1,2,3`)
+  - 각 (variant, epoch) 의 model path 는 `_common.sh::resolve_eval_model_path` 가 결정 — local merged dir (`outputs/{OUT_DS}/merged/{M}{SFX}_stage1_${MODE}_world-model/epoch-{E}/`) 이 존재하면 그것을, 없으면 HF Hub repo id (`hf_repo_id_stage1` 출력) 를 반환. `vllm_infer.py --model_name_or_path <local dir | HF repo id>` 둘 다 그대로 받는다 (merged 이므로 adapter 인자 / `max_lora_rank` 불필요).
   - 결과: `outputs/{DS}/eval/{MODEL}/stage1_eval/{base, ${MODE}_world-model/epoch-{E}}/{on-{EVAL_DS}, on-{EVAL_DS}-without-open_app}/`
   - 각 sweep 결과에 `_hungarian_eval.py score` → `hungarian_metrics.json` 저장
   - **without_open_app 자동 산출**: 정규 score 직후 추론 재실행 없이 `_hungarian_eval.py score --exclude-action open_app --filtered-test-dir data/{DATADIR} --filtered-pred-dir on-{EVAL_DS}-without-open_app/` 가 한 번 더 호출되어 GT `open_app` 행을 양쪽에서 동시 drop 한 메트릭 + 필터된 jsonl + `predict_results.json` 을 sibling 디렉토리에 idempotent 저장. 필터 test JSONL 은 `data/{DATADIR}/{prefix}_stage1{,_test{_id,_ood}}_without_open_app.jsonl` 에 영구 보존.
@@ -285,8 +285,8 @@ data/
     - base: `hf_repo_id_stage2_base(MODEL, DS, STAGE2_MODE, E2)` → `...base-stage2-{M2}-epoch{E2}`
     - world: `hf_repo_id_stage2_world_model(MODEL, DS, STAGE1_MODE, STAGE1_EPOCH, STAGE2_MODE, E2)` → `...world-model-stage1-{M1}-epoch{E1}-stage2-{M2}-epoch{E2}`
 - **`scripts/stage2_eval.sh`**
-  - `--variants` 로 `base`, `{full|lora}_base`, `{full|lora}_world_model` (CLI 토큰) 중 선택 평가. world-model variant 는 `--stage1-epoch` 로 HF 레포 계보 번호 주입. 출력 경로는 `..._world-model_from_{M1}-ep{E1}/epoch-{E2}/` (path 표기는 hyphen 정규화).
-  - **`--epochs` 에 `0` 포함 시 (opt-in)**: `{full|lora}_world_model` 의 epoch-0 은 stage2 미학습 베이스라인 = stage1 merged repo 로 해석 (`hf_repo_id_stage1(MODEL, DS, STAGE1_MODE, STAGE1_EPOCH)` → `...world-model-stage1-{M1}-epoch{E1}`, `hf_repo_id_stage2_world_model` 대신). full/lora 는 동일 모델이나 variant별 디렉토리(`epoch-0/`)를 각각 산출한다. `{full|lora}_base` 는 stage1 계보가 없어 epoch-0 = `base` variant 와 중복 → 경고 후 skip. 기본 `1,2,3` 에는 미포함.
+  - `--variants` 로 `base`, `{full|lora}_base`, `{full|lora}_world_model` (CLI 토큰) 중 선택 평가. world-model variant 는 `--stage1-epoch` 로 계보 번호 주입 (local merged suffix + HF repo 이름 양쪽에 동일 적용). 출력 경로는 `..._world-model_from_{M1}-ep{E1}/epoch-{E2}/` (path 표기는 hyphen 정규화). 각 (variant, epoch) 의 model path 는 `_common.sh::resolve_eval_model_path` (`stage2_base` | `stage2_world`) 가 local merged dir 우선 + HF Hub fallback 으로 결정.
+  - **`--epochs` 에 `0` 포함 시 (opt-in)**: `{full|lora}_world_model` 의 epoch-0 은 stage2 미학습 베이스라인 = stage1 merged 와 동일 모델로 해석 (`resolve_eval_model_path stage1 MODEL DS STAGE1_MODE STAGE1_EPOCH` → local `merged/{M}{SFX}_stage1_{M1}_world-model/epoch-{E1}/` 우선 + HF `...world-model-stage1-{M1}-epoch{E1}` fallback). full/lora 는 동일 모델이나 variant별 디렉토리(`epoch-0/`)를 각각 산출한다. `{full|lora}_base` 는 stage1 계보가 없어 epoch-0 = `base` variant 와 중복 → 경고 후 skip. 기본 `1,2,3` 에는 미포함.
   - `--train-dataset {AC_EXP01|AC_EXP02}` (MC 거절. AC_EXP01 는 `--exp01-ratio` 로 단일 ratio 지정) + `--eval-datasets LIST` (`AC_EXP01, AC_EXP02, MB`). EVAL_DS 별 분기:
     - **AC_EXP01 / AC_EXP02**: ID + OOD 두 test 파일 함께 추론 → `_action_eval.py score --test-id ... --pred-id ... --test-ood ... --pred-ood ...` 가 **overall / in_domain / out_of_domain** 3 섹션 기록.
     - **MB**: 단일 파일 1 회 추론 → single-pair `overall` 1 섹션.
@@ -345,7 +345,7 @@ raw JSONL + screenshots  (AndroidControl: 원본 source-only, AC_EXP01: Stage 1 
        → adapters/{OUT_DS}/{M}{SFX}_stage1_{mode1}_world-model/checkpoint-*/   (AC_EXP02/MC: SFX=""; AC_EXP01: SFX=_ratio{37,55,73})
   -> [per model] Stage 1 merge (모든 epoch 각각)
        → merged/{OUT_DS}/{M}{SFX}_stage1_{mode1}_world-model/epoch-{E1}/  +  HF Hub ...{slug}world-model-stage1-{mode1}-epoch{E1}
-  -> [per model] Stage 1 eval (HF Hub sweep × cross-dataset)
+  -> [per model] Stage 1 eval (local merged 우선 + HF Hub fallback × cross-dataset)
        → eval/{OUT_DS}/{M}{SFX}/stage1_eval/{mode1}_world-model/epoch-{E1}/on-{EVAL_DS}/hungarian_metrics.json
        (EVAL_DS ∈ {AC_EXP01, AC_EXP02, MC, MB} — AC_EXP01/AC_EXP02 는 state/action dual-task ID/OOD, MC/MB 는 단일 파일)
        (user picks an epoch E1 → passes as --stage1-epoch to Stage 2)
@@ -357,7 +357,7 @@ raw JSONL + screenshots  (AndroidControl: 원본 source-only, AC_EXP01: Stage 1 
        + HF Hub:
           base : ...{slug}base-stage2-{mode2}-epoch{E2}
           world: ...{slug}world-model-stage1-{mode1}-epoch{E1}-stage2-{mode2}-epoch{E2}
-  -> [per model] Stage 2 eval (HF Hub sweep × cross-dataset)
+  -> [per model] Stage 2 eval (local merged 우선 + HF Hub fallback × cross-dataset)
        → eval/{OUT_DS}/{M}{SFX}/stage2_eval/.../epoch-{E2}/on-{EVAL_DS}/action_metrics.json
           EVAL_DS=AC_EXP01 / AC_EXP02: { overall, in_domain, out_of_domain }   (test_id + test_ood)
           EVAL_DS=MB:        { overall }                              (single-pair)
@@ -399,7 +399,7 @@ Implicit-World-Modeling/outputs/{OUT_DS}/             # OUT_DS = AndroidControl_
 | Stage 2 base      | `SaFD-00/{short}-{slug}base-stage2-{M2}-epoch{E2}` |
 | Stage 2 world     | `SaFD-00/{short}-{slug}world-model-stage1-{M1}-epoch{E1}-stage2-{M2}-epoch{E2}` |
 
-`{slug}` 는 `ac-exp01-ratio37-` · `ac-exp01-ratio55-` · `ac-exp01-ratio73-` (AC_EXP01 ratio 별) / `ac-exp02-` (AC_EXP02) / `mc-` (MC). MB slug `mb-` 는 학습 대상이 아니므로 dormant. `{E}` 는 `trainer_state.json.epoch` 의 `int(round(...))`. 조립은 `_common.sh::hf_repo_id_stage1` / `hf_repo_id_stage2_base` / `hf_repo_id_stage2_world_model` 헬퍼에 단일화.
+`{slug}` 는 `ac-exp01-ratio37-` · `ac-exp01-ratio55-` · `ac-exp01-ratio73-` (AC_EXP01 ratio 별) / `ac-exp02-` (AC_EXP02) / `mc-` (MC). MB slug `mb-` 는 학습 대상이 아니므로 dormant. `{E}` 는 `trainer_state.json.epoch` 의 `int(round(...))`. HF repo id 조립은 `_common.sh::hf_repo_id_stage1` / `hf_repo_id_stage2_base` / `hf_repo_id_stage2_world_model` 헬퍼에 단일화되어 있고, eval 시 model path 는 `resolve_eval_model_path {stage1|stage2_base|stage2_world}` 가 **local merged dir (`outputs/.../merged/.../epoch-{E}/`) 우선 + 위 HF repo id fallback** 으로 해석한다.
 
 ---
 
@@ -495,8 +495,8 @@ Reference baselines (해석용):
 
 - `implicit_world_modeling/` 패키지에는 핵심 파이프라인 로직이 없다. 변경 작업은 노트북, shell script, custom YAML 경로를 우선 검토.
 - merge 스크립트는 `outputs/{DS}/adapters/.../checkpoint-*` 가 하나라도 없으면 `[WARN]` SKIP (전 epoch loop). 실패가 아니라 스킵이므로 sweep 친화.
-- Stage 2 train/merge (world-model variant) 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_{full|lora}_world-model/epoch-${N}/` 이 반드시 선행돼야 한다 (stage1_train → stage1_merge; AC_EXP01 ratio variant 는 SFX=`_ratio{37,55,73}`). Stage 2 eval 은 HF Hub merged repo 만 pull 하며 `--stage1-epoch` 값을 HF 레포명 계보 번호로 주입.
-- merge / eval 스크립트는 Python `pyyaml` 을 전제한다. `HF_TOKEN` 은 HF Hub push 또는 eval pull 시 필요하며, merge 를 `--no-hf-upload` 로만 수행할 때는 불필요하다.
+- Stage 2 train/merge (world-model variant) 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_{full|lora}_world-model/epoch-${N}/` 이 반드시 선행돼야 한다 (stage1_train → stage1_merge; AC_EXP01 ratio variant 는 SFX=`_ratio{37,55,73}`). Stage 2 eval 은 local merged dir 우선 + HF Hub merged repo fallback (`_common.sh::resolve_eval_model_path`) 로 model path 를 잡으며, `--stage1-epoch` 값은 world-model 계보 식별자로 양쪽 (local dir suffix + HF repo 이름) 에 동일하게 주입.
+- merge / eval 스크립트는 Python `pyyaml` 을 전제한다. `HF_TOKEN` 은 HF Hub push 또는 HF fallback pull 시 필요하며, merge 를 `--no-hf-upload` 로만 수행하고 같은 머신에서 eval (local merged dir hit) 만 한다면 불필요하다.
 - shell automation 은 bash 4+ 환경 요구.
 - 모델 추가 시 `implicit-world-modeling.ipynb` 의 `_MODEL_CONFIG` 와 `_common.sh` `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS` 를 동시에 동기화. 새 family 라면 노트북 Cell 5 의 `MODEL_FAMILY_CONFIG` 에 image budget 도 추가.
 - **transformers 버전**: `setup.py::EXTRAS["llamafactory"]` 에서 `transformers>=4.56.0,<4.57` 로 고정. `pyproject.toml` 의 주석도 이와 일치. 두 파일을 함께 변경한다. 서브프로젝트 `LlamaFactory/pyproject.toml` 은 수정하지 않는다.
