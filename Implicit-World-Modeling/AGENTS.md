@@ -30,7 +30,7 @@
 4. 노트북 Section 0 의 "Stage {1,2} YAML 일괄 생성" 셀 (Cell 8 / Cell 10) 재실행 → Stage 1 YAML **full / lora 두 벌**, Stage 2 YAML **full / lora 두 벌 × {base, world-model-full, world-model-lora}** 자동 생성. shell 스크립트의 `--stage1-mode`, `--stage2-mode` 로 full/lora 분기.
 
 ### 하이퍼파라미터 수정
-- AC_EXP01 / AC_EXP02 는 `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` 로 **7-9B 단일 tier** 공유값 관리. Stage 1 LoRA 는 baseline(8/16 @1.0e-5) 유지 (size-tier 로 올리지 않음 — EXP01/EXP02 실측 어댑터와 동일조건 보존), Stage 2 LoRA 는 32/64 dropout 0.05 @4.0e-5. `_MODEL_CONFIG[model].hparam_overrides` 는 모델별 delta 전용. lr / warmup / LoRA rank / dropout 은 `_MODEL_CONFIG` 에 직접 쓰지 말고 `_SIZE_CONFIG_AC` 에서 해당 tier 값을 바꾼다.
+- AC_EXP01 / AC_EXP02 는 `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` 로 **7-9B 단일 tier** 공유값 관리하나, **현재 7-9B 의 세 키는 모두 빈 dict** 이라 dataset baseline 을 그대로 쓴다 (EXP01/EXP02 실측 어댑터와 동일조건 보존). 정본: Stage 1 LoRA `8/16 @1.0e-5 dropout0.05`, Stage 2 LoRA `32/64 dropout0.1 @5.0e-5`. `_MODEL_CONFIG[model].hparam_overrides` 는 모델별 delta 전용. lr / warmup / LoRA rank / dropout 은 `_MODEL_CONFIG` 에 직접 쓰지 말고 `_DATASET_CONFIG` baseline (또는 `_SIZE_CONFIG_AC` tier) 에서 바꾼다.
 - MC 는 tier 미적용 — dataset baseline + per-model override 만 적용.
 - MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
 - merge 순서 (단일 진실원: 노트북 Cell 5 CONFIGS 빌더): `_DATASET_CONFIG` baseline → `_SIZE_CONFIG_AC[size]` (AC_EXP01 / AC_EXP02 일 때만) → `hparam_overrides`. 전체 표는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.

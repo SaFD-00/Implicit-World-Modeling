@@ -92,7 +92,7 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 CONFIGS 빌더가 다음 순서로 `dict.update()` 한다:
 
 1. `_DATASET_CONFIG[ds].stage{1,2}` — 데이터셋 공통 baseline (AC_EXP01 / AC_EXP02 / MC).
-2. `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` — **AC_EXP01 / AC_EXP02 공유** 모델 크기 공유값 (7-9B 단일 tier). MC 에는 적용되지 않는다.
+2. `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` — **AC_EXP01 / AC_EXP02 공유** 모델 크기 공유값 (7-9B 단일 tier). **현재 7-9B 의 세 키는 모두 빈 dict** 이라 baseline 을 그대로 쓴다 (EXP01/EXP02 실측 어댑터와 동일조건 보존). MC 에는 적용되지 않는다.
 3. `_MODEL_CONFIG[model].hparam_overrides` — 모델별 delta.
 
 각 모델은 `_MODEL_CONFIG[model]["size"]` (현재 `"7-9B"` 단일) 필드로 tier 를 지정한다. MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
@@ -105,7 +105,7 @@ CONFIGS 빌더가 다음 순서로 `dict.update()` 한다:
 |---|---|---|---|
 | 7-9B | (baseline 유지: 1.0e-5 / 0.03 / 1.0) | | |
 
-**Stage 1 LoRA** — **baseline(8/16 @1.0e-5) 유지** (size-tier 로 올리지 않음 — EXP01/EXP02 실측 어댑터와 동일조건 보존):
+**Stage 1 LoRA** — **baseline(8/16 @1.0e-5) 유지** (tier 비움 — EXP01/EXP02 실측 어댑터와 동일조건 보존):
 
 | 구간 | lr | LoRA r / α | dropout |
 |---|---|---|---|
@@ -120,13 +120,13 @@ LoRA 모드의 `deepspeed` 필드는 `GPU_TYPE` 에 따라 분기된다 (Stage 1
 
 Full FT (Stage 1 / Stage 2 양쪽) 는 분기 없이 모델별 `stage1_deepspeed` (기본 `ds_z3_config.json`) 그대로 사용. 분기 로직은 `lora` 모드에만 적용.
 
-**Stage 2 (LoRA)** — dataset baseline 대비 다른 필드만:
+**Stage 2 (LoRA)** — baseline 그대로 (tier 비움):
 
 | 구간 | lr | LoRA r / α | dropout | warmup_ratio |
 |---|---|---|---|---|
-| 7-9B | 4.0e-5 | (baseline: 32 / 64) | 0.05 | (baseline: 0.03) |
+| 7-9B | 5.0e-5 | 32 / 64 | 0.1 | 0.03 |
 
-설계 근거: 과거 `outputs/AC/eval/qwen{2.5-vl-7b,3-vl-8b}/stage2_eval` 실측 (AC 학습 시기) 에서 lr 5e-5 가 7-9B 상단 경계, dropout 0.10 이 저빈도 action type 을 불안정하게 만들어 dropout 을 0.05 로 내렸다 (정본). `_DATASET_CONFIG` baseline 의 stage2 dropout 도 0.05 로 통일.
+설계 근거: 과거 `outputs/AC/eval/qwen{2.5-vl-7b,3-vl-8b}/stage2_eval` 실측에서 dropout 0.10 이 저빈도 action type 을 불안정하게 만든다는 관측이 있으나, **EXP01 기존 stage2 어댑터(d0.1 / 5e-5)와의 동일조건 비교를 우선**해 정본을 baseline(0.1 / 5e-5) 으로 둔다 — diff loss 순효과 측정을 위해 EXP02 stage2 만 재학습하면 EXP01 전체(학습/eval)를 보존할 수 있다. `_DATASET_CONFIG` baseline 의 stage2 dropout 도 0.1.
 
 #### 계열 delta (`_MODEL_CONFIG[model].hparam_overrides`)
 
