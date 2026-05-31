@@ -1,6 +1,6 @@
 # Implicit-World-Modeling Architecture
 
-`Implicit-World-Modeling` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **2 개 Qwen3-VL Vision-Language 모델** (`Qwen/Qwen3-VL-4B-Instruct`, `Qwen/Qwen3-VL-8B-Instruct`) 을 지원하며, conda env (`implicit-world-modeling`) + 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. eval 은 **local merged dir (`outputs/.../merged/.../epoch-{E}/`) 우선 + HF Hub merged repo fallback** (`_common.sh::resolve_eval_model_path`) — local merge 한 머신에서도 같은 머신 안에서 바로 eval 까지 이어 돌 수 있다.
+`Implicit-World-Modeling` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **2 개 Vision-Language 모델** (`Qwen/Qwen3-VL-8B-Instruct`, `Qwen/Qwen2.5-VL-7B-Instruct`, 모두 7-9B tier) 을 지원하며, conda env (`implicit-world-modeling`) + 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. eval 은 **local merged dir (`outputs/.../merged/.../epoch-{E}/`) 우선 + HF Hub merged repo fallback** (`_common.sh::resolve_eval_model_path`) — local merge 한 머신에서도 같은 머신 안에서 바로 eval 까지 이어 돌 수 있다.
 
 ---
 
@@ -9,8 +9,8 @@
 ```
 conda env       notebook            엔진                              모델
 ─────────────   ─────────────────   ──────────────────────────────   ─────────────────────────────────
-implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/export    Qwen3-VL-4B-Instruct
-                                                          YAML: LlamaFactory/examples/      Qwen3-VL-8B-Instruct
+implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/export    Qwen3-VL-8B-Instruct
+                                                          YAML: LlamaFactory/examples/      Qwen2.5-VL-7B-Instruct
                                                                 custom/IWM-{DS}/
                                                                 stage{1,2}_{full,lora}
 ```
@@ -63,18 +63,23 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 
 | short_name | model_id | template | size |
 |------------|----------|----------|------|
-| qwen3-vl-4b | Qwen/Qwen3-VL-4B-Instruct | qwen3_vl_nothink | 3-4B |
 | qwen3-vl-8b | Qwen/Qwen3-VL-8B-Instruct | qwen3_vl_nothink | 7-9B |
+| qwen2.5-vl-7b | Qwen/Qwen2.5-VL-7B-Instruct | qwen2_vl | 7-9B |
 
-> Qwen3-VL 의 `qwen3_vl_nothink` template 은 `vllm_infer.py` 호출 시 `_common.sh::build_infer_cmd` 가 `--enable_thinking False` 를 자동 주입해 thinking 트리거를 끈다.
+> Qwen3-VL 의 `qwen3_vl_nothink` template 은 `vllm_infer.py` 호출 시 `_common.sh::build_infer_cmd` 가 `--enable_thinking False` 를 자동 주입해 thinking 트리거를 끈다. Qwen2.5-VL 의 `qwen2_vl` template 은 thinking 트리거가 없어 해당 플래그가 주입되지 않는다 (template 분기로 자동 처리).
 
 ### 모델 family 별 image budget
 
 노트북 Cell 5 의 `MODEL_FAMILY_CONFIG` (factor / max_tokens / min_tokens) 와 `_DATASET_CONFIG[ds]["image_overrides"]` 의 token 단위 override 로 관리된다. token 예산은 **학습 데이터셋** 으로 결정 — 학습된 모델은 평가 데이터셋과 무관하게 학습 시 budget 으로 추론한다 (학습-추론 mismatch 방지).
 
-| 학습 DS | max_tokens | Qwen3-VL (factor 32) |
-|---|---|---|
-| AC_EXP01, AC_EXP02, MC | 2,048 (family default) | 2,097,152 / 4,096 |
+| family | patch | merge | factor | min_tokens | min_pixels |
+|---|---|---|---|---|---|
+| Qwen3-VL | 16 | 2 | 32 | 4 | 4,096 |
+| Qwen2.5-VL | 14 | 2 | 28 | 4 | 3,136 |
+
+| 학습 DS | max_tokens | Qwen3-VL (factor 32) | Qwen2.5-VL (factor 28) |
+|---|---|---|---|
+| AC_EXP01, AC_EXP02, MC | 2,048 (family default) | 2,097,152 / 4,096 | 1,605,632 / 3,136 |
 
 `min_tokens=4` 는 family 공통. YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family default 에 dataset override 를 token-aware 로 덮어써 자동 주입한다. 평가측 `scripts/_common.sh::build_infer_cmd` 는 `TRAIN_DATASET` 글로벌 (parse_args 에서 set) 로 학습 DS 를 식별해 동일 budget 을 적용한다.
 
@@ -87,28 +92,24 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 CONFIGS 빌더가 다음 순서로 `dict.update()` 한다:
 
 1. `_DATASET_CONFIG[ds].stage{1,2}` — 데이터셋 공통 baseline (AC_EXP01 / AC_EXP02 / MC).
-2. `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` — **AC_EXP01 / AC_EXP02 공유** 모델 크기 공유값 (2B / 3-4B / 7-9B). MC 에는 적용되지 않는다.
+2. `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` — **AC_EXP01 / AC_EXP02 공유** 모델 크기 공유값 (7-9B 단일 tier). MC 에는 적용되지 않는다.
 3. `_MODEL_CONFIG[model].hparam_overrides` — 모델별 delta.
 
-각 모델은 `_MODEL_CONFIG[model]["size"]` (`"2B" | "3-4B" | "7-9B"`) 필드로 tier 를 지정한다. MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
+각 모델은 `_MODEL_CONFIG[model]["size"]` (현재 `"7-9B"` 단일) 필드로 tier 를 지정한다. MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
 
-#### `_SIZE_CONFIG_AC` 값
+#### `_SIZE_CONFIG_AC` 값 (7-9B)
 
-**Stage 1 (full FT)** — dataset baseline 대비 다른 필드만:
+**Stage 1 (full FT)** — dataset baseline 유지:
 
 | 구간 | lr | warmup_ratio | max_grad_norm |
 |---|---|---|---|
-| 2B | 1.5e-5 | 0.08 | 0.5 |
-| 3-4B | 1.2e-5 | 0.06 | 0.5 |
 | 7-9B | (baseline 유지: 1.0e-5 / 0.03 / 1.0) | | |
 
-**Stage 1 LoRA** — `stage1_full` 위에 덮어쓰기:
+**Stage 1 LoRA** — **baseline(8/16 @1.0e-5) 유지** (size-tier 로 올리지 않음 — EXP01/EXP02 실측 어댑터와 동일조건 보존):
 
 | 구간 | lr | LoRA r / α | dropout |
 |---|---|---|---|
-| 2B | 1.5e-4 | 8 / 16 | 0.05 |
-| 3-4B | 1.2e-4 | 12 / 24 | 0.05 |
-| 7-9B | 1.0e-4 | 16 / 32 | 0.05 |
+| 7-9B | 1.0e-5 | 8 / 16 | 0.05 |
 
 LoRA 모드의 `deepspeed` 필드는 `GPU_TYPE` 에 따라 분기된다 (Stage 1: Cell 9, Stage 2: Cell 13 — 동일 정책):
 
@@ -123,11 +124,9 @@ Full FT (Stage 1 / Stage 2 양쪽) 는 분기 없이 모델별 `stage1_deepspeed
 
 | 구간 | lr | LoRA r / α | dropout | warmup_ratio |
 |---|---|---|---|---|
-| 2B | 6.0e-5 | 16 / 32 | 0.05 | 0.05 |
-| 3-4B | 5.0e-5 | 24 / 48 | 0.05 | 0.04 |
 | 7-9B | 4.0e-5 | (baseline: 32 / 64) | 0.05 | (baseline: 0.03) |
 
-설계 근거: 과거 `outputs/AC/eval/qwen{2.5-vl-7b,3-vl-8b}/stage2_eval` 실측 (AC 학습 시기) 에서 lr 5e-5 가 7-9B 상단 경계, dropout 0.10 이 저빈도 action type 을 불안정하게 만듦. 2B / 3-4B 는 Stage 1 크기 규칙을 Stage 2 에 이식한 외삽.
+설계 근거: 과거 `outputs/AC/eval/qwen{2.5-vl-7b,3-vl-8b}/stage2_eval` 실측 (AC 학습 시기) 에서 lr 5e-5 가 7-9B 상단 경계, dropout 0.10 이 저빈도 action type 을 불안정하게 만들어 dropout 을 0.05 로 내렸다 (정본). `_DATASET_CONFIG` baseline 의 stage2 dropout 도 0.05 로 통일.
 
 #### 계열 delta (`_MODEL_CONFIG[model].hparam_overrides`)
 
@@ -141,8 +140,6 @@ Full FT (Stage 1 / Stage 2 양쪽) 는 분기 없이 모델별 `stage1_deepspeed
 
 | 모델 size | RTX5090 (32GB) | A100 (80GB) | H100 (80GB) |
 |-----------|----------------|-------------|-------------|
-| 2B        | 4              | 8           | 8           |
-| 3-4B      | 2              | 4           | 4           |
 | 7-9B      | 1              | 2           | 2           |
 
 #### `gradient_accumulation_steps` 불변식
@@ -299,8 +296,8 @@ data/
 
 ```bash
 # 학습/merge — --dataset {AC_EXP01|AC_EXP02|MC}. MB 거절. Stage 2 는 MC 미지원 (데이터 없음). --dataset all 은 지원하지 않음 (명시적 선택 필수). AC_EXP01 는 Stage 1/2 모두 ratio sweep.
-bash scripts/stage1_train.sh --model qwen3-vl-4b --dataset MC --stage1-mode lora
-bash scripts/stage1_merge.sh --model qwen3-vl-4b --dataset MC --stage1-mode lora --no-hf-upload
+bash scripts/stage1_train.sh --model qwen2.5-vl-7b --dataset MC --stage1-mode lora
+bash scripts/stage1_merge.sh --model qwen2.5-vl-7b --dataset MC --stage1-mode lora --no-hf-upload
 # AC_EXP01 는 ratio 3 종 자동 sweep (--exp01-ratios ratio55,ratio73 로 부분 실행).
 bash scripts/stage1_train.sh --model qwen3-vl-8b --dataset AC_EXP01 --stage1-mode full
 bash scripts/stage1_merge.sh --model qwen3-vl-8b --dataset AC_EXP01 --stage1-mode full

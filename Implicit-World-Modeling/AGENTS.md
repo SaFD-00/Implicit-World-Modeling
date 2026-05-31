@@ -5,7 +5,7 @@
 ## 현재 코드 기준 요약
 
 - 실행 엔트리포인트는 단일 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 와 [`scripts/`](./scripts) 다. 노트북은 conda env (`implicit-world-modeling`, `pip install -e ".[llamafactory]"`) 를 전제로 한다.
-- **2 개 Qwen3-VL Vision-Language 모델**: `Qwen/Qwen3-VL-4B-Instruct`, `Qwen/Qwen3-VL-8B-Instruct` (`template=qwen3_vl_nothink`).
+- **2 개 Vision-Language 모델 (모두 7-9B tier)**: `Qwen/Qwen3-VL-8B-Instruct` (`template=qwen3_vl_nothink`), `Qwen/Qwen2.5-VL-7B-Instruct` (`template=qwen2_vl`, factor 28 → image budget 1,605,632).
 - **3 학습 데이터셋 + 1 평가 전용 벤치마크**: AC_EXP01, AC_EXP02, MC 가 학습 대상, MB 는 평가 전용. AC (AndroidControl) 자체는 학습/평가 entry 가 아니라 AC_EXP01/AC_EXP02 의 **원본 source 자산** (이미지 + 원본 jsonl + `episodes_meta.jsonl`) 으로만 보존된다. AC_EXP01 는 Stage 1 ratio mix (state_pred:action_pred = 3:7, 5:5, 7:3) 3 종을 sweep 해 별개의 가중치를 산출하고, **Stage 2 도 같은 ratio sweep 으로 활성** — Stage 1 ratio merged 를 base 로 같은 stage2 데이터 (`implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl`) 를 학습. stage2 데이터 자체는 ratio 와 무관 (3 ratio 공유) 이며, ratio 차원은 **stage1 → stage2 base 계보** 로만 흐른다. `_STAGE1_ONLY = {"MonkeyCollection"}` 로 축소되어 AC_EXP01 는 Stage 1/2 모두 파이프라인에 참여한다.
 - **모든 stage 의 흐름은 `train → merge → eval`** 로 통일. eval 은 **로컬 `outputs/.../merged/.../epoch-{E}/` 가 있으면 그것을 우선 사용하고, 없을 때만 HF Hub merged repo 를 pull** (`_common.sh::resolve_eval_model_path`) — `--no-hf-upload` 로 local merge 만 한 경우와 HF push 후 다른 머신에서 재실행하는 경우 모두 동작한다.
 - **GPU-aware `per_device_train_batch_size`**: `.env` 의 `GPU_TYPE` (`RTX5090` / `A100` / `H100`) 와 모델 size 로 `_PER_DEVICE_BS_BY_SIZE` 표를 조회 (Cell 5 의 `lf_per_device_bs(size)` 헬퍼). `NPROC_PER_NODE ∈ {1,2,4,8}` 만 허용. 4 가지 GPU 수 모두에서 `GLOBAL_BATCH_SIZE=64` 가 정수로 나뉘도록 표 값을 유지해야 한다.
@@ -24,13 +24,13 @@
 ## 어디를 수정해야 하는가
 
 ### 모델 추가
-1. 노트북 Cell 5 `_MODEL_CONFIG` 에 모델 항목 추가 (필드: `model_id`, `short_name`, `template`, `size` ∈ {`"2B"`, `"3-4B"`, `"7-9B"`}, image-pixel 은 `_img_cfg(short)` 헬퍼로 family config 에서 자동 주입).
+1. 노트북 Cell 5 `_MODEL_CONFIG` 에 모델 항목 추가 (필드: `model_id`, `short_name`, `template`, `size` (현재 `"7-9B"` 단일 tier), image-pixel 은 `_img_cfg(short)` 헬퍼로 family config 에서 자동 주입).
 2. `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS` 에 동일 항목 추가.
 3. 새 family 라면 노트북 Cell 5 의 `MODEL_FAMILY_CONFIG` 에 image budget 추가 (`factor` / `max_tokens` / `min_tokens`). family default 는 `max_tokens=2048`, `min_tokens=4`. `scripts/_common.sh::build_infer_cmd` 의 template 분기 (factor / mm_min) 도 함께 갱신.
 4. 노트북 Section 0 의 "Stage {1,2} YAML 일괄 생성" 셀 (Cell 8 / Cell 10) 재실행 → Stage 1 YAML **full / lora 두 벌**, Stage 2 YAML **full / lora 두 벌 × {base, world-model-full, world-model-lora}** 자동 생성. shell 스크립트의 `--stage1-mode`, `--stage2-mode` 로 full/lora 분기.
 
 ### 하이퍼파라미터 수정
-- AC_EXP01 / AC_EXP02 는 `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` 로 **크기 3 단 (2B / 3-4B / 7-9B)** 공유값 관리. `_MODEL_CONFIG[model].hparam_overrides` 는 모델별 delta 전용. lr / warmup / LoRA rank / dropout 은 `_MODEL_CONFIG` 에 직접 쓰지 말고 `_SIZE_CONFIG_AC` 에서 해당 tier 값을 바꾼다.
+- AC_EXP01 / AC_EXP02 는 `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` 로 **7-9B 단일 tier** 공유값 관리. Stage 1 LoRA 는 baseline(8/16 @1.0e-5) 유지 (size-tier 로 올리지 않음 — EXP01/EXP02 실측 어댑터와 동일조건 보존), Stage 2 LoRA 는 32/64 dropout 0.05 @4.0e-5. `_MODEL_CONFIG[model].hparam_overrides` 는 모델별 delta 전용. lr / warmup / LoRA rank / dropout 은 `_MODEL_CONFIG` 에 직접 쓰지 말고 `_SIZE_CONFIG_AC` 에서 해당 tier 값을 바꾼다.
 - MC 는 tier 미적용 — dataset baseline + per-model override 만 적용.
 - MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
 - merge 순서 (단일 진실원: 노트북 Cell 5 CONFIGS 빌더): `_DATASET_CONFIG` baseline → `_SIZE_CONFIG_AC[size]` (AC_EXP01 / AC_EXP02 일 때만) → `hparam_overrides`. 전체 표는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
@@ -113,7 +113,7 @@
   ```
 - `rg "BEST_CHECKPOINT" scripts/ tests/` — 비어야 함
 - `rg "transformers.*<5\b" setup.py pyproject.toml README.md ARCHITECTURE.md AGENTS.md` — 비어야 함 (모두 `<4.57`)
-- GPU-aware per-device 검증: `.env` 에 `GPU_TYPE=RTX5090 NPROC_PER_NODE=8` 설정 후 노트북 Cell 5 실행 → "RTX5090 × 8 GPU: 2B pd=4 ga=2 | 3-4B pd=2 ga=4 | 7-9B pd=1 ga=8" 출력 확인. 모든 size × GPU × NPROC ∈ {1,2,4,8} 조합이 64 로 나뉘어야 함.
+- GPU-aware per-device 검증: `.env` 에 `GPU_TYPE=RTX5090 NPROC_PER_NODE=8` 설정 후 노트북 Cell 5 실행 → "RTX5090 × 8 GPU: 7-9B pd=1 ga=8" 출력 확인. 7-9B × GPU × NPROC ∈ {1,2,4,8} 조합이 64 로 나뉘어야 함.
 
 ## 문서 동기화 원칙
 

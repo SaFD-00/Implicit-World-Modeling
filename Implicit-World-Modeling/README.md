@@ -12,14 +12,14 @@
   - `stage1+stage2` — Stage 1 merged (world model) → Stage 2 SFT
 - **파이프라인 흐름** (Stage 1 / Stage 2 공통): `train → merge → eval`. merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. eval 은 **로컬 `outputs/.../merged/.../epoch-{E}/` 가 있으면 우선 사용하고 없을 때만 HF Hub merged repo 를 pull** (`_common.sh::resolve_eval_model_path`) — `--no-hf-upload` 만 한 워크플로우와 HF push 후 다른 머신에서 재실행하는 워크플로우 모두에서 동작한다.
 
-## 지원 모델 (2 개, Qwen3-VL multimodal)
+## 지원 모델 (2 개, 모두 7-9B tier)
 
 | # | model_id | short_name | template | size |
 |---|----------|------------|----------|------|
-| 1 | `Qwen/Qwen3-VL-4B-Instruct` | `qwen3-vl-4b` | `qwen3_vl_nothink` | 3-4B |
-| 2 | `Qwen/Qwen3-VL-8B-Instruct` | `qwen3-vl-8b` | `qwen3_vl_nothink` | 7-9B |
+| 1 | `Qwen/Qwen3-VL-8B-Instruct` | `qwen3-vl-8b` | `qwen3_vl_nothink` | 7-9B |
+| 2 | `Qwen/Qwen2.5-VL-7B-Instruct` | `qwen2.5-vl-7b` | `qwen2_vl` | 7-9B |
 
-> Qwen3-VL 의 `qwen3_vl_nothink` template 은 추론 시 `vllm_infer.py` 에 `--enable_thinking False` 가 자동 주입된다.
+> Qwen3-VL 의 `qwen3_vl_nothink` template 은 추론 시 `vllm_infer.py` 에 `--enable_thinking False` 가 자동 주입된다. Qwen2.5-VL 의 `qwen2_vl` template 은 thinking 트리거가 없어 해당 플래그를 주입하지 않는다.
 
 ### 모델 family 별 image budget
 
@@ -28,10 +28,11 @@
 | family | patch | merge | factor | min_tokens | min_pixels |
 |--------|-------|-------|--------|-----------|------------|
 | Qwen3-VL | 16 | 2 | 32 | 4 | 4,096 |
+| Qwen2.5-VL | 14 | 2 | 28 | 4 | 3,136 |
 
-| 학습 DS | max_tokens | Qwen3-VL `max_pixels` |
-|---|---|---|
-| AC_EXP01, AC_EXP02, MC | 2,048 (family default) | 2,097,152 (= 2048 × 32²) |
+| 학습 DS | max_tokens | Qwen3-VL `max_pixels` | Qwen2.5-VL `max_pixels` |
+|---|---|---|---|
+| AC_EXP01, AC_EXP02, MC | 2,048 (family default) | 2,097,152 (= 2048 × 32²) | 1,605,632 (= 2048 × 28²) |
 
 > 평가측 `scripts/_common.sh::build_infer_cmd` 가 `TRAIN_DATASET` 환경변수로 학습 DS 를 식별해 동일 budget 을 적용한다.
 
@@ -95,8 +96,6 @@ CI / 다른 머신에서는 동일 절차로 재설치한다.
 
 | 모델 size | RTX5090 (32GB) | A100 (80GB) | H100 (80GB) |
 |-----------|----------------|-------------|-------------|
-| 2B        | 4              | 8           | 8           |
-| 3-4B      | 2              | 4           | 4           |
 | 7-9B      | 1              | 2           | 2           |
 
 `GLOBAL_BATCH_SIZE = 64` 를 유지하기 위해 `gradient_accumulation_steps = 64 / (per_device × NPROC_PER_NODE)` 가 자동 역계산된다 (정수가 아니면 `ValueError`). 위 표 값은 `NPROC ∈ {1, 2, 4, 8}` 모두에서 정수가 된다.
@@ -224,9 +223,9 @@ shell script 는 노트북에서 한 번 생성된 **학습 YAML** 과 `LlamaFac
 
 ```bash
 # Stage 1 LoRA — MC 학습 (Stage 1 전용)
-bash scripts/stage1_train.sh --model qwen3-vl-4b --dataset MC --stage1-mode lora
-bash scripts/stage1_merge.sh --model qwen3-vl-4b --dataset MC --stage1-mode lora
-bash scripts/stage1_eval.sh  --model qwen3-vl-4b --train-dataset MC --eval-datasets MC,MB \
+bash scripts/stage1_train.sh --model qwen2.5-vl-7b --dataset MC --stage1-mode lora
+bash scripts/stage1_merge.sh --model qwen2.5-vl-7b --dataset MC --stage1-mode lora
+bash scripts/stage1_eval.sh  --model qwen2.5-vl-7b --train-dataset MC --eval-datasets MC,MB \
      --stage1-mode lora --variants base,lora_world_model --epochs 1,2,3
 
 # Stage 1 — AC_EXP01 학습 (state_pred + action_pred ratio 3 종 자동 sweep)
