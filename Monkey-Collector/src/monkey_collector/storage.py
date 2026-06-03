@@ -163,8 +163,12 @@ class DataWriter:
         if os.path.exists(meta_path):
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
-            meta["completed_at"] = datetime.now().isoformat()
             meta["total_steps"] = self.step_count
+            # A session that collected zero steps failed (e.g. a stale finish
+            # signal during the first-session handshake). Leave completed_at
+            # unset so the next run re-collects it instead of skipping it.
+            if self.step_count > 0:
+                meta["completed_at"] = datetime.now().isoformat()
             self._write_metadata(meta)
         logger.info(f"Session finalized: {self.step_count} steps")
 

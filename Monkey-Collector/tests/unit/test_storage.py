@@ -132,6 +132,17 @@ class TestFinalizeSession:
         assert meta["completed_at"] is not None
         assert meta["total_steps"] == 2
 
+    def test_zero_steps_not_marked_completed(self, writer, tmp_path):
+        """A 0-step session failed (e.g. stale finish during handshake);
+        it must not be marked completed, so the next run re-collects it."""
+        writer.finalize_session()
+
+        meta = json.loads(
+            (tmp_path / "com.test.app" / "metadata.json").read_text()
+        )
+        assert meta["completed_at"] is None
+        assert meta["total_steps"] == 0
+
 
 class TestMultipleSteps:
     def test_sequential_operations(self, writer, tmp_path):
