@@ -21,14 +21,14 @@ Productivity,Office,Google Sheets,com.google.android.apps.docs.editors.sheets,Pl
 Productivity,Office,Google Slides,com.google.android.apps.docs.editors.slides,PlayStore,Medium,Presentation editing,false
 Productivity,Office,Microsoft Word,com.microsoft.office.word,PlayStore,Medium,Document editing,false
 Productivity,Office,WPS Office,cn.wps.moffice_eng,PlayStore,Medium,Multi-format office suite,false
-Productivity,Storage,Google Drive,com.google.android.apps.docs,PlayStore,High,Cloud storage; file management,false
+Productivity,Storage,Google Drive,com.google.android.apps.docs,PlayStore,High,Cloud storage; file management,true
 Productivity,Storage,Dropbox,com.dropbox.android,PlayStore,Medium,Cloud storage + sharing,false
 Productivity,Tasks,TickTick,com.ticktick.task,PlayStore,Medium,Task manager + calendar,false
 Productivity,Tasks,Tasks.org,org.tasks,F-Droid,Medium,Open-source task manager,true
 Productivity,Tasks,Todoist,com.todoist,PlayStore,Medium,Popular task manager,false
-Productivity,Calendar,Google Calendar,com.google.android.calendar,PlayStore,High,Calendar + event management,false
-Productivity,Calendar,Simple Calendar,com.simplemobiletools.calendar.pro,F-Droid,High,Open-source calendar,false
-Productivity,Email,Gmail,com.google.android.gm,PlayStore,High,Email client,false
+Productivity,Calendar,Google Calendar,com.google.android.calendar,PlayStore,High,Calendar + event management,true
+Productivity,Calendar,Simple Calendar,com.simplemobiletools.calendar.pro,F-Droid,High,Open-source calendar,true
+Productivity,Email,Gmail,com.google.android.gm,PlayStore,High,Email client,true
 Productivity,Email,K-9 Mail,com.fsck.k9,F-Droid,High,Open-source email client,true
 Productivity,Email,Microsoft Outlook,com.microsoft.office.outlook,PlayStore,Medium,Email + calendar,false
 Communication,Messaging,Signal,org.thoughtcrime.securesms,PlayStore,High,Encrypted messaging,false
@@ -39,16 +39,16 @@ Communication,Messaging,WhatsApp,com.whatsapp,PlayStore,High,Popular messaging,f
 Communication,Social,Reddit,com.reddit.frontpage,PlayStore,Medium,Forum-style social media,false
 Communication,Social,Mastodon,org.joinmastodon.android,F-Droid,Medium,Decentralized social network,true
 Communication,Phone,Contacts,com.google.android.contacts,PlayStore,Medium,Contact management,true
-Communication,Phone,Simple Contacts,com.simplemobiletools.contacts.pro,F-Droid,Medium,Open-source contacts,false
-Media,Video,YouTube,com.google.android.youtube,PlayStore,High,Video streaming; search/browse,false
-Media,Video,VLC,org.videolan.vlc,F-Droid,High,Video player; file browser,false
+Communication,Phone,Simple Contacts,com.simplemobiletools.contacts.pro,F-Droid,Medium,Open-source contacts,true
+Media,Video,YouTube,com.google.android.youtube,PlayStore,High,Video streaming; search/browse,true
+Media,Video,VLC,org.videolan.vlc,F-Droid,High,Video player; file browser,true
 Media,Video,NewPipe,org.schabi.newpipe,F-Droid,Medium,YouTube frontend; open-source,true
 Media,Music,Spotify,com.spotify.music,PlayStore,High,Music streaming; playlists,false
-Media,Music,YouTube Music,com.google.android.apps.youtube.music,PlayStore,Medium,Music streaming,false
+Media,Music,YouTube Music,com.google.android.apps.youtube.music,PlayStore,Medium,Music streaming,true
 Media,Music,Retro Music,code.name.monkey.retromusic,F-Droid,High,Local music player; rich UI,true
 Media,Music,Metro,io.github.nicehash.metro,F-Droid,Medium,Music player,false
 Media,Photo,Google Photos,com.google.android.apps.photos,PlayStore,High,Photo gallery + editing,true
-Media,Photo,Simple Gallery,com.simplemobiletools.gallery.pro,F-Droid,High,Open-source gallery,false
+Media,Photo,Simple Gallery,com.simplemobiletools.gallery.pro,F-Droid,High,Open-source gallery,true
 Media,Photo,Snapseed,com.niksoftware.snapseed,PlayStore,Medium,Photo editing,false
 Media,Reading,Google Play Books,com.google.android.apps.books,PlayStore,Medium,E-book reader,false
 Media,Reading,Librera Reader,com.foobnix.pdf.reader,F-Droid,Medium,Document/book reader,false
@@ -56,7 +56,7 @@ Media,Reading,KOReader,org.koreader.launcher.fdroid,F-Droid,Medium,E-book reader
 Media,Drawing,Sketchbook,com.adsk.sketchbook,PlayStore,Medium,Digital drawing/sketching,false
 Media,Podcast,AntennaPod,de.danoeh.antennapod,F-Droid,Medium,Open-source podcast player,true
 Navigation,Maps,Google Maps,com.google.android.apps.maps,PlayStore,High,Maps/navigation/search,true
-Navigation,Maps,OsmAnd,net.osmand,F-Droid,High,Offline maps; open-source,false
+Navigation,Maps,OsmAnd,net.osmand,F-Droid,High,Offline maps; open-source,true
 Navigation,Maps,Organic Maps,app.organicmaps,F-Droid,Medium,Privacy-focused maps,true
 Navigation,Transit,Citymapper,com.citymapper.app.release,PlayStore,Medium,Multi-modal transit,false
 Navigation,Transit,Moovit,com.tranzmate,PlayStore,Medium,Public transit planner,false
@@ -100,7 +100,7 @@ Finance,Investment,Yahoo Finance,com.yahoo.mobile.client.android.finance,PlaySto
 Finance,Expense,Wallet,com.droid4you.application.wallet,PlayStore,Medium,Expense tracking,false
 Finance,Expense,GnuCash,org.gnucash.android,F-Droid,Medium,Open-source accounting,false
 Finance,Crypto,CoinGecko,com.coingecko.coingeckoapp,PlayStore,Medium,Crypto price tracking,false
-System,Settings,Settings,com.android.settings,System,High,System settings; deep menus,false
+System,Settings,Settings,com.android.settings,System,High,System settings; deep menus,true
 System,Files,Files by Google,com.google.android.apps.nbu.files,PlayStore,High,File manager,false
 System,Files,Material Files,me.zhanghai.android.files,F-Droid,Medium,Open-source file manager,true
 System,Clock,Clock,com.google.android.deskclock,PlayStore,High,Timer/alarm/stopwatch,true
@@ -108,7 +108,7 @@ System,Phone,Phone,com.google.android.dialer,System,Medium,Dialer,true
 System,Camera,Open Camera,net.sourceforge.opencamera,F-Droid,Medium,Open-source camera,true
 System,Calculator,Calculator,com.google.android.calculator,PlayStore,Medium,Basic calculator,false
 System,Launcher,KISS Launcher,fr.neamar.kiss,F-Droid,Low,Minimal launcher,true
-System,Browser,Firefox,org.mozilla.firefox,PlayStore,Medium,Web browser,false
+System,Browser,Firefox,org.mozilla.firefox,PlayStore,Medium,Web browser,true
 System,Browser,Brave,com.brave.browser,PlayStore,Medium,Privacy browser,false
 System,Keyboard,OpenBoard,org.dslul.openboard.inputmethod.latin,F-Droid,Low,Open-source keyboard,false
 Weather,Forecast,AccuWeather,com.accuweather.android,PlayStore,Medium,Weather forecasting,false
