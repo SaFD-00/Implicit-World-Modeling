@@ -1,20 +1,21 @@
 # Missing APKs
 
-- Generated: 2026-04-24T10:22:53+00:00
-- Target ABI (F-Droid filter): `arm64-v8a`
+- Generated: 2026-06-03T03:44:01+00:00
+- Target ABI (F-Droid filter): `x86_64`
 - PlayStore gplaydl arch: `arm64`
 - Total targets: 43
-- Downloaded: 0
-- Skipped (already present): 26
-- Failed: 17
+- Downloaded: 25
+- Skipped (already present): 0
+- Failed: 18
 - System (skipped, not downloadable): 2
 
-## F-Droid (17)
+## F-Droid (18)
 - `com.simplemobiletools.calendar.pro` — not in F-Droid index: com.simplemobiletools.calendar.pro
 - `com.simplemobiletools.contacts.pro` — not in F-Droid index: com.simplemobiletools.contacts.pro
 - `io.github.nicehash.metro` — not in F-Droid index: io.github.nicehash.metro
 - `com.simplemobiletools.gallery.pro` — not in F-Droid index: com.simplemobiletools.gallery.pro
 - `com.foobnix.pdf.reader` — not in F-Droid index: com.foobnix.pdf.reader
+- `org.koreader.launcher.fdroid` — no x86_64 build in F-Droid (available: ['arm64-v8a', 'armeabi-v7a', 'x86'])
 - `net.osmand` — not in F-Droid index: net.osmand
 - `de.grobox.stocktransportr` — not in F-Droid index: de.grobox.stocktransportr
 - `meditofoundation.medito` — not in F-Droid index: meditofoundation.medito
