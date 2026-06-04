@@ -15,6 +15,7 @@ from typing import Any
 
 from loguru import logger
 
+from monkey_collector.adb import AdbClient
 from monkey_collector.domain.actions import (
     Action,
     InputText,
@@ -24,9 +25,9 @@ from monkey_collector.domain.actions import (
     Swipe,
     Tap,
 )
-from monkey_collector.adb import AdbClient
-from monkey_collector.xml.ui_tree import UITree
+from monkey_collector.pipeline.recovery import FIRST_STEPS_NO_BACK
 from monkey_collector.pipeline.text_generator import TextGenerator
+from monkey_collector.xml.ui_tree import UITree
 
 # Default action weights
 DEFAULT_WEIGHTS: dict[str, float] = {
@@ -74,6 +75,8 @@ class SmartExplorer:
         self._excluded_elements: set[int] = set()
         self._text_generator = text_generator
         self._last_raw_xml: str | None = None
+        # page_id -> set of element signatures already acted on (coverage memory)
+        self._visited_signatures: dict[int, set[str]] = {}
 
     def exclude_element(self, element_index: int) -> None:
         """Mark an element as tried (no screen change). Excluded from future selection."""
@@ -91,8 +94,58 @@ class SmartExplorer:
         """Store the latest raw XML for LLM-based text generation."""
         self._last_raw_xml = raw_xml
 
-    def select_action(self, ui_tree: UITree, step: int = -1, is_first_screen: bool = False) -> Action:
-        """Select an action based on UI state and weights."""
+    @staticmethod
+    def _element_signature(elem) -> str:
+        """Stable, coordinate-free identity for an element within a page."""
+        return f"{elem.resource_id}|{elem.text}|{elem.short_class}"
+
+    def _prefer_unvisited(self, elements: list, page_id: int | None) -> list:
+        """Return only not-yet-acted-on elements for *page_id*, if any exist.
+
+        Falls back to the full list once every candidate has been visited.
+        """
+        if page_id is None or not elements:
+            return elements
+        visited = self._visited_signatures.get(page_id, set())
+        unvisited = [e for e in elements if self._element_signature(e) not in visited]
+        return unvisited if unvisited else elements
+
+    def has_unvisited(self, ui_tree: UITree, page_id: int | None) -> bool:
+        """True if any clickable element on *page_id* has not been acted on yet."""
+        if page_id is None:
+            return False
+        visited = self._visited_signatures.get(page_id, set())
+        for e in ui_tree.get_clickable_elements():
+            if e.index in self._excluded_elements:
+                continue
+            if self._element_signature(e) not in visited:
+                return True
+        return False
+
+    def _mark_visited(self, action: Action, ui_tree: UITree, page_id: int | None) -> None:
+        """Record the element targeted by *action* as visited for *page_id*."""
+        if page_id is None or action.element_index < 0:
+            return
+        for e in ui_tree.elements:
+            if e.index == action.element_index:
+                self._visited_signatures.setdefault(page_id, set()).add(
+                    self._element_signature(e)
+                )
+                return
+
+    def select_action(
+        self,
+        ui_tree: UITree,
+        step: int = -1,
+        is_first_screen: bool = False,
+        page_id: int | None = None,
+    ) -> Action:
+        """Select an action based on UI state and weights.
+
+        When *page_id* is given, tap/long-press/input candidates that have not
+        yet been acted on for that page are preferred, so exploration spreads
+        across the screen instead of repeatedly hitting the same element.
+        """
         clickable = ui_tree.get_clickable_elements()
         editable = ui_tree.get_editable_elements()
         scrollable = ui_tree.get_scrollable_elements()
@@ -103,11 +156,15 @@ class SmartExplorer:
             editable = [e for e in editable if e.index not in self._excluded_elements]
             scrollable = [e for e in scrollable if e.index not in self._excluded_elements]
 
+        # Prefer not-yet-visited targets for coverage-driven exploration
+        clickable = self._prefer_unvisited(clickable, page_id)
+        editable = self._prefer_unvisited(editable, page_id)
+
         # Build available actions with adjusted weights
         weights = dict(self.action_weights)
 
-        # 첫 화면에서는 press_back 금지 (앱 종료 방지)
-        if is_first_screen:
+        # 첫 화면 또는 세션 초반 N스텝에는 press_back 금지 (이른 앱 종료 방지)
+        if is_first_screen or (0 <= step < FIRST_STEPS_NO_BACK):
             weights["press_back"] = 0.0
 
         # If there are editable fields, boost input_text weight
@@ -125,11 +182,15 @@ class SmartExplorer:
         # Normalize weights
         total = sum(weights.values())
         if total == 0:
-            if is_first_screen:
+            # During the first screen / early steps, never fall back to back
+            # (it could exit the app); tap instead.
+            if is_first_screen or (0 <= step < FIRST_STEPS_NO_BACK):
                 if clickable:
                     elem = self._rng.choice(clickable)
                     cx, cy = elem.center
-                    return Tap(x=cx, y=cy, element_index=elem.index)
+                    action = Tap(x=cx, y=cy, element_index=elem.index)
+                    self._mark_visited(action, ui_tree, page_id)
+                    return action
                 return Tap(
                     x=self._rng.randint(100, self.screen_width - 100),
                     y=self._rng.randint(200, self.screen_height - 200),
@@ -141,7 +202,9 @@ class SmartExplorer:
         # Weighted selection
         action_type = self._weighted_choice(normalized)
 
-        return self._create_action(action_type, clickable, editable, scrollable)
+        action = self._create_action(action_type, clickable, editable, scrollable)
+        self._mark_visited(action, ui_tree, page_id)
+        return action
 
     def execute_action(self, action: Action) -> None:
         """Execute an action on the device via ADB."""
@@ -157,6 +220,9 @@ class SmartExplorer:
                 time.sleep(0.3)
             self.adb.clear_text_field()
             self.adb.input_text(action.text)
+            # Close the soft keyboard so the next action sees the body content
+            # instead of getting stuck in the SoftInputWindow overlay.
+            self.adb.press_back()
         elif isinstance(action, PressBack):
             self.adb.press_back()
         elif isinstance(action, PressHome):

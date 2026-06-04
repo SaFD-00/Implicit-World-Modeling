@@ -10,7 +10,6 @@ from loguru import logger
 
 from monkey_collector.domain.actions import Action
 from monkey_collector.domain.page_graph import PageGraph
-from monkey_collector.xml.ui_tree import UITree
 from monkey_collector.pipeline.recovery import (
     MAX_EMPTY_UI_RETRIES,
     MAX_EXTERNAL_APP_RETRIES,
@@ -20,6 +19,13 @@ from monkey_collector.pipeline.recovery import (
     safe_press_back,
     tap_random_fallback,
 )
+from monkey_collector.pipeline.screen_guard import (
+    find_dialog_button,
+    is_keyboard,
+    is_permission_dialog,
+    is_system_screen,
+)
+from monkey_collector.xml.ui_tree import UITree
 
 if TYPE_CHECKING:
     from monkey_collector.pipeline.collector import Collector
@@ -158,6 +164,7 @@ def _handle_no_change(
             collector.explorer.set_raw_xml(state.last_raw_xml)
         action = collector.explorer.select_action(
             state.last_ui_tree, state.step, is_first_screen=state.is_first_screen,
+            page_id=state.current_page_id,
         )
         logger.info(
             f"Step {state.step}: retry {action.action_type} "
@@ -215,6 +222,31 @@ def _handle_external_app(
     return False
 
 
+def _handle_permission_dialog(
+    collector: Collector,
+    state: CollectionState,
+    xml_str: str,
+) -> None:
+    """Act on a permission/install dialog: tap a grant/dismiss button or back."""
+    ui_tree = UITree.from_xml_string(xml_str)
+    button = find_dialog_button(ui_tree)
+    if button is not None:
+        cx, cy = button.center
+        logger.info(
+            f"Step {state.step}: permission dialog, tapping '{button.display_name}'"
+        )
+        collector.adb.tap(cx, cy)
+    else:
+        logger.info(
+            f"Step {state.step}: permission dialog, no button matched, pressing back"
+        )
+        collector.adb.press_back()
+    collector.server.clear_signal_queue()
+    state.last_action = None
+    state.last_ui_tree = None
+    time.sleep(collector.action_delay)
+
+
 def _process_xml_signal(
     collector: Collector,
     state: CollectionState,
@@ -225,6 +257,38 @@ def _process_xml_signal(
     """Process an XML signal (new screen). Returns True if loop should `continue`."""
     top_package = meta.get("top_package", "")
     state.is_first_screen = meta.get("is_first_screen", False)
+    activity_name = meta.get("activity_name", "")
+
+    # Keyboard (SoftInputWindow) is an overlay, not a page: dismiss it so the
+    # next signal shows the underlying screen, and do NOT register it as a page
+    # (it would pollute same-page / coverage statistics).
+    if is_keyboard(activity_name):
+        logger.info(f"Step {state.step}: keyboard window, dismissing")
+        safe_press_back(collector.adb, collector.explorer, package)
+        collector.server.clear_signal_queue()
+        state.last_action = None
+        state.last_ui_tree = None
+        time.sleep(collector.action_delay)
+        state.step += 1
+        return True
+
+    # Permission / install grant dialog: act on it (grant > dismiss) instead of
+    # burning steps skipping it as stale XML — otherwise we loop here forever.
+    if is_permission_dialog(top_package):
+        _handle_permission_dialog(collector, state, xml_str)
+        state.step += 1
+        return True
+
+    # Drifted into another system screen we cannot drive: relaunch the target.
+    if top_package and is_system_screen(top_package) and top_package != package:
+        logger.warning(
+            f"Step {state.step}: in system screen {top_package}, "
+            f"returning to {package}"
+        )
+        collector.explorer.return_to_app(package)
+        collector.server.clear_signal_queue()
+        state.step += 1
+        return True
 
     if top_package and top_package != package:
         logger.info(
@@ -234,7 +298,6 @@ def _process_xml_signal(
         state.step += 1
         return True
 
-    activity_name = meta.get("activity_name", "")
     if not activity_name:
         activity_name = collector.adb.get_current_activity()
 
@@ -246,9 +309,11 @@ def _process_xml_signal(
         )
 
     previous_page_id = state.current_page_id
+    pages_before = len(state.page_graph.nodes)
     state.current_page_id = state.page_graph.get_or_create_page(
         activity_name, xml_str, state.step,
     )
+    discovered_new_page = len(state.page_graph.nodes) > pages_before
     if previous_page_id is not None and state.last_action is not None:
         element_info = describe_action_element(state.last_action, state.last_ui_tree)
         state.page_graph.add_transition(
@@ -265,22 +330,27 @@ def _process_xml_signal(
         state.same_page_count = 0
 
     if state.same_page_count >= MAX_SAME_PAGE_STEPS:
-        logger.warning(
-            f"Step {state.step}: stuck on page {state.current_page_id} "
-            f"for {state.same_page_count} steps, forcing back"
-        )
-        if state.is_first_screen:
-            tap_random_fallback(collector.adb)
-        else:
-            safe_press_back(collector.adb, collector.explorer, package)
-        collector.server.clear_signal_queue()
-        collector.explorer.clear_excluded()
-        state.same_page_count = 0
-        state.last_action = None
-        state.last_ui_tree = None
-        time.sleep(collector.action_delay)
-        state.step += 1
-        return True
+        # Only leave the page once there is nothing new left to try here.
+        # While unvisited elements remain, fall through to normal (unvisited-
+        # first) selection so we exhaust the page before navigating away.
+        same_page_tree = UITree.from_xml_string(xml_str)
+        if not collector.explorer.has_unvisited(same_page_tree, state.current_page_id):
+            logger.warning(
+                f"Step {state.step}: stuck on page {state.current_page_id} "
+                f"for {state.same_page_count} steps, forcing back"
+            )
+            if state.is_first_screen:
+                tap_random_fallback(collector.adb)
+            else:
+                safe_press_back(collector.adb, collector.explorer, package)
+            collector.server.clear_signal_queue()
+            collector.explorer.clear_excluded()
+            state.same_page_count = 0
+            state.last_action = None
+            state.last_ui_tree = None
+            time.sleep(collector.action_delay)
+            state.step += 1
+            return True
 
     if collector._text_generator and hasattr(collector._text_generator, "set_step"):
         collector._text_generator.set_step(state.step)
@@ -320,11 +390,16 @@ def _process_xml_signal(
         return True
 
     state.empty_ui_retries = 0
-    state.external_app_count = 0
+    # Only reset the external-app counter on genuine progress (a brand-new page).
+    # Resetting on every in-app frame let an external↔return loop run forever
+    # because each return landed on an already-known page.
+    if discovered_new_page:
+        state.external_app_count = 0
 
     collector.explorer.set_raw_xml(xml_str)
     action = collector.explorer.select_action(
         ui_tree, state.step, is_first_screen=state.is_first_screen,
+        page_id=state.current_page_id,
     )
     logger.info(
         f"Step {state.step}: {action.action_type} "

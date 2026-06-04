@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from monkey_collector.domain.actions import Action
 from monkey_collector.adb import AdbClient
+from monkey_collector.domain.actions import Action
 from monkey_collector.xml.ui_tree import UITree
 
 if TYPE_CHECKING:
@@ -15,6 +15,9 @@ MAX_NO_CHANGE_RETRIES = 3
 MAX_EXTERNAL_APP_RETRIES = 10
 MAX_SAME_PAGE_STEPS = 5
 MAX_EMPTY_UI_RETRIES = 2
+# Suppress press_back for the first N steps of a session so an early back does
+# not exit the app before any data is collected (the cause of 1-2 step sessions).
+FIRST_STEPS_NO_BACK = 3
 
 
 def tap_random_fallback(adb: AdbClient) -> None:

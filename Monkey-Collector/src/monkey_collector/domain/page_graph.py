@@ -20,6 +20,33 @@ from monkey_collector.xml.structured_parser import StructuredXmlParser
 # Max children to include for scrollable containers (handles varying list lengths)
 _MAX_SCROLL_CHILDREN = 3
 
+# resource-id substrings of transient overlays (snackbar/toast/tooltip). Nodes
+# whose stripped id contains one of these — and their subtrees — are excluded
+# from the structural fingerprint so a momentary overlay does not fork a page.
+_TRANSIENT_ID_MARKERS = ("snackbar", "toast", "tooltip")
+
+# Window/activity labels that are not stable page identities. Kept in sync with
+# pipeline.screen_guard (duplicated here to avoid a domain→pipeline import cycle).
+_NON_PAGE_ACTIVITY_MARKERS = ("SoftInputWindow",)
+
+
+def _canonical_activity(activity: str) -> str:
+    """Normalize an activity label for page matching.
+
+    Empty, keyboard, or other non-page window labels collapse to ``""`` so a
+    flapping/missing activity name does not split one logical page into many.
+    """
+    activity = (activity or "").strip()
+    if not activity:
+        return ""
+    if any(marker in activity for marker in _NON_PAGE_ACTIVITY_MARKERS):
+        return ""
+    return activity
+
+
+def _is_transient_id(rid: str) -> bool:
+    return any(marker in rid.lower() for marker in _TRANSIENT_ID_MARKERS)
+
 
 def _preprocess_xml_for_fingerprint(xml_str: str) -> str:
     """Run XML through _reformat + _simplify for stable fingerprinting.
@@ -59,6 +86,12 @@ def _extract_structural_tuples(xml_str: str) -> frozenset[tuple[str, str, int]]:
         node, depth = stack.pop()
         tag = node.tag
         rid = node.attrib.get("id", "")
+
+        # Skip transient overlays (snackbar/toast/tooltip) and their subtrees so
+        # a momentary popup does not change the page fingerprint.
+        if rid and _is_transient_id(rid):
+            continue
+
         if tag:
             tuples.append((tag, rid, depth))
 
@@ -139,6 +172,7 @@ class PageGraph:
 
         Returns the page id.
         """
+        activity = _canonical_activity(activity)
         fp = compute_xml_fingerprint(xml_str)
         tuples = _extract_structural_tuples(xml_str)
 
@@ -149,14 +183,20 @@ class PageGraph:
             self.nodes[page_id].visit_count += 1
             return page_id
 
-        # 2. Fuzzy match: same activity, Jaccard >= threshold
+        # 2. Fuzzy match: Jaccard >= threshold. The activity gate only rejects
+        #    when *both* labels are known and differ — an unknown ("") activity
+        #    on either side falls back to pure structural matching so a missing
+        #    or noisy label does not spawn a duplicate page.
         for node in self.nodes:
-            if node.activity != activity:
+            if activity and node.activity and node.activity != activity:
                 continue
             existing_tuples = self._page_tuples.get(node.id, frozenset())
             if _jaccard(tuples, existing_tuples) >= self.threshold:
                 # Cache the new fingerprint for this page too
                 self._page_lookup[key] = node.id
+                # Upgrade an unknown stored label once a real one is observed.
+                if not node.activity and activity:
+                    node.activity = activity
                 node.visit_count += 1
                 return node.id
 
