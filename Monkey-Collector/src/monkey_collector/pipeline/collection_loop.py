@@ -66,7 +66,19 @@ def run_collection_loop(
                 if state.timeout_count >= max_timeouts:
                     logger.error("Too many timeouts, ending session")
                     break
-                tap_random_fallback(collector.adb)
+                # A timeout means no screenshot/XML arrived. If we drifted out
+                # of the target app (e.g. a system role screen like
+                # permissioncontroller that emits no accessibility events and
+                # can't be closed via force_stop), relaunch to escape it.
+                # Otherwise nudge a static in-app screen with a tap.
+                if collector.explorer.has_left_app(package):
+                    logger.warning(
+                        f"Step {state.step}: left target app during timeout, "
+                        f"returning to {package}"
+                    )
+                    collector.explorer.return_to_app(package)
+                else:
+                    tap_random_fallback(collector.adb)
                 state.step += 1
                 continue
 

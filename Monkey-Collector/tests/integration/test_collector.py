@@ -667,3 +667,32 @@ class TestStepException:
         session_id = collector.run(package="com.test.app")
         assert session_id != ""
         explorer.recover.assert_called_once_with("com.test.app")
+
+
+class TestTimeoutRecovery:
+    """Signal-timeout handling should escape system screens by relaunching."""
+
+    @patch("monkey_collector.pipeline.collection_loop.time.sleep")
+    def test_timeout_relaunches_when_left_app(self, mock_sleep, mock_adb):
+        """On signal timeout, if we drifted out of the target app (e.g. a
+        system role screen that emits no events), return_to_app to escape."""
+        signals = [None, ("finish", None, None)]
+        collector, explorer, server, writer = _make_collector(mock_adb, signals)
+        explorer.has_left_app.return_value = True
+
+        collector.run(package="com.test.app")
+
+        explorer.has_left_app.assert_called_with("com.test.app")
+        explorer.return_to_app.assert_called_with("com.test.app")
+
+    @patch("monkey_collector.pipeline.collection_loop.time.sleep")
+    def test_timeout_taps_when_still_in_app(self, mock_sleep, mock_adb):
+        """On signal timeout while still inside the target app, nudge with a
+        tap (no relaunch)."""
+        signals = [None, ("finish", None, None)]
+        collector, explorer, server, writer = _make_collector(mock_adb, signals)
+        explorer.has_left_app.return_value = False
+
+        collector.run(package="com.test.app")
+
+        explorer.return_to_app.assert_not_called()
