@@ -16,6 +16,7 @@ from monkey_collector.pipeline.recovery import (
     MAX_NO_CHANGE_RETRIES,
     MAX_SAME_PAGE_STEPS,
     describe_action_element,
+    nudge_static_screen,
     safe_press_back,
     tap_random_fallback,
 )
@@ -84,7 +85,11 @@ def run_collection_loop(
                     )
                     collector.explorer.return_to_app(package)
                 else:
-                    tap_random_fallback(collector.adb)
+                    # Still in-app but no event fired: drive a real element to
+                    # provoke a transition instead of a blind center tap.
+                    nudge_static_screen(
+                        collector.adb, state.last_ui_tree, state.timeout_count
+                    )
                 state.step += 1
                 continue
 

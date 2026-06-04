@@ -29,6 +29,34 @@ def tap_random_fallback(adb: AdbClient) -> None:
         pass
 
 
+def nudge_static_screen(adb: AdbClient, ui_tree: UITree | None, attempt: int = 0) -> None:
+    """Provoke an accessibility event on a static, still-in-app screen.
+
+    A signal timeout while the device is still in the target app usually means
+    the screen settled without firing a window-change event, so the app never
+    pushed fresh XML. A blind center tap often lands on dead space and produces
+    no event either, so timeouts keep accumulating until the session dies.
+    Interacting with a real element (or scrolling) is far more likely to cause a
+    transition that makes the app emit a new accessibility event.
+    """
+    try:
+        if ui_tree is not None:
+            clickable = ui_tree.get_clickable_elements()
+            if clickable:
+                elem = clickable[attempt % len(clickable)]
+                cx, cy = elem.center
+                adb.tap(cx, cy)
+                return
+            scrollable = ui_tree.get_scrollable_elements()
+            if scrollable:
+                cx, cy = scrollable[0].center
+                adb.swipe(cx, cy + 200, cx, cy - 200, 300)
+                return
+        tap_random_fallback(adb)
+    except Exception:
+        pass
+
+
 def describe_action_element(action: Action, ui_tree: UITree | None) -> str:
     """Describe the target element of an action briefly."""
     if ui_tree is None or action.element_index < 0:
