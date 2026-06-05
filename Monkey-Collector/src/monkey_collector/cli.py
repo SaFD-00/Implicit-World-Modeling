@@ -10,7 +10,7 @@ from loguru import logger
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Run server-driven data collection across one or more installed apps."""
-    log_dir = Path(__file__).resolve().parents[1] / "logs"
+    log_dir = Path(__file__).resolve().parents[2] / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     logger.add(str(log_path), level="DEBUG", enqueue=True)
