@@ -60,6 +60,14 @@ def run_collection_loop(
     """Run the main collection while-loop, mutating state until session ends."""
     max_timeouts = 5
 
+    # Discard signals left over from the previous session. The sequential
+    # run_queue reuses one server/client connection, so a trailing "finish"
+    # from the prior session's teardown can still sit in the queue when this
+    # freshly-launched session starts. Without this clear, the first
+    # get_latest_signal would return that stale finish and end the new session
+    # at step 0 — and it cascades to every later app in the queue.
+    collector.server.clear_signal_queue()
+
     while state.step < state.max_step:
         try:
             result = collector.server.get_latest_signal(timeout=collector.xml_timeout)
