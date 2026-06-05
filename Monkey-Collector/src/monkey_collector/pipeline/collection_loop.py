@@ -48,8 +48,21 @@ class CollectionState:
     last_raw_xml: str | None = None
     is_first_screen: bool = False
     current_page_id: int | None = None
+    root_page_id: int | None = None
     same_page_count: int = 0
     page_graph: PageGraph = field(default_factory=PageGraph)
+
+
+def _is_root_screen(state: CollectionState) -> bool:
+    """True when the current page is the session's root (first in-app) page.
+
+    Back from the root only exits the app to the launcher, so every deliberate
+    back is treated like the first screen there (tap instead of back).
+    """
+    return (
+        state.current_page_id is not None
+        and state.current_page_id == state.root_page_id
+    )
 
 
 def run_collection_loop(
@@ -151,10 +164,10 @@ def _handle_no_change(
         collector.explorer.exclude_element(state.last_action.element_index)
 
     if state.no_change_retries >= MAX_NO_CHANGE_RETRIES:
-        if state.is_first_screen:
+        if state.is_first_screen or _is_root_screen(state):
             logger.warning(
                 f"Step {state.step}: {MAX_NO_CHANGE_RETRIES} "
-                f"no-change retries, on first screen — tap instead of back"
+                f"no-change retries, on first/root screen — tap instead of back"
             )
             tap_random_fallback(collector.adb)
         else:
@@ -177,7 +190,7 @@ def _handle_no_change(
             collector.explorer.set_raw_xml(state.last_raw_xml)
         action = collector.explorer.select_action(
             state.last_ui_tree, state.step, is_first_screen=state.is_first_screen,
-            page_id=state.current_page_id,
+            page_id=state.current_page_id, is_root_screen=_is_root_screen(state),
         )
         logger.info(
             f"Step {state.step}: retry {action.action_type} "
@@ -194,9 +207,9 @@ def _handle_no_change(
 
         time.sleep(collector.action_delay)
     else:
-        if state.is_first_screen:
+        if state.is_first_screen or _is_root_screen(state):
             logger.info(
-                f"Step {state.step}: no UI tree, on first screen — tap instead of back"
+                f"Step {state.step}: no UI tree, on first/root screen — tap instead of back"
             )
             tap_random_fallback(collector.adb)
         else:
@@ -326,6 +339,10 @@ def _process_xml_signal(
     state.current_page_id = state.page_graph.get_or_create_page(
         activity_name, xml_str, state.step,
     )
+    # The first in-app page registered this session is the root (back from it
+    # only exits to the launcher); pin it once for back-suppression.
+    if state.root_page_id is None:
+        state.root_page_id = state.current_page_id
     discovered_new_page = len(state.page_graph.nodes) > pages_before
     if previous_page_id is not None and state.last_action is not None:
         element_info = describe_action_element(state.last_action, state.last_ui_tree)
@@ -352,7 +369,7 @@ def _process_xml_signal(
                 f"Step {state.step}: stuck on page {state.current_page_id} "
                 f"for {state.same_page_count} steps, forcing back"
             )
-            if state.is_first_screen:
+            if state.is_first_screen or _is_root_screen(state):
                 tap_random_fallback(collector.adb)
             else:
                 safe_press_back(collector.adb, collector.explorer, package)
@@ -387,9 +404,9 @@ def _process_xml_signal(
             state.last_action = None
             return True
         state.empty_ui_retries = 0
-        if state.is_first_screen:
+        if state.is_first_screen or _is_root_screen(state):
             logger.warning(
-                f"Step {state.step}: no UI elements, on first screen — tap instead of back"
+                f"Step {state.step}: no UI elements, on first/root screen — tap instead of back"
             )
             tap_random_fallback(collector.adb)
         else:
@@ -412,7 +429,7 @@ def _process_xml_signal(
     collector.explorer.set_raw_xml(xml_str)
     action = collector.explorer.select_action(
         ui_tree, state.step, is_first_screen=state.is_first_screen,
-        page_id=state.current_page_id,
+        page_id=state.current_page_id, is_root_screen=_is_root_screen(state),
     )
     logger.info(
         f"Step {state.step}: {action.action_type} "

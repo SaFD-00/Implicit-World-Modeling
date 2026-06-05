@@ -10,7 +10,7 @@ from monkey_collector.domain.actions import Tap
 from monkey_collector.domain.activity_coverage import ActivityCoverageTracker
 from monkey_collector.domain.page_graph import PageGraph
 from monkey_collector.pipeline.collector import Collector
-from tests.fixtures.xml_samples import MINIMAL_XML, SIMPLE_XML
+from tests.fixtures.xml_samples import COMPLEX_XML, MINIMAL_XML, SIMPLE_XML
 
 
 @pytest.fixture(autouse=True)
@@ -403,9 +403,15 @@ class TestNoChangeExhaustion:
 
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
     def test_not_first_screen_back(self, mock_sleep, mock_adb):
-        """3 no-change (not first screen) → press_back."""
+        """3 no-change on a non-root page → press_back.
+
+        The first in-app page is the root (back suppressed there), so navigate
+        to a second distinct page before exhausting no-change to reach the back
+        path.
+        """
         signals = [
-            _make_xml_signal(is_first=False),
+            _make_xml_signal(xml=SIMPLE_XML, is_first=True),  # root page
+            _make_xml_signal(xml=COMPLEX_XML, activity="com.test.app/.SettingsActivity"),
             ("no_change", None, None),
             ("no_change", None, None),
             ("no_change", None, None),  # retries=3 → back
@@ -419,9 +425,10 @@ class TestNoChangeExhaustion:
 
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
     def test_back_causes_exit_recovery(self, mock_sleep, mock_adb):
-        """3 no-change → back → has_left_app=True → return_to_app."""
+        """3 no-change on a non-root page → back → has_left_app=True → return_to_app."""
         signals = [
-            _make_xml_signal(is_first=False),
+            _make_xml_signal(xml=SIMPLE_XML, is_first=True),  # root page
+            _make_xml_signal(xml=COMPLEX_XML, activity="com.test.app/.SettingsActivity"),
             ("no_change", None, None),
             ("no_change", None, None),
             ("no_change", None, None),
@@ -438,11 +445,13 @@ class TestNoChangeExhaustion:
 class TestNoChangeNoUITree:
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
     def test_no_tree_back(self, mock_sleep, mock_adb):
-        """no-change with no UI tree (not first screen) → back."""
-        # First signal is xml with empty tree (MINIMAL_XML), then no-change
+        """no-change with no UI tree on a non-root page → back."""
+        # Root page first, then a distinct empty-tree page (so it is non-root and
+        # leaves last_ui_tree=None), then no-change hits the back fallback.
         signals = [
-            ("xml", MINIMAL_XML, {"top_package": "com.test.app", "activity_name": "com.test.app/.MainActivity", "target_package": "com.test.app", "is_first_screen": False}),
-            ("no_change", None, None),  # last_ui_tree=None (set to None after empty tree), hits line 277
+            _make_xml_signal(xml=SIMPLE_XML, is_first=True),  # root page
+            ("xml", MINIMAL_XML, {"top_package": "com.test.app", "activity_name": "com.test.app/.EmptyActivity", "target_package": "com.test.app", "is_first_screen": False}),
+            ("no_change", None, None),  # last_ui_tree=None (set to None after empty tree)
             ("finish", None, None),
         ]
         collector, explorer, server, writer = _make_collector(mock_adb, signals)
@@ -520,9 +529,10 @@ class TestXmlEdgeCases:
 
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
     def test_empty_tree_recovery(self, mock_sleep, mock_adb):
-        """Empty UI tree + not first screen + has_left_app → waits then recovery."""
-        empty_meta = {"top_package": "com.test.app", "activity_name": "com.test.app/.MainActivity", "target_package": "com.test.app", "is_first_screen": False}
+        """Empty UI tree on a non-root page + has_left_app → waits then recovery."""
+        empty_meta = {"top_package": "com.test.app", "activity_name": "com.test.app/.EmptyActivity", "target_package": "com.test.app", "is_first_screen": False}
         signals = [
+            _make_xml_signal(xml=SIMPLE_XML, is_first=True),  # root page
             # First 2 empty trees → wait (no back)
             ("xml", MINIMAL_XML, empty_meta),
             ("xml", MINIMAL_XML, empty_meta),

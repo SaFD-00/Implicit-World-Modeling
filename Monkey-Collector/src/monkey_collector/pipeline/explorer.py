@@ -139,12 +139,17 @@ class SmartExplorer:
         step: int = -1,
         is_first_screen: bool = False,
         page_id: int | None = None,
+        is_root_screen: bool = False,
     ) -> Action:
         """Select an action based on UI state and weights.
 
         When *page_id* is given, tap/long-press/input candidates that have not
         yet been acted on for that page are preferred, so exploration spreads
         across the screen instead of repeatedly hitting the same element.
+
+        When *is_root_screen* is True, press_back is suppressed: back from the
+        app's root page only exits to the launcher (never useful for
+        exploration) and causes external bounce-back churn.
         """
         clickable = ui_tree.get_clickable_elements()
         editable = ui_tree.get_editable_elements()
@@ -163,8 +168,8 @@ class SmartExplorer:
         # Build available actions with adjusted weights
         weights = dict(self.action_weights)
 
-        # 첫 화면 또는 세션 초반 N스텝에는 press_back 금지 (이른 앱 종료 방지)
-        if is_first_screen or (0 <= step < FIRST_STEPS_NO_BACK):
+        # 첫 화면/세션 초반 N스텝/루트 화면에는 press_back 금지 (앱 이탈·churn 방지)
+        if is_first_screen or is_root_screen or (0 <= step < FIRST_STEPS_NO_BACK):
             weights["press_back"] = 0.0
 
         # If there are editable fields, boost input_text weight
@@ -182,9 +187,9 @@ class SmartExplorer:
         # Normalize weights
         total = sum(weights.values())
         if total == 0:
-            # During the first screen / early steps, never fall back to back
-            # (it could exit the app); tap instead.
-            if is_first_screen or (0 <= step < FIRST_STEPS_NO_BACK):
+            # During the first/root screen / early steps, never fall back to
+            # back (it could exit the app); tap instead.
+            if is_first_screen or is_root_screen or (0 <= step < FIRST_STEPS_NO_BACK):
                 if clickable:
                     elem = self._rng.choice(clickable)
                     cx, cy = elem.center
