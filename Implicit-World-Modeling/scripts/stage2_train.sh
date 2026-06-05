@@ -88,6 +88,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
       fi
 
       run_logged "${SCRIPT_TAG}_${MODEL_SHORT}_${DS}_${VARIANT}" \
+        env FORCE_TORCHRUN=1 NNODES=1 NPROC_PER_NODE="$NPROC_PER_NODE" \
         bash -c "cd '$LF_ROOT' && llamafactory-cli train '$RUN_YAML_REL'"
 
       if [[ "$VARIANT" == world-model-* ]]; then
