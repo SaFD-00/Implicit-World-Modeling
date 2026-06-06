@@ -151,8 +151,8 @@ run_variant_epoch_eval_on() {
   local model_short="$1" train_ds="$2" variant="$3" epoch="$4" hub_id="$5" \
         out_rel_base="$6" template="$7" eval_ds="$8"
 
-  # AC_EXP01 / AC_EXP02 는 task 별 독립 채점이라 별도 helper 위임.
-  if [[ "$eval_ds" == "AC_EXP01" || "$eval_ds" == "AC_EXP02" ]]; then
+  # AC_EXP01 / AC_EXP02 / AC_EXP03 는 task 별 독립 채점이라 별도 helper 위임.
+  if [[ "$eval_ds" == "AC_EXP01" || "$eval_ds" == "AC_EXP02" || "$eval_ds" == "AC_EXP03" ]]; then
     run_exp01_eval "$model_short" "$train_ds" "$variant" "$epoch" "$hub_id" \
                    "$out_rel_base" "$template" "$eval_ds"
     return $?

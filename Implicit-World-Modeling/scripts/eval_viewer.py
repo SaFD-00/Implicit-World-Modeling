@@ -43,6 +43,7 @@ REPO = Path(__file__).resolve().parent.parent
 DS_DATADIR: dict[str, str] = {
     "AC_EXP01": "AndroidControl_EXP01",
     "AC_EXP02": "AndroidControl_EXP02",
+    "AC_EXP03": "AndroidControl_EXP03",
     "MC":       "MonkeyCollection",
 }
 
@@ -232,11 +233,13 @@ EVAL_DATASETS: dict[int, dict[str, dict[str, dict]]] = {
     1: {
         "AC_EXP01": {**_ac_stage1_entries("AC_EXP01"), **_mb_stage1_entries(), **_mc_stage1_entries()},
         "AC_EXP02": {**_ac_stage1_entries("AC_EXP02"), **_mb_stage1_entries(), **_mc_stage1_entries()},
+        "AC_EXP03": {**_ac_stage1_entries("AC_EXP03"), **_mb_stage1_entries(), **_mc_stage1_entries()},
         "MC":       {**_mc_stage1_entries(), **_mb_stage1_entries()},
     },
     2: {
         "AC_EXP01": {**_ac_stage2_entries("AC_EXP01"), **_mb_stage2_entries()},
         "AC_EXP02": {**_ac_stage2_entries("AC_EXP02"), **_mb_stage2_entries()},
+        "AC_EXP03": {**_ac_stage2_entries("AC_EXP03"), **_mb_stage2_entries()},
     },
 }
 
@@ -578,7 +581,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--include", nargs="+", required=True, metavar="EXP:MODEL",
         help="비교할 (EXP, MODEL) 쌍. 1개면 단일-EXP 모드, 2개 이상이면 cross-EXP 모드. "
-             "EXP ∈ {AC_EXP01, AC_EXP02, MC}, MODEL = outputs/<DS_DATADIR(EXP)>/eval/ 아래 디렉토리 명. "
+             "EXP ∈ {AC_EXP01, AC_EXP02, AC_EXP03, MC}, MODEL = outputs/<DS_DATADIR(EXP)>/eval/ 아래 디렉토리 명. "
              "예: --include AC_EXP01:qwen3-vl-8b_ratio73 AC_EXP02:qwen3-vl-8b",
     )
     p.add_argument(
