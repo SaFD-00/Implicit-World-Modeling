@@ -831,12 +831,19 @@ build_infer_cmd() {
     mm_min=4096
   fi
   local mm_max=$(( mm_max_tokens * _factor * _factor ))
+  # AC_EXP03 좌표(point) 표현은 평가 입력도 ~2.5x 길다 → cutoff_len 을 학습과 통일해
+  # 상향(잘림 0), 그 외는 8192. vLLM max_model_len = cutoff + max_new_tokens 증가 →
+  # KV cache 메모리↑/throughput↓ (필요 시 VLLM_GPU_MEM_UTIL 로 보정).
+  local infer_cutoff=8192
+  if [[ "$ds_name" == IWM-AC_EXP03* ]]; then
+    infer_cutoff=24576
+  fi
   INFER_CMD="python scripts/vllm_infer.py \
       --model_name_or_path '$model_path' \
       --dataset '$ds_name' \
       --dataset_dir '$LF_ROOT/data' \
       --template $template \
-      --cutoff_len 8192 \
+      --cutoff_len $infer_cutoff \
       --image_max_pixels $mm_max \
       $enable_thinking_flag \
       --vllm_config '{\"gpu_memory_utilization\": ${VLLM_GPU_MEM_UTIL:-0.80}, \"mm_processor_kwargs\": {\"min_pixels\": $mm_min, \"max_pixels\": $mm_max}}' \
