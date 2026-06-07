@@ -43,7 +43,11 @@ __pycache__/
 # Environment
 .env
 **/.venv/
+**/.conda-env/
 # uv.lock 은 커밋 대상 (재현성 단일 진실원) — 무시하지 않는다.
+
+# IDE
+**/.vscode/
 
 # Android / Gradle
 **/.gradle/
