@@ -157,7 +157,7 @@ python scripts/filter_long_samples.py --dataset AC_EXP01
 # Stage 1 ratio mix + Stage 2 ID/OOD split 을 한 번에 산출. source = 원본 data/AndroidControl/, output = data/AndroidControl_EXP01/.
 python scripts/split_data.py --dataset AC_EXP01 --exp01-ratios 3:7,5:5,7:3 --exp01-train-total 50000
 # Stage 1 → data/AndroidControl_EXP01/implicit-world-modeling_stage1_train_{3_7,5_5,7_3}.jsonl
-#         + data/AndroidControl_EXP01/implicit-world-modeling_stage1_test_{id,ood}_{state,action}_pred.jsonl
+#         + data/AndroidControl_EXP01/implicit-world-modeling_stage1_test_{id,ood}_{state,action}.jsonl
 # Stage 2 → data/AndroidControl_EXP01/implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl   (15K / 3K / 3K)
 ```
 
@@ -190,7 +190,7 @@ bash scripts/stage1_eval.sh  --model qwen3-vl-8b --train-dataset AC_EXP02 --eval
 ```bash
 python scripts/mirror_exp03.py
 # → data/AndroidControl_EXP03/implicit-world-modeling_stage1_train.jsonl
-#   + stage1_test_{id,ood}_{state,action}_pred(+_without_open_app) + stage2_{train,test_id,test_ood}
+#   + stage1_test_{id,ood}_{state,action}(+_without_open_app) + stage2_{train,test_id,test_ood}
 
 # (선택) 24576 이 전 샘플을 덮는지 측정 — over-threshold=0 이면 무손실 (필터링은 하지 않음).
 python scripts/filter_long_samples.py --dataset AC_EXP03 --threshold 24576 --report-only
