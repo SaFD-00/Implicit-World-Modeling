@@ -72,7 +72,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-state-id": {
             "dir":  f"{actual}-state",
             "pred": "generated_predictions_id.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_id_state_pred.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_id_state.jsonl",
             "metric_files": [
                 ("predict_results_id.json", None),
                 ("hungarian_metrics.json", "in_domain"),
@@ -82,7 +82,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-state-ood": {
             "dir":  f"{actual}-state",
             "pred": "generated_predictions_ood.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_ood_state_pred.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_ood_state.jsonl",
             "metric_files": [
                 ("predict_results_ood.json", None),
                 ("hungarian_metrics.json", "out_of_domain"),
@@ -92,7 +92,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-state-id-without-open_app": {
             "dir":  f"{actual}-state-without-open_app",
             "pred": "generated_predictions_id.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_id_state_pred_without_open_app.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_id_state_without_open_app.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "in_domain"),
@@ -102,7 +102,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-state-ood-without-open_app": {
             "dir":  f"{actual}-state-without-open_app",
             "pred": "generated_predictions_ood.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_ood_state_pred_without_open_app.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_ood_state_without_open_app.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "out_of_domain"),
@@ -112,7 +112,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-action-id": {
             "dir":  f"{actual}-action",
             "pred": "generated_predictions_id.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_id_action_pred.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_id_action.jsonl",
             "metric_files": [
                 ("predict_results_id.json", None),
                 ("action_metrics.json", "in_domain"),
@@ -122,7 +122,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-action-ood": {
             "dir":  f"{actual}-action",
             "pred": "generated_predictions_ood.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_ood_action_pred.jsonl",
+            "test": data / "implicit-world-modeling_stage1_test_ood_action.jsonl",
             "metric_files": [
                 ("predict_results_ood.json", None),
                 ("action_metrics.json", "out_of_domain"),

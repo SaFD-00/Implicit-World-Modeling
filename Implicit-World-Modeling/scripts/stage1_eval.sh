@@ -87,8 +87,8 @@ run_exp01_eval() {
       continue
     fi
 
-    local test_id="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_id_${task}_pred.jsonl"
-    local test_ood="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_ood_${task}_pred.jsonl"
+    local test_id="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_id_${task}.jsonl"
+    local test_ood="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_ood_${task}.jsonl"
     if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
       echo "[!] [$model_short][train=$train_ds][eval=${eval_ds}-${task}] Missing test jsonl:" >&2
       echo "      $test_id" >&2

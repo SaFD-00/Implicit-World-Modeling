@@ -29,7 +29,7 @@ AndroidAccessibilityForest proto 에서 전경 application window 의
 ``package_name`` 을 다수결로 집계해 생성한다.
 
 AC_EXP01 Stage 1 / Stage 2 는 항상 ``_filtered`` 입력을 사용한다
-(``implicit-world-modeling_stage1_{state,action}_pred_filtered.jsonl`` 두 파일 +
+(``implicit-world-modeling_stage1_{state,action}_filtered.jsonl`` 두 파일 +
 ``implicit-world-modeling_stage2_filtered.jsonl``; mm-expanded length > cutoff_len 샘플
 사전 제거). 모든 _filtered 파일은 source root ``data/AndroidControl/`` 에 있으며,
 필터는 ``scripts/filter_long_samples.py`` 가 만든다 — 누락 시 명시적으로 에러.
@@ -440,8 +440,8 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
     # 제거 후의 jsonl). 학습 시 Qwen3-VL get_rope_index 의 broadcast shape
     # mismatch 를 피하기 위함. 필터 산출은 scripts/filter_long_samples.py.
     # source_dir = data/AndroidControl/ (원본 자산), output_dir = data/AndroidControl_EXP01/.
-    state_pred_path  = source_dir / "implicit-world-modeling_stage1_state_pred_filtered.jsonl"
-    action_pred_path = source_dir / "implicit-world-modeling_stage1_action_pred_filtered.jsonl"
+    state_pred_path  = source_dir / "implicit-world-modeling_stage1_state_filtered.jsonl"
+    action_pred_path = source_dir / "implicit-world-modeling_stage1_action_filtered.jsonl"
     meta_path        = source_dir / "episodes_meta.jsonl"
 
     for p in (state_pred_path, action_pred_path):
@@ -530,10 +530,10 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
     ap_train_pool = _disjoint(ap_id, ap_test_id)
 
     # Test 4 파일 작성 (output_dir 에 write)
-    test_id_sp_path  = output_dir / "implicit-world-modeling_stage1_test_id_state_pred.jsonl"
-    test_id_ap_path  = output_dir / "implicit-world-modeling_stage1_test_id_action_pred.jsonl"
-    test_ood_sp_path = output_dir / "implicit-world-modeling_stage1_test_ood_state_pred.jsonl"
-    test_ood_ap_path = output_dir / "implicit-world-modeling_stage1_test_ood_action_pred.jsonl"
+    test_id_sp_path  = output_dir / "implicit-world-modeling_stage1_test_id_state.jsonl"
+    test_id_ap_path  = output_dir / "implicit-world-modeling_stage1_test_id_action.jsonl"
+    test_ood_sp_path = output_dir / "implicit-world-modeling_stage1_test_ood_state.jsonl"
+    test_ood_ap_path = output_dir / "implicit-world-modeling_stage1_test_ood_action.jsonl"
     write_jsonl(sp_test_id,  test_id_sp_path)
     write_jsonl(ap_test_id,  test_id_ap_path)
     write_jsonl(sp_test_ood, test_ood_sp_path)
