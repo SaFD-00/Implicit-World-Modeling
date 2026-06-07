@@ -4,6 +4,9 @@
 **/exports/
 **/saves/
 **/logs/
+# nested 프로젝트의 data/outputs 는 top-level 정본으로의 심볼릭 링크 (대용량은 git 제외)
+Implicit-World-Modeling/data
+Implicit-World-Modeling/outputs
 Implicit-World-Modeling/LlamaFactory/
 Implicit-World-Modeling/unsloth/
 Monkey-Collector/app_candidates.csv
