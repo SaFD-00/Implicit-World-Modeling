@@ -101,6 +101,8 @@ CI / 다른 머신에서는 동일 절차로 재설치한다.
 
 `GLOBAL_BATCH_SIZE = 64` 를 유지하기 위해 `gradient_accumulation_steps = 64 / (per_device × NPROC_PER_NODE)` 가 자동 역계산된다 (정수가 아니면 `ValueError`). 위 표 값은 `NPROC ∈ {1, 2, 4, 8}` 모두에서 정수가 된다.
 
+> **AC_EXP03 예외**: 좌표(point) 표현으로 시퀀스가 ~2.5x (`cutoff_len 24576`) 길어 메모리가 커지므로, EXP03 만 `per_device_train_batch_size` 를 절반 (H100/A100 2→1, RTX5090 1 유지) 으로 낮추고 `gradient_accumulation_steps` 로 보정해 `GLOBAL_BATCH_SIZE=64` 를 유지한다 (EXP01 과 global batch 동일 → 표현 차이만 공정 비교).
+
 > `.env` 의 `GPU_TYPE` / `NPROC_PER_NODE` 를 수정한 뒤에는 노트북 Cell 5 (CONFIGS) 와 Stage 1/2 YAML 생성 셀 (Cell 8 / 10) 을 다시 실행해야 새 값이 YAML 에 반영된다.
 
 ### 전제
@@ -183,11 +185,15 @@ bash scripts/stage1_eval.sh  --model qwen3-vl-8b --train-dataset AC_EXP02 --eval
 - **원천**: `data/AndroidControl/implicit-world-modeling_stage{1_action,1_state,2}_xy.jsonl` 3 종 (좌표 표현, 이미 필터됨).
 - **미러**: `scripts/mirror_exp03.py` 가 EXP01 의 각 산출 파일(`stage1_train_7_3` + dual-task test + stage2)을 한 줄씩 읽어 `(episode, step)` 키로 대응 좌표 레코드를 골라 동일 순서로 write. 본문은 좌표 표현, 이미지 경로는 EXP01 레코드의 것(`AndroidControl/images/...`)을 채택. stage1 train 은 EXP02 스타일 단일 `implicit-world-modeling_stage1_train.jsonl` 로 출력.
 - **누락 제외**: EXP03 원천에 없는 `(episode, step)` 키(~0.8–1.7%)는 제외 → 각 파일이 EXP01 대비 소폭 작다 (train ~49,596 / stage2_train ~14,881). 각 레코드는 EXP01 과 `(episode, step)` 1:1 대응 (표현만 좌표).
+- **cutoff_len 24576 (무손실)**: 좌표 표현은 시퀀스가 ~2~2.5x (최대 20k+) 길어 공통 `cutoff_len=10000` 에서 ~10% 잘림·~0.3% 크래시가 난다. EXP03 멤버십이 EXP01 ratio73 (index 기준 ≤10000 필터됨) 의 미러라 팽창 상한이 묶여 있어 **필터 없이 cutoff 만 24576 으로 올려 잘림/크래시 0·데이터 손실 0** 으로 EXP01 과 표현 차이만 공정 비교한다 (학습·평가 모두 24576). 긴 시퀀스 메모리 보전을 위해 EXP03 만 `per_device_train_batch_size` 절반·`gradient_accumulation_steps` 보정 (global batch 64 유지).
 
 ```bash
 python scripts/mirror_exp03.py
 # → data/AndroidControl_EXP03/implicit-world-modeling_stage1_train.jsonl
 #   + stage1_test_{id,ood}_{state,action}_pred(+_without_open_app) + stage2_{train,test_id,test_ood}
+
+# (선택) 24576 이 전 샘플을 덮는지 측정 — over-threshold=0 이면 무손실 (필터링은 하지 않음).
+python scripts/filter_long_samples.py --dataset AC_EXP03 --threshold 24576 --report-only
 ```
 
 학습/merge/eval 은 다른 DS 와 동일하게 `--dataset AC_EXP03` / `--train-dataset AC_EXP03` 로 호출.

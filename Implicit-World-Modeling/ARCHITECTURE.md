@@ -85,7 +85,9 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 
 > vLLM `gpu_memory_utilization` 은 `build_infer_cmd` 내부에서 기본 `0.80`, 환경변수 `VLLM_GPU_MEM_UTIL` 로 호출 단위 override. `build_infer_cmd` 는 `stage{1,2}_eval.sh` 양쪽에서 공통으로 호출되므로 stage1/2 모두 동일하게 적용된다 (예: 동일 GPU 에서 학습 병행 / OOM 마진 확보 시 `VLLM_GPU_MEM_UTIL=0.6 bash ./scripts/stage2_eval.sh ...`). 미설정 시 0.80 그대로.
 
-`cutoff_len` 은 **AC_EXP01 / AC_EXP02 / AC_EXP03 Stage 1 / Stage 2 모두 10000** 이다 (2026-05-13 16384 → 10000 하향). state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패한다 — 10000 은 실측 분포 기준 multi-frame 안전 마진과 메모리/throughput 사이 tradeoff 를 잡은 운영 기준이다. 노트북 Cell 8 의 Stage 1/2 inline YAML 과 `LlamaFactory/examples/custom/IWM-AC_EXP01_*` yaml 모두 10000 으로 통일한다. (`scripts/filter_long_samples.py --threshold` 의 default 도 10000 으로 동기 — 사전 필터와 학습 cutoff 를 같은 기준으로 통일.)
+`cutoff_len` 은 **AC_EXP01 / AC_EXP02 는 Stage 1 / Stage 2 모두 10000**, **AC_EXP03 (좌표 표현) 만 Stage 1 / Stage 2 / 평가 모두 24576** 이다 (10000 은 2026-05-13 16384 → 10000 하향). state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패한다 — 10000 은 실측 분포 기준 multi-frame 안전 마진과 메모리/throughput 사이 tradeoff 를 잡은 운영 기준이다. 노트북 Cell 8 의 Stage 1/2 inline YAML 과 `LlamaFactory/examples/custom/IWM-AC_EXP01_*` yaml 모두 10000 으로 통일한다. (`scripts/filter_long_samples.py --threshold` 의 default 도 10000 으로 동기 — 사전 필터와 학습 cutoff 를 같은 기준으로 통일.)
+
+**AC_EXP03 cutoff_len = 24576 (좌표 표현 무손실·EXP01 공정 비교)**: AC_EXP03 는 같은 전이를 `index="N"` 대신 `point=[x,y]` 좌표로 적어 시퀀스가 ~2~2.5x (최대 20k+) 길다 — `cutoff_len=10000` 에서는 ~10% 가 잘리고 ~0.3% 가 위 `get_rope_index` shape mismatch 로 크래시했다 (EXP01 ratio73 은 max 9059, 잘림 0%). EXP03 멤버십은 EXP01 ratio73 (index 기준 ≤10000 으로 이미 필터된 집합) 의 좌표 미러라 팽창 상한이 묶여 있어, EXP01 원본의 39K long-tail 과 달리 **필터 없이 cutoff 만 24576 으로 올리면 잘림/크래시 0·데이터 손실 0** 이 성립한다 (`python scripts/filter_long_samples.py --dataset AC_EXP03 --threshold 24576 --report-only` 측정: stage1_train max=20272 / stage2_train max=20697 / over-threshold=0 — EXP03 는 필터링하지 않고 측정만 한다; 24576 은 ~3.9k 여유). 평가(`scripts/_common.sh::build_infer_cmd`)도 `IWM-AC_EXP03*` 데이터셋이면 `--cutoff_len 24576` 으로 분기해 입력 truncation 0 을 맞춘다 (vLLM `max_model_len = cutoff + max_new_tokens` 증가 → KV cache 메모리↑·throughput↓, 필요 시 `VLLM_GPU_MEM_UTIL`). 긴 시퀀스로 학습 메모리가 늘어 **EXP03 만 `per_device_train_batch_size` 를 절반** 으로 낮추고 `gradient_accumulation_steps` 로 보정해 `GLOBAL_BATCH_SIZE=64` 를 유지한다 (EXP01 과 global batch 동일 → 공정).
 
 ### 하이퍼파라미터 — 3 단 머지 구조
 
@@ -152,6 +154,8 @@ gradient_accumulation_steps = GLOBAL_BATCH_SIZE / (per_device * NPROC_PER_NODE)
 ```
 
 `NPROC_PER_NODE ∈ {1, 2, 4, 8}` 와 `GPU_TYPE ∈ {RTX5090, A100, H100}` 만 허용 — 다른 값은 `ValueError`. Cell 5 의 `_derive_grad_accum()` 이 역계산해 CONFIGS 의 `stage{1,2}.gradient_accumulation_steps` 에 주입한다. 위 표 값이 모든 (size, GPU, NPROC) 조합에서 64 로 나누어떨어지므로 silent rounding 은 발생하지 않는다.
+
+> **AC_EXP03 override**: 좌표 표현으로 시퀀스가 ~2.5x (cutoff_len 24576) 길어 활성화 메모리가 커지므로, EXP03 만 Cell 5 에서 `per_device_train_batch_size` 를 절반 (`max(1, per_device // 2)`; H100/A100 2→1, RTX5090 1 유지) 으로 낮추고 `_derive_grad_accum` 으로 재계산 (H100/A100 grad_accum 16→32) 해 `GLOBAL_BATCH_SIZE=64` 를 그대로 유지한다 — EXP01 과 global batch 가 같아 비교가 공정하다. RTX5090 은 per_device 최소(1) 라 추가 축소 불가 → ZeRO-3 offload + gradient_checkpointing 에 의존 (OOM 시 NPROC↑ 또는 수동 조정).
 
 ---
 
