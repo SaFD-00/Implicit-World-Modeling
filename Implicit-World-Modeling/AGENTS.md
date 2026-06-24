@@ -126,10 +126,10 @@
 
 ### 큰 변경 후 지식 동기화 (docs + memory + Notion)
 
-문서 트리오 동기화는 더 넓은 규약의 일부다. **큰 변경(새 실험군/데이터셋/모델, split·cutoff·hparam 정본·HF 네이밍·CLI·outputs 구조 변경, 실험 결과, 비자명 디버깅, 회의 산출물, 관련 연구)을 한 뒤에는 `/iwm-sync` 스킬을 실행**해 세 저장소를 한 번에 맞춘다:
+문서 트리오 동기화는 더 넓은 규약의 일부다. **큰 변경(새 실험군/데이터셋/모델, split·cutoff·hparam 정본·HF 네이밍·CLI·outputs 구조 변경, 실험 결과, 비자명 디버깅, 회의 산출물, 관련 연구)을 한 뒤에는 `/project-sync` 스킬을 실행**해 세 저장소를 한 번에 맞춘다:
 
 1. **Doc 트리오** — 위 역할 분담(README/ARCHITECTURE/AGENTS)대로 갱신(추가만, 삭제 지양).
 2. **Claude 메모리** — `~/.claude/projects/-data-seungwoo-Implicit-World-Modeling/memory/` 의 개별 memory 파일 추가/갱신 + `MEMORY.md` 인덱스 한 줄. 디버깅 함정은 `type: project|feedback`(**Why:**/**How to apply:**), 결과 위치는 `type: reference`. 관련 memory에 `[[wikilink]]` 연결.
 3. **Notion** — "Implicit World Modeling" 페이지(https://app.notion.com/p/Implicit-World-Modeling-264dbb15dd0180a98857dfd5abf92738)의 해당 DB에 dated 항목 append 후 **중앙 Timeline 허브 행과 relation 연결**: 디버깅/코드 → **Dev Log**, 실험 결과 → **Experiments**, 회의 자료 → **Meeting Notes**, 관련 연구 → **Reference**. 원시 수치와 해석은 분리.
 
-스킬 정의는 `../.claude/skills/iwm-sync/SKILL.md`. 이 규약은 **메인 프로젝트 전용**이다 (Monkey-Collector 제외).
+스킬 정의는 `../.claude/skills/project-sync/SKILL.md`. 이 규약은 **메인 프로젝트 전용**이다 (Monkey-Collector 제외).

@@ -395,4 +395,4 @@ pytest tests/test_action_eval.py -v   # 52 케이스
 
 구조 설명은 [`ARCHITECTURE.md`](./ARCHITECTURE.md), 작업 규칙은 [`AGENTS.md`](./AGENTS.md) 를 본다.
 
-> 큰 변경(실험 결과·데이터셋/모델 추가·디버깅·회의 산출물)을 한 뒤에는 `/iwm-sync` 스킬로 문서·메모리·Notion 을 한 번에 동기화한다. 규약 상세는 [`AGENTS.md`](./AGENTS.md) §"큰 변경 후 지식 동기화".
+> 큰 변경(실험 결과·데이터셋/모델 추가·디버깅·회의 산출물)을 한 뒤에는 `/project-sync` 스킬로 문서·메모리·Notion 을 한 번에 동기화한다. 규약 상세는 [`AGENTS.md`](./AGENTS.md) §"큰 변경 후 지식 동기화".

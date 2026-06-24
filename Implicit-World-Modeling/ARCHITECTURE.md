@@ -516,4 +516,4 @@ Reference baselines (해석용):
 - trl 0.24 / transformers 4.56+ API 매핑: `SFTConfig(max_length=...)`, `SFTTrainer(processing_class=...)` 사용. 구버전 키 (`max_seq_length`, `tokenizer=`, `overwrite_output_dir`) 는 `TypeError`.
 - `gradient_checkpointing` 은 모델 로드 단계에서만 적용. `SFTConfig` 에는 전달하지 않는다 (이중 적용 방지).
 - Full FT 분기에서 `freeze_vision_tower: true` 면 `vision_tower|vision_model|visual|image_encoder` 키워드를 포함한 named parameter 의 `requires_grad=False` 처리 후 frozen 텐서 수/파라미터 수를 stderr 로 출력.
-- **지식 동기화 규약**: 큰 변경 후에는 doc 트리오 + Claude 메모리(`MEMORY.md` + memory 파일) + Notion(Experiments/Dev Log/Meeting Notes/Reference DB + 중앙 Timeline 허브)을 `/iwm-sync` 스킬로 함께 갱신한다. 분류·체크리스트는 [`AGENTS.md`](./AGENTS.md) §"큰 변경 후 지식 동기화" 와 `.claude/skills/iwm-sync/SKILL.md`.
+- **지식 동기화 규약**: 큰 변경 후에는 doc 트리오 + Claude 메모리(`MEMORY.md` + memory 파일) + Notion(Experiments/Dev Log/Meeting Notes/Reference DB + 중앙 Timeline 허브)을 `/project-sync` 스킬로 함께 갱신한다. 분류·체크리스트는 [`AGENTS.md`](./AGENTS.md) §"큰 변경 후 지식 동기화" 와 `.claude/skills/project-sync/SKILL.md`.
