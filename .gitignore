@@ -37,8 +37,10 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
-# Claude Code
-**/.claude/
+# Claude Code (.claude/ 전체 무시하되 프로젝트 스킬은 버전 관리)
+**/.claude/*
+!**/.claude/skills/
+!**/.claude/skills/**
 
 # Environment
 .env
