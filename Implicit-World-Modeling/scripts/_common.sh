@@ -105,6 +105,10 @@ if [ -f "$BASE_DIR/.env" ]; then
   source "$BASE_DIR/.env"
   set +a
 fi
+# Per-invocation NPROC override (.env 로드 이후 적용 — concurrent tmux 창에서 GPU 수를 독립 지정)
+if [[ -n "${NPROC_PER_NODE_OVERRIDE:-}" ]]; then
+  NPROC_PER_NODE="$NPROC_PER_NODE_OVERRIDE"
+fi
 
 # --- RTX5090 + DeepSpeed CPU offload: CUDA toolkit 정렬 가드 -----------------
 # RTX5090 환경에서는 yaml 이 ds_z3_offload_config.json 으로 swap 되어 있어
