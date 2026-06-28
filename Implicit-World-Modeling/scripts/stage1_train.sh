@@ -18,6 +18,13 @@ parse_args "$@"
 export DISABLE_VERSION_CHECK=1
 : "${NPROC_PER_NODE:=2}"
 
+# DeepSpeed CPUAdam JIT 빌드에 필요한 CUDA 라이브러리 경로 (conda env 내 nvidia 패키지)
+# LIBRARY_PATH: 빌드 타임 링커, LD_LIBRARY_PATH: 런타임 로더
+_NVIDIA_PKGS="$CONDA_PREFIX/lib/python3.12/site-packages/nvidia"
+_CUDA_LIBS="${_NVIDIA_PKGS}/curand/lib:${_NVIDIA_PKGS}/cuda_runtime/lib"
+export LIBRARY_PATH="${_CUDA_LIBS}:${LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="${_CUDA_LIBS}:${LD_LIBRARY_PATH:-}"
+
 SCRIPT_TAG="stage1_train_${STAGE1_MODE}"
 
 for MODEL_SHORT in "${MODELS[@]}"; do
@@ -27,6 +34,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
 
     run_logged "${SCRIPT_TAG}_${MODEL_SHORT}_${DS}" \
       env FORCE_TORCHRUN=1 NNODES=1 NPROC_PER_NODE="$NPROC_PER_NODE" \
+          PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
       bash -c "cd '$LF_ROOT' && llamafactory-cli train '$YAML'"
   done
 done
