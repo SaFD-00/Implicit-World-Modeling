@@ -21,6 +21,10 @@ Monkey-Collector/app_candidates.csv
 **/runs/
 **/unsloth_compiled_cache/
 
+# 실험별 일회성 스크립트 (tmux 실행 스케줄 / post-train 후처리 — 재사용 파이프라인 아님, 추적 제외)
+Implicit-World-Modeling/scripts/tmux_*.sh
+Implicit-World-Modeling/scripts/post_train_*.sh
+
 # Python
 __pycache__/
 *.pyc
