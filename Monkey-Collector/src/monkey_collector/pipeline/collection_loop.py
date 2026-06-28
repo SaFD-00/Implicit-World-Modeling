@@ -382,13 +382,24 @@ def _process_xml_signal(
             state.step += 1
             return True
 
-    if collector._text_generator and hasattr(collector._text_generator, "set_step"):
-        collector._text_generator.set_step(state.step)
+    # Shared step for cost attribution across every LLM consumer this step
+    # (input text generation + screen grouping).
+    if collector._llm_client is not None:
+        collector._llm_client.set_step(state.step)
 
     if collector._latest_screenshot:
         collector.writer.save_screenshot(collector._latest_screenshot)
         collector._latest_screenshot = None
     collector.writer.save_xml(xml_str)
+
+    # Annotate the just-saved screen with LLM semantic element grouping
+    # ("화면 나누기"). Best-effort: a failure here must never break collection.
+    if collector._screen_grouper is not None:
+        try:
+            grouping = collector._screen_grouper.group(xml_str)
+            collector.writer.save_groups(grouping)
+        except Exception as e:
+            logger.warning(f"Step {state.step}: screen grouping failed ({e})")
 
     ui_tree = UITree.from_xml_string(xml_str)
     if len(ui_tree) == 0:

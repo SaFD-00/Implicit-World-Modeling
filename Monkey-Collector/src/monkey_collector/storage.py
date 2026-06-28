@@ -145,6 +145,22 @@ class DataWriter:
         self.step_count += 1
         return raw_path
 
+    def save_groups(self, grouping: dict) -> str | None:
+        """Save the LLM screen-grouping annotation for the just-saved step.
+
+        Writes ``xml/{step}_groups.json`` for the step most recently produced by
+        :meth:`save_xml` (i.e. ``step_count - 1``). This artifact depends on a
+        live LLM call, so it is NOT reproduced by ``regenerate_xml_variants``.
+        Returns the file path, or ``None`` if no step has been saved yet.
+        """
+        if self.session_dir is None or self.step_count == 0:
+            return None
+        step = self.step_count - 1
+        path = os.path.join(self.session_dir, "xml", f"{step:04d}_groups.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(grouping, f, indent=2, ensure_ascii=False)
+        return path
+
     def log_event(self, event: dict):
         """Append an event to the events JSONL file."""
         path = os.path.join(self.session_dir, "events.jsonl")

@@ -22,6 +22,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     from monkey_collector.tcp_server import CollectionServer
     from monkey_collector.storage import DataWriter
     from monkey_collector.pipeline.app_catalog import AppCatalog
+    from monkey_collector.llm import create_llm_client, create_screen_grouper
     from monkey_collector.pipeline.collector import Collector
     from monkey_collector.pipeline.explorer import SmartExplorer
     from monkey_collector.pipeline.text_generator import create_text_generator
@@ -39,9 +40,19 @@ def cmd_run(args: argparse.Namespace) -> None:
     adb = AdbClient()
     activity_tracker = ActivityCoverageTracker()
     cost_tracker = CostTracker()
+
+    # Single shared OpenRouter client reused by input-text generation and
+    # screen grouping. Created only when an LLM feature is requested; returns
+    # None (→ random text / no grouping) when OPENROUTER_API_KEY is unset.
+    screen_grouping_on = args.screen_grouping == "on"
+    llm_client = None
+    if args.input_mode == "api" or screen_grouping_on:
+        llm_client = create_llm_client(cost_tracker=cost_tracker)
+
     text_gen = create_text_generator(
-        mode=args.input_mode, seed=args.seed, cost_tracker=cost_tracker,
+        mode=args.input_mode, seed=args.seed, llm_client=llm_client,
     )
+    screen_grouper = create_screen_grouper(llm_client, enabled=screen_grouping_on)
     explorer = SmartExplorer(
         adb,
         config={
@@ -62,6 +73,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         activity_coverage_tracker=activity_tracker,
         cost_tracker=cost_tracker,
         text_generator=text_gen,
+        llm_client=llm_client,
+        screen_grouper=screen_grouper,
         new_session=args.new_session,
     )
 
@@ -347,6 +360,17 @@ def main() -> None:
         choices=["api", "random"],
         default="api",
         help="Input text generation mode: 'api' (LLM) or 'random' (hardcoded)",
+    )
+    p.add_argument(
+        "--screen-grouping",
+        choices=["on", "off"],
+        default="on",
+        help=(
+            "LLM screen element semantic grouping ('화면 나누기'). 'on' annotates "
+            "each screen with same-function element groups via the shared "
+            "OpenRouter client (requires OPENROUTER_API_KEY); auto-disabled when "
+            "no client is available. 'off' skips grouping."
+        ),
     )
     p.add_argument(
         "--new-session",

@@ -90,6 +90,30 @@ class TestSaveXml:
         assert not (xml_dir / "0000_parsed.xml").exists()
 
 
+class TestSaveGroups:
+    def test_writes_groups_json_for_last_step(self, writer, tmp_path):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        writer.save_xml(SIMPLE_XML)  # saves step 0, step_count -> 1
+        grouping = {
+            "model": "qwen/qwen3.7-plus",
+            "page_description": "search screen",
+            "groups": [{"indices": [1, 2], "function": "controls"}],
+        }
+        path = writer.save_groups(grouping)
+
+        assert path is not None
+        assert "0000_groups.json" in path
+        data = json.loads(
+            (tmp_path / "com.test.app" / "xml" / "0000_groups.json").read_text()
+        )
+        assert data["page_description"] == "search screen"
+        assert data["groups"][0]["indices"] == [1, 2]
+
+    def test_returns_none_before_any_step(self, writer):
+        assert writer.save_groups({"groups": []}) is None
+
+
 class TestLogEvent:
     def test_appends_jsonl(self, writer, tmp_path):
         writer.log_event({"action_type": "tap", "x": 100, "y": 200})

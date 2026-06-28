@@ -13,13 +13,13 @@ Flow (server-driven):
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from loguru import logger
 
+from monkey_collector.adb import AdbClient
 from monkey_collector.domain.activity_coverage import ActivityCoverageTracker
 from monkey_collector.domain.cost_tracker import CostTracker
-from monkey_collector.adb import AdbClient
-from monkey_collector.tcp_server import CollectionServer
-from monkey_collector.storage import DataWriter
 from monkey_collector.pipeline.collection_loop import CollectionState, run_collection_loop
 from monkey_collector.pipeline.explorer import SmartExplorer
 from monkey_collector.pipeline.session_manager import (
@@ -29,6 +29,12 @@ from monkey_collector.pipeline.session_manager import (
     wait_for_connection,
 )
 from monkey_collector.pipeline.text_generator import TextGenerator
+from monkey_collector.storage import DataWriter
+from monkey_collector.tcp_server import CollectionServer
+
+if TYPE_CHECKING:
+    from monkey_collector.llm.client import LLMClient
+    from monkey_collector.llm.screen_grouper import ScreenGrouper
 
 
 class Collector:
@@ -46,6 +52,8 @@ class Collector:
         activity_coverage_tracker: ActivityCoverageTracker | None = None,
         cost_tracker: CostTracker | None = None,
         text_generator: TextGenerator | None = None,
+        llm_client: LLMClient | None = None,
+        screen_grouper: ScreenGrouper | None = None,
         new_session: bool = False,
     ):
         self.adb = adb
@@ -59,6 +67,8 @@ class Collector:
         self._activity_tracker = activity_coverage_tracker
         self._cost_tracker = cost_tracker
         self._text_generator = text_generator
+        self._llm_client = llm_client
+        self._screen_grouper = screen_grouper
         self._new_session = new_session
 
     def run(self, package: str) -> str:
