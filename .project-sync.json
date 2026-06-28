@@ -1,0 +1,38 @@
+{
+  "project": "Implicit World Modeling",
+  "repo_root": "/data/seungwoo/Implicit-World-Modeling",
+  "enabled": ["docs", "memory", "notion"],
+
+  "docs": {
+    "path": "docs",
+    "files": ["README.md", "ARCHITECTURE.md", "ROADMAP.md", "CHANGELOG.md"],
+    "devlog": "docs/DEVLOG.md"
+  },
+
+  "memory": {
+    "encoded": "-data-seungwoo-Implicit-World-Modeling",
+    "claude": "/home/seungwoo/.claude/projects/-data-seungwoo-Implicit-World-Modeling/memory",
+    "gemini": "~/.gemini/projects/-data-seungwoo-Implicit-World-Modeling/memory"
+  },
+
+  "obsidian": {
+    "vault": null,
+    "project": "Implicit-World-Modeling",
+    "note": "이 머신(Linux /data/seungwoo)에는 Obsidian Vault가 없어 비활성. Vault가 있는 환경에서 /project-sync init 재실행 시 자동 탐지·등록."
+  },
+
+  "notion": {
+    "url": "https://app.notion.com/p/Implicit-World-Modeling-264dbb15dd0180a98857dfd5abf92738",
+    "landing": "264dbb15-dd01-80a9-8857-dfd5abf92738",
+    "databases": {
+      "experiments": { "page": "e537d186-12fc-4bd5-8a24-d8ae0b20ecf0", "data_source": "c1b00962-66cf-4af0-b25b-45f37b55b959", "category": "Experiment" },
+      "tasks":       { "page": "9842cce8-81af-44e1-b892-d436f28fe178", "data_source": "1f99eee5-1472-4447-8bf5-3b68b91776e5", "category": "Task" },
+      "devlog":      { "page": "530ed3db-2f8f-4f40-877f-b532e9eb52c4", "data_source": "98321dce-e5d6-4d46-b65a-f479158b8d2e", "category": "Dev Log" },
+      "meeting":     { "page": "46cd6504-1d66-409b-9f7f-bd5cd9123037", "data_source": "0306adba-faec-474a-bd32-f834f55e4959", "category": "Meeting" },
+      "reference":   { "page": "2d1dbb15-dd01-80d7-b7fd-e368d9b4e532", "data_source": "2d1dbb15-dd01-8196-9630-000bff6bb866", "category": "Related Work" },
+      "timeline":    { "page": "305dbb15-dd01-80d2-b6c3-e8d818043bad", "data_source": "305dbb15-dd01-8034-a035-000b37c94bac", "hub": true }
+    }
+  },
+
+  "last_sync": null
+}
