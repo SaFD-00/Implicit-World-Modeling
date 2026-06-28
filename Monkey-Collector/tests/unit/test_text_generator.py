@@ -1,7 +1,7 @@
 """Tests for monkey_collector.text_generator — text generation strategies."""
 
 import random
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -25,6 +25,14 @@ def dummy_element():
 
 
 DUMMY_XML = '<hierarchy><node class="android.widget.EditText" bounds="[0,0][100,100]" /></hierarchy>'
+
+
+def _mock_client(text="Generated text", model="qwen/qwen3.7-plus"):
+    """A stand-in LLMClient whose chat() returns *text*."""
+    client = MagicMock()
+    client.model = model
+    client.chat.return_value = text
+    return client
 
 
 class TestRandomTextGenerator:
@@ -54,102 +62,52 @@ class TestRandomTextGenerator:
 
 
 class TestLLMTextGenerator:
-    def _make_mock_client(self, output_text="Generated text"):
-        """Create a mock OpenAI client using the Responses API."""
-        mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.output_text = output_text
-        mock_client.responses.create.return_value = mock_response
-        return mock_client
-
     def test_success(self, dummy_element):
-        gen = LLMTextGenerator(api_key="fake-key")
-        gen._client = self._make_mock_client("Pizza recipe")
+        gen = LLMTextGenerator(_mock_client("Pizza recipe"))
         result = gen.generate(dummy_element, DUMMY_XML)
         assert result == "Pizza recipe"
 
     def test_empty_response_fallback(self, dummy_element):
-        gen = LLMTextGenerator(api_key="fake-key", rng=random.Random(42))
-        gen._client = self._make_mock_client("")
+        gen = LLMTextGenerator(_mock_client(""), rng=random.Random(42))
+        result = gen.generate(dummy_element, DUMMY_XML)
+        assert result in SAMPLE_TEXTS
+
+    def test_none_response_fallback(self, dummy_element):
+        gen = LLMTextGenerator(_mock_client(None), rng=random.Random(42))
         result = gen.generate(dummy_element, DUMMY_XML)
         assert result in SAMPLE_TEXTS
 
     def test_api_error_fallback(self, dummy_element):
-        gen = LLMTextGenerator(api_key="fake-key", rng=random.Random(42))
-        gen._client = MagicMock()
-        gen._client.responses.create.side_effect = Exception("API down")
+        client = _mock_client()
+        client.chat.side_effect = Exception("API down")
+        gen = LLMTextGenerator(client, rng=random.Random(42))
         result = gen.generate(dummy_element, DUMMY_XML)
         assert result in SAMPLE_TEXTS
 
-    def test_lazy_client_init(self):
-        gen = LLMTextGenerator(api_key="fake-key")
-        assert gen._client is None
-
     def test_strips_quotes(self, dummy_element):
-        gen = LLMTextGenerator(api_key="fake-key")
-        gen._client = self._make_mock_client('"Hello World"')
+        gen = LLMTextGenerator(_mock_client('"Hello World"'))
         result = gen.generate(dummy_element, DUMMY_XML)
         assert result == "Hello World"
 
-    def test_none_output_text_fallback(self, dummy_element):
-        """output_text=None -> falls back to SAMPLE_TEXTS."""
-        gen = LLMTextGenerator(api_key="fake-key", rng=random.Random(42))
-        gen._client = self._make_mock_client(None)
-        gen._client.responses.create.return_value.output_text = None
-        result = gen.generate(dummy_element, DUMMY_XML)
-        assert result in SAMPLE_TEXTS
-
     def test_empty_raw_xml(self, dummy_element):
-        """Empty raw_xml -> API still called, text returned."""
-        gen = LLMTextGenerator(api_key="fake-key")
-        gen._client = self._make_mock_client("Search query")
+        client = _mock_client("Search query")
+        gen = LLMTextGenerator(client)
         result = gen.generate(dummy_element, "")
         assert result == "Search query"
-        gen._client.responses.create.assert_called_once()
+        client.chat.assert_called_once()
 
-
-class TestLLMCostTracking:
-    def _make_mock_client(self, output_text="Generated text", input_tokens=100, output_tokens=20):
-        mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.output_text = output_text
-        mock_response.usage.input_tokens = input_tokens
-        mock_response.usage.output_tokens = output_tokens
-        mock_client.responses.create.return_value = mock_response
-        return mock_client
-
-    def test_cost_recorded_on_success(self, dummy_element):
-        mock_tracker = MagicMock()
-        mock_tracker.record.return_value = {}
-        gen = LLMTextGenerator(api_key="fake-key", cost_tracker=mock_tracker)
-        gen._client = self._make_mock_client("Hello")
-        gen.set_step(5)
+    def test_sends_system_and_user_messages(self, dummy_element):
+        client = _mock_client("x")
+        gen = LLMTextGenerator(client)
         gen.generate(dummy_element, DUMMY_XML)
-        mock_tracker.record.assert_called_once_with(
-            model="gpt-5-nano",
-            input_tokens=100,
-            output_tokens=20,
-            step=5,
-        )
 
-    def test_no_cost_on_api_failure(self, dummy_element):
-        mock_tracker = MagicMock()
-        gen = LLMTextGenerator(api_key="fake-key", cost_tracker=mock_tracker, rng=random.Random(42))
-        gen._client = MagicMock()
-        gen._client.responses.create.side_effect = Exception("API down")
-        gen.generate(dummy_element, DUMMY_XML)
-        mock_tracker.record.assert_not_called()
-
-    def test_no_tracker_no_error(self, dummy_element):
-        gen = LLMTextGenerator(api_key="fake-key")
-        gen._client = self._make_mock_client("Result")
-        result = gen.generate(dummy_element, DUMMY_XML)
-        assert result == "Result"
-
-    def test_set_step(self):
-        gen = LLMTextGenerator(api_key="fake-key")
-        gen.set_step(42)
-        assert gen._current_step == 42
+        args, kwargs = client.chat.call_args
+        messages = args[0]
+        assert isinstance(messages, list)
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
+        assert kwargs.get("agent") == "text_generator"
+        assert kwargs.get("max_tokens") == 50
 
 
 class TestCreateTextGenerator:
@@ -157,24 +115,14 @@ class TestCreateTextGenerator:
         gen = create_text_generator("random")
         assert isinstance(gen, RandomTextGenerator)
 
-    def test_api_mode_with_key(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
-        gen = create_text_generator("api")
+    def test_api_mode_with_client(self):
+        gen = create_text_generator("api", llm_client=_mock_client())
         assert isinstance(gen, LLMTextGenerator)
 
-    def test_api_mode_no_key(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        # Prevent load_dotenv from restoring the key from .env
-        with patch("dotenv.load_dotenv", return_value=None):
-            gen = create_text_generator("api")
+    def test_api_mode_no_client_falls_back(self):
+        gen = create_text_generator("api", llm_client=None)
         assert isinstance(gen, RandomTextGenerator)
 
-    def test_api_mode_dotenv_unavailable(self, monkeypatch):
-        """When python-dotenv not installed, still creates generator from env."""
-        import sys
-
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key-456")
-        # Setting module to None in sys.modules causes ImportError on import
-        monkeypatch.setitem(sys.modules, "dotenv", None)
-        gen = create_text_generator("api")
-        assert isinstance(gen, LLMTextGenerator)
+    def test_random_mode_ignores_client(self):
+        gen = create_text_generator("random", llm_client=_mock_client())
+        assert isinstance(gen, RandomTextGenerator)

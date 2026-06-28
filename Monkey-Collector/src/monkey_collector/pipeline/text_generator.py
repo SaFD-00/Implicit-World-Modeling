@@ -2,13 +2,13 @@
 
 Two strategies:
   - RandomTextGenerator: picks from a fixed sample list (legacy behavior).
-  - LLMTextGenerator: calls OpenAI API with screen context to produce
-    contextually appropriate text; falls back to random on failure.
+  - LLMTextGenerator: asks the shared :class:`LLMClient` (OpenRouter Chat
+    Completions, e.g. ``qwen/qwen3.7-plus``) for contextually appropriate text;
+    falls back to random on failure.
 """
 
 from __future__ import annotations
 
-import os
 import random
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
@@ -19,7 +19,7 @@ from monkey_collector.xml.structured_parser import encode_to_html_xml
 from monkey_collector.xml.ui_tree import UIElement
 
 if TYPE_CHECKING:
-    from monkey_collector.domain.cost_tracker import CostTracker
+    from monkey_collector.llm.client import LLMClient
 
 # Default sample texts (same as explorer.SAMPLE_TEXTS)
 SAMPLE_TEXTS = [
@@ -84,33 +84,17 @@ class RandomTextGenerator(TextGenerator):
 
 
 class LLMTextGenerator(TextGenerator):
-    """Call OpenAI API to generate contextually appropriate input text."""
+    """Use the shared :class:`LLMClient` to generate contextual input text."""
 
     def __init__(
         self,
-        api_key: str,
-        model: str = "gpt-5-nano",
+        llm_client: LLMClient,
         fallback_texts: list[str] | None = None,
         rng: random.Random | None = None,
-        cost_tracker: CostTracker | None = None,
     ):
-        self._api_key = api_key
-        self._model = model
+        self._client = llm_client
         self._fallback_texts = fallback_texts or SAMPLE_TEXTS
         self._rng = rng or random.Random()
-        self._client = None  # lazy-init
-        self._cost_tracker = cost_tracker
-        self._current_step: int = 0
-
-    def set_step(self, step: int) -> None:
-        """Set the current exploration step for cost tracking."""
-        self._current_step = step
-
-    def _get_client(self):
-        if self._client is None:
-            from openai import OpenAI
-            self._client = OpenAI(api_key=self._api_key)
-        return self._client
 
     def generate(self, element: UIElement, raw_xml: str) -> str:
         try:
@@ -123,25 +107,15 @@ class LLMTextGenerator(TextGenerator):
                 display_name=element.display_name or "(unknown)",
             )
 
-            client = self._get_client()
-            response = client.responses.create(
-                model=self._model,
-                instructions=SYSTEM_PROMPT,
-                input=user_msg,
-                max_output_tokens=50,
-                reasoning={"effort": "minimal"},
-                text={"verbosity": "low"},
+            text = self._client.chat(
+                [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_msg},
+                ],
+                max_tokens=50,
+                agent="text_generator",
             )
-
-            if self._cost_tracker and hasattr(response, "usage") and response.usage:
-                self._cost_tracker.record(
-                    model=self._model,
-                    input_tokens=getattr(response.usage, "input_tokens", 0) or 0,
-                    output_tokens=getattr(response.usage, "output_tokens", 0) or 0,
-                    step=self._current_step,
-                )
-
-            text = (response.output_text or "").strip().strip('"').strip("'")
+            text = (text or "").strip().strip('"').strip("'")
             if text:
                 logger.debug(f"LLM generated text: {text!r}")
                 return text
@@ -158,40 +132,30 @@ def create_text_generator(
     mode: str,
     seed: int = 42,
     sample_texts: list[str] | None = None,
-    cost_tracker: CostTracker | None = None,
+    llm_client: LLMClient | None = None,
 ) -> TextGenerator:
-    """Factory: create a TextGenerator based on *mode*.
+    """Factory: create a TextGenerator based on *mode* and client availability.
 
     Args:
         mode: ``"api"`` for LLM-based or ``"random"`` for hardcoded sample texts.
         seed: Random seed for reproducibility.
         sample_texts: Override default sample texts.
+        llm_client: Shared LLM client. When ``mode="api"`` but no client is
+            available (e.g. ``OPENROUTER_API_KEY`` unset), falls back to random.
     """
     rng = random.Random(seed)
 
-    if mode == "random":
+    if mode == "random" or llm_client is None:
+        if mode == "api" and llm_client is None:
+            logger.warning(
+                "Input mode 'api' requested but no LLM client available — "
+                "falling back to random text generation."
+            )
         return RandomTextGenerator(rng, sample_texts)
 
-    # mode == "api"
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        logger.warning("python-dotenv not installed, reading OPENAI_API_KEY from environment only")
-
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key:
-        logger.warning(
-            "OPENAI_API_KEY not set — falling back to random text generation. "
-            "Set it in .env or environment to use LLM-based input."
-        )
-        return RandomTextGenerator(rng, sample_texts)
-
-    logger.info("Using LLM text generation (model: gpt-5-nano)")
+    logger.info(f"Using LLM text generation (model: {llm_client.model})")
     return LLMTextGenerator(
-        api_key=api_key,
-        model="gpt-5-nano",
+        llm_client=llm_client,
         fallback_texts=sample_texts or SAMPLE_TEXTS,
         rng=rng,
-        cost_tracker=cost_tracker,
     )
