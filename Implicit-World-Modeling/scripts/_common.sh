@@ -139,7 +139,7 @@ if [[ "${GPU_TYPE:-}" == "RTX5090" ]]; then
 fi
 
 # --- dataset prefix / HF slug / data dir 매핑 (Cell 3 _DATASET_CONFIG 와 일치) -
-# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, MC}.
+# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, MC}.
 # MB entry 는 평가 스크립트가 dataset_info 이름/slug 를 조합하는 데 사용.
 #
 # AC_EXP01 (AndroidControl_EXP01) 은 state_pred / action_pred 두 task 를 비율
@@ -166,6 +166,7 @@ declare -A DS_PREFIX=(
   [AC_EXP01_ratio73]="IWM-AC_EXP01"
   [AC_EXP02]="IWM-AC_EXP02"
   [AC_EXP03]="IWM-AC_EXP03"
+  [AC_EXP04]="IWM-AC_EXP04"
   [MC]="IWM-MC"
 )
 declare -A HF_SLUG=(
@@ -176,6 +177,7 @@ declare -A HF_SLUG=(
   [AC_EXP01_ratio73]="ac-exp01-ratio73-"
   [AC_EXP02]="ac-exp02-"
   [AC_EXP03]="ac-exp03-"
+  [AC_EXP04]="ac-exp04-"
   [MC]="mc-"
 )
 declare -A DS_DATADIR=(
@@ -190,6 +192,9 @@ declare -A DS_DATADIR=(
   # AC_EXP03 = AC_EXP01 ratio73 멤버십을 좌표(point) 표현으로 미러 (scripts/mirror_exp03.py).
   # stage1 train + test 6종 + Stage2 train/test 3종 모두 AndroidControl_EXP03/ 아래.
   [AC_EXP03]="AndroidControl_EXP03"
+  # AC_EXP04 = AC_EXP03 와 동일 멤버십·좌표 표현 + stage1 프롬프트 업그레이드 (scripts/mirror_exp04.py).
+  # stage1 train + test 6종만 AndroidControl_EXP04/ 아래 (Stage 2 보류 — 데이터/등록 키 없음).
+  [AC_EXP04]="AndroidControl_EXP04"
   [MC]="MonkeyCollection"
 )
 
@@ -218,6 +223,7 @@ ds_outputs_code() {
     AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP01) echo "AndroidControl_EXP01" ;;
     AC_EXP02) echo "AndroidControl_EXP02" ;;
     AC_EXP03) echo "AndroidControl_EXP03" ;;
+    AC_EXP04) echo "AndroidControl_EXP04" ;;
     *) echo "$1" ;;
   esac
 }
@@ -264,7 +270,7 @@ ALL_MODELS=(
 #   bash script.sh --model qwen3-vl-8b --dataset AC_EXP02 --stage1-mode lora
 #   bash script.sh --model qwen3-vl-8b --dataset MC
 #
-# 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, MC}. 각 DS 는 명시적으로 선택해야 하며,
+# 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, MC}. 각 DS 는 명시적으로 선택해야 하며,
 # `--dataset all` 같은 일괄 sweep 모드는 지원하지 않는다.
 # MobiBench(MB) 는 평가 전용 벤치마크이므로 --dataset MB 입력은 거절된다.
 # 교차 평가는 stage{1,2}_eval.sh 가 제공하는 parse_eval_args
@@ -315,7 +321,7 @@ Usage: $(basename "$0") [--model MODEL] [--dataset DS] [--stage1-mode MODE]
 
 Options:
   --model MODEL        모델 short_name 또는 "all" (기본: all)
-  --dataset DS         AC_EXP01 | AC_EXP02 | AC_EXP03 | MC (필수) — 학습 대상 DS.
+  --dataset DS         AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | MC (필수) — 학습 대상 DS.
                        AC_EXP01 은 ratio mix (3:7, 5:5, 7:3) 3 종을 모두 sweep 하므로
                        --exp01-ratios 로 부분 실행 가능. MB 는 평가 전용이라 사용 불가.
                        AC_EXP02 는 AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred
@@ -397,6 +403,7 @@ EOF
   case "$dataset_arg" in
     AC_EXP02) DATASETS=(AC_EXP02) ;;
     AC_EXP03) DATASETS=(AC_EXP03) ;;
+    AC_EXP04) DATASETS=(AC_EXP04) ;;
     MC)       DATASETS=(MC) ;;
     AC_EXP01)
       DATASETS=()
@@ -404,13 +411,13 @@ EOF
       unset _r
       ;;
     "")
-      echo "Error: --dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | MC)." >&2; exit 2 ;;
+      echo "Error: --dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | MC)." >&2; exit 2 ;;
     MB)
       echo "Error: MobiBench (MB) 는 평가 전용 벤치마크입니다. 학습/merge 에는 사용할 수 없습니다." >&2
       echo "       교차 평가는 stage{1,2}_eval.sh --train-dataset {AC_EXP01|AC_EXP02|MC} --eval-datasets AC_EXP01,AC_EXP02,MC,MB 를 사용하세요." >&2
       exit 2
       ;;
-    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC_EXP01 | AC_EXP02 | AC_EXP03 | MC." >&2; exit 2 ;;
+    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | MC." >&2; exit 2 ;;
   esac
 
   IFS=',' read -r -a EPOCHS <<< "$epochs_arg"
@@ -491,10 +498,10 @@ Usage: $(basename "$0") --train-dataset {AC_EXP01|AC_EXP02|MC} [--eval-datasets 
 
 Options:
   --model MODEL           모델 short_name 또는 "all" (기본: all)
-  --train-dataset DS      AC_EXP01 | AC_EXP02 | AC_EXP03 | MC (필수) — HF Hub merged repo 를
+  --train-dataset DS      AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | MC (필수) — HF Hub merged repo 를
                           해석할 학습 DS. AC_EXP01 은 ratio 하나를 추가로 지정해야 함 (--exp01-ratio).
   --eval-datasets LIST    콤마로 구분된 평가 DS 리스트 (기본: --train-dataset 단일값)
-                          허용값: AC_EXP01, AC_EXP02, AC_EXP03, MC, MB (MB 는 단일 파일 overall 채점).
+                          허용값: AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, MC, MB (MB 는 단일 파일 overall 채점).
                           AC_EXP01 / AC_EXP02 는 state_pred / action_pred 두 task 를 각각 채점한다.
   --stage1-mode MODE      full | lora (기본: full) — world-model variant 의 상류 Stage1 모드.
   --stage2-mode MODE      full | lora (기본: lora) — Stage 2 merge/eval 전용.
@@ -520,10 +527,10 @@ EOF
   done
 
   if [[ -z "$train_arg" ]]; then
-    echo "Error: --train-dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | MC)." >&2; exit 2
+    echo "Error: --train-dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | MC)." >&2; exit 2
   fi
   case "$train_arg" in
-    AC_EXP02|AC_EXP03|MC) TRAIN_DATASET="$train_arg" ;;
+    AC_EXP02|AC_EXP03|AC_EXP04|MC) TRAIN_DATASET="$train_arg" ;;
     AC_EXP01)
       # AC_EXP01 은 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
       # 미지정 시 ratio55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
@@ -538,7 +545,7 @@ EOF
     MB)
       echo "Error: --train-dataset MB 는 허용되지 않습니다 (MobiBench 는 평가 전용)." >&2
       exit 2 ;;
-    *) echo "Error: --train-dataset must be AC_EXP01 | AC_EXP02 | AC_EXP03 | MC (got '$train_arg')." >&2; exit 2 ;;
+    *) echo "Error: --train-dataset must be AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | MC (got '$train_arg')." >&2; exit 2 ;;
   esac
 
   # --exp01-ratio 는 AC_EXP01 train 일 때만 유효. 다른 train DS 와 함께 주면 에러.
@@ -561,8 +568,8 @@ EOF
     fi
     for _d in "${EVAL_DATASETS[@]}"; do
       case "$_d" in
-        AC_EXP01|AC_EXP02|AC_EXP03|MC|MB) ;;
-        *) echo "Error: --eval-datasets item '$_d' invalid (use AC_EXP01 | AC_EXP02 | AC_EXP03 | MC | MB)." >&2; exit 2 ;;
+        AC_EXP01|AC_EXP02|AC_EXP03|AC_EXP04|MC|MB) ;;
+        *) echo "Error: --eval-datasets item '$_d' invalid (use AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | MC | MB)." >&2; exit 2 ;;
       esac
     done
     unset _d
@@ -835,11 +842,11 @@ build_infer_cmd() {
     mm_min=4096
   fi
   local mm_max=$(( mm_max_tokens * _factor * _factor ))
-  # AC_EXP03 좌표(point) 표현은 평가 입력도 ~2.5x 길다 → cutoff_len 을 학습과 통일해
+  # AC_EXP03/EXP04 좌표(point) 표현은 평가 입력도 ~2.5x 길다 → cutoff_len 을 학습과 통일해
   # 상향(잘림 0), 그 외는 8192. vLLM max_model_len = cutoff + max_new_tokens 증가 →
   # KV cache 메모리↑/throughput↓ (필요 시 VLLM_GPU_MEM_UTIL 로 보정).
   local infer_cutoff=8192
-  if [[ "$ds_name" == IWM-AC_EXP03* ]]; then
+  if [[ "$ds_name" == IWM-AC_EXP03* || "$ds_name" == IWM-AC_EXP04* ]]; then
     infer_cutoff=24576
   fi
   INFER_CMD="python scripts/vllm_infer.py \

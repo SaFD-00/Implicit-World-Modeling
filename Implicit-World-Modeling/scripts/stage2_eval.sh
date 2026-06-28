@@ -44,6 +44,7 @@ SCRIPT_TAG="stage2_eval"
 TRAIN_DS="$TRAIN_DATASET"
 
 case "$TRAIN_DS" in
+  # AC_EXP04 stage2 보류 — 데이터/등록 키 없음 (현재 *) 분기로 거부). 도입 시 case + 아래 에러문에 AC_EXP04 포함.
   AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02|AC_EXP03) ;;
   MC)
     echo "[!] Stage 2 는 MonkeyCollection(MC) 학습 데이터를 갖지 않습니다 (got '$TRAIN_DS')." >&2
