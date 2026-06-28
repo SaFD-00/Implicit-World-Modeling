@@ -15,7 +15,11 @@ from loguru import logger
 
 # Pricing per 1M tokens (USD)
 MODEL_PRICING = {
-    # OpenAI Chat
+    # OpenRouter (current default provider)
+    # NOTE: verify against https://openrouter.ai/models — slug/price may change.
+    # Unknown models fall through to 0.0 in _calc_cost (cost logged as 0).
+    "qwen/qwen3.7-plus": {"input": 0.40, "output": 1.20},
+    # OpenAI Chat (legacy — kept for historical cost.csv compatibility)
     "gpt-5-nano": {"input": 0.10, "output": 0.40},
     "gpt-5.4": {"input": 2.50, "output": 15.00},
     "gpt-5-mini": {"input": 0.25, "output": 2.00},
