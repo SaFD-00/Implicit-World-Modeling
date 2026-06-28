@@ -11,7 +11,7 @@
 
 ## 어디를 수정해야 하는가
 
-- CLI 옵션이나 서브커맨드를 바꾸면 [`src/monkey_collector/cli.py`](./src/monkey_collector/cli.py) 와 [`tests/test_cli.py`](./tests/test_cli.py) 를 함께 수정한다. ADB 는 `AdbClient()` 를 인자 없이 생성하며, 내부에서 `MobileGPT-V2-2` 라는 이름의 AVD 를 자동 탐색해 해당 emulator serial 로 모든 명령을 고정한다 (상수 `REQUIRED_AVD_NAME` 은 [`src/monkey_collector/adb.py`](./src/monkey_collector/adb.py) 상단에 하드코드). AVD 이름을 바꿔야 한다면 이 상수와 관련 문서 / 테스트를 함께 수정한다.
+- CLI 옵션이나 서브커맨드를 바꾸면 [`src/monkey_collector/cli.py`](./src/monkey_collector/cli.py) 와 [`tests/test_cli.py`](./tests/test_cli.py) 를 함께 수정한다. ADB 는 `AdbClient()` 를 인자 없이 생성하며, 내부에서 `Pixel6-2` 라는 이름의 AVD 를 자동 탐색해 해당 emulator serial 로 모든 명령을 고정한다 (상수 `REQUIRED_AVD_NAME` 은 [`src/monkey_collector/adb.py`](./src/monkey_collector/adb.py) 상단에 하드코드). AVD 이름을 바꿔야 한다면 이 상수와 관련 문서 / 테스트를 함께 수정한다.
 - 수집 루프 동작은 [`src/monkey_collector/pipeline/collector.py`](./src/monkey_collector/pipeline/collector.py), [`src/monkey_collector/pipeline/collection_loop.py`](./src/monkey_collector/pipeline/collection_loop.py), [`src/monkey_collector/pipeline/session_manager.py`](./src/monkey_collector/pipeline/session_manager.py) 가 기준이다. activity coverage 분모와 분자 후보 집합은 `session_manager._resolve_declared_activities` 가 결정한다 — catalog hit 이면 (`allow_dynamic_total=False`) 분모 고정 + `unique_visited` 는 catalog set 안의 activity 만 카운트, miss 면 dumpsys 폴백 + WARNING 로그 + legacy 동적 확장. backfill 은 별도 스크립트 없이 `tracker.resume()` 이 같은 정책으로 처리한다.
 - 앱 목록 / 설치 상태 처리는 두 모듈로 분리되어 있다:
   - [`src/monkey_collector/pipeline/app_catalog.py`](./src/monkey_collector/pipeline/app_catalog.py): `catalog/apps.csv` 파싱과 category/priority/installed 필터. 새 필수 컬럼 추가는 `_REQUIRED_COLUMNS` 와 `AppJob` 을 동시에 수정. `installed` 는 optional 컬럼 — 누락된 CSV 는 자동으로 모두 `false` 로 해석된다.
