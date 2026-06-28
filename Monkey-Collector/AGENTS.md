@@ -7,7 +7,7 @@
 - Python 쪽 진입점은 [`src/monkey_collector/cli.py`](./src/monkey_collector/cli.py) 의 `monkey-collect` CLI 다.
 - 공개 API 는 [`src/monkey_collector/__init__.py`](./src/monkey_collector/__init__.py) 에서 export 된다.
 - Android 앱 코드는 [`app/app/src/main/java/com/monkey/collector`](./app/app/src/main/java/com/monkey/collector) 아래에 있다.
-- 서버 구조는 `domain`, `pipeline`, `export`, `xml` 4개 서브패키지 + 인프라 모듈 (`adb.py`, `tcp_server.py`, `storage.py`) 로 구성된다.
+- 서버 구조는 `domain`, `llm`, `pipeline`, `export`, `xml` 5개 서브패키지 + 인프라 모듈 (`adb.py`, `tcp_server.py`, `storage.py`) 로 구성된다.
 
 ## 어디를 수정해야 하는가
 
@@ -21,7 +21,7 @@
   - [`src/monkey_collector/pipeline/reset.py`](./src/monkey_collector/pipeline/reset.py): 수집 데이터 삭제 스코프 해소(`all` / `packages`)와 `shutil.rmtree` 실행. 순수 함수 (`resolve_targets`, `delete_targets`).
 - 완료 앱 스킵 로직은 [`src/monkey_collector/cli.py`](./src/monkey_collector/cli.py) 의 `_resolve_run_packages` / `_load_completed_packages` 에 있다. `metadata.completed_at` 이 채워진 앱은 기본적으로 큐에서 제외되고, `--force` 로 우회한다. 이 규약이 바뀌면 `tests/test_run_resume.py` 를 함께 업데이트한다.
 - 액션 선택 로직은 [`src/monkey_collector/pipeline/explorer.py`](./src/monkey_collector/pipeline/explorer.py) 와 [`tests/test_explorer.py`](./tests/test_explorer.py) 를 함께 본다.
-- 텍스트 입력 생성은 [`src/monkey_collector/pipeline/text_generator.py`](./src/monkey_collector/pipeline/text_generator.py) 가 기준이며, 현재 OpenAI Responses API `gpt-5-nano` + random fallback 구조다.
+- LLM 통합은 [`src/monkey_collector/llm/client.py`](./src/monkey_collector/llm/client.py) 의 공용 `LLMClient` (OpenRouter Chat Completions, 기본 `qwen/qwen3.7-plus`, env `OPENROUTER_API_KEY`/`OPENROUTER_BASE_URL`/`OPENROUTER_MODEL`) 하나로 모인다. 두 소비자가 이를 공유한다: 텍스트 입력 생성 [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py) (random fallback 유지) 와 화면 의미 그룹핑 [`llm/screen_grouper.py`](./src/monkey_collector/llm/screen_grouper.py). provider/모델을 바꾸려면 `client.py`, `.env.example`, [`cost_tracker.py`](./src/monkey_collector/domain/cost_tracker.py) 의 `MODEL_PRICING` 을 함께 본다. 화면 그룹핑은 `--screen-grouping on` 일 때 `xml/{step}_groups.json` 으로 저장하며 수집 흐름을 바꾸지 않는다(`collection_loop` 에서 try/except, 실패 시 빈 그룹핑). 비용은 `cost.csv` 의 `agent` 컬럼(`text_generator` / `screen_grouper`)으로 구분된다.
 - 세션 저장 형식은 [`src/monkey_collector/storage.py`](./src/monkey_collector/storage.py) 가 기준이다.
 - XML 파싱 규약은 [`src/monkey_collector/xml/ui_tree.py`](./src/monkey_collector/xml/ui_tree.py), [`src/monkey_collector/xml/structured_parser.py`](./src/monkey_collector/xml/structured_parser.py) 를 본다.
 - Android 측 전환 감지와 TCP 프로토콜은 [`CollectorService.kt`](./app/app/src/main/java/com/monkey/collector/CollectorService.kt), [`ScreenStabilizer.kt`](./app/app/src/main/java/com/monkey/collector/ScreenStabilizer.kt), [`TcpClient.kt`](./app/app/src/main/java/com/monkey/collector/TcpClient.kt) 에 있다.
@@ -42,6 +42,7 @@
 - `pytest -q tests/unit` (외부 의존 없음, 빠름)
 - `pytest -q tests/integration` (ADB / TCP / subprocess mock)
 - `pytest -q tests/unit/test_cli.py tests/integration/test_collector.py tests/unit/test_storage.py`
+- `pytest -q tests/unit/test_llm_client.py tests/unit/test_screen_grouper.py tests/unit/test_text_generator.py` (LLM 클라이언트 / 화면 그룹핑 / 입력 생성)
 - `pytest -q tests/unit/test_app_catalog.py tests/integration/test_installed_sync.py tests/unit/test_run_resume.py tests/unit/test_reset.py`
 - `python -m monkey_collector.cli run --help`
 - `python -m monkey_collector.cli sync-installed --help`

@@ -63,8 +63,11 @@
 - `domain/`
   - [`actions.py`](./src/monkey_collector/domain/actions.py): Action dataclass 들
   - [`activity_coverage.py`](./src/monkey_collector/domain/activity_coverage.py): Activity coverage CSV. ground truth 의 분모(`total_activities`)와 분자 후보 집합 모두 `session_manager._resolve_declared_activities` 가 결정하며, 1차 소스는 [`catalog/activities.json`](./catalog/activities.json) (androguard manifest 추출), 폴백은 `adb dumpsys package`. catalog hit 시 (`allow_dynamic_total=False`) 분모 고정 + 분자(`unique_visited`)는 catalog set 안의 activity 만 normalize 후 카운트 + `coverage = min(1.0, ...)` 클램프. catalog 외 activity 는 `activity` 컬럼에 그대로 기록되지만 coverage 에는 영향 없음. catalog miss 폴백 (`allow_dynamic_total=True`) 은 legacy 동작 (target package 의 미선언 activity 발견 시 분모 동적 확장 + 모든 visited 카운트).
-  - [`cost_tracker.py`](./src/monkey_collector/domain/cost_tracker.py): LLM 비용 추적 CSV
+  - [`cost_tracker.py`](./src/monkey_collector/domain/cost_tracker.py): LLM 비용 추적 CSV. `agent` 컬럼으로 호출 주체(`text_generator` / `screen_grouper`) 구분.
   - [`page_graph.py`](./src/monkey_collector/domain/page_graph.py): 페이지 그래프 생성
+- `llm/` — 모든 LLM 소비자가 공유하는 단일 클라이언트
+  - [`client.py`](./src/monkey_collector/llm/client.py): `LLMClient` — env 기반(`OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL` / `OPENROUTER_MODEL`, 기본 `qwen/qwen3.7-plus`) OpenRouter **Chat Completions** 래퍼. `chat()` 한 경로로 호출하며 cost_tracker 에 `prompt_tokens`/`completion_tokens` 기록. `create_llm_client()` 는 키 없으면 `None` 반환.
+  - [`screen_grouper.py`](./src/monkey_collector/llm/screen_grouper.py): `ScreenGrouper` — 화면 요소 의미 그룹핑("화면 나누기"). `encode_to_html_xml` 표현을 LLM 에 보내 같은 기능 요소 그룹(JSON) 을 받고, 동일 구조 화면은 in-memory 캐시로 재호출 생략. 실패 시 빈 그룹핑(수집 흐름 무영향).
 - 인프라 모듈에 인접
   - [`catalog_activities.py`](./src/monkey_collector/catalog_activities.py): `catalog/activities.json` 의 process-lifetime 캐시 (`ActivityCatalog`). activity coverage ground truth 1차 소스.
 - `pipeline/`
@@ -73,7 +76,7 @@
   - [`collection_loop.py`](./src/monkey_collector/pipeline/collection_loop.py): 메인 루프
   - [`recovery.py`](./src/monkey_collector/pipeline/recovery.py): retry / recovery 상수와 helper
   - [`explorer.py`](./src/monkey_collector/pipeline/explorer.py): SmartExplorer
-  - [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py): random 또는 OpenAI 기반 입력 텍스트 생성
+  - [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py): random 또는 공용 `LLMClient` 기반 입력 텍스트 생성
 - 인프라 모듈 (monkey_collector/ 직속)
   - [`adb.py`](./src/monkey_collector/adb.py): ADB wrapper. 상단 상수 `REQUIRED_AVD_NAME = "MobileGPT-V2-2"` 에 맞춰 `adb devices` + `emu avd name` 으로 해당 AVD 의 emulator serial 을 해석하고, 이후 모든 명령에 `-s <serial>` 을 prefix 한다. 다중 디바이스 환경에서도 단일 AVD 만 쓰도록 강제.
   - [`tcp_server.py`](./src/monkey_collector/tcp_server.py): TCP 서버와 signal queue (`CollectionServer`)
@@ -132,8 +135,8 @@ Android AccessibilityEvent
   -> 외부 앱 감지면 E signal
   -> 변화가 있으면 screenshot + XML + metadata 전송
   -> Python server 가 latest signal 소비
-  -> XML parse
-  -> SmartExplorer 가 action 선택
+  -> XML parse + (screen-grouping on 이면) ScreenGrouper 가 화면 의미 그룹핑 → {step}_groups.json 저장
+  -> SmartExplorer 가 action 선택 (input_text 필요 시 공용 LLMClient 로 텍스트 생성)
   -> ADB 실행
   -> screenshot/XML/event 저장
   -> 다음 step 반복
@@ -241,7 +244,8 @@ data/raw/{package}/
 │   ├── 0000_parsed.xml
 │   ├── 0000_hierarchy.xml
 │   ├── 0000_encoded.xml
-│   └── 0000_pretty.xml
+│   ├── 0000_pretty.xml
+│   └── 0000_groups.json     # --screen-grouping on 일 때만 (LLM 그룹핑)
 ├── events.jsonl
 ├── activity_coverage.csv     # ground truth: catalog/activities.json (fallback: dumpsys)
 ├── cost.csv
@@ -255,6 +259,8 @@ data/raw/{package}/
 - `_hierarchy.xml`: text / bounds / index 제거
 - `_encoded.xml`: bounds 제거, index 유지
 - `_pretty.xml`: encoded XML pretty-print
+
+`{step}_groups.json` 은 `--screen-grouping on` 일 때 `ScreenGrouper` 가 만든 같은 기능 요소 그룹 annotation 이다(`{step}_encoded.xml` 의 `index` 기준). LLM 호출 결과이므로 `save_xml`/`regenerate_xml_variants` 의 결정적 파생 대상이 아니다.
 
 ## 6. CLI 와 공개 API
 
@@ -281,6 +287,7 @@ data/raw/{package}/
 - `TextGenerator`
 - `RandomTextGenerator`
 - `LLMTextGenerator`
+- `LLMClient`, `ScreenGrouper` (+ `create_llm_client`, `create_screen_grouper`)
 - `CollectionServer`
 - `AdbClient`
 - `DataWriter`
