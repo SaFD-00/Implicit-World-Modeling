@@ -556,6 +556,21 @@ def encode_to_html_xml(raw_xml: str) -> str:
     return encoded
 
 
+def encode_with_bounds(raw_xml: str) -> tuple[str, dict[int, str]]:
+    """Encode for LLM consumption *and* return an ``index -> bounds`` map.
+
+    Same encoded XML as :func:`encode_to_html_xml` (bounds stripped, ``index``
+    kept), plus the bounds that were stripped — keyed by the encoded ``index`` —
+    so callers can recover on-screen coordinates that line up 1:1 with the
+    encoded ``index`` values (and therefore with ``ScreenGrouper`` output).
+    """
+    parser = StructuredXmlParser()
+    if not parser.parse(raw_xml) or parser.views is None:
+        return "", {}
+    encoded = parser._clear_bounds(parser.views)
+    return encoded, dict(parser.bounds_cache)
+
+
 def hierarchy_parse(raw_xml: str) -> str:
     """Parse, then strip text/bounds/index — structure only."""
     parser = StructuredXmlParser()

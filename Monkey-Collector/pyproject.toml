@@ -13,6 +13,7 @@ dependencies = [
     "openai>=1.0",
     "python-dotenv>=1.0",
     "pyvis>=0.3",
+    "networkx>=3",
     "requests>=2.32",
     "gplaydl>=2.0",
 ]
