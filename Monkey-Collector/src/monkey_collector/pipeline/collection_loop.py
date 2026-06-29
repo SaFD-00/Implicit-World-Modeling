@@ -13,8 +13,10 @@ from monkey_collector.domain.page_graph import PageGraph
 from monkey_collector.pipeline.recovery import (
     MAX_EMPTY_UI_RETRIES,
     MAX_EXTERNAL_APP_RETRIES,
+    MAX_EXTERNAL_REINITS,
     MAX_NO_CHANGE_RETRIES,
     MAX_SAME_PAGE_STEPS,
+    MAX_TIMEOUT_REINITS,
     describe_action_element,
     nudge_static_screen,
     safe_press_back,
@@ -45,6 +47,8 @@ class CollectionState:
     no_change_retries: int = 0
     external_app_count: int = 0
     empty_ui_retries: int = 0
+    reinit_timeout_count: int = 0
+    reinit_external_count: int = 0
     last_action: Action | None = None
     last_ui_tree: UITree | None = None
     last_raw_xml: str | None = None
@@ -97,8 +101,31 @@ def run_collection_loop(
                     f"({state.timeout_count}/{max_timeouts})"
                 )
                 if state.timeout_count >= max_timeouts:
-                    logger.error("Too many timeouts, ending session")
-                    break
+                    state.reinit_timeout_count += 1
+                    if state.reinit_timeout_count > MAX_TIMEOUT_REINITS:
+                        logger.error(
+                            f"Timeout reinit exhausted "
+                            f"({MAX_TIMEOUT_REINITS}/{MAX_TIMEOUT_REINITS}), "
+                            f"ending session"
+                        )
+                        break
+                    logger.warning(
+                        f"Step {state.step}: timeout reinit "
+                        f"({state.reinit_timeout_count}/{MAX_TIMEOUT_REINITS}), "
+                        f"force-relaunching {package}"
+                    )
+                    try:
+                        collector.adb.force_stop(package)
+                        collector.adb.launch_app(package)
+                    except Exception as _e:
+                        logger.error(f"Timeout reinit launch failed: {_e}")
+                    collector.server.clear_signal_queue()
+                    state.timeout_count = 0
+                    state.last_ui_tree = None
+                    state.last_action = None
+                    time.sleep(3.0)
+                    state.step += 1
+                    continue
                 # A timeout means no screenshot/XML arrived. A runtime
                 # permission dialog (permissioncontroller) emits no a11y events,
                 # so it only shows up here — grant it ("While using the app")
@@ -247,8 +274,27 @@ def _handle_external_app(
         f"({state.external_app_count}/{MAX_EXTERNAL_APP_RETRIES})"
     )
     if state.external_app_count >= MAX_EXTERNAL_APP_RETRIES:
-        logger.error("Too many external app detections, ending session")
-        return True
+        state.reinit_external_count += 1
+        if state.reinit_external_count > MAX_EXTERNAL_REINITS:
+            logger.error(
+                f"External app reinit exhausted "
+                f"({MAX_EXTERNAL_REINITS}/{MAX_EXTERNAL_REINITS}), "
+                f"ending session"
+            )
+            return True
+        logger.warning(
+            f"Step {state.step}: external app reinit "
+            f"({state.reinit_external_count}/{MAX_EXTERNAL_REINITS}), "
+            f"force-relaunching {package}"
+        )
+        try:
+            collector.explorer.recover(package)
+        except Exception as e:
+            logger.error(f"External reinit failed: {e}")
+        collector.server.clear_signal_queue()
+        state.external_app_count = 0
+        time.sleep(collector.action_delay)
+        return False
     try:
         if state.external_app_count <= 3:
             collector.explorer.return_to_app(package)
