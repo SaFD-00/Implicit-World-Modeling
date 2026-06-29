@@ -51,6 +51,9 @@ __pycache__/
 .env
 **/.venv/
 **/.conda-env/
+# 로컬 비밀(셋업/검증용 계정 자격증명) — 절대 커밋 금지
+**/.secrets.local
+**/*.secrets.local
 # uv.lock 은 커밋 대상 (재현성 단일 진실원) — 무시하지 않는다.
 
 # IDE
