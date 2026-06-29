@@ -4,7 +4,8 @@
   "enabled": [
     "docs",
     "memory",
-    "notion"
+    "notion",
+    "obsidian"
   ],
   "docs": {
     "path": "docs",
@@ -22,9 +23,9 @@
     "gemini": "~/.gemini/projects/-data-seungwoo-Implicit-World-Modeling/memory"
   },
   "obsidian": {
-    "vault": null,
+    "vault": "/Users/bsw/Library/CloudStorage/GoogleDrive-sw.baek.2000@gmail.com/내 드라이브/Baek/Obsidian/Obsidian Vault",
     "project": "Implicit-World-Modeling",
-    "note": "이 머신(Linux /data/seungwoo)에는 Obsidian Vault가 없어 비활성. Vault가 있는 환경에서 /project-sync init 재실행 시 자동 탐지·등록."
+    "note": "이 macOS 머신의 GoogleDrive Obsidian Vault 경로. Linux(/data/seungwoo) 머신엔 이 경로가 없으므로 그 환경에서는 recorder가 자동 SKIP된다."
   },
   "notion": {
     "url": "https://app.notion.com/p/Implicit-World-Modeling-264dbb15dd0180a98857dfd5abf92738",
