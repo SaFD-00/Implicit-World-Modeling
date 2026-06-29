@@ -104,10 +104,10 @@ python -m catalog.extract_activities      # .venv 활성화 상태에서
 
 ```bash
 # catalog/apps.csv 의 installed=true 인 앱 전부 순차 수집 (이미 완료된 앱은 자동 skip)
-monkey-collect run --apps all --steps 100
+monkey-collect run --apps all --steps 1500
 
 # 원하는 앱만 지정 (완료 여부는 동일하게 체크)
-monkey-collect run --apps com.google.android.deskclock com.google.android.calculator --steps 50
+monkey-collect run --apps com.google.android.deskclock com.google.android.calculator --steps 1500
 
 # 완료된 앱도 다시 수집
 monkey-collect run --apps all --force
@@ -124,6 +124,7 @@ monkey-collect run --apps all --input-mode random
 - 서버가 각 앱마다 `adb shell am start` 로 앱을 실행하고, TCP 로 `{"type": "START", "package": "com.X"}` 를 보낸다. Android 앱은 standby 연결을 유지하다가 START 를 받아 자동으로 수집을 시작한다.
 - 한 세션이 끝나면 서버가 `SESSION_END` 를 보내 클라이언트를 정리하고, Android 는 `F` 회신 후 새 소켓으로 자동 재접속한다. 서버는 이 fresh 소켓을 그대로 유지하고 다음 앱으로 `START` 를 송신한다. 이때 이전 세션의 `F`(finish) 회신이 신호 큐에 남을 수 있어, `run_collection_loop` 는 시작 시 큐를 비운다 — 비우지 않으면 새 세션이 stale finish 를 읽고 0-step 으로 끝나며 큐의 다음 앱들까지 연쇄로 0-step 된다.
 - 큐 구성 시 `data/raw/{pkg}/metadata.json` 의 `completed_at` 이 채워진 앱은 **완료로 판정되어 스킵**. `--force` 로 우회하거나, 중단된(미완료) 세션은 `completed_at` 이 `null` 이라 자동으로 resume 된다.
+- **재초기화(reinit)**: signal timeout 5연속 또는 external app 10회 도달 시 세션을 종료하는 대신, target app 을 force-stop + relaunch 하고 카운터를 초기화해 탐색을 재개한다. 재초기화는 각각 최대 3회까지 허용되며, 초과 시 세션이 종료된다.
 
 ## CLI
 
@@ -132,14 +133,14 @@ monkey-collect run --apps all --input-mode random
 서버 드리븐 수집. `catalog/apps.csv` 의 `installed=true` 앱 전부 또는 지정한 패키지 목록을 순차 수집한다.
 
 ```bash
-monkey-collect run --apps all --steps 100
-monkey-collect run --apps com.google.android.deskclock --steps 50
+monkey-collect run --apps all --steps 1500
+monkey-collect run --apps com.google.android.deskclock --steps 1500
 ```
 
 주요 옵션:
 
 - `--apps` (필수): `all` 이면 `catalog/apps.csv` 의 `installed=true` 전부. 아니면 하나 이상의 package_id.
-- `--steps`: 세션당 최대 step 수 (기본 100)
+- `--steps`: 세션당 최대 step 수 (기본 1500)
 - `--seed`: explorer 랜덤 시드 (기본 42)
 - `--delay`: action 사이 대기 시간(ms, 기본 1500)
 - `--port`: TCP server port (기본 12345)

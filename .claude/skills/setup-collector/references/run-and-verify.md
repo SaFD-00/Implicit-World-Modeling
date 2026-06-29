@@ -31,16 +31,36 @@ uv run monkey-collect run --apps <pkg...|all> --steps N --port 12345 \
 4. 신호: `P` package · `S` screenshot · `X` xml(+top_package/activity) · `N` no-change · `E` external-app · `F` finish.
 5. 끝나면 서버 `SESSION_END` → page_graph 빌드/시각화.
 
+## 세션 종료 조건 & 재초기화
+
+| 조건 | 임계값 | 동작 |
+|------|--------|------|
+| signal timeout 연속 | `max_timeouts=5` | → force-stop + relaunch (재초기화). 재초기화 3회 초과 시 세션 종료 |
+| external app 연속 | `MAX_EXTERNAL_APP_RETRIES=10` | → `recover()` + 카운터 리셋 (재초기화). 재초기화 3회 초과 시 세션 종료 |
+| no-change 연속 | `MAX_NO_CHANGE_RETRIES=3` | → back press (세션 유지) |
+| same page 연속 | `MAX_SAME_PAGE_STEPS=5` | → back press (세션 유지) |
+| empty UI 연속 | `MAX_EMPTY_UI_RETRIES=2` | → back press (세션 유지) |
+| max_steps 도달 | `--steps` (기본 1500) | → 세션 종료 (정상) |
+| `F` (finish) 신호 | client 가 보냄 | → 세션 종료 (정상) |
+
+**재초기화 로직** (`collection_loop.py`):
+- timeout 5연속 → `force_stop(pkg)` + `launch_app(pkg)` + `timeout_count=0` → `reinit_timeout_count += 1`
+  - `reinit_timeout_count > MAX_TIMEOUT_REINITS(3)` 이면 세션 종료
+- external app 10회 → `explorer.recover(pkg)` + `external_app_count=0` → `reinit_external_count += 1`
+  - `reinit_external_count > MAX_EXTERNAL_REINITS(3)` 이면 세션 종료
+
 ## 알려진 실패모드 ↔ 적용된 수정
 
 | 실패모드(과거 `--apps all`) | 근본원인 | 수정 위치 |
 |---|---|---|
 | **signal timeout 연쇄 / near-empty XML** | MediaProjection 토큰 재사용 → 2세션째 `createVirtualDisplay` SecurityException 으로 **client 프로세스 사망** → 핸드셰이크 desync | `ScreenStabilizer.kt` reuse-guard + try/catch graceful-degrade (client 재빌드 필요) |
+| **timeout 5회 후 즉시 세션 종료** | 임시 AccessibilityService 단절·앱 자체 stuck 등 일시적 원인에도 세션 종료 | `collection_loop.py` 재초기화 — force-stop+relaunch 후 `timeout_count=0`, 3회 초과 시 종료 |
 | **외부앱(docs) 스톰** | Google 로그인/Play 핸드오프 화면을 타깃 이탈로 인식 못 해 재실행 폭주 | client `CollectorService.kt` `EXCLUDED_PACKAGES`+= gms/gsf/vending; 서버 `screen_guard.py` `SYSTEM_PACKAGES`+= 동일(이중 방어) |
+| **external app 10회 후 즉시 세션 종료** | 앱 내 링크(URL scheme/share intent)가 항상 외부를 열어 10회 소진 | `collection_loop.py` 재초기화 — `recover()` + `external_app_count=0`, 3회 초과 시 종료 |
 | **빈 UI 인데 계속 진행** | empty 가드가 raw count 만 봄 | `collection_loop.py` 가드를 `get_interactable_elements()` 기준으로 |
 | **죽은 세션에 step 예산 소진** | no-ACK 시 서버가 요청 패키지로 blind 진행 | `session_manager.py` no-ACK 면 abort(None) |
 
-> step 0 직후 `external app: nexuslauncher` 1~2회는 **force-stop→launch 전이의 정상 신호**(런처가 잠깐 전경)이며 collection_loop 가 재실행으로 복구한다 — 연속 10회(`external app (10/10)`)로 쌓이며 못 빠져나오는 게 진짜 스톰이다.
+> step 0 직후 `external app: nexuslauncher` 1~2회는 **force-stop→launch 전이의 정상 신호**(런처가 잠깐 전경)이며 collection_loop 가 재실행으로 복구한다 — 연속 10회(`external app (10/10)`)로 쌓이며 못 빠져나오는 게 진짜 스톰이다. 이제 10회 도달 시에도 `recover()` + 카운터 리셋으로 세션을 이어간다.
 
 ## 라이브 스모크 검증 (대표 2앱)
 
@@ -48,7 +68,7 @@ uv run monkey-collect run --apps <pkg...|all> --steps N --port 12345 \
 cd "$ROOT"
 adb -s "$SERIAL" logcat -b crash -c
 uv run monkey-collect run --apps org.tasks com.google.android.apps.docs \
-  --steps 40 --new-session --input-mode api --screen-grouping on --port 12345
+  --steps 100 --new-session --input-mode api --screen-grouping on --port 12345
 ```
 
 ### 성공판정

@@ -352,14 +352,14 @@ sed -n '1,12p' catalog/apks/MISSING.md 2>/dev/null
 cd "$ROOT"
 adb -s "$SERIAL" logcat -b crash -c   # crash 버퍼 비우기
 uv run monkey-collect run --apps org.tasks com.google.android.apps.docs \
-  --steps 40 --new-session --input-mode api --screen-grouping on --port 12345
+  --steps 100 --new-session --input-mode api --screen-grouping on --port 12345
 # 성공판정: 두 앱 모두 data/raw/<pkg>/page_graph 노드≥2, 서버 로그에 연속 signal-timeout/외부앱 스톰 없음,
 #           crash 버퍼에 com.monkey.collector 프로세스 사망 없음(아래)
 adb -s "$SERIAL" logcat -b crash -d | grep -i "com.monkey.collector" || echo "no client crash (good)"
 ls data/raw/org.tasks/page_graph* data/raw/com.google.android.apps.docs/page_graph* 2>/dev/null
 ```
 
-> **다음 단계**: 셋업 후 `uv run monkey-collect run --apps all --steps 100` 으로 전체 수집을 시작한다. LLM 입력/그룹핑을 쓰려면 `.env` 에 `OPENROUTER_API_KEY` 를 채우고 `--input-mode api --screen-grouping on` 을 준다.
+> **다음 단계**: 셋업 후 `uv run monkey-collect run --apps all` 으로 전체 수집을 시작한다 (기본 1500스텝). LLM 입력/그룹핑을 쓰려면 `.env` 에 `OPENROUTER_API_KEY` 를 채우고 `--input-mode api --screen-grouping on` 을 준다.
 
 ## Troubleshooting
 
