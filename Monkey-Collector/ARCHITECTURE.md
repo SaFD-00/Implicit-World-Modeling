@@ -34,13 +34,12 @@
 - `CollectorService.kt`
   - AccessibilityService 본체
   - foreground package / activity 추적
-  - screen change 발생 시 screenshot + XML 전송
-  - external app 감지 및 client-side 복구
+  - screen change 발생 시 screenshot + XML 전송 (캡처 본체는 `AccessibilityService.takeScreenshot`)
+  - external app 감지 및 client-side 복구. `EXCLUDED_PACKAGES` 에 systemui/permissioncontroller/`com.monkey.collector` 와 함께 **`com.google.android.gms`/`gsf`/`com.android.vending`** 를 포함해, Google 로그인·Play 핸드오프 화면을 "외부 앱(타깃 이탈)"으로 처리한다 — 미포함 시 sign-in 핸드오프에서 외부앱 재실행 스톰이 발생했다.
   - 서버 드리븐 standby 루프: TCP 연결을 유지하며 서버의 `START {package}` 수신 시 `startCollection` 트리거, `SESSION_END` 수신 시 `stopCollection` 수행
 - `ScreenStabilizer.kt`
-  - 저해상도 프레임 비교
-  - 안정화 대기와 시각 변화 판정
-  - first screen 판정
+  - 저해상도 프레임 비교 / 안정화 대기 / 시각 변화 판정 / first screen 판정
+  - MediaProjection 기반 *stabilization* VirtualDisplay 관리. **동의 토큰은 모던 Android 에서 단발성**이라 세션마다 재사용 시 `createVirtualDisplay` 가 `SecurityException` 을 던진다 → `startCaptureSession` 은 ① reuse-guard(이미 projection+display 가 있으면 early-return) ② acquire/`createVirtualDisplay` try/catch 로 감싸 실패 시 imageReader/projection 정리 후 **return(=stabilization 없이 graceful-degrade)**. 과거엔 이 예외가 uncaught 라 2번째 세션에서 **client 프로세스가 사망** → 핸드셰이크 desync + signal timeout 연쇄였다. 캡처 본체는 `AccessibilityService.takeScreenshot` 이라 stabilization 이 degrade 돼도 수집은 계속된다.
 - `BitmapComparator.kt`
   - 프레임 diff 계산
 - `ScreenCapture.kt`
@@ -75,6 +74,7 @@
   - [`session_manager.py`](./src/monkey_collector/pipeline/session_manager.py): session init/resume/finalize. `_resolve_declared_activities` 헬퍼가 catalog 우선, dumpsys 폴백 정책을 적용한다.
   - [`collection_loop.py`](./src/monkey_collector/pipeline/collection_loop.py): 메인 루프
   - [`recovery.py`](./src/monkey_collector/pipeline/recovery.py): retry / recovery 상수와 helper
+  - [`screen_guard.py`](./src/monkey_collector/pipeline/screen_guard.py): 화면 분류 가드(키보드/권한 다이얼로그/시스템·런처 화면). `SYSTEM_PACKAGES` 에 `gms`/`gsf`/`vending`/launcher 를 포함해, 타깃 앱이 Google 로그인·Play 화면으로 drift 한 것을 "앱 이탈"로 판정(클라이언트 `EXCLUDED_PACKAGES` 와 이중 방어). 권한 다이얼로그는 grant 우선 버튼 탐색으로 자동 처리.
   - [`exploration/`](./src/monkey_collector/pipeline/exploration): LLM-guided 탐색 엔진 (LLM-Explorer 포팅). `Explorer` Protocol 을 구현하는 `LLMGuidedExplorer` 가 coverage-driven unexplored-first 선택 + same-function 압축 + 최단경로 navigation 을 수행한다.
     - [`state.py`](./src/monkey_collector/pipeline/exploration/state.py): `SemanticState` — raw XML → `state_str`(내용 포함)·`structure_str`(구조만)·`SemanticElement` 목록. element 는 encoded index 기준이라 `ScreenGrouper` 그룹과 1:1 정렬, scroll 컨테이너는 UITree 에서 음수 index 로 보강.
     - [`memory.py`](./src/monkey_collector/pipeline/exploration/memory.py): `Memory` — `(structure_str, element_signature, action_type)` 단위 커버리지 추적. LLM same-function 그룹으로 동등 element 를 한 번에 explored 처리(탐색 공간 압축).
@@ -228,8 +228,10 @@ Server -> App (newline-delimited JSON):
 
 - no-change 시 이전에 실패한 element 를 exclusion 하고 재선택
 - first screen 에서는 back 을 금지하고 tap fallback 사용
-- external app 시 `return_to_app()` 후 필요하면 `recover()` 수행
-- 빈 UI tree 가 반복되면 대기 후 재시도
+- external app 시 `return_to_app()` 후 필요하면 `recover()` 수행. gms/Play 패키지는 `screen_guard.SYSTEM_PACKAGES`(+클라이언트 `EXCLUDED_PACKAGES`)로 drift 판정.
+- 빈 UI tree 가 반복되면 대기 후 재시도. 빈 판정은 raw count 가 아니라 `get_interactable_elements()` 기준(clickable/scrollable/editable 등이 0일 때) — 비상호작용 노드만 있는 화면을 "콘텐츠 있음"으로 오판하지 않는다.
+- **런타임 권한 다이얼로그 자동 허용**: XML 신호가 온 경우 `is_permission_dialog` → `_handle_permission_dialog` 가 grant 버튼(`PERMISSION_BUTTON_KEYWORDS`, "while using the app" 최우선)을 탭한다. 단 permissioncontroller `GrantPermissionsActivity` 는 **accessibility 이벤트를 안 내보내** 신호 없이 timeout 만 발생하므로, timeout 경로에서 `_try_grant_permission_via_adb` 가 adb 로 foreground 를 확인하고 `uiautomator dump` 한 뒤 **clickable 버튼만** 스캔해 "While using the app"(없으면 "Allow") 를 탭한다("Only this time"/"Don't allow" 는 deny-guard 로 회피). 권한 미허용 화면을 relaunch 로 건너뛰지 않고 허용 후 탐색을 계속한다.
+- 세션 핸드셰이크에서 START 후 client `P`(package ACK)가 5초 내 없으면 `session_manager.receive_target_package` 가 abort(`None`) — 죽은 세션(클라이언트 크래시/stale 소켓)에 step 예산을 blind 소진하지 않고 다음 앱으로 넘어간다.
 
 ## 5. 저장 포맷
 

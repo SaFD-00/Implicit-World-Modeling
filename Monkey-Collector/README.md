@@ -60,13 +60,18 @@ cp .env.example .env
 
 ### Android app
 
+gradle 프로젝트 루트는 `app/`, app 모듈은 `app/app/`, 산출 APK 는 **중첩 경로 `app/app/build/outputs/...`** 다. **AGP 8.2 빌드 실행에는 JDK 17 이 필요**하다(컴파일 bytecode 타깃은 jvmTarget=1.8).
+
 ```bash
 cd app
-./gradlew assembleDebug
-adb install app/build/outputs/apk/debug/app-debug.apk
+[ -f local.properties ] || printf 'sdk.dir=%s\n' "$HOME/Library/Android/sdk" > local.properties   # gitignore — 없으면 생성
+JAVA_HOME="$(/usr/libexec/java_home -v 17)" ./gradlew :app:assembleDebug
+adb install -r -g app/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-설치 후 디바이스에서 AccessibilityService 를 활성화해야 한다.
+설치 후 디바이스에서 AccessibilityService 를 활성화하고(§ MainActivity 의 "Open Accessibility Settings"), "Save & Ready" 로 MediaProjection 동의를 한다. **재설치할 때마다 MediaProjection 동의를 다시 받아야 한다**(토큰 단발성). 단 캡처 본체는 AccessibilityService.takeScreenshot 라 미동의 시에도 크래시 없이 동작한다.
+
+> **전체 환경 셋업은 `/setup-collector` 스킬이 자동화**한다 — AVD 부팅·APK 다운로드/설치·client 빌드(JDK17)/설치·접근성·prefs·MediaProjection·Google 로그인·더미데이터 시드·검증을 멱등(초기화 시 1회)으로 수행한다.
 
 ## 빠른 시작
 
