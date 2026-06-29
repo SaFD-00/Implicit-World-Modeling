@@ -140,13 +140,24 @@ def init_or_resume_session(
 
 
 def finalize_session(collector: Collector, session_id: str) -> None:
-    """Finalize: notify app, save session, rebuild page graph, visualize."""
+    """Finalize: notify app, save session, persist page graph, visualize.
+
+    With a live ScreenMatcher the element-set page graph (carrying ``page_key`` /
+    ``element_names``) built during the loop is persisted as-is. Without one
+    (degrade path) the graph is rebuilt post-hoc from the session via the
+    structural fingerprint — the same path the offline ``page-map`` command uses.
+    """
     collector.server.send_session_end()
     collector.writer.finalize_session()
 
-    rebuilt_graph = build_graph_from_session(collector.writer.session_dir)
-    if rebuilt_graph.nodes:
-        graph_data = rebuilt_graph.to_dict()
+    live_graph = getattr(collector, "_live_page_graph", None)
+    if collector._screen_matcher is not None and live_graph is not None and live_graph.nodes:
+        graph = live_graph
+    else:
+        graph = build_graph_from_session(collector.writer.session_dir)
+
+    if graph.nodes:
+        graph_data = graph.to_dict()
         graph_data["metadata"]["session_id"] = session_id
         collector.writer.save_page_graph(graph_data)
         try:

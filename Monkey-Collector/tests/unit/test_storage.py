@@ -90,28 +90,62 @@ class TestSaveXml:
         assert not (xml_dir / "0000_parsed.xml").exists()
 
 
-class TestSaveGroups:
-    def test_writes_groups_json_for_last_step(self, writer, tmp_path):
+class _FakeFamily:
+    def __init__(self, name, element_index, key_element_index):
+        self.name = name
+        self.element_index = element_index
+        self.key_element_index = key_element_index
+
+
+class _FakeMatch:
+    def __init__(self, page_key, match_type, is_new_page, families, page_description=""):
+        self.page_key = page_key
+        self.match_type = match_type
+        self.is_new_page = is_new_page
+        self.families = families
+        self.page_description = page_description
+
+
+class TestSaveElements:
+    def test_writes_elements_json_for_last_step(self, writer, tmp_path):
         from tests.fixtures.xml_samples import SIMPLE_XML
 
         writer.save_xml(SIMPLE_XML)  # saves step 0, step_count -> 1
-        grouping = {
-            "model": "qwen/qwen3.7-plus",
-            "page_description": "search screen",
-            "groups": [{"indices": [1, 2], "function": "controls"}],
-        }
-        path = writer.save_groups(grouping)
+        match = _FakeMatch(
+            page_key="page_0",
+            match_type="NEW",
+            is_new_page=True,
+            families=[_FakeFamily("open_search", [1, 2], [1])],
+            page_description="search screen",
+        )
+        path = writer.save_elements(match)
 
         assert path is not None
-        assert "0000_groups.json" in path
+        assert "0000_elements.json" in path
         data = json.loads(
-            (tmp_path / "com.test.app" / "xml" / "0000_groups.json").read_text()
+            (tmp_path / "com.test.app" / "xml" / "0000_elements.json").read_text()
         )
-        assert data["page_description"] == "search screen"
-        assert data["groups"][0]["indices"] == [1, 2]
+        assert data["page_key"] == "page_0"
+        assert data["match_type"] == "NEW"
+        assert data["is_new_page"] is True
+        assert data["elements"][0]["name"] == "open_search"
+        assert data["elements"][0]["element_index"] == [1, 2]
+        assert data["elements"][0]["key_element_index"] == [1]
+
+    def test_merge_writes_empty_elements(self, writer, tmp_path):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        writer.save_xml(SIMPLE_XML)
+        match = _FakeMatch("page_0", "EQSET", False, families=[])
+        path = writer.save_elements(match)
+        with open(path) as f:
+            data = json.loads(f.read())
+        assert data["match_type"] == "EQSET"
+        assert data["elements"] == []
 
     def test_returns_none_before_any_step(self, writer):
-        assert writer.save_groups({"groups": []}) is None
+        match = _FakeMatch("page_0", "NEW", True, families=[])
+        assert writer.save_elements(match) is None
 
 
 class TestLogEvent:

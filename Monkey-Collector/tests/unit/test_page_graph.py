@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 from monkey_collector.domain.page_graph import (
     PageGraph,
     _extract_structural_tuples,
@@ -12,7 +10,6 @@ from monkey_collector.domain.page_graph import (
 )
 from tests.fixtures.session_fixtures import create_mock_session
 from tests.fixtures.xml_samples import COMPLEX_XML, SIMPLE_XML
-
 
 # ── Fingerprinting ──
 
@@ -248,3 +245,71 @@ class TestBuildGraphFromSession:
         graph = build_graph_from_session(str(session_dir))
         # no_change_retry events should be excluded from event mapping
         assert len(graph.nodes) >= 1
+
+
+class _FakeFamily:
+    def __init__(self, name):
+        self.name = name
+
+
+class _FakeMatch:
+    def __init__(self, page_key, families):
+        self.page_key = page_key
+        self.families = families
+
+
+class TestGetOrCreatePageByMatch:
+    def test_same_page_key_reuses_node_and_bumps_visits(self):
+        g = PageGraph()
+        m = _FakeMatch("page_0", [_FakeFamily("open_add")])
+        pid1 = g.get_or_create_page_by_match(m, "com.test/.Main", SIMPLE_XML, step=0)
+        pid2 = g.get_or_create_page_by_match(m, "com.test/.Main", SIMPLE_XML, step=1)
+        assert pid1 == pid2
+        assert len(g.nodes) == 1
+        assert g.nodes[pid1].visit_count == 2
+        assert g.nodes[pid1].page_key == "page_0"
+        assert g.nodes[pid1].element_names == ["open_add"]
+
+    def test_new_page_key_creates_node(self):
+        g = PageGraph()
+        a = _FakeMatch("page_0", [])
+        b = _FakeMatch("page_1", [])
+        pid_a = g.get_or_create_page_by_match(a, "com.test/.Main", SIMPLE_XML, step=0)
+        pid_b = g.get_or_create_page_by_match(b, "com.test/.Main", COMPLEX_XML, step=1)
+        assert pid_a != pid_b
+        assert len(g.nodes) == 2
+
+    def test_page_key_round_trips_through_serialization(self, tmp_path):
+        g = PageGraph()
+        m = _FakeMatch("page_0", [_FakeFamily("open_add"), _FakeFamily("open_search")])
+        g.get_or_create_page_by_match(m, "com.test/.Main", SIMPLE_XML, step=0)
+        path = tmp_path / "page_graph.json"
+        g.save(str(path))
+        loaded = PageGraph.load(str(path))
+        assert loaded.nodes[0].page_key == "page_0"
+        assert loaded.nodes[0].element_names == ["open_add", "open_search"]
+        # _key_to_id rebuilt → re-match reuses the node
+        pid = loaded.get_or_create_page_by_match(m, "com.test/.Main", SIMPLE_XML, step=1)
+        assert pid == 0 and len(loaded.nodes) == 1
+
+    def test_old_page_graph_json_loads_without_page_key(self, tmp_path):
+        # A legacy file with no page_key/element_names fields must still load.
+        legacy = {
+            "nodes": [
+                {
+                    "id": 0,
+                    "activity": "com.test/.Main",
+                    "xml_fingerprint": "abc",
+                    "first_seen_step": 0,
+                    "screenshot_step": 0,
+                    "visit_count": 1,
+                }
+            ],
+            "edges": [],
+            "metadata": {"threshold": 0.85},
+        }
+        path = tmp_path / "page_graph.json"
+        path.write_text(json.dumps(legacy))
+        loaded = PageGraph.load(str(path))
+        assert loaded.nodes[0].page_key == ""
+        assert loaded.nodes[0].element_names == []

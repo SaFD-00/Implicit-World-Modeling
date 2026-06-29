@@ -50,7 +50,10 @@ SYSTEM_PROMPT = (
     "- For email fields: generate realistic email addresses\n"
     "- For number fields: generate appropriate numbers\n"
     "- For note/memo fields: generate short realistic notes\n"
-    "- For password fields: generate a test password like \"Test1234!\""
+    "- For password fields: generate a test password like \"Test1234!\"\n"
+    "- When an 'App under test' description is provided, tailor the text to that "
+    "app's domain (e.g. product search terms for a shopping app, note content for "
+    "a notes app, a task title for a to-do app)"
 )
 
 USER_PROMPT_TEMPLATE = (
@@ -70,6 +73,15 @@ class TextGenerator(ABC):
     @abstractmethod
     def generate(self, element: UIElement, raw_xml: str) -> str:
         """Generate text appropriate for *element* given the current screen XML."""
+
+    def set_app_context(self, app_context: str) -> None:  # noqa: B027
+        """Set a human-readable description of the app under test.
+
+        Optional hook used by LLM-backed strategies to ground generated text in
+        the current app's domain. Intentionally a concrete no-op (not abstract)
+        so strategies that ignore context (e.g. random generation) need not
+        override it.
+        """
 
 
 class RandomTextGenerator(TextGenerator):
@@ -95,11 +107,18 @@ class LLMTextGenerator(TextGenerator):
         self._client = llm_client
         self._fallback_texts = fallback_texts or SAMPLE_TEXTS
         self._rng = rng or random.Random()
+        self._app_context = ""
+
+    def set_app_context(self, app_context: str) -> None:
+        self._app_context = (app_context or "").strip()
 
     def generate(self, element: UIElement, raw_xml: str) -> str:
         try:
             screen_xml = encode_to_html_xml(raw_xml) if raw_xml else ""
-            user_msg = USER_PROMPT_TEMPLATE.format(
+            app_block = (
+                f"App under test: {self._app_context}\n\n" if self._app_context else ""
+            )
+            user_msg = app_block + USER_PROMPT_TEMPLATE.format(
                 screen_xml=screen_xml,
                 resource_id=element.resource_id or "(none)",
                 content_desc=element.content_desc or "(none)",

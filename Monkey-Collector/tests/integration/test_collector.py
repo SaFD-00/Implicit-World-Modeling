@@ -199,6 +199,35 @@ class TestRunSessionFinish:
 
 
 @pytest.mark.integration
+class TestAppContextWiring:
+    @patch("monkey_collector.pipeline.collection_loop.time.sleep")
+    def test_sets_app_description_from_map(self, mock_sleep, mock_adb):
+        signals = [_make_xml_signal(), ("finish", None, None)]
+        collector, *_ = _make_collector(mock_adb, signals)
+        collector._text_generator = MagicMock()
+        collector._app_contexts = {"com.test.app": "Tasks (Productivity/Todo)"}
+
+        collector.run(package="com.test.app")
+
+        collector._text_generator.set_app_context.assert_called_once_with(
+            "Tasks (Productivity/Todo)"
+        )
+
+    @patch("monkey_collector.pipeline.collection_loop.time.sleep")
+    def test_falls_back_to_package_id(self, mock_sleep, mock_adb):
+        signals = [_make_xml_signal(), ("finish", None, None)]
+        collector, *_ = _make_collector(mock_adb, signals)
+        collector._text_generator = MagicMock()
+        collector._app_contexts = {}  # package not in catalog
+
+        collector.run(package="com.test.app")
+
+        collector._text_generator.set_app_context.assert_called_once_with(
+            "com.test.app"
+        )
+
+
+@pytest.mark.integration
 class TestSessionEndSignal:
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
     def test_session_end_sent_on_finish(self, mock_sleep, mock_adb):

@@ -5,13 +5,14 @@ from monkey_collector.pipeline.exploration.transition_graph import TransitionGra
 
 
 def _state(structure: str) -> SemanticState:
-    """A minimal state identified solely by its structure_str."""
+    """A minimal state identified solely by its page_key (== structure here)."""
     return SemanticState(
         state_str=structure,
         structure_str=structure,
         activity="com.test.app/.A",
         package="com.test.app",
         elements=(),
+        page_key=structure,
     )
 
 
@@ -23,7 +24,7 @@ def test_two_hop_path():
 
     steps = graph.shortest_nav_steps(a, c)
     assert steps is not None
-    assert [s.structure_str for s in steps] == ["A", "B"]
+    assert [s.page_key for s in steps] == ["A", "B"]
     assert steps[0].element_signature == "btn:to_b"
     assert steps[1].element_signature == "btn:to_c"
 

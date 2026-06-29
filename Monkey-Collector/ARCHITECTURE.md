@@ -63,10 +63,11 @@
   - [`actions.py`](./src/monkey_collector/domain/actions.py): Action dataclass 들
   - [`activity_coverage.py`](./src/monkey_collector/domain/activity_coverage.py): Activity coverage CSV. ground truth 의 분모(`total_activities`)와 분자 후보 집합 모두 `session_manager._resolve_declared_activities` 가 결정하며, 1차 소스는 [`catalog/activities.json`](./catalog/activities.json) (androguard manifest 추출), 폴백은 `adb dumpsys package`. catalog hit 시 (`allow_dynamic_total=False`) 분모 고정 + 분자(`unique_visited`)는 catalog set 안의 activity 만 normalize 후 카운트 + `coverage = min(1.0, ...)` 클램프. catalog 외 activity 는 `activity` 컬럼에 그대로 기록되지만 coverage 에는 영향 없음. catalog miss 폴백 (`allow_dynamic_total=True`) 은 legacy 동작 (target package 의 미선언 activity 발견 시 분모 동적 확장 + 모든 visited 카운트).
   - [`cost_tracker.py`](./src/monkey_collector/domain/cost_tracker.py): LLM 비용 추적 CSV. `agent` 컬럼으로 호출 주체(`text_generator` / `screen_grouper`) 구분.
-  - [`page_graph.py`](./src/monkey_collector/domain/page_graph.py): 페이지 그래프 생성
+  - [`page_graph.py`](./src/monkey_collector/domain/page_graph.py): 페이지 그래프 생성. live 수집은 `get_or_create_page_by_match`(ScreenMatcher 의 `page_key` → 노드)로, 오프라인 `build_graph_from_session`/`page-map` 는 기존 구조 지문 `get_or_create_page`(activity+Jaccard)로 식별한다(live=element-set, post-hoc=구조 근사 분기). `PageNode` 에 `page_key`/`element_names` 필드 추가(구 `page_graph.json` 은 `.get` 기본값으로 로드).
 - `llm/` — 모든 LLM 소비자가 공유하는 단일 클라이언트
   - [`client.py`](./src/monkey_collector/llm/client.py): `LLMClient` — env 기반(`OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL` / `OPENROUTER_MODEL`, 기본 `qwen/qwen3.7-plus`) OpenRouter **Chat Completions** 래퍼. `chat()` 한 경로로 호출하며 cost_tracker 에 `prompt_tokens`/`completion_tokens` 기록. `create_llm_client()` 는 키 없으면 `None` 반환.
-  - [`screen_grouper.py`](./src/monkey_collector/llm/screen_grouper.py): `ScreenGrouper` — 화면 요소 의미 그룹핑("화면 나누기"). `encode_to_html_xml` 표현을 LLM 에 보내 같은 기능 요소 그룹(JSON) 을 받고, 동일 구조 화면은 in-memory 캐시로 재호출 생략. 실패 시 빈 그룹핑(수집 흐름 무영향).
+  - [`element_extractor.py`](./src/monkey_collector/llm/element_extractor.py): `ElementExtractor` — **단일 호출 element 추출**(MobileGPT-V2 Node-Clustering 포팅). `encode_to_html_xml` 표현을 LLM 에 보내, 각 element 마다 `element_index`(같은 기능 family 전체)와 `key_element_index`(대표 anchor 1~3)를 **한 번에** 받는다(MobileGPT-V2 가 SubtaskExtractor·TriggerUIAgent 두 호출로 나눠 뽑는 것과 달리 1호출로 합침). `known_elements` 가 주어지면 그와 겹치지 않는 것만 반환(expand). 실패 시 `[]`(수집 흐름 무영향). `create_element_extractor()` 는 클라이언트 없으면 `None`.
+  - [`prompts/element_extractor_prompt.py`](./src/monkey_collector/llm/prompts/element_extractor_prompt.py): MobileGPT-V2 의 subtask_extractor(추출 규칙·SAME-FUNCTION GROUP·KNOWN 제외) + trigger_ui(대표 선택 기준)를 병합한 단일 프롬프트.
 - 인프라 모듈에 인접
   - [`catalog_activities.py`](./src/monkey_collector/catalog_activities.py): `catalog/activities.json` 의 process-lifetime 캐시 (`ActivityCatalog`). activity coverage ground truth 1차 소스.
 - `pipeline/`
@@ -75,14 +76,19 @@
   - [`collection_loop.py`](./src/monkey_collector/pipeline/collection_loop.py): 메인 루프
   - [`recovery.py`](./src/monkey_collector/pipeline/recovery.py): retry / recovery 상수와 helper
   - [`screen_guard.py`](./src/monkey_collector/pipeline/screen_guard.py): 화면 분류 가드(키보드/권한 다이얼로그/시스템·런처 화면). `SYSTEM_PACKAGES` 에 `gms`/`gsf`/`vending`/launcher 를 포함해, 타깃 앱이 Google 로그인·Play 화면으로 drift 한 것을 "앱 이탈"로 판정(클라이언트 `EXCLUDED_PACKAGES` 와 이중 방어). 권한 다이얼로그는 grant 우선 버튼 탐색으로 자동 처리.
-  - [`exploration/`](./src/monkey_collector/pipeline/exploration): LLM-guided 탐색 엔진 (LLM-Explorer 포팅). `Explorer` Protocol 을 구현하는 `LLMGuidedExplorer` 가 coverage-driven unexplored-first 선택 + same-function 압축 + 최단경로 navigation 을 수행한다.
-    - [`state.py`](./src/monkey_collector/pipeline/exploration/state.py): `SemanticState` — raw XML → `state_str`(내용 포함)·`structure_str`(구조만)·`SemanticElement` 목록. element 는 encoded index 기준이라 `ScreenGrouper` 그룹과 1:1 정렬, scroll 컨테이너는 UITree 에서 음수 index 로 보강.
-    - [`memory.py`](./src/monkey_collector/pipeline/exploration/memory.py): `Memory` — `(structure_str, element_signature, action_type)` 단위 커버리지 추적. LLM same-function 그룹으로 동등 element 를 한 번에 explored 처리(탐색 공간 압축).
-    - [`transition_graph.py`](./src/monkey_collector/pipeline/exploration/transition_graph.py): `TransitionGraph` — navigation 용 structure 그래프(networkx). `shortest_nav_steps` 가 미탐색 화면까지 최단경로 산출.
+  - [`screen_matching/`](./src/monkey_collector/pipeline/screen_matching): **element-set screen matching** 엔진 (MobileGPT-V2 Node-Clustering 포팅). `ScreenMatcher` 가 화면마다 page 식별을 수행하고 그 `page_key` 가 page_graph 노드와 탐색 abstract page 를 모두 결정한다. 키 없으면(extractor=None) 생성되지 않아 구조 지문 식별로 degrade.
+    - [`ui_attributes.py`](./src/monkey_collector/pipeline/screen_matching/ui_attributes.py): `UIAttributes`(self+parent+children 구조 지문)와 매칭 primitives(`find_matching_node` ancestor-walk, `text_blind_requirements`, `get_ui_key_attrib`, `extract_interactable_indexes`, `mask_xml_to_indexes`). MobileGPT-V2 xml_parser 를 MC encoded 스키마(`tag/aria-label/alt/text/type/value`, `id`/`class` 없음)로 적응 포팅, distinctive 판정은 `aria-label/alt`.
+    - [`screen_matcher.py`](./src/monkey_collector/pipeline/screen_matching/screen_matcher.py): `ScreenMatcher.match` — ① 구조 지문 pre-filter(exact 재방문 short-circuit, LLM 0회) ② step-1 text-blind ALL-match(저장 anchor) → supported + remaining ③ expand(remaining 마스킹 후 재추출, dry/cap 까지) ④ set-classify(A vs B) ⑤ dispatch(MERGE=stored page_key frozen / NEW=새 page_key, anchor 를 현재 화면에서 fingerprint). 새 페이지일 때만 `families`(현재 인덱스 element family) 반환.
+    - [`set_classifier.py`](./src/monkey_collector/pipeline/screen_matching/set_classifier.py): A vs B set 분류(EQSET/SUPERSET_MERGE/SUBSET_MERGE/OVERLAP_MERGE/OVERLAP_NEW/DISJOINT). containment 는 무조건 merge(scroll-reveal 수렴), OVERLAP 만 two-sided tolerance band 게이트.
+    - [`page_knowledge.py`](./src/monkey_collector/pipeline/screen_matching/page_knowledge.py): `PageKnowledge`(page_key·elements·`key_elements`(name→anchor 지문)·`extra_uis`) + `KnowledgeRegistry`(세션별 in-memory 저장).
+  - [`exploration/`](./src/monkey_collector/pipeline/exploration): LLM-guided 탐색 엔진 (LLM-Explorer 포팅). `Explorer` Protocol 을 구현하는 `LLMGuidedExplorer` 가 coverage-driven unexplored-first 선택 + same-function 압축 + 최단경로 navigation 을 수행한다. `set_match_context(page_key, families)` 로 ScreenMatcher 결과를 받는다(없으면 `structure_str` fallback).
+    - [`state.py`](./src/monkey_collector/pipeline/exploration/state.py): `SemanticState` — raw XML → `state_str`(내용 포함)·`structure_str`(구조만)·`page_key`(element-set 식별, matcher 없으면 structure_str)·`SemanticElement` 목록. element 는 encoded index 기준이라 extractor family 와 1:1 정렬, scroll 컨테이너는 UITree 에서 음수 index 로 보강.
+    - [`memory.py`](./src/monkey_collector/pipeline/exploration/memory.py): `Memory` — `(page_key, element_signature, action_type)` 단위 커버리지 추적. extractor 의 element family(`element_index`)로 동등 element 를 한 번에 explored 처리(탐색 공간 압축); family 없으면(matcher 없음/merge 재방문) degrade.
+    - [`transition_graph.py`](./src/monkey_collector/pipeline/exploration/transition_graph.py): `TransitionGraph` — navigation 용 `page_key` 그래프(networkx). `shortest_nav_steps` 가 미탐색 화면까지 최단경로 산출.
     - [`navigator.py`](./src/monkey_collector/pipeline/exploration/navigator.py): `Navigator` — `_nav_steps` 큐를 매 step App 신호를 받으며 순차 소비(signature 재매칭). 무한루프 가드 포함.
     - [`action_mapper.py`](./src/monkey_collector/pipeline/exploration/action_mapper.py): semantic action(`touch/select/long_touch/set_text/scroll`) → domain `Action` 변환. `set_text` 는 `TextGenerator` 위임.
     - [`constants.py`](./src/monkey_collector/pipeline/exploration/constants.py): 엔진 튜닝 상수(LLM-Explorer 원본 값 보존).
-  - [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py): random 또는 공용 `LLMClient` 기반 입력 텍스트 생성
+  - [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py): random 또는 공용 `LLMClient` 기반 입력 텍스트 생성. `set_app_context()` 로 세션마다 현재 앱 설명을 받아 LLM 프롬프트에 `App under test:` 줄로 주입(`Collector._run_session` 이 호출, csv 미등록 앱은 package_id 폴백). random 전략에선 no-op.
 - 인프라 모듈 (monkey_collector/ 직속)
   - [`adb.py`](./src/monkey_collector/adb.py): ADB wrapper. 상단 상수 `REQUIRED_AVD_NAME = "Pixel6-2"` 에 맞춰 `adb devices` + `emu avd name` 으로 해당 AVD 의 emulator serial 을 해석하고, 이후 모든 명령에 `-s <serial>` 을 prefix 한다. 다중 디바이스 환경에서도 단일 AVD 만 쓰도록 강제.
   - [`tcp_server.py`](./src/monkey_collector/tcp_server.py): TCP 서버와 signal queue (`CollectionServer`)
@@ -101,7 +107,7 @@
 
 - `src/monkey_collector/pipeline/app_catalog.py`
   - `AppCatalog`: stdlib csv 로 `catalog/apps.csv` 파싱, BOM/대소문자 정규화.
-  - `AppJob`: frozen dataclass (category, sub_category, app_name, package_id, source, priority, notes, installed).
+  - `AppJob`: frozen dataclass (category, sub_category, app_name, package_id, source, priority, notes, installed). `description` 프로퍼티가 `app_name (category/sub_category) — notes` 한 줄을 만들어 input-text LLM 프롬프트의 앱 컨텍스트로 쓰인다(CLI `_resolve_app_contexts` → `Collector(app_contexts=...)`).
   - `filter(categories, priorities, installed)`: case-insensitive 필터. `installed=True` 는 `catalog/apps.csv` 의 `installed` 컬럼이 `true` 인 앱만 반환.
   - `installed_apps()` / `find_by_package(pkg)` 헬퍼로 `run --apps all` 과 명시적 패키지 목록 해소를 지원.
 - `src/monkey_collector/pipeline/installed_sync.py`
@@ -141,8 +147,10 @@ Android AccessibilityEvent
   -> 외부 앱 감지면 E signal
   -> 변화가 있으면 screenshot + XML + metadata 전송
   -> Python server 가 latest signal 소비
-  -> XML parse + (screen-grouping on 이면) ScreenGrouper 가 화면 의미 그룹핑 → {step}_groups.json 저장
-  -> LLMGuidedExplorer 가 action 선택 (미탐색 우선 + same-function 압축 + 미탐색 화면 navigation; input_text 필요 시 공용 LLMClient 로 텍스트 생성)
+  -> XML parse + (element-extraction on 이면) ScreenMatcher 가 element-set 으로 page 식별
+       (pre-filter → step-1 ALL-match → expand 재추출 → set-classify → page_key)
+       → page_graph 노드 = page_key, 새 페이지 element family 는 탐색에 전달, {step}_elements.json 저장
+  -> LLMGuidedExplorer 가 action 선택 (미탐색 우선 + element family 압축 + 미탐색 화면 navigation; input_text 필요 시 공용 LLMClient 로 텍스트 생성)
   -> ADB 실행
   -> screenshot/XML/event 저장
   -> 다음 step 반복
@@ -198,9 +206,9 @@ Server -> App (newline-delimited JSON):
 핵심 특성:
 
 - 좌표가 아닌 **element signature**(content 기반)로 커버리지를 추적해 스크롤/리렌더에 강건.
-- `ScreenGrouper` 의 same-function 그룹을 **탐색에 반영** — 동등 element 하나를 탐색하면 그룹 전체가 explored 되어 탐색 공간이 압축된다. LLM 키가 없으면(`ScreenGrouper=None`) 그룹 없이 순수 unexplored-first 로 degrade 한다.
+- `ElementExtractor` 의 element family(`element_index`)를 **탐색에 반영** — 동등 element 하나를 탐색하면 family 전체가 explored 되어 탐색 공간이 압축된다. LLM 키가 없으면(matcher 미생성) family 없이 순수 unexplored-first 로 degrade 한다.
 - 세션마다 `explorer.reset()` 으로 메모리(transition graph·커버리지)를 격리해 앱 간 오염을 막는다.
-- abstract page 식별은 `structure_str`(텍스트 무관 구조 해시)로, `page_graph.json` 산출물(별도 `PageGraph`)과는 디커플되어 있다.
+- abstract page 식별은 **`page_key`**(ScreenMatcher 의 element-set 식별; matcher 없으면 `structure_str` fallback)로 하며, 이 동일한 `page_key` 가 `page_graph.json` 산출물(live `get_or_create_page_by_match`)의 노드도 결정한다 — 과거 구조 지문 기반 디커플은 element-set matching 으로 커플링되었다(MobileGPT-V2 포팅).
 
 실행은 `LLMGuidedExplorer.execute_action` 이 `AdbClient` ([`src/monkey_collector/adb.py`](./src/monkey_collector/adb.py)) 메서드로 위임. `AdbClient` 는 CLI 진입점에서 단일 인스턴스로 생성되어 `LLMGuidedExplorer` 와 `Collector` 에 주입된다. 생성 시점에 `Pixel6-2` AVD 의 emulator serial 을 해석해 저장하므로, 해당 AVD 가 실행 중이어야 한다.
 
@@ -248,7 +256,7 @@ data/raw/{package}/
 │   ├── 0000_hierarchy.xml
 │   ├── 0000_encoded.xml
 │   ├── 0000_pretty.xml
-│   └── 0000_groups.json     # --screen-grouping on 일 때만 (LLM 그룹핑)
+│   └── 0000_elements.json   # --element-extraction on 일 때만 (element-set match)
 ├── events.jsonl
 ├── activity_coverage.csv     # ground truth: catalog/activities.json (fallback: dumpsys)
 ├── cost.csv
@@ -263,7 +271,7 @@ data/raw/{package}/
 - `_encoded.xml`: bounds 제거, index 유지
 - `_pretty.xml`: encoded XML pretty-print
 
-`{step}_groups.json` 은 `--screen-grouping on` 일 때 `ScreenGrouper` 가 만든 같은 기능 요소 그룹 annotation 이다(`{step}_encoded.xml` 의 `index` 기준). LLM 호출 결과이므로 `save_xml`/`regenerate_xml_variants` 의 결정적 파생 대상이 아니다.
+`{step}_elements.json` 은 `--element-extraction on` 일 때 `ScreenMatcher` 가 만든 element-set match annotation 이다: `page_key`/`match_type`/`is_new_page` 와, 새 페이지일 때 추출된 element family 목록(`name`/`element_index`/`key_element_index`, `{step}_encoded.xml` 의 `index` 기준). merge·구조 재방문이면 `elements` 는 비고 page_key·match_type 만 기록한다. LLM 호출 결과이므로 `save_xml`/`regenerate_xml_variants` 의 결정적 파생 대상이 아니다.
 
 ## 6. CLI 와 공개 API
 
@@ -290,7 +298,8 @@ data/raw/{package}/
 - `TextGenerator`
 - `RandomTextGenerator`
 - `LLMTextGenerator`
-- `LLMClient`, `ScreenGrouper` (+ `create_llm_client`, `create_screen_grouper`)
+- `LLMClient`, `ElementExtractor` (+ `create_llm_client`, `create_element_extractor`)
+- `ScreenMatcher` (+ `create_screen_matcher`)
 - `CollectionServer`
 - `AdbClient`
 - `DataWriter`

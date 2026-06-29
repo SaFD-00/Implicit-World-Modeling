@@ -16,16 +16,16 @@ def cmd_run(args: argparse.Namespace) -> None:
     logger.add(str(log_path), level="DEBUG", enqueue=True)
     logger.info(f"[run] log file: {log_path}")
 
+    from monkey_collector.adb import AdbClient
     from monkey_collector.domain.activity_coverage import ActivityCoverageTracker
     from monkey_collector.domain.cost_tracker import CostTracker
-    from monkey_collector.adb import AdbClient
-    from monkey_collector.tcp_server import CollectionServer
-    from monkey_collector.storage import DataWriter
-    from monkey_collector.pipeline.app_catalog import AppCatalog
-    from monkey_collector.llm import create_llm_client, create_screen_grouper
+    from monkey_collector.llm import create_element_extractor, create_llm_client
     from monkey_collector.pipeline.collector import Collector
     from monkey_collector.pipeline.exploration import LLMGuidedExplorer
+    from monkey_collector.pipeline.screen_matching import create_screen_matcher
     from monkey_collector.pipeline.text_generator import create_text_generator
+    from monkey_collector.storage import DataWriter
+    from monkey_collector.tcp_server import CollectionServer
 
     packages = _resolve_run_packages(args.apps, args.output, args.force)
     if not packages:
@@ -36,29 +36,43 @@ def cmd_run(args: argparse.Namespace) -> None:
         )
         return
     logger.info(f"Run queue ({len(packages)} app(s)): {packages}")
+    app_contexts = _resolve_app_contexts(packages)
 
     adb = AdbClient()
     activity_tracker = ActivityCoverageTracker()
     cost_tracker = CostTracker()
 
+    # --screen-grouping is a deprecated alias for --element-extraction.
+    element_extraction_on = args.element_extraction == "on"
+    if getattr(args, "screen_grouping", None) == "off":
+        logger.warning(
+            "--screen-grouping is deprecated; use --element-extraction. "
+            "Treating --screen-grouping off as --element-extraction off."
+        )
+        element_extraction_on = False
+
     # Single shared OpenRouter client reused by input-text generation and
-    # screen grouping. Created only when an LLM feature is requested; returns
-    # None (→ random text / no grouping) when OPENROUTER_API_KEY is unset.
-    screen_grouping_on = args.screen_grouping == "on"
+    # element extraction. Created only when an LLM feature is requested; returns
+    # None (→ random text / structural-fingerprint matching) when
+    # OPENROUTER_API_KEY is unset.
     llm_client = None
-    if args.input_mode == "api" or screen_grouping_on:
+    if args.input_mode == "api" or element_extraction_on:
         llm_client = create_llm_client(cost_tracker=cost_tracker)
 
     text_gen = create_text_generator(
         mode=args.input_mode, seed=args.seed, llm_client=llm_client,
     )
-    screen_grouper = create_screen_grouper(llm_client, enabled=screen_grouping_on)
-    # The same ScreenGrouper instance feeds both the explorer (same-function
-    # compression of the exploration frontier) and the collector (saving the
-    # grouping annotation), so the LLM is queried once per screen.
+    # One ElementExtractor feeds the ScreenMatcher, which the loop queries once
+    # per new screen (plus expand passes) for element-set page identity.
+    extractor = create_element_extractor(llm_client) if element_extraction_on else None
+    screen_matcher = create_screen_matcher(
+        extractor,
+        enabled=element_extraction_on,
+        cluster_merge_tolerance=args.cluster_merge_tolerance,
+        max_expand_iters=args.max_expand_iters,
+    )
     explorer = LLMGuidedExplorer(
         adb,
-        screen_grouper=screen_grouper,
         text_generator=text_gen,
         config={
             "seed": args.seed,
@@ -78,8 +92,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         cost_tracker=cost_tracker,
         text_generator=text_gen,
         llm_client=llm_client,
-        screen_grouper=screen_grouper,
+        screen_matcher=screen_matcher,
         new_session=args.new_session,
+        app_contexts=app_contexts,
     )
 
     session_ids = collector.run_queue(packages)
@@ -165,6 +180,28 @@ def _resolve_run_packages(
             f"(use --force to re-collect): {skipped}"
         )
     return filtered
+
+
+def _resolve_app_contexts(packages: list[str]) -> dict[str, str]:
+    """Map each package id to its human-readable app description from apps.csv.
+
+    Used to ground LLM input-text generation in the app's domain. Best-effort:
+    a missing catalog yields ``{}`` and packages absent from the catalog are
+    simply omitted — the Collector falls back to the package id for those.
+    """
+    from monkey_collector.pipeline.app_catalog import AppCatalog
+
+    try:
+        catalog = AppCatalog.load("catalog/apps.csv")
+    except FileNotFoundError:
+        return {}
+
+    contexts: dict[str, str] = {}
+    for pkg in packages:
+        job = catalog.find_by_package(pkg)
+        if job is not None:
+            contexts[pkg] = job.description
+    return contexts
 
 
 def _load_completed_packages(output_dir: str) -> set[str]:
@@ -366,15 +403,35 @@ def main() -> None:
         help="Input text generation mode: 'api' (LLM) or 'random' (hardcoded)",
     )
     p.add_argument(
-        "--screen-grouping",
+        "--element-extraction",
         choices=["on", "off"],
         default="on",
         help=(
-            "LLM screen element semantic grouping ('화면 나누기'). 'on' annotates "
-            "each screen with same-function element groups via the shared "
-            "OpenRouter client (requires OPENROUTER_API_KEY); auto-disabled when "
-            "no client is available. 'off' skips grouping."
+            "LLM element extraction + element-set screen matching. 'on' extracts "
+            "each screen's elements (same-function family + representative anchor) "
+            "in one call and uses them as page identity, saving "
+            "xml/{step}_elements.json (requires OPENROUTER_API_KEY; auto-disabled "
+            "to structural-fingerprint matching when no client is available). "
+            "'off' uses structural matching only."
         ),
+    )
+    p.add_argument(
+        "--screen-grouping",
+        choices=["on", "off"],
+        default=None,
+        help="Deprecated alias for --element-extraction (off disables it).",
+    )
+    p.add_argument(
+        "--cluster-merge-tolerance",
+        type=float,
+        default=0.2,
+        help="Two-sided tolerance band for OVERLAP element-set merges (default 0.2)",
+    )
+    p.add_argument(
+        "--max-expand-iters",
+        type=int,
+        default=3,
+        help="Max expand (re-extract on leftover UI) iterations per screen (default 3)",
     )
     p.add_argument(
         "--new-session",

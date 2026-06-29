@@ -26,10 +26,12 @@ from monkey_collector.pipeline.screen_guard import (
     is_permission_dialog,
     is_system_screen,
 )
+from monkey_collector.xml.structured_parser import encode_with_bounds
 from monkey_collector.xml.ui_tree import UITree
 
 if TYPE_CHECKING:
     from monkey_collector.pipeline.collector import Collector
+    from monkey_collector.pipeline.screen_matching.screen_matcher import ScreenMatch
 
 
 @dataclass
@@ -51,6 +53,9 @@ class CollectionState:
     root_page_id: int | None = None
     same_page_count: int = 0
     page_graph: PageGraph = field(default_factory=PageGraph)
+    # Set per screen when a ScreenMatcher is active; carries the element-set
+    # match so the loop can persist it (save_elements) after save_xml.
+    current_screen_match: ScreenMatch | None = None
 
 
 def _is_root_screen(state: CollectionState) -> bool:
@@ -423,9 +428,29 @@ def _process_xml_signal(
 
     previous_page_id = state.current_page_id
     pages_before = len(state.page_graph.nodes)
-    state.current_page_id = state.page_graph.get_or_create_page(
-        activity_name, xml_str, state.step,
-    )
+
+    # Cost attribution covers every LLM consumer this step (element extraction
+    # in the matcher + input-text generation); set the step before the matcher
+    # makes any call.
+    if collector._llm_client is not None:
+        collector._llm_client.set_step(state.step)
+
+    # Page identity. With a ScreenMatcher, element-set matching decides the page
+    # (and feeds the explorer's same-function compression); without one, fall
+    # back to the structural-fingerprint identity (byte-for-byte legacy path).
+    state.current_screen_match = None
+    if collector._screen_matcher is not None:
+        encoded_xml, _ = encode_with_bounds(xml_str)
+        match = collector._screen_matcher.match(xml_str, encoded_xml, activity_name)
+        state.current_screen_match = match
+        state.current_page_id = state.page_graph.get_or_create_page_by_match(
+            match, activity_name, xml_str, state.step,
+        )
+        collector.explorer.set_match_context(match.page_key, match.families)
+    else:
+        state.current_page_id = state.page_graph.get_or_create_page(
+            activity_name, xml_str, state.step,
+        )
     # The first in-app page registered this session is the root (back from it
     # only exits to the launcher); pin it once for back-suppression.
     if state.root_page_id is None:
@@ -469,24 +494,18 @@ def _process_xml_signal(
             state.step += 1
             return True
 
-    # Shared step for cost attribution across every LLM consumer this step
-    # (input text generation + screen grouping).
-    if collector._llm_client is not None:
-        collector._llm_client.set_step(state.step)
-
     if collector._latest_screenshot:
         collector.writer.save_screenshot(collector._latest_screenshot)
         collector._latest_screenshot = None
     collector.writer.save_xml(xml_str)
 
-    # Annotate the just-saved screen with LLM semantic element grouping
-    # ("화면 나누기"). Best-effort: a failure here must never break collection.
-    if collector._screen_grouper is not None:
+    # Persist the element-set match for the just-saved screen
+    # (xml/{step}_elements.json). Best-effort: never break collection.
+    if state.current_screen_match is not None:
         try:
-            grouping = collector._screen_grouper.group(xml_str)
-            collector.writer.save_groups(grouping)
+            collector.writer.save_elements(state.current_screen_match)
         except Exception as e:
-            logger.warning(f"Step {state.step}: screen grouping failed ({e})")
+            logger.warning(f"Step {state.step}: save_elements failed ({e})")
 
     ui_tree = UITree.from_xml_string(xml_str)
     # A tree with nodes but NO interactable element (e.g. a React-Native screen

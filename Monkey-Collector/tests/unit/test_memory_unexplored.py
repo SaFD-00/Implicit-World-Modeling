@@ -7,6 +7,7 @@ from monkey_collector.pipeline.exploration.state import (
     TOUCH,
     SemanticState,
 )
+from monkey_collector.pipeline.screen_matching.screen_matcher import ElementFamily
 from tests.fixtures.xml_samples import COMPLEX_XML, SIMPLE_XML
 
 ACTIVITY = "com.test.app/.MainActivity"
@@ -18,23 +19,13 @@ def _state(xml: str, activity: str = ACTIVITY) -> SemanticState:
     return SemanticState.from_screen(xml, activity, PACKAGE)
 
 
-class _StubGrouper:
-    """Returns a fixed grouping; mimics ScreenGrouper.group's shape."""
-
-    def __init__(self, groups):
-        self._groups = groups
-
-    def group(self, raw_xml):
-        return {"groups": self._groups}
-
-
 # ── frontier basics ──
 
 
 def test_new_state_exposes_all_actions_except_long_touch_followups():
     memory = Memory()
     state = _state(SIMPLE_XML)
-    memory.record_state(state, SIMPLE_XML)
+    memory.record_state(state)
 
     actions = memory.unexplored_actions([state])
     pairs = {(e.signature, at) for _, e, at in actions}
@@ -47,9 +38,9 @@ def test_new_state_exposes_all_actions_except_long_touch_followups():
 def test_explored_action_drops_from_frontier():
     memory = Memory()
     state = _state(SIMPLE_XML)
-    memory.record_state(state, SIMPLE_XML)
+    memory.record_state(state)
 
-    memory.mark_explored(state.structure_str, "button::Search", TOUCH)
+    memory.mark_explored(state.page_key, "button::Search", TOUCH)
     pairs = {(e.signature, at) for _, e, at in memory.unexplored_actions([state])}
     assert ("button::Search", TOUCH) not in pairs
 
@@ -57,38 +48,49 @@ def test_explored_action_drops_from_frontier():
 def test_long_touch_appears_after_touch_explored():
     memory = Memory()
     state = _state(SIMPLE_XML)
-    memory.record_state(state, SIMPLE_XML)
+    memory.record_state(state)
 
-    memory.mark_explored(state.structure_str, "button::Search", TOUCH)
+    memory.mark_explored(state.page_key, "button::Search", TOUCH)
     pairs = {(e.signature, at) for _, e, at in memory.unexplored_actions([state])}
     assert ("button::Search", LONG_TOUCH) in pairs
 
 
-# ── same-function compression ──
+# ── same-function compression (driven by extractor families) ──
 
 
 def test_same_function_group_compresses_frontier():
-    # Group the two checkboxes (encoded indices 6 and 8) as same-function.
-    grouper = _StubGrouper([{"indices": [6, 8], "function": "toggle"}])
-    memory = Memory(screen_grouper=grouper)
+    # Group the two checkboxes (encoded indices 6 and 8) as one family.
+    family = ElementFamily(
+        name="toggle", element_index=[6, 8], key_element_index=[6]
+    )
+    memory = Memory()
     state = _state(COMPLEX_XML, SETTINGS)
-    memory.record_state(state, COMPLEX_XML)
+    memory.record_state(state, [family])
 
-    # Exploring one checkbox's select marks the whole group explored.
-    memory.mark_explored(state.structure_str, "input:checkbox:Dark mode toggle", SELECT)
+    # Exploring one checkbox's select marks the whole family explored.
+    memory.mark_explored(state.page_key, "input:checkbox:Dark mode toggle", SELECT)
     pairs = {(e.signature, at) for _, e, at in memory.unexplored_actions([state])}
     assert ("input:checkbox:Notifications toggle", SELECT) not in pairs
 
 
-def test_grouping_skipped_without_grouper():
-    memory = Memory(screen_grouper=None)
+def test_grouping_skipped_without_families():
+    memory = Memory()
     state = _state(COMPLEX_XML, SETTINGS)
-    memory.record_state(state, COMPLEX_XML)
+    memory.record_state(state)  # no families → degrade to no compression
 
-    memory.mark_explored(state.structure_str, "input:checkbox:Dark mode toggle", SELECT)
+    memory.mark_explored(state.page_key, "input:checkbox:Dark mode toggle", SELECT)
     pairs = {(e.signature, at) for _, e, at in memory.unexplored_actions([state])}
     # Without grouping, the other checkbox is still unexplored.
     assert ("input:checkbox:Notifications toggle", SELECT) in pairs
+
+
+def test_singleton_family_does_not_compress():
+    # A family that maps to a single signature must not form a group.
+    family = ElementFamily(name="solo", element_index=[6], key_element_index=[6])
+    memory = Memory()
+    state = _state(COMPLEX_XML, SETTINGS)
+    memory.record_state(state, [family])
+    assert memory._groups[state.page_key] == []
 
 
 # ── nav-fail exclusion & in-app gate ──
@@ -97,9 +99,9 @@ def test_grouping_skipped_without_grouper():
 def test_nav_failed_action_excluded():
     memory = Memory()
     state = _state(SIMPLE_XML)
-    memory.record_state(state, SIMPLE_XML)
+    memory.record_state(state)
 
-    memory.mark_nav_failed(state.structure_str, "button::Add new", TOUCH)
+    memory.mark_nav_failed(state.page_key, "button::Add new", TOUCH)
     pairs = {(e.signature, at) for _, e, at in memory.unexplored_actions([state])}
     assert ("button::Add new", TOUCH) not in pairs
 
@@ -108,20 +110,20 @@ def test_in_app_states_filters_foreign_screens():
     memory = Memory()
     in_app = _state(SIMPLE_XML, "com.test.app/.MainActivity")
     foreign = _state(SIMPLE_XML, "com.other.app/.Main")
-    memory.record_state(in_app, SIMPLE_XML)
-    memory.record_state(foreign, SIMPLE_XML)
+    memory.record_state(in_app)
+    memory.record_state(foreign)
 
-    in_app_structs = {s.structure_str for s in memory.in_app_states()}
-    assert in_app.structure_str in in_app_structs
-    assert foreign.structure_str not in in_app_structs
+    in_app_keys = {s.page_key for s in memory.in_app_states()}
+    assert in_app.page_key in in_app_keys
+    assert foreign.page_key not in in_app_keys
 
 
 def test_record_transition_marks_explored_and_builds_graph():
     memory = Memory()
     src = _state(SIMPLE_XML)
     dst = _state(COMPLEX_XML, SETTINGS)
-    memory.record_state(src, SIMPLE_XML)
-    memory.record_state(dst, COMPLEX_XML)
+    memory.record_state(src)
+    memory.record_state(dst)
 
     memory.record_transition(src, "button::Add new", TOUCH, dst)
     # explored

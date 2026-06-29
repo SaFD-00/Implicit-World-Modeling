@@ -109,6 +109,39 @@ class TestLLMTextGenerator:
         assert kwargs.get("agent") == "text_generator"
         assert kwargs.get("max_tokens") == 50
 
+    def test_app_context_included_in_user_message(self, dummy_element):
+        client = _mock_client("x")
+        gen = LLMTextGenerator(client)
+        gen.set_app_context("Amazon Shopping (Shopping/General) — Top e-commerce")
+        gen.generate(dummy_element, DUMMY_XML)
+
+        user_msg = client.chat.call_args.args[0][1]["content"]
+        assert "App under test: Amazon Shopping (Shopping/General) — Top e-commerce" in user_msg
+
+    def test_no_app_context_omits_line(self, dummy_element):
+        client = _mock_client("x")
+        gen = LLMTextGenerator(client)
+        gen.generate(dummy_element, DUMMY_XML)
+
+        user_msg = client.chat.call_args.args[0][1]["content"]
+        assert "App under test:" not in user_msg
+
+    def test_blank_app_context_omits_line(self, dummy_element):
+        client = _mock_client("x")
+        gen = LLMTextGenerator(client)
+        gen.set_app_context("   ")  # whitespace-only is treated as empty
+        gen.generate(dummy_element, DUMMY_XML)
+
+        user_msg = client.chat.call_args.args[0][1]["content"]
+        assert "App under test:" not in user_msg
+
+    def test_random_generator_set_app_context_is_noop(self, dummy_element):
+        gen = RandomTextGenerator(random.Random(42))
+        before = gen.generate(dummy_element, DUMMY_XML)
+        gen.set_app_context("Amazon Shopping")  # must not raise
+        after = RandomTextGenerator(random.Random(42)).generate(dummy_element, DUMMY_XML)
+        assert before == after  # context does not affect random output
+
 
 class TestCreateTextGenerator:
     def test_random_mode(self):

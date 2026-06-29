@@ -175,3 +175,37 @@ def test_find_by_package(catalog: AppCatalog) -> None:
     assert app is not None
     assert app.app_name == "WhatsApp"
     assert catalog.find_by_package("com.nope.missing") is None
+
+
+def _job(**overrides) -> AppJob:
+    base = dict(
+        category="Shopping",
+        sub_category="General",
+        app_name="Amazon Shopping",
+        package_id="com.amazon.mShop",
+        source="PlayStore",
+        priority="High",
+        notes="Top e-commerce; complex UI with search/filters/cart",
+    )
+    base.update(overrides)
+    return AppJob(**base)
+
+
+def test_description_full() -> None:
+    assert _job().description == (
+        "Amazon Shopping (Shopping/General) — "
+        "Top e-commerce; complex UI with search/filters/cart"
+    )
+
+
+def test_description_without_notes() -> None:
+    assert _job(notes="").description == "Amazon Shopping (Shopping/General)"
+
+
+def test_description_without_category() -> None:
+    assert _job(category="", sub_category="", notes="").description == "Amazon Shopping"
+
+
+def test_description_falls_back_to_package_id() -> None:
+    job = _job(app_name="", category="", sub_category="", notes="")
+    assert job.description == "com.amazon.mShop"

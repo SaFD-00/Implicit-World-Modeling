@@ -1,11 +1,12 @@
 """UI transition graph for shortest-path navigation to unexplored screens.
 
 Ports LLM-Explorer's ``UTG.G2`` — the *structure* graph — which is the one its
-``get_G2_nav_steps`` actually navigates over. Nodes are ``structure_str`` (so
-screens that differ only in text collapse to one node, keeping paths findable);
-edges carry the (element_signature, action_type) pairs observed to cause that
-transition. The per-state ``G`` graph from the reference is omitted because only
-structural navigation is needed here.
+``get_G2_nav_steps`` actually navigates over. Nodes are ``page_key`` (the
+element-set page identity, or ``structure_str`` when no matcher is active, so
+screens that are the same logical page collapse to one node, keeping paths
+findable); edges carry the (element_signature, action_type) pairs observed to
+cause that transition. The per-state ``G`` graph from the reference is omitted
+because only structural navigation is needed here.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ class NavStep:
     re-matched against the live screen when executed.
     """
 
-    structure_str: str
+    page_key: str
     element_signature: str
     action_type: str
 
@@ -39,7 +40,7 @@ class TransitionGraph:
     def add_state(self, state: SemanticState | None) -> None:
         """Register a screen as a node without recording any transition."""
         if state is not None:
-            self._graph.add_node(state.structure_str)
+            self._graph.add_node(state.page_key)
 
     def add(
         self,
@@ -54,13 +55,13 @@ class TransitionGraph:
         change) are kept out of the edge set — they are useless for navigation.
         """
         if from_state is not None:
-            self._graph.add_node(from_state.structure_str)
+            self._graph.add_node(from_state.page_key)
         if to_state is not None:
-            self._graph.add_node(to_state.structure_str)
+            self._graph.add_node(to_state.page_key)
         if from_state is None or to_state is None:
             return
 
-        src, dst = from_state.structure_str, to_state.structure_str
+        src, dst = from_state.page_key, to_state.page_key
         if src == dst:
             return
         if not self._graph.has_edge(src, dst):
@@ -77,7 +78,7 @@ class TransitionGraph:
         Returns ``[]`` when already at the target structure, a list of
         :class:`NavStep` for a reachable target, or ``None`` when unreachable.
         """
-        src, dst = from_state.structure_str, to_state.structure_str
+        src, dst = from_state.page_key, to_state.page_key
         if src == dst:
             return []
         if src not in self._graph or dst not in self._graph:
@@ -92,7 +93,7 @@ class TransitionGraph:
             signature, action_type = self._representative_action(current, nxt)
             steps.append(
                 NavStep(
-                    structure_str=current,
+                    page_key=current,
                     element_signature=signature,
                     action_type=action_type,
                 )

@@ -33,8 +33,9 @@ from monkey_collector.storage import DataWriter
 from monkey_collector.tcp_server import CollectionServer
 
 if TYPE_CHECKING:
+    from monkey_collector.domain.page_graph import PageGraph
     from monkey_collector.llm.client import LLMClient
-    from monkey_collector.llm.screen_grouper import ScreenGrouper
+    from monkey_collector.pipeline.screen_matching.screen_matcher import ScreenMatcher
 
 
 class Collector:
@@ -53,8 +54,9 @@ class Collector:
         cost_tracker: CostTracker | None = None,
         text_generator: TextGenerator | None = None,
         llm_client: LLMClient | None = None,
-        screen_grouper: ScreenGrouper | None = None,
+        screen_matcher: ScreenMatcher | None = None,
         new_session: bool = False,
+        app_contexts: dict[str, str] | None = None,
     ):
         self.adb = adb
         self.explorer = explorer
@@ -68,8 +70,12 @@ class Collector:
         self._cost_tracker = cost_tracker
         self._text_generator = text_generator
         self._llm_client = llm_client
-        self._screen_grouper = screen_grouper
+        self._screen_matcher = screen_matcher
         self._new_session = new_session
+        self._app_contexts = app_contexts or {}
+        # The live element-set page graph of the current session (set per
+        # session), persisted by finalize when a ScreenMatcher is active.
+        self._live_page_graph: PageGraph | None = None
 
     def run(self, package: str) -> str:
         """Run a single server-driven collection session.
@@ -153,6 +159,14 @@ class Collector:
         package = package  # trust the server-driven value
         logger.info(f"Target package: {package}")
 
+        # Ground LLM input-text generation in the current app's domain. Set every
+        # session (package id as fallback) so the shared generator never leaks the
+        # previous app's description into this one.
+        if self._text_generator is not None:
+            self._text_generator.set_app_context(
+                self._app_contexts.get(package, package)
+            )
+
         try:
             self.adb.force_stop(package)
         except Exception as e:
@@ -167,10 +181,16 @@ class Collector:
             step=resume_step,
             max_step=resume_step + self.max_steps,
         )
+        # Expose the live (element-set) page graph to finalize. It mutates in
+        # place during the loop, so this reference captures the final graph.
+        self._live_page_graph = state.page_graph
 
         # Each app session explores in isolation — drop the previous session's
-        # transition graph / coverage so cross-app memory cannot leak.
+        # transition graph / coverage and page knowledge so cross-app memory
+        # cannot leak.
         self.explorer.reset()
+        if self._screen_matcher is not None:
+            self._screen_matcher.reset()
 
         try:
             run_collection_loop(self, state, package)

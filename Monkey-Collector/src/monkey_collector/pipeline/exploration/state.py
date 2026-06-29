@@ -54,16 +54,26 @@ class SemanticElement:
 
 @dataclass(frozen=True)
 class SemanticState:
-    """An abstract screen: identity hashes plus its interactable elements."""
+    """An abstract screen: identity hashes plus its interactable elements.
+
+    ``page_key`` is the abstract-page identity used for coverage / navigation.
+    With a live :class:`~monkey_collector.pipeline.screen_matching.screen_matcher.ScreenMatcher`
+    it is the element-set page key; without one it falls back to
+    ``structure_str`` (the text-free structural digest), preserving the legacy
+    behaviour byte-for-byte.
+    """
 
     state_str: str
     structure_str: str
     activity: str
     package: str
     elements: tuple[SemanticElement, ...]
+    page_key: str = ""
 
     @classmethod
-    def from_screen(cls, raw_xml: str, activity: str, package: str) -> SemanticState:
+    def from_screen(
+        cls, raw_xml: str, activity: str, package: str, page_key: str = ""
+    ) -> SemanticState:
         """Build a SemanticState from raw uiautomator XML and screen context."""
         activity = activity or ""
         package = package or ""
@@ -80,6 +90,7 @@ class SemanticState:
             activity=activity,
             package=package,
             elements=elements,
+            page_key=page_key or structure_str,
         )
 
     def is_in_app(self) -> bool:

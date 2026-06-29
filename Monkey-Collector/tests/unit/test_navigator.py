@@ -28,7 +28,7 @@ def _exhaust(memory: Memory, state: SemanticState) -> None:
         if not actions:
             return
         for _, element, action_type in actions:
-            memory.mark_explored(state.structure_str, element.signature, action_type)
+            memory.mark_explored(state.page_key, element.signature, action_type)
 
 
 def _memory_with_edge():
@@ -36,8 +36,8 @@ def _memory_with_edge():
     memory = Memory()
     a = _state(SIMPLE_XML, ACTIVITY)
     b = _state(COMPLEX_XML, SETTINGS)
-    memory.record_state(a, SIMPLE_XML)
-    memory.record_state(b, COMPLEX_XML)
+    memory.record_state(a)
+    memory.record_state(b)
     memory.record_transition(a, "button::Add new", TOUCH, b)
     # Exhaust SIMPLE so the nearest unexplored action lives on COMPLEX.
     _exhaust(memory, a)
@@ -82,22 +82,22 @@ def test_drift_off_path_abandons_plan():
 def test_unmatchable_element_marks_nav_failed():
     memory = Memory()
     a = _state(SIMPLE_XML, ACTIVITY)
-    memory.record_state(a, SIMPLE_XML)
+    memory.record_state(a)
     nav = Navigator(memory, random.Random(0))
     # Inject a plan whose element does not exist on the live screen.
-    nav._queue = [NavStep(a.structure_str, "button::ghost", TOUCH)]
+    nav._queue = [NavStep(a.page_key, "button::ghost", TOUCH)]
 
     assert nav.next_action(a) is None
     assert not nav.is_navigating()
     # The phantom action is now permanently excluded.
-    blocked = memory._blocked_pairs(a.structure_str)
+    blocked = memory._blocked_pairs(a.page_key)
     assert ("button::ghost", TOUCH) in blocked
 
 
 def test_no_plan_when_everything_explored():
     memory = Memory()
     a = _state(SIMPLE_XML, ACTIVITY)
-    memory.record_state(a, SIMPLE_XML)
+    memory.record_state(a)
     _exhaust(memory, a)
     nav = Navigator(memory, random.Random(0))
     assert not nav.plan_to_unexplored(a)
@@ -106,11 +106,11 @@ def test_no_plan_when_everything_explored():
 def test_step_budget_abandons_long_plan():
     memory = Memory()
     a = _state(SIMPLE_XML, ACTIVITY)
-    memory.record_state(a, SIMPLE_XML)
+    memory.record_state(a)
     nav = Navigator(memory, random.Random(0))
-    # A plan longer than the budget, all on the same structure.
+    # A plan longer than the budget, all on the same page.
     nav._queue = [
-        NavStep(a.structure_str, "button::Search", TOUCH)
+        NavStep(a.page_key, "button::Search", TOUCH)
         for _ in range(50)
     ]
     nav._steps_taken = 999  # already over budget

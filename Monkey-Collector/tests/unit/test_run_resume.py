@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from monkey_collector.cli import _load_completed_packages, _resolve_run_packages
+from monkey_collector.cli import (
+    _load_completed_packages,
+    _resolve_app_contexts,
+    _resolve_run_packages,
+)
 
 
 def _apps_csv(path: Path, rows: list[tuple[str, bool]]) -> None:
@@ -145,3 +149,25 @@ class TestResolveRunPackages:
             ["all"], str(output), force=False,
         )
         assert result == ["com.a"]
+
+
+class TestResolveAppContexts:
+    def test_maps_package_to_description(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "catalog").mkdir()
+        _apps_csv(tmp_path / "catalog" / "apps.csv", [("com.a", True), ("com.b", True)])
+        # _apps_csv writes app_name=pkg, category=A, sub_category=B, notes="".
+        contexts = _resolve_app_contexts(["com.a", "com.b"])
+        assert contexts == {"com.a": "com.a (A/B)", "com.b": "com.b (A/B)"}
+
+    def test_missing_csv_returns_empty(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)  # no catalog/apps.csv here
+        assert _resolve_app_contexts(["com.a"]) == {}
+
+    def test_unknown_package_omitted(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "catalog").mkdir()
+        _apps_csv(tmp_path / "catalog" / "apps.csv", [("com.a", True)])
+        contexts = _resolve_app_contexts(["com.a", "com.unknown"])
+        assert "com.unknown" not in contexts
+        assert contexts == {"com.a": "com.a (A/B)"}

@@ -145,20 +145,39 @@ class DataWriter:
         self.step_count += 1
         return raw_path
 
-    def save_groups(self, grouping: dict) -> str | None:
-        """Save the LLM screen-grouping annotation for the just-saved step.
+    def save_elements(self, match) -> str | None:
+        """Save the element-set match annotation for the just-saved step.
 
-        Writes ``xml/{step}_groups.json`` for the step most recently produced by
-        :meth:`save_xml` (i.e. ``step_count - 1``). This artifact depends on a
-        live LLM call, so it is NOT reproduced by ``regenerate_xml_variants``.
-        Returns the file path, or ``None`` if no step has been saved yet.
+        Writes ``xml/{step}_elements.json`` for the step most recently produced
+        by :meth:`save_xml` (i.e. ``step_count - 1``): the page identity
+        (``page_key`` / ``match_type``) and, on a new page, the extracted
+        element families (name + ``element_index`` + ``key_element_index``,
+        encoded-XML indices). On a merge / structural revisit ``elements`` is
+        empty (the families were recorded when the page was first seen). This
+        artifact depends on a live LLM call, so it is NOT reproduced by
+        ``regenerate_xml_variants``. Returns the path, or ``None`` if no step
+        has been saved yet.
         """
         if self.session_dir is None or self.step_count == 0:
             return None
         step = self.step_count - 1
-        path = os.path.join(self.session_dir, "xml", f"{step:04d}_groups.json")
+        path = os.path.join(self.session_dir, "xml", f"{step:04d}_elements.json")
+        data = {
+            "page_key": match.page_key,
+            "match_type": match.match_type,
+            "is_new_page": match.is_new_page,
+            "page_description": match.page_description,
+            "elements": [
+                {
+                    "name": fam.name,
+                    "element_index": list(fam.element_index),
+                    "key_element_index": list(fam.key_element_index),
+                }
+                for fam in match.families
+            ],
+        }
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(grouping, f, indent=2, ensure_ascii=False)
+            json.dump(data, f, indent=2, ensure_ascii=False)
         return path
 
     def log_event(self, event: dict):

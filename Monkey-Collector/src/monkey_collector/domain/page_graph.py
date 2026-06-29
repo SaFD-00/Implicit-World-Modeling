@@ -6,12 +6,16 @@ import csv
 import hashlib
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
 from loguru import logger
 
 from monkey_collector.xml.structured_parser import StructuredXmlParser
+
+if TYPE_CHECKING:
+    from monkey_collector.pipeline.screen_matching.screen_matcher import ScreenMatch
 
 # ---------------------------------------------------------------------------
 # XML structural fingerprinting (with parser preprocessing)
@@ -135,6 +139,10 @@ class PageNode:
     first_seen_step: int
     screenshot_step: int
     visit_count: int = 1
+    # Element-set matching (live ScreenMatcher). Empty for the structural
+    # (offline / degrade) path so old page_graph.json files load unchanged.
+    page_key: str = ""
+    element_names: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -164,8 +172,40 @@ class PageGraph:
         self._page_lookup: dict[tuple[str, str], int] = {}
         self._page_tuples: dict[int, frozenset[tuple[str, str, int]]] = {}
         self._edge_lookup: set[tuple[int, int, str]] = set()
+        # page_key -> node id, for the element-set (live) identity path.
+        self._key_to_id: dict[str, int] = {}
 
     # -- Page identification --------------------------------------------------
+
+    def get_or_create_page_by_match(
+        self, match: ScreenMatch, activity: str, xml_str: str, step: int
+    ) -> int:
+        """Identify a page from a :class:`ScreenMatch` (element-set identity).
+
+        The matcher already decided same-vs-new via element-set classification;
+        this maps its ``page_key`` to a node id (creating one on first sight).
+        The structural ``xml_fingerprint`` is still recorded for post-hoc
+        compatibility but is not used for matching here.
+        """
+        if match.page_key in self._key_to_id:
+            page_id = self._key_to_id[match.page_key]
+            self.nodes[page_id].visit_count += 1
+            return page_id
+
+        page_id = len(self.nodes)
+        node = PageNode(
+            id=page_id,
+            activity=_canonical_activity(activity),
+            xml_fingerprint=compute_xml_fingerprint(xml_str),
+            first_seen_step=step,
+            screenshot_step=step,
+            page_key=match.page_key,
+            element_names=[f.name for f in match.families],
+        )
+        self.nodes.append(node)
+        self._key_to_id[match.page_key] = page_id
+        self._page_tuples[page_id] = _extract_structural_tuples(xml_str)
+        return page_id
 
     def get_or_create_page(self, activity: str, xml_str: str, step: int) -> int:
         """Identify or create a page from activity name and XML content.
@@ -292,9 +332,13 @@ class PageGraph:
                 first_seen_step=nd["first_seen_step"],
                 screenshot_step=nd["screenshot_step"],
                 visit_count=nd.get("visit_count", 1),
+                page_key=nd.get("page_key", ""),
+                element_names=nd.get("element_names", []),
             )
             graph.nodes.append(node)
             graph._page_lookup[(node.activity, node.xml_fingerprint)] = node.id
+            if node.page_key:
+                graph._key_to_id[node.page_key] = node.id
 
         for ed in data.get("edges", []):
             edge = TransitionEdge(

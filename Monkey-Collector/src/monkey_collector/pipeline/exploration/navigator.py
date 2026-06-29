@@ -50,7 +50,7 @@ class Navigator:
                 continue
             plan = [
                 *route,
-                NavStep(target_state.structure_str, element.signature, action_type),
+                NavStep(target_state.page_key, element.signature, action_type),
             ]
             if best is None or len(plan) < len(best):
                 best = plan
@@ -79,7 +79,7 @@ class Navigator:
             return None
 
         step = self._queue[0]
-        if current_state.structure_str != step.structure_str:
+        if current_state.page_key != step.page_key:
             # Landed somewhere unexpected — drop the plan and let the engine replan.
             self.clear()
             return None
@@ -87,7 +87,7 @@ class Navigator:
         element = current_state.find_by_signature(step.element_signature)
         if element is None or step.action_type not in element.allowed_actions:
             self._memory.mark_nav_failed(
-                step.structure_str, step.element_signature, step.action_type
+                step.page_key, step.element_signature, step.action_type
             )
             self.clear()
             return None

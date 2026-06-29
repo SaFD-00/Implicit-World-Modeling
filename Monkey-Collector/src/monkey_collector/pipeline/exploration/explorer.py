@@ -45,7 +45,7 @@ from monkey_collector.xml.ui_tree import UITree
 
 if TYPE_CHECKING:
     from monkey_collector.adb import AdbClient
-    from monkey_collector.llm.screen_grouper import ScreenGrouper
+    from monkey_collector.pipeline.screen_matching.screen_matcher import ElementFamily
     from monkey_collector.pipeline.text_generator import TextGenerator
 
 
@@ -66,6 +66,10 @@ class Explorer(Protocol):
 
     def set_screen_context(
         self, raw_xml: str, activity: str = "", package: str = ""
+    ) -> None: ...
+
+    def set_match_context(
+        self, page_key: str, families: list[ElementFamily] | None
     ) -> None: ...
 
     def reset(self) -> None: ...
@@ -89,26 +93,29 @@ class LLMGuidedExplorer:
     def __init__(
         self,
         adb: AdbClient,
-        screen_grouper: ScreenGrouper | None = None,
         text_generator: TextGenerator | None = None,
         config: dict | None = None,
     ):
         config = config or {}
         self.adb = adb
-        self._screen_grouper = screen_grouper
         self._rng = random.Random(config.get("seed", 42))
         self._screen_width = config.get("screen_width", 1080)
         self._screen_height = config.get("screen_height", 1920)
         self._action_mapper = ActionMapper(text_generator=text_generator)
 
         # Per-session exploration state (rebuilt by reset()).
-        self._memory = Memory(screen_grouper=screen_grouper)
+        self._memory = Memory()
         self._navigator = Navigator(self._memory, self._rng)
 
         # Current screen context, set by the loop before each select_action.
         self._raw_xml = ""
         self._activity = ""
         self._package = ""
+
+        # Element-set match context, set by the loop (set_match_context) when a
+        # ScreenMatcher is active; "" / None drives the structural degrade path.
+        self._page_key = ""
+        self._families: list[ElementFamily] | None = None
 
         # Transition tracking across steps.
         self._current_state: SemanticState | None = None
@@ -130,10 +137,25 @@ class LLMGuidedExplorer:
         if package:
             self._package = package
 
+    def set_match_context(
+        self, page_key: str, families: list[ElementFamily] | None
+    ) -> None:
+        """Provide the current screen's element-set page key and (new-page) families.
+
+        Called by the collection loop once per new screen after the
+        ``ScreenMatcher`` runs. Sticky across no-change retries (which re-supply
+        only the XML), so the last match context is retained until the next
+        screen. ``page_key=""`` keeps the structural ``structure_str`` fallback.
+        """
+        self._page_key = page_key
+        self._families = families
+
     def reset(self) -> None:
         """Drop all per-session memory so each app session explores in isolation."""
-        self._memory = Memory(screen_grouper=self._screen_grouper)
+        self._memory = Memory()
         self._navigator = Navigator(self._memory, self._rng)
+        self._page_key = ""
+        self._families = None
         self._current_state = None
         self._last_record = None
 
@@ -148,9 +170,11 @@ class LLMGuidedExplorer:
         is_root_screen: bool = False,
     ) -> Action:
         """Pick the next action for the current screen (see module docstring)."""
-        current = SemanticState.from_screen(self._raw_xml, self._activity, self._package)
+        current = SemanticState.from_screen(
+            self._raw_xml, self._activity, self._package, page_key=self._page_key
+        )
         self._current_state = current
-        self._memory.record_state(current, self._raw_xml)
+        self._memory.record_state(current, self._families)
 
         # Attribute the previous action's outcome now that we see its result.
         if self._last_record is not None:
@@ -240,7 +264,7 @@ class LLMGuidedExplorer:
             if element.index == element_index:
                 for action_type in element.allowed_actions:
                     self._memory.mark_explored(
-                        self._current_state.structure_str, element.signature, action_type
+                        self._current_state.page_key, element.signature, action_type
                     )
                 return
 

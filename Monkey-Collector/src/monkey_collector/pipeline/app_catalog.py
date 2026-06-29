@@ -34,6 +34,21 @@ class AppJob:
     notes: str = ""
     installed: bool = False
 
+    @property
+    def description(self) -> str:
+        """Human-readable one-liner describing this app for LLM context.
+
+        Example: ``Amazon Shopping (Shopping/General) — Top e-commerce; complex
+        UI with search/filters/cart``. Falls back to the package id when the
+        app name is missing.
+        """
+        label = self.app_name or self.package_id
+        cat = "/".join(p for p in (self.category, self.sub_category) if p)
+        text = f"{label} ({cat})" if cat else label
+        if self.notes:
+            text += f" — {self.notes}"
+        return text
+
 
 def _normalize(value: str) -> str:
     return value.strip().lower()

@@ -107,3 +107,15 @@ def test_actionable_elements_excludes_plain_text(simple_xml):
     state = _state(simple_xml)
     # "Item title" is a <p> with no actions and must not appear as actionable.
     assert all("Item title" not in e.desc for e in state.actionable_elements())
+
+
+def test_page_key_defaults_to_structure_str(simple_xml):
+    state = _state(simple_xml)
+    # No matcher → page_key falls back to the structural digest.
+    assert state.page_key == state.structure_str
+
+
+def test_explicit_page_key_overrides(simple_xml):
+    state = SemanticState.from_screen(simple_xml, ACTIVITY, PACKAGE, page_key="page_7")
+    assert state.page_key == "page_7"
+    assert state.structure_str  # structural digest still computed
