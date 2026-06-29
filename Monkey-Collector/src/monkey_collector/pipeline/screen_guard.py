@@ -21,6 +21,15 @@ SYSTEM_PACKAGES: frozenset[str] = frozenset({
     "com.android.shell",
     "com.android.packageinstaller",
     "com.google.android.packageinstaller",
+    # Play Services / Store sign-in & install surfaces and the launcher: never
+    # the target app. A drift here (e.g. Google Docs bouncing to the gms
+    # add-account flow on a signed-out device) is treated as leaving the app
+    # rather than as an explorable screen.
+    "com.google.android.gms",
+    "com.google.android.gsf",
+    "com.android.vending",
+    "com.google.android.apps.nexuslauncher",
+    "com.android.launcher3",
 })
 
 # Packages that present a permission / install grant dialog we can act on.

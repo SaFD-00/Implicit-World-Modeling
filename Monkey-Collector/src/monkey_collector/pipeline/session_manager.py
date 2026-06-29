@@ -71,7 +71,19 @@ def receive_target_package(collector: Collector, package: str | None) -> str | N
         return pkg
 
     received = collector.server.wait_for_package(timeout=5.0)
-    return received or package
+    if received is None:
+        # No package ACK means the client never ran startCollection for this
+        # START — the device crashed/restarted or the START hit a stale socket
+        # during the session handoff. Do NOT fall back to the server-requested
+        # package: that masks a dead session and burns the whole step budget on
+        # signal timeouts. Abort so the caller skips to the next app cleanly.
+        logger.error(
+            f"Client did not acknowledge START for {package} within 5s "
+            f"(device may have crashed or START hit a stale socket); "
+            f"aborting session instead of collecting blind"
+        )
+        return None
+    return received
 
 
 def init_or_resume_session(

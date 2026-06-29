@@ -94,11 +94,19 @@ def run_collection_loop(
                 if state.timeout_count >= max_timeouts:
                     logger.error("Too many timeouts, ending session")
                     break
-                # A timeout means no screenshot/XML arrived. If we drifted out
-                # of the target app (e.g. a system role screen like
-                # permissioncontroller that emits no accessibility events and
-                # can't be closed via force_stop), relaunch to escape it.
-                # Otherwise nudge a static in-app screen with a tap.
+                # A timeout means no screenshot/XML arrived. A runtime
+                # permission dialog (permissioncontroller) emits no a11y events,
+                # so it only shows up here — grant it ("While using the app")
+                # via adb so exploration continues instead of relaunching past
+                # an ungranted permission.
+                if _try_grant_permission_via_adb(collector, state):
+                    state.timeout_count = 0
+                    state.step += 1
+                    continue
+                # If we drifted out of the target app (e.g. a system role screen
+                # that emits no accessibility events and can't be closed via
+                # force_stop), relaunch to escape it. Otherwise nudge a static
+                # in-app screen with a tap.
                 if collector.explorer.has_left_app(package):
                     logger.warning(
                         f"Step {state.step}: left target app during timeout, "
@@ -273,6 +281,85 @@ def _handle_permission_dialog(
     time.sleep(collector.action_delay)
 
 
+# Positive grant buttons in priority order. "While using the app" wins so the
+# grant persists for the app's foreground lifetime (policy: always grant runtime
+# permission prompts with "While using the app", never "Only this time"/deny).
+_GRANT_KEYWORDS: tuple[str, ...] = (
+    "while using", "앱 사용 중에만", "사용 중에만",
+    "allow", "허용", "ok", "확인", "yes",
+)
+# Never tap a button whose label contains one of these, even if a grant keyword
+# is also a substring (e.g. "Don't allow" contains "allow"; "Only this time" is
+# a one-shot grant we don't want for collection).
+_DENY_TOKENS: tuple[str, ...] = (
+    "don't", "don’t", "deny", "거부", "취소", "cancel", "only this time", "이번만",
+)
+
+
+def _try_grant_permission_via_adb(
+    collector: Collector, state: CollectionState,
+) -> bool:
+    """Grant a permission dialog the push loop can't see, via adb.
+
+    permissioncontroller's ``GrantPermissionsActivity`` emits no accessibility
+    events, so when it pops up the server only observes a *signal timeout* — the
+    event-driven ``_handle_permission_dialog`` never runs and the dialog blocks
+    exploration. Here, on a timeout, we poll the foreground via adb; if it is a
+    permission dialog we dump the UI (adb-side ``uiautomator``, not the
+    accessibility tree) and tap a grant button, always preferring **"While using
+    the app"**. Returns True if a button was tapped.
+    """
+    try:
+        top = collector.adb.get_current_package()
+    except Exception:
+        return False
+    if not is_permission_dialog(top):
+        return False
+
+    try:
+        collector.adb.shell("uiautomator dump /sdcard/_mc_perm.xml")
+        raw = collector.adb.shell("cat /sdcard/_mc_perm.xml")
+    except Exception:
+        return False
+    start = raw.find("<?xml")
+    if start == -1:
+        start = raw.find("<hierarchy")
+    if start == -1:
+        return False
+    try:
+        clickable = UITree.from_xml_string(raw[start:]).get_clickable_elements()
+    except Exception:
+        return False
+
+    # Scan clickable buttons only — the dialog title/message also contains
+    # "Allow <app> to …" but is not clickable, so scanning all nodes would tap
+    # the title. Priority keeps "While using the app" ahead of a plain "Allow";
+    # the deny guard prevents tapping "Don't allow"/"Only this time".
+    target = None
+    for kw in _GRANT_KEYWORDS:
+        for el in clickable:
+            label = f"{el.text} {el.content_desc}".lower()
+            if kw in label and not any(tok in label for tok in _DENY_TOKENS):
+                target = el
+                break
+        if target is not None:
+            break
+    if target is None:
+        return False
+
+    cx, cy = target.center
+    collector.adb.tap(cx, cy)
+    logger.info(
+        f"Step {state.step}: permission dialog on {top} (no a11y event) — "
+        f"tapped '{target.display_name}' via adb"
+    )
+    collector.server.clear_signal_queue()
+    state.last_action = None
+    state.last_ui_tree = None
+    time.sleep(collector.action_delay)
+    return True
+
+
 def _process_xml_signal(
     collector: Collector,
     state: CollectionState,
@@ -402,7 +489,13 @@ def _process_xml_signal(
             logger.warning(f"Step {state.step}: screen grouping failed ({e})")
 
     ui_tree = UITree.from_xml_string(xml_str)
-    if len(ui_tree) == 0:
+    # A tree with nodes but NO interactable element (e.g. a React-Native screen
+    # whose accessibility subtree is a single non-actionable container, or a
+    # transient blank-after-BACK frame) is just as useless as an empty one: the
+    # explorer would only blind-tap a random coordinate that fires no event and
+    # cascades into signal timeouts. Treat "not actionable" the same as empty so
+    # we wait for load / relaunch instead.
+    if len(ui_tree) == 0 or not ui_tree.get_interactable_elements():
         state.empty_ui_retries += 1
         if state.empty_ui_retries <= MAX_EMPTY_UI_RETRIES:
             logger.info(
