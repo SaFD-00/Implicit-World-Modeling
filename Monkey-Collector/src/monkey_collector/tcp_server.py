@@ -44,7 +44,7 @@ class CollectionServer:
         self._running = False
         self._thread: threading.Thread | None = None
         self._client: socket.socket | None = None
-        # SmartExplorer synchronization
+        # Screen-signal synchronization (consumed by the collection loop)
         self._xml_event = threading.Event()
         self._latest_xml: str | None = None
         self._latest_xml_meta: dict | None = None

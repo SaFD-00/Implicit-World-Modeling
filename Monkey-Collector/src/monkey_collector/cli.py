@@ -24,7 +24,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     from monkey_collector.pipeline.app_catalog import AppCatalog
     from monkey_collector.llm import create_llm_client, create_screen_grouper
     from monkey_collector.pipeline.collector import Collector
-    from monkey_collector.pipeline.explorer import SmartExplorer
+    from monkey_collector.pipeline.exploration import LLMGuidedExplorer
     from monkey_collector.pipeline.text_generator import create_text_generator
 
     packages = _resolve_run_packages(args.apps, args.output, args.force)
@@ -53,13 +53,17 @@ def cmd_run(args: argparse.Namespace) -> None:
         mode=args.input_mode, seed=args.seed, llm_client=llm_client,
     )
     screen_grouper = create_screen_grouper(llm_client, enabled=screen_grouping_on)
-    explorer = SmartExplorer(
+    # The same ScreenGrouper instance feeds both the explorer (same-function
+    # compression of the exploration frontier) and the collector (saving the
+    # grouping annotation), so the LLM is queried once per screen.
+    explorer = LLMGuidedExplorer(
         adb,
+        screen_grouper=screen_grouper,
+        text_generator=text_gen,
         config={
             "seed": args.seed,
             "action_delay_ms": args.delay,
         },
-        text_generator=text_gen,
     )
     server = CollectionServer(host="0.0.0.0", port=args.port)
     writer = DataWriter(base_dir=args.output)

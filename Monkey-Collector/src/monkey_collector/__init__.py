@@ -13,7 +13,7 @@ from monkey_collector.tcp_server import CollectionServer
 from monkey_collector.storage import DataWriter
 from monkey_collector.pipeline.app_catalog import AppCatalog, AppJob
 from monkey_collector.pipeline.collector import Collector
-from monkey_collector.pipeline.explorer import SmartExplorer
+from monkey_collector.pipeline.exploration import Explorer, LLMGuidedExplorer
 from monkey_collector.pipeline.text_generator import (
     LLMTextGenerator,
     RandomTextGenerator,
@@ -28,12 +28,13 @@ __all__ = [
     "Collector",
     "Converter",
     "DataWriter",
+    "Explorer",
     "LLMClient",
+    "LLMGuidedExplorer",
     "LLMTextGenerator",
     "PageGraph",
     "RandomTextGenerator",
     "ScreenGrouper",
-    "SmartExplorer",
     "TextGenerator",
     "build_graph_from_session",
     "create_llm_client",

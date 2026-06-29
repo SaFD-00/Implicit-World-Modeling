@@ -187,7 +187,7 @@ def _handle_no_change(
 
     if state.last_ui_tree is not None and len(state.last_ui_tree) > 0:
         if state.last_raw_xml:
-            collector.explorer.set_raw_xml(state.last_raw_xml)
+            collector.explorer.set_screen_context(state.last_raw_xml, package=package)
         action = collector.explorer.select_action(
             state.last_ui_tree, state.step, is_first_screen=state.is_first_screen,
             page_id=state.current_page_id, is_root_screen=_is_root_screen(state),
@@ -437,7 +437,7 @@ def _process_xml_signal(
     if discovered_new_page:
         state.external_app_count = 0
 
-    collector.explorer.set_raw_xml(xml_str)
+    collector.explorer.set_screen_context(xml_str, activity_name, package)
     action = collector.explorer.select_action(
         ui_tree, state.step, is_first_screen=state.is_first_screen,
         page_id=state.current_page_id, is_root_screen=_is_root_screen(state),

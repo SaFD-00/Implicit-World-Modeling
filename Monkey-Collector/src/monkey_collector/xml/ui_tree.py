@@ -78,7 +78,7 @@ EDITABLE_CLASSES = {"EditText", "AutoCompleteTextView", "MultiAutoCompleteTextVi
 
 
 class UITree:
-    """Wrapper around a list of UIElements providing query methods for SmartExplorer."""
+    """Wrapper around a list of UIElements providing query methods for the explorer."""
 
     def __init__(self, elements: list[UIElement]):
         self.elements = elements

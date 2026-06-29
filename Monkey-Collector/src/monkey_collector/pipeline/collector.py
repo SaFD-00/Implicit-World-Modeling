@@ -21,7 +21,7 @@ from monkey_collector.adb import AdbClient
 from monkey_collector.domain.activity_coverage import ActivityCoverageTracker
 from monkey_collector.domain.cost_tracker import CostTracker
 from monkey_collector.pipeline.collection_loop import CollectionState, run_collection_loop
-from monkey_collector.pipeline.explorer import SmartExplorer
+from monkey_collector.pipeline.exploration import Explorer
 from monkey_collector.pipeline.session_manager import (
     finalize_session,
     init_or_resume_session,
@@ -43,7 +43,7 @@ class Collector:
     def __init__(
         self,
         adb: AdbClient,
-        explorer: SmartExplorer,
+        explorer: Explorer,
         server: CollectionServer,
         writer: DataWriter,
         max_steps: int = 100,
@@ -167,6 +167,10 @@ class Collector:
             step=resume_step,
             max_step=resume_step + self.max_steps,
         )
+
+        # Each app session explores in isolation — drop the previous session's
+        # transition graph / coverage so cross-app memory cannot leak.
+        self.explorer.reset()
 
         try:
             run_collection_loop(self, state, package)

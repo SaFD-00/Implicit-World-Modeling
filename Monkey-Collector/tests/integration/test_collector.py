@@ -32,11 +32,11 @@ def _make_xml_signal(xml=SIMPLE_XML, pkg="com.test.app", is_first=False, activit
 
 def _make_collector(mock_adb, signals, max_steps=10):
     """Create a Collector with all dependencies mocked."""
-    from monkey_collector.pipeline.explorer import SmartExplorer
+    from monkey_collector.pipeline.exploration import LLMGuidedExplorer
     from monkey_collector.storage import DataWriter
     from monkey_collector.tcp_server import CollectionServer
 
-    mock_explorer = MagicMock(spec=SmartExplorer)
+    mock_explorer = MagicMock(spec=LLMGuidedExplorer)
     mock_explorer.select_action.return_value = Tap(x=500, y=500, element_index=0)
     mock_explorer.has_left_app.return_value = False
 
@@ -250,7 +250,7 @@ class TestRunSessionTimeout:
 class TestRunSessionNoConnection:
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
     def test_no_client(self, mock_sleep, mock_adb):
-        from monkey_collector.pipeline.explorer import SmartExplorer
+        from monkey_collector.pipeline.exploration import LLMGuidedExplorer
         from monkey_collector.storage import DataWriter
         from monkey_collector.tcp_server import CollectionServer
 
@@ -259,7 +259,7 @@ class TestRunSessionNoConnection:
 
         collector = Collector(
             adb=mock_adb,
-            explorer=MagicMock(spec=SmartExplorer),
+            explorer=MagicMock(spec=LLMGuidedExplorer),
             server=mock_server,
             writer=MagicMock(spec=DataWriter),
             max_steps=5,
@@ -279,13 +279,13 @@ class TestRunQueue:
         """run_queue walks every package and accumulates session ids."""
         mock_run_session.side_effect = ["session_1", "session_2"]
 
-        from monkey_collector.pipeline.explorer import SmartExplorer
+        from monkey_collector.pipeline.exploration import LLMGuidedExplorer
         from monkey_collector.storage import DataWriter
         from monkey_collector.tcp_server import CollectionServer
 
         mock_server = MagicMock(spec=CollectionServer)
         collector = Collector(
-            adb=mock_adb, explorer=MagicMock(spec=SmartExplorer), server=mock_server,
+            adb=mock_adb, explorer=MagicMock(spec=LLMGuidedExplorer), server=mock_server,
             writer=MagicMock(spec=DataWriter), max_steps=5, action_delay=0, xml_timeout=0.1,
         )
 
@@ -304,13 +304,13 @@ class TestRunQueue:
         """KeyboardInterrupt during session → only completed sessions returned."""
         mock_run_session.side_effect = ["session_1", KeyboardInterrupt()]
 
-        from monkey_collector.pipeline.explorer import SmartExplorer
+        from monkey_collector.pipeline.exploration import LLMGuidedExplorer
         from monkey_collector.storage import DataWriter
         from monkey_collector.tcp_server import CollectionServer
 
         mock_server = MagicMock(spec=CollectionServer)
         collector = Collector(
-            adb=mock_adb, explorer=MagicMock(spec=SmartExplorer), server=mock_server,
+            adb=mock_adb, explorer=MagicMock(spec=LLMGuidedExplorer), server=mock_server,
             writer=MagicMock(spec=DataWriter), max_steps=5, action_delay=0, xml_timeout=0.1,
         )
 
@@ -326,13 +326,13 @@ class TestRunQueue:
         """Empty string from _run_session is skipped but the queue continues."""
         mock_run_session.side_effect = ["", "session_2"]
 
-        from monkey_collector.pipeline.explorer import SmartExplorer
+        from monkey_collector.pipeline.exploration import LLMGuidedExplorer
         from monkey_collector.storage import DataWriter
         from monkey_collector.tcp_server import CollectionServer
 
         mock_server = MagicMock(spec=CollectionServer)
         collector = Collector(
-            adb=mock_adb, explorer=MagicMock(spec=SmartExplorer), server=mock_server,
+            adb=mock_adb, explorer=MagicMock(spec=LLMGuidedExplorer), server=mock_server,
             writer=MagicMock(spec=DataWriter), max_steps=5, action_delay=0, xml_timeout=0.1,
         )
 

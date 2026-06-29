@@ -9,7 +9,7 @@ from monkey_collector.domain.actions import Action
 from monkey_collector.xml.ui_tree import UITree
 
 if TYPE_CHECKING:
-    from monkey_collector.pipeline.explorer import SmartExplorer
+    from monkey_collector.pipeline.exploration import Explorer
 
 MAX_NO_CHANGE_RETRIES = 3
 MAX_EXTERNAL_APP_RETRIES = 10
@@ -69,7 +69,7 @@ def describe_action_element(action: Action, ui_tree: UITree | None) -> str:
 
 def safe_press_back(
     adb: AdbClient,
-    explorer: SmartExplorer,
+    explorer: Explorer,
     package: str,
 ) -> None:
     """Press back and recover if the action caused the app to exit."""
