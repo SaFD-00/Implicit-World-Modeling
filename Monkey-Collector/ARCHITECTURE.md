@@ -75,7 +75,13 @@
   - [`session_manager.py`](./src/monkey_collector/pipeline/session_manager.py): session init/resume/finalize. `_resolve_declared_activities` 헬퍼가 catalog 우선, dumpsys 폴백 정책을 적용한다.
   - [`collection_loop.py`](./src/monkey_collector/pipeline/collection_loop.py): 메인 루프
   - [`recovery.py`](./src/monkey_collector/pipeline/recovery.py): retry / recovery 상수와 helper
-  - [`explorer.py`](./src/monkey_collector/pipeline/explorer.py): SmartExplorer
+  - [`exploration/`](./src/monkey_collector/pipeline/exploration): LLM-guided 탐색 엔진 (LLM-Explorer 포팅). `Explorer` Protocol 을 구현하는 `LLMGuidedExplorer` 가 coverage-driven unexplored-first 선택 + same-function 압축 + 최단경로 navigation 을 수행한다.
+    - [`state.py`](./src/monkey_collector/pipeline/exploration/state.py): `SemanticState` — raw XML → `state_str`(내용 포함)·`structure_str`(구조만)·`SemanticElement` 목록. element 는 encoded index 기준이라 `ScreenGrouper` 그룹과 1:1 정렬, scroll 컨테이너는 UITree 에서 음수 index 로 보강.
+    - [`memory.py`](./src/monkey_collector/pipeline/exploration/memory.py): `Memory` — `(structure_str, element_signature, action_type)` 단위 커버리지 추적. LLM same-function 그룹으로 동등 element 를 한 번에 explored 처리(탐색 공간 압축).
+    - [`transition_graph.py`](./src/monkey_collector/pipeline/exploration/transition_graph.py): `TransitionGraph` — navigation 용 structure 그래프(networkx). `shortest_nav_steps` 가 미탐색 화면까지 최단경로 산출.
+    - [`navigator.py`](./src/monkey_collector/pipeline/exploration/navigator.py): `Navigator` — `_nav_steps` 큐를 매 step App 신호를 받으며 순차 소비(signature 재매칭). 무한루프 가드 포함.
+    - [`action_mapper.py`](./src/monkey_collector/pipeline/exploration/action_mapper.py): semantic action(`touch/select/long_touch/set_text/scroll`) → domain `Action` 변환. `set_text` 는 `TextGenerator` 위임.
+    - [`constants.py`](./src/monkey_collector/pipeline/exploration/constants.py): 엔진 튜닝 상수(LLM-Explorer 원본 값 보존).
   - [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py): random 또는 공용 `LLMClient` 기반 입력 텍스트 생성
 - 인프라 모듈 (monkey_collector/ 직속)
   - [`adb.py`](./src/monkey_collector/adb.py): ADB wrapper. 상단 상수 `REQUIRED_AVD_NAME = "Pixel6-2"` 에 맞춰 `adb devices` + `emu avd name` 으로 해당 AVD 의 emulator serial 을 해석하고, 이후 모든 명령에 `-s <serial>` 을 prefix 한다. 다중 디바이스 환경에서도 단일 AVD 만 쓰도록 강제.
@@ -136,7 +142,7 @@ Android AccessibilityEvent
   -> 변화가 있으면 screenshot + XML + metadata 전송
   -> Python server 가 latest signal 소비
   -> XML parse + (screen-grouping on 이면) ScreenGrouper 가 화면 의미 그룹핑 → {step}_groups.json 저장
-  -> SmartExplorer 가 action 선택 (input_text 필요 시 공용 LLMClient 로 텍스트 생성)
+  -> LLMGuidedExplorer 가 action 선택 (미탐색 우선 + same-function 압축 + 미탐색 화면 navigation; input_text 필요 시 공용 LLMClient 로 텍스트 생성)
   -> ADB 실행
   -> screenshot/XML/event 저장
   -> 다음 step 반복
@@ -169,39 +175,34 @@ Server -> App (newline-delimited JSON):
 3. Android 가 fresh 소켓으로 재접속 → `_run` 의 accept 루프가 새 `_client` 등록
 4. Python 측은 `reset_for_new_session()` 으로 큐/이벤트 상태만 초기화하고 **소켓은 그대로 유지** — 닫으면 클라이언트가 한 번 더 재접속하지 않아 다음 `wait_for_connection` 이 타임아웃한다.
 
-### Action Space
+### Action Space 와 탐색 전략
 
-[`src/monkey_collector/domain/actions.py`](./src/monkey_collector/domain/actions.py) 에 정의된 6종 action 을 [`src/monkey_collector/pipeline/explorer.py`](./src/monkey_collector/pipeline/explorer.py) 의 `SmartExplorer` 가 가중치 기반으로 선택한다.
+[`src/monkey_collector/domain/actions.py`](./src/monkey_collector/domain/actions.py) 의 6종 domain action 을 [`exploration/`](./src/monkey_collector/pipeline/exploration) 의 `LLMGuidedExplorer` 가 선택한다. 엔진 내부에서는 `(touch / select / long_touch / set_text / scroll)` 의 semantic action 으로 추론하고, `ActionMapper` 가 domain action 으로 변환한다.
 
-| action_type  | 파라미터                                | 설명                            |
-| ------------ | --------------------------------------- | ------------------------------- |
-| `tap`        | `x, y, element_index`                   | 좌표 또는 UI 요소 탭            |
-| `swipe`      | `x1, y1, x2, y2, duration_ms=300`       | 스와이프 제스처                 |
-| `input_text` | `text, x, y, element_index`             | 포커스 후 텍스트 입력           |
-| `long_press` | `x, y, duration_ms=1000, element_index` | 롱프레스                        |
-| `press_back` | —                                       | 안드로이드 Back                 |
-| `press_home` | —                                       | 안드로이드 Home                 |
+| 엔진 action | domain action | 설명 |
+| ----------- | ------------- | ---- |
+| `touch`     | `Tap`         | clickable element 탭 |
+| `select`    | `Tap`         | checkbox/toggle 탭 |
+| `long_touch`| `LongPress`   | 롱프레스 (해당 element 의 `touch` 가 explored 된 뒤에만 후보) |
+| `set_text`  | `InputText`   | 포커스 후 텍스트 입력 (`TextGenerator` 가 생성) |
+| `scroll`    | `Swipe`       | scroll 컨테이너 수직 스와이프 |
+| (fallback)  | `PressBack`   | 더 이상 탐색·도달할 게 없을 때 후퇴 |
 
-기본 가중치 (`DEFAULT_WEIGHTS`):
+매 step `select_action` 오케스트레이션:
 
-| action       | weight |
-| ------------ | -----: |
-| `tap`        |   0.40 |
-| `press_back` |   0.20 |
-| `swipe`      |   0.20 |
-| `input_text` |   0.10 |
-| `long_press` |   0.10 |
-| `press_home` |   0.00 |
+1. **진행 중 navigation** 이 있으면 큐의 다음 step 을 현재 화면에서 signature 로 재매칭해 실행.
+2. **현재 화면 미탐색** action 이 있으면 그중 하나를 선택(`long_touch` 후순위).
+3. 없으면 **전역 미탐색** action 까지 `TransitionGraph` 최단경로를 큐에 적재하고 첫 step 실행.
+4. 그래도 없으면 **back** 으로 후퇴 (첫/루트 화면에서는 앱 종료 방지를 위해 back 대신 화면 내 tap).
 
-상황별 가중치 보정:
+핵심 특성:
 
-- 첫 화면에서는 `press_back = 0` (앱 종료 방지)
-- editable 요소가 있으면 `input_text ≥ 0.25` 로 부스트
-- clickable 이 없으면 `tap = 0.05`
-- scrollable 이 없으면 `swipe = 0.05`
-- 모든 가중치 합이 0 이면 PressBack 으로 fallback (첫 화면이면 random tap)
+- 좌표가 아닌 **element signature**(content 기반)로 커버리지를 추적해 스크롤/리렌더에 강건.
+- `ScreenGrouper` 의 same-function 그룹을 **탐색에 반영** — 동등 element 하나를 탐색하면 그룹 전체가 explored 되어 탐색 공간이 압축된다. LLM 키가 없으면(`ScreenGrouper=None`) 그룹 없이 순수 unexplored-first 로 degrade 한다.
+- 세션마다 `explorer.reset()` 으로 메모리(transition graph·커버리지)를 격리해 앱 간 오염을 막는다.
+- abstract page 식별은 `structure_str`(텍스트 무관 구조 해시)로, `page_graph.json` 산출물(별도 `PageGraph`)과는 디커플되어 있다.
 
-실행은 `SmartExplorer.execute_action` 이 `AdbClient` ([`src/monkey_collector/adb.py`](./src/monkey_collector/adb.py)) 메서드로 위임. `AdbClient` 는 CLI 진입점에서 단일 인스턴스로 생성되어 `SmartExplorer` 와 `Collector` 에 주입된다. 생성 시점에 `Pixel6-2` AVD 의 emulator serial 을 해석해 저장하므로, 해당 AVD 가 실행 중이어야 한다.
+실행은 `LLMGuidedExplorer.execute_action` 이 `AdbClient` ([`src/monkey_collector/adb.py`](./src/monkey_collector/adb.py)) 메서드로 위임. `AdbClient` 는 CLI 진입점에서 단일 인스턴스로 생성되어 `LLMGuidedExplorer` 와 `Collector` 에 주입된다. 생성 시점에 `Pixel6-2` AVD 의 emulator serial 을 해석해 저장하므로, 해당 AVD 가 실행 중이어야 한다.
 
 ## 4. 세션 관리와 복구
 
@@ -283,7 +284,7 @@ data/raw/{package}/
 
 - `Collector`
 - `AppCatalog`, `AppJob`
-- `SmartExplorer`
+- `LLMGuidedExplorer`, `Explorer`
 - `TextGenerator`
 - `RandomTextGenerator`
 - `LLMTextGenerator`
