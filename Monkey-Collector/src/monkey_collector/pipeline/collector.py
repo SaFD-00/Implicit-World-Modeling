@@ -47,7 +47,7 @@ class Collector:
         explorer: Explorer,
         server: CollectionServer,
         writer: DataWriter,
-        max_steps: int = 100,
+        max_steps: int = 1500,
         action_delay: float = 1.0,
         xml_timeout: float = 25.0,
         activity_coverage_tracker: ActivityCoverageTracker | None = None,

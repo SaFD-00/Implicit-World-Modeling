@@ -391,7 +391,7 @@ def main() -> None:
             "(e.g. --apps com.google.android.deskclock com.google.android.calculator)."
         ),
     )
-    p.add_argument("--steps", type=int, default=100, help="Max steps per session")
+    p.add_argument("--steps", type=int, default=1500, help="Max steps per session")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
     p.add_argument("--delay", type=int, default=1500, help="Action delay in ms")
     p.add_argument("--port", type=int, default=12345, help="TCP server port")
