@@ -11,6 +11,7 @@
 
 ### Changed
 - Monkey-Collector: 입력 텍스트 생성을 OpenAI Responses API(gpt-5-nano)에서 공용 OpenRouter `LLMClient`(Chat Completions)로 이전  (2026-06-28)
+- Monkey-Collector: 탐색 엔진을 `SmartExplorer`(화면 단위 weighted-random)에서 `LLMGuidedExplorer`(coverage-driven unexplored-first + LLM same-function 압축 + transition-graph 최단경로 navigation, 신규 `pipeline/exploration/` 패키지)로 전면 교체; App/Server TCP·저장 포맷 유지, `networkx` 의존성 추가  (2026-06-29)
 
 > 검증(2026-06-28): 위 OpenRouter LLM 통합을 실제 API Key + AVD(Pixel6-2)로 라이브 검증 — 정적 504 passed, 모델 슬러그(`qwen/qwen3.7-plus`) 실호출·화면 의미 그룹핑·문맥 입력 생성·비용 귀속·graceful fallback 동작 확인 (VERDICT PASS). 상세는 [DEVLOG.md](./DEVLOG.md).
 
