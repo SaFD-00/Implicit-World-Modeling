@@ -9,11 +9,17 @@
 - `docs/` 루트 문서 허브 + `/project-sync` 설정(`.project-sync.json`) 도입  (2026-06-28)
 - Monkey-Collector: OpenRouter 공용 LLM 클라이언트(`llm/client.py`, 기본 `qwen/qwen3.7-plus`) + 화면 의미 그룹핑(`llm/screen_grouper.py`, `--screen-grouping` 플래그)  (2026-06-28)
 - Monkey-Collector: `setup-collector` 스킬 `references/` deep-dive 8종(client-build, mediaprojection-accessibility, google-login, run-and-verify, seed-helpers, seed-pim, seed-notes-tasks, seed-media-misc) + 런타임 권한 다이얼로그 adb 자동허용(`collection_loop._try_grant_permission_via_adb`, "While using the app" 우선 탭·deny-guard)  (2026-06-29)
+- Monkey-Collector: element-set screen matching 패키지(`pipeline/screen_matching/` — ScreenMatcher·ui_attributes·set_classifier·page_knowledge) + 화면당 단일 LLM 호출 `llm/element_extractor.py`/`llm/prompts/element_extractor_prompt.py`(element_index family + key_element_index anchor 동시 추출, MobileGPT-V2 Node-Clustering 포팅); CLI `--cluster-merge-tolerance`·`--max-expand-iters` 플래그  (2026-06-29)
 
 ### Changed
 - Monkey-Collector: 입력 텍스트 생성을 OpenAI Responses API(gpt-5-nano)에서 공용 OpenRouter `LLMClient`(Chat Completions)로 이전  (2026-06-28)
 - Monkey-Collector: 탐색 엔진을 `SmartExplorer`(화면 단위 weighted-random)에서 `LLMGuidedExplorer`(coverage-driven unexplored-first + LLM same-function 압축 + transition-graph 최단경로 navigation, 신규 `pipeline/exploration/` 패키지)로 전면 교체; App/Server TCP·저장 포맷 유지, `networkx` 의존성 추가  (2026-06-29)
 - Monkey-Collector: `setup-collector` 스킬을 SKILL.md 오케스트레이션 + `references/` 구조로 재구성(AVD Pixel6-2, 빌드 JDK17/AGP8.2, MediaProjection 재동의·Google 로그인·더미데이터 시드·라이브 검증 단계 추가, 전 단계 멱등)  (2026-06-29)
+- Monkey-Collector: input-text LLM 생성 프롬프트에 현재 앱 설명 주입 — `AppJob.description`(`app_name (category/sub_category) — notes`, csv 미등록 앱은 package_id 폴백)을 CLI `_resolve_app_contexts`→`Collector(app_contexts=...)`→세션마다 `TextGenerator.set_app_context()`로 전달해 앱 도메인에 맞는 입력값 생성; 공유 generator 누수 방지 위해 매 세션 무조건 set, random 전략은 no-op  (2026-06-29)
+- Monkey-Collector: 화면 의미 그룹핑(annotation 전용)을 element-set screen matching으로 교체 — 산출 `page_key`가 page_graph 노드(`PageGraph.get_or_create_page_by_match`)와 탐색 abstract page(`SemanticState.page_key`, Memory/TransitionGraph/Navigator 키)를 동시 결정(과거 grouping↔matching 디커플을 커플링); CLI `--screen-grouping` → `--element-extraction {on,off}`(deprecated alias 유지), 산출물 `{step}_groups.json`→`{step}_elements.json`, cost.csv 라벨 `screen_grouper`→`element_extractor`; 키 없거나 off면 `page_key=structure_str` fallback(기존 파이프라인 byte-for-byte)  (2026-06-29)
+
+### Removed
+- Monkey-Collector: `llm/screen_grouper.py` + `tests/unit/test_screen_grouper.py` — element-set screen matching(`pipeline/screen_matching/`)으로 대체  (2026-06-29)
 
 ### Fixed
 - Monkey-Collector: MediaProjection 토큰 단발성 reuse-guard + `createVirtualDisplay` graceful-degrade(`ScreenStabilizer`); `EXCLUDED_PACKAGES`(`CollectorService`)·`SYSTEM_PACKAGES`(`screen_guard`)에 gms/gsf/vending 추가로 외부앱 스톰 차단; no-ACK 세션 abort(`session_manager`)  (2026-06-29)

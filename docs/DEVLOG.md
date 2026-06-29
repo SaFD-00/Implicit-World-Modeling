@@ -3,6 +3,37 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-06-29 — 화면 그룹핑(ScreenGrouper)을 element-set screen matching으로 교체 (MobileGPT-V2 Node-Clustering 포팅)
+
+LLM "화면 그룹핑"(`llm/screen_grouper.py`, annotation 전용이라 탐색에 미반영)을 MobileGPT-V2의 Node-Clustering을
+포팅한 **element-set screen matching**(`pipeline/screen_matching/`)으로 교체했다. 화면당 단일 LLM 호출로 각
+element의 `element_index`(같은 기능 family 전체)와 `key_element_index`(대표 anchor)를 함께 추출하고,
+set-classification으로 산출한 `page_key`가 page_graph 노드와 탐색 abstract page를 같은 키로 결정한다 — 과거
+grouping↔page matching 디커플을 의도적으로 커플링했다. (동시 진행한 app-context 입력 텍스트 생성은 아래 엔트리 참조.)
+
+- 신규 패키지 `pipeline/screen_matching/`: `ScreenMatcher` / `ui_attributes`(UIAttributes 지문 + find_matching_node ancestor-walk + text_blind + get_ui_key_attrib + mask_xml_to_indexes) / `set_classifier` / `page_knowledge`(PageKnowledge·KnowledgeRegistry). 신규 `llm/element_extractor.py` + `llm/prompts/element_extractor_prompt.py`로 MobileGPT-V2의 SubtaskExtractor·TriggerUIAgent 2호출을 1호출로 병합.
+- `ScreenMatcher.match` 흐름: ① 구조 지문 pre-filter(exact 재방문 short-circuit, LLM 0회) → ② step-1 text-blind ALL-match(저장 anchor) → supported+remaining → ③ expand(remaining 마스킹 후 재추출, dry/`--max-expand-iters` cap) → ④ set-classify(EQSET/SUPERSET_MERGE/SUBSET_MERGE는 containment-always-merge, OVERLAP만 two-sided tolerance band) → ⑤ dispatch(MERGE=stored page_key frozen / NEW=새 page_key + anchor를 현재 화면에서 fingerprint).
+- linchpin은 인덱스 공간 일치(extractor encoded XML = `{step}_encoded.xml` = `SemanticElement.index`, 모두 parse→_renumber→_clear_bounds): V2 파서는 포팅하지 않고 매칭 함수만 MC encoded 스키마(tag/aria-label/alt/text/type/value; id/class 없음)로 적응, distinctive 판정은 aria-label/alt. 산출 `page_key`가 `PageGraph.get_or_create_page_by_match`와 `SemanticState.page_key`(Memory/TransitionGraph/Navigator 키)를 모두 결정. `finalize_session`은 matcher 활성 시 라이브 `state.page_graph`(page_key/element_names)를 그대로 저장, 오프라인 page-map만 구조 지문 재구성.
+- CLI: `--screen-grouping` → `--element-extraction {on,off}`(기본 on, `--screen-grouping`은 deprecated alias 유지) + `--cluster-merge-tolerance`(0.2) + `--max-expand-iters`(3). 산출물 `{step}_groups.json` → `{step}_elements.json`, cost.csv agent 라벨 `screen_grouper` → `element_extractor`. degrade: `OPENROUTER_API_KEY` 없거나 off면 matcher 미생성 → `page_key=structure_str` fallback + Memory 압축 없음 = 기존 파이프라인 byte-for-byte.
+- 변경(작업트리): 신규 `pipeline/screen_matching/{__init__,ui_attributes,screen_matcher,set_classifier,page_knowledge}.py`·`llm/element_extractor.py`·`llm/prompts/element_extractor_prompt.py`·`tests/unit/test_{ui_attributes,set_classifier,screen_matcher,element_extractor}.py`; 수정 `domain/page_graph.py`·`pipeline/{collection_loop,collector,session_manager,exploration/{explorer,memory,navigator,state,transition_graph}}.py`·`storage.py`·`cli.py`·`llm/__init__.py`·`__init__.py`·`Monkey-Collector/{ARCHITECTURE,README,AGENTS}.md` + 다수 기존 테스트; 삭제 `llm/screen_grouper.py`·`tests/unit/test_screen_grouper.py`.
+- 커밋: 미커밋(작업트리). last_sync(2026-06-29T17:56:42+09:00) 이후 신규 커밋 없음 — 직전 커밋 beb6a8c, 곧 커밋·푸시 예정.
+- 결과/검증: 전체 테스트 green(신규 test_ui_attributes/test_set_classifier/test_screen_matcher/test_element_extractor + 기존 test_memory_unexplored/test_navigator/test_transition_graph_nav/test_storage/test_page_graph/test_semantic_state 갱신), 신규 파일 ruff 0/mypy clean, 전체 mypy 회귀 0(baseline 28 유지)·ruff 16→10. 라이브 org.tasks E2E PASS(Pixel6-2): element-extraction on → page_graph.json `page_key`(`page_0`,`page_1`)+element_names 저장, `{step}_elements.json` families(element_index+key_element_index), match_type ladder 전부 관측(NEW/SUBSET_MERGE/STRUCTURAL_IDENTICAL×20/DISJOINT/EQSET), pre-filter로 24스텝 중 LLM 2회($0.003), 크래시 0; degrade off → 구조경로 완주(page_key 0·elements.json 0·LLM 0).
+- 카테고리: devlog
+
+## 2026-06-29 — input-text LLM 생성에 앱 설명 주입
+
+탐색 중 텍스트 입력값을 LLM(`--input-mode api`)으로 생성할 때 프롬프트에 "현재 어떤 앱을 탐색 중인지"가
+전혀 없어 앱 도메인에 안 맞는 입력(쇼핑앱 검색창에 일반 단어 등)이 나올 수 있던 문제를 보완했다.
+`catalog/apps.csv`의 사람이 읽을 수 있는 메타데이터를 input-text 프롬프트에 주입하도록 배선했다.
+
+- 설계: 공유 `TextGenerator` 인스턴스(cli에서 1회 생성→explorer의 `ActionMapper`+`Collector` 양쪽 공유)에 세션마다 setter로 앱 설명을 박는 방식 채택. `generate()`에 인자를 스레딩하는 대안은 `TextGenerator`/`ActionMapper`/`Explorer` Protocol 시그니처가 줄줄이 바뀌어 기각.
+- 변경(작업트리, src 4): `pipeline/app_catalog.py`(`AppJob.description` 프로퍼티: `app_name (category/sub_category) — notes`, app_name 없으면 package_id 폴백); `pipeline/text_generator.py`(`TextGenerator` 베이스에 no-op `set_app_context` 훅 + `LLMTextGenerator` 오버라이드, `generate()`가 `App under test:` 줄을 프롬프트 앞에 조건부 prepend, SYSTEM_PROMPT에 도메인 맞춤 규칙 1줄); `pipeline/collector.py`(`__init__(app_contexts=...)` + `_run_session`이 패키지 확정 후 **무조건** `set_app_context(self._app_contexts.get(pkg, pkg))` — 공유 generator의 이전 앱 설명 누수 방지, `text_generator=None` 가드); `cli.py`(신규 `_resolve_app_contexts(packages)→dict` 헬퍼: AppCatalog 로드 best-effort, 미등록/누락은 dict 제외→Collector가 package_id 폴백; `Collector(app_contexts=...)` 배선). `_resolve_run_packages`는 테스트가 시그니처 고정이라 미변경.
+- 테스트(신규만, 기존 0 수정): `test_app_catalog`(description 4종: full/no-notes/no-category/package_id 폴백), `test_text_generator`(app_context 포함·미설정/공백 시 줄 생략·random no-op), `test_run_resume`(`_resolve_app_contexts` 정상/csv없음→{}/미등록 제외), `tests/integration/test_collector`(map→설명 호출·빈map→package_id 폴백 호출).
+- 결과/검증: 전체 **545 passed**(타깃 96 포함), 변경 src+신규 단위테스트 ruff clean(`set_app_context` 베이스 no-op은 의도적 선택훅이라 `# noqa: B027`). 라이브 스모크는 미실행(정적 검증까지).
+- 커밋: 미커밋(작업트리).
+- 문서: `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md` + `docs/CHANGELOG.md` 갱신.
+- 카테고리: devlog
+
 ## 2026-06-29 — setup-collector 스킬 전면 갱신 + 라이브 재검증 + 런타임 권한 자동허용
 
 Monkey-Collector `setup-collector` 스킬을 MobileGPT-V2 `setup-emulator` 구조(SKILL.md 오케스트레이션 +
