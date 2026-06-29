@@ -28,7 +28,15 @@ class CollectorService : AccessibilityService() {
         private val EXCLUDED_PACKAGES = setOf(
             "com.android.systemui",
             "com.android.permissioncontroller",
-            "com.monkey.collector"
+            "com.monkey.collector",
+            // Google Play Services / sign-in & install surfaces: these are
+            // unavoidable hand-offs for sign-in-gated apps (e.g. Google Docs on
+            // a signed-out device). Treating them as "external apps to flee"
+            // produced an endless E -> BACK -> relaunch -> gms storm, so skip
+            // them instead (the session ends cleanly on timeout).
+            "com.google.android.gms",
+            "com.google.android.gsf",
+            "com.android.vending"
         )
 
         private val LAUNCHER_PACKAGES = setOf(

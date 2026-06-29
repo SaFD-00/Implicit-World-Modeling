@@ -71,6 +71,18 @@ class ScreenStabilizer(
             return
         }
 
+        // Reuse an already-live capture pipeline across sessions. Re-acquiring a
+        // MediaProjection from the same consent token (resultData), or creating a
+        // second VirtualDisplay on a projection whose token has timed out, throws
+        // SecurityException on modern Android and KILLS the whole process — which
+        // drops the standby/START handshake for every app after the first
+        // (the root cause of `--apps all` collapsing after session 1). Never
+        // recreate while a live projection+display already exists.
+        if (mediaProjection != null && virtualDisplay != null) {
+            Log.i(TAG, "Reusing existing capture session")
+            return
+        }
+
         // Release VirtualDisplay/ImageReader but keep MediaProjection alive
         stopCaptureSession()
 
@@ -84,8 +96,9 @@ class ScreenStabilizer(
                         mediaProjection = null
                     }
                 }, null)
-            } catch (e: SecurityException) {
-                Log.e(TAG, "MediaProjection token expired: ${e.message}")
+            } catch (e: Exception) {
+                // Consent token is single-use / timed out on modern Android.
+                Log.e(TAG, "MediaProjection acquire failed (token single-use/expired): ${e.message}")
                 mediaProjection = null
                 return
             }
@@ -100,16 +113,29 @@ class ScreenStabilizer(
             targetWidth, targetHeight, PixelFormat.RGBA_8888, 2
         )
 
-        virtualDisplay = mediaProjection?.createVirtualDisplay(
-            "MonkeyCollector_Stabilizer",
-            targetWidth,
-            targetHeight,
-            screenDensityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader?.surface,
-            null,
-            null
-        )
+        try {
+            virtualDisplay = mediaProjection?.createVirtualDisplay(
+                "MonkeyCollector_Stabilizer",
+                targetWidth,
+                targetHeight,
+                screenDensityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader?.surface,
+                null,
+                null
+            )
+        } catch (e: Exception) {
+            // The consent token backing this MediaProjection is no longer valid
+            // (single-use on modern Android). Degrade to running WITHOUT visual
+            // stabilization instead of crashing the process and losing the grant.
+            Log.e(TAG, "createVirtualDisplay failed (MediaProjection token invalid): ${e.message}")
+            imageReader?.close()
+            imageReader = null
+            try { mediaProjection?.stop() } catch (_: Exception) {}
+            mediaProjection = null
+            virtualDisplay = null
+            return
+        }
 
         if (virtualDisplay == null) {
             Log.e(TAG, "VirtualDisplay creation failed! MediaProjection may be invalid.")
