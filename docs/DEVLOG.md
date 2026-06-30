@@ -3,6 +3,21 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-06-30 — Monkey-Collector 빈 page_0 blackhole 버그 수정 + LLM element description/parameters 디스크 보존
+
+element-set screen matching에서 두 결함을 함께 고쳤다: (1) 세션 첫 로딩/스플래시처럼 interactable이 0개인
+화면이 빈 page_0로 등록돼 이후 모든 화면을 흡수하던 **blackhole** 버그, (2) LLM이 추출한 element의
+`description`/`parameters`가 디스크 저장 시 누락되던 문제. 코드 변경만(기록 전용 아님), 작업트리 미커밋.
+
+- Fix 1 (blackhole): `ScreenMatcher.match()`에 entry guard 추가 — interactable(button/input) 0개 화면은 LLM 호출 없이 `pending`으로 거부해 page로 등록하지 않음(첫 유효 화면이 page_0이 됨). `set_classifier`에 안전망 — 저장 page B=∅이면 SUPERSET_MERGE 불가→DISJOINT라 어쩌다 등록된 빈 page도 sink가 되지 않음. `collection_loop`는 pending 시 page 노드 생성·`save_elements`를 스킵. 부수: `extract_interactable_indexes`를 root-inclusive(`tree.iter()`)로 수정해 단일 루트 interactable 누락 차단.
+- Task 2 (description/parameters): `ElementFamily`에 `description`/`parameters` 필드 추가(끝에 — 하위호환), families 생성부에서 ExtractedElement의 5필드 전부 채움, `DataWriter.save_elements`가 `{step}_elements.json`의 각 element에 description/parameters 키를 직렬화. 최종 element 형태: name/description/parameters/element_index/key_element_index.
+- 범위 결정: 버그리포트의 "merge 시 scroll-reveal element 누적"(권장)은 page-identity/tie-break 드리프트 위험으로 이번에서 제외(별도 변경으로 분리). 라이브 스모크도 제외 — 단위/오프라인 검증으로 대체.
+- 변경(작업트리, 12 files): src 5 + 패키지문서 3(`Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md`) + tests 4. 관련 단위테스트 갱신/추가.
+- 커밋: 미커밋(작업트리). 직전 커밋 b0ac999, 직후 git-push 예정.
+- 결과/검증: 전체 **545 passed**. 기존 3 failures는 직전 커밋 5cc02c4(max_steps 100→1500)/10d9eee(reinit on timeout)發로 본 변경과 무관.
+- 문서: 패키지 정본 `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md`만 갱신(작업트리). 루트 `docs/{README,ARCHITECTURE}.md`는 패키지 정본을 가리키므로 추가 수정 없음.
+- 카테고리: devlog
+
 ## 2026-06-29 — 화면 그룹핑(ScreenGrouper)을 element-set screen matching으로 교체 (MobileGPT-V2 Node-Clustering 포팅)
 
 LLM "화면 그룹핑"(`llm/screen_grouper.py`, annotation 전용이라 탐색에 미반영)을 MobileGPT-V2의 Node-Clustering을

@@ -23,6 +23,8 @@
 
 ### Fixed
 - Monkey-Collector: MediaProjection 토큰 단발성 reuse-guard + `createVirtualDisplay` graceful-degrade(`ScreenStabilizer`); `EXCLUDED_PACKAGES`(`CollectorService`)·`SYSTEM_PACKAGES`(`screen_guard`)에 gms/gsf/vending 추가로 외부앱 스톰 차단; no-ACK 세션 abort(`session_manager`)  (2026-06-29)
+- Monkey-Collector: 빈 page_0 blackhole 수정 — interactable 0개 화면(첫 로딩/스플래시)을 `ScreenMatcher.match()` entry guard로 `pending` 거부해 page 미등록(첫 유효 화면이 page_0), `collection_loop`가 pending 시 page 노드·`save_elements` 스킵; `set_classifier` 안전망(저장 page B=∅이면 SUPERSET_MERGE 불가→DISJOINT라 빈 page가 sink 안 됨); `extract_interactable_indexes`를 root-inclusive(`tree.iter()`)로 수정해 단일 루트 interactable 누락 차단  (2026-06-30)
+- Monkey-Collector: LLM element의 `description`/`parameters`가 디스크 저장 시 누락되던 문제 수정 — `ElementFamily`에 두 필드 추가(끝에, 하위호환), families 생성부가 ExtractedElement 5필드 전부 채움, `DataWriter.save_elements`가 `{step}_elements.json` 각 element에 직렬화(최종: name/description/parameters/element_index/key_element_index)  (2026-06-30)
 
 > 검증(2026-06-28): 위 OpenRouter LLM 통합을 실제 API Key + AVD(Pixel6-2)로 라이브 검증 — 정적 504 passed, 모델 슬러그(`qwen/qwen3.7-plus`) 실호출·화면 의미 그룹핑·문맥 입력 생성·비용 귀속·graceful fallback 동작 확인 (VERDICT PASS). 상세는 [DEVLOG.md](./DEVLOG.md).
 
