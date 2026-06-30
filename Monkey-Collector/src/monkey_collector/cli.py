@@ -55,6 +55,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         return
     logger.info(f"Run queue ({len(packages)} app(s)): {packages}")
     app_contexts = _resolve_app_contexts(packages)
+    app_names = _resolve_app_names(packages)
 
     adb = AdbClient()
     activity_tracker = ActivityCoverageTracker()
@@ -107,6 +108,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         screen_matcher=screen_matcher,
         new_session=args.new_session,
         app_contexts=app_contexts,
+        app_names=app_names,
     )
 
     session_ids = collector.run_queue(packages)
@@ -214,6 +216,29 @@ def _resolve_app_contexts(packages: list[str]) -> dict[str, str]:
         if job is not None:
             contexts[pkg] = job.description
     return contexts
+
+
+def _resolve_app_names(packages: list[str]) -> dict[str, str]:
+    """Map each package id to its human-readable app name from apps.csv.
+
+    Used to label open_app events on external recovery. Best-effort: a missing
+    catalog yields ``{}`` and packages absent from the catalog are omitted — the
+    open_app event then carries an empty ``app_name`` (downstream can join on
+    ``package``).
+    """
+    from monkey_collector.pipeline.app_catalog import AppCatalog
+
+    try:
+        catalog = AppCatalog.load("catalog/apps.csv")
+    except FileNotFoundError:
+        return {}
+
+    names: dict[str, str] = {}
+    for pkg in packages:
+        job = catalog.find_by_package(pkg)
+        if job is not None and job.app_name:
+            names[pkg] = job.app_name
+    return names
 
 
 def _load_completed_packages(output_dir: str) -> set[str]:

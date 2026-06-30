@@ -2,10 +2,13 @@
 
 import json
 import os
+import threading
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
 from loguru import logger
+
+from monkey_collector.domain.actions import OpenApp
 
 
 class DataWriter:
@@ -23,6 +26,12 @@ class DataWriter:
         self.base_dir = base_dir
         self.session_dir: str | None = None
         self.step_count = 0
+        # events.jsonl / metadata.json are written from two threads — the main
+        # collection loop (actions, log_open_app) and the TCP receiver thread
+        # (on_external_app -> log_external_app). Guard the append and the
+        # read-modify-write so lines never interleave and counters never lose
+        # an update.
+        self._lock = threading.Lock()
 
     def find_existing_session(self, package: str) -> str | None:
         """Find existing session directory for a package.
@@ -73,6 +82,7 @@ class DataWriter:
             "completed_at": None,
             "total_steps": 0,
             "external_app_events": 0,
+            "open_app_events": 0,
         }
         self._write_metadata(meta)
         logger.info(f"Session initialized: {self.session_dir}")
@@ -189,9 +199,9 @@ class DataWriter:
         return path
 
     def log_event(self, event: dict):
-        """Append an event to the events JSONL file."""
+        """Append an event to the events JSONL file (thread-safe)."""
         path = os.path.join(self.session_dir, "events.jsonl")
-        with open(path, "a", encoding="utf-8") as f:
+        with self._lock, open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
     def log_external_app(self, payload: dict):
@@ -199,6 +209,31 @@ class DataWriter:
         event = {"type": "external_app", "step": self.step_count, **payload}
         self.log_event(event)
         self._increment_metadata("external_app_events")
+
+    def log_open_app(
+        self,
+        package: str,
+        app_name: str = "",
+        step: int = -1,
+        from_package: str | None = None,
+    ):
+        """Log an open_app action (target app relaunch on external recovery).
+
+        Recorded for open_app learning. Marked ``transition: false`` so it is
+        excluded from every transition/navigation consumer — the world-modeling
+        converter (``ev.get("transition", True)``) and the offline page-graph
+        rebuild (``_load_events`` skip) both drop it, and the live page graph
+        never sees it because the loop clears ``state.last_action`` after
+        recovery. ``from_package`` is the external app the device drifted to.
+        """
+        event = OpenApp(package=package, app_name=app_name).to_dict()
+        event["step"] = step
+        event["transition"] = False
+        event["trigger"] = "external_recovery"
+        if from_package is not None:
+            event["from_package"] = from_package
+        self.log_event(event)
+        self._increment_metadata("open_app_events")
 
     def finalize_session(self):
         """Finalize session metadata."""
@@ -229,11 +264,12 @@ class DataWriter:
 
     def _increment_metadata(self, key: str):
         meta_path = os.path.join(self.session_dir, "metadata.json")
-        if os.path.exists(meta_path):
-            with open(meta_path, encoding="utf-8") as f:
-                meta = json.load(f)
-            meta[key] = meta.get(key, 0) + 1
-            self._write_metadata(meta)
+        with self._lock:
+            if os.path.exists(meta_path):
+                with open(meta_path, encoding="utf-8") as f:
+                    meta = json.load(f)
+                meta[key] = meta.get(key, 0) + 1
+                self._write_metadata(meta)
 
 
 def regenerate_xml_variants(raw_dir: str) -> int:

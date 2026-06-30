@@ -316,24 +316,42 @@ class LLMGuidedExplorer:
         except Exception:
             return False
 
-    def return_to_app(self, package: str) -> None:
-        """Return to the target app after leaving it."""
+    def return_to_app(self, package: str) -> bool:
+        """Return to the target app after leaving it.
+
+        Returns True iff the app had to be (re)launched — i.e. an open_app
+        happened — and False when a single Back was enough to land back in it.
+        Clears the pending transition record so the excursion is never
+        attributed as a routing-memory transition.
+        """
+        self._last_record = None
         try:
             self.adb.press_back()
             time.sleep(0.5)
             if self.adb.get_current_package() != package:
                 self.adb.launch_app(package)
                 time.sleep(3)
+                return True
+            return False
         except Exception:
             self.adb.launch_app(package)
             time.sleep(3)
+            return True
 
-    def recover(self, package: str) -> None:
-        """Recover from an error state by relaunching the app."""
+    def recover(self, package: str) -> bool:
+        """Recover from an error state by relaunching the app.
+
+        Returns True iff the app was relaunched (an open_app), False on failure.
+        Clears the pending transition record so the excursion is never
+        attributed as a routing-memory transition.
+        """
+        self._last_record = None
         try:
             self.adb.press_home()
             time.sleep(1)
             self.adb.launch_app(package)
             time.sleep(3)
+            return True
         except Exception:
             logger.error("Recovery failed for package %s", package)
+            return False

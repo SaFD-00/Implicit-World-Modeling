@@ -84,6 +84,25 @@ class LongPress(Action):
     duration_ms: int = 1000
 
 
+@dataclass
+class OpenApp(Action):
+    """Launch (open) the target app by package.
+
+    Record-only: emitted when the collector returns to the target app after the
+    device drifted to an external app. It is NOT one of the explorable domain
+    actions — ``select_action`` never produces it and ``execute_action`` never
+    runs it (the launch already happened inside the recovery helpers). It is
+    also NOT a navigation transition: the live page graph, the explorer's
+    routing memory, and the offline page-graph rebuild all exclude it (the
+    logged event carries ``transition: false``). Kept here so the open_app
+    events round-trip through ``ACTION_REGISTRY`` like any other action.
+    """
+
+    action_type: str = "open_app"
+    package: str = ""
+    app_name: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Registry & factory
 # ---------------------------------------------------------------------------
@@ -95,6 +114,7 @@ ACTION_REGISTRY: dict[str, type[Action]] = {
     "press_back": PressBack,
     "press_home": PressHome,
     "long_press": LongPress,
+    "open_app": OpenApp,
 }
 
 

@@ -49,6 +49,10 @@ class CollectionState:
     empty_ui_retries: int = 0
     reinit_timeout_count: int = 0
     reinit_external_count: int = 0
+    # True once an open_app has been logged for the current external excursion;
+    # reset to False on the next valid in-app frame so each excursion records
+    # exactly one open_app (dedup).
+    open_app_logged: bool = False
     last_action: Action | None = None
     last_ui_tree: UITree | None = None
     last_raw_xml: str | None = None
@@ -166,7 +170,7 @@ def run_collection_loop(
                 continue
 
             if signal_type == "external_app":
-                if _handle_external_app(collector, state, package):
+                if _handle_external_app(collector, state, package, result[2]):
                     break
                 continue
 
@@ -266,8 +270,17 @@ def _handle_external_app(
     collector: Collector,
     state: CollectionState,
     package: str,
+    payload: dict | None = None,
 ) -> bool:
-    """Handle an external_app signal. Returns True if session should end."""
+    """Handle an external_app signal. Returns True if session should end.
+
+    Whenever recovery actually relaunches the target app (an open_app), record
+    it once per excursion for open_app learning. The launch is *not* a
+    navigation transition: ``state.last_action`` is cleared so the next xml
+    frame draws no live page-graph edge, the explorer cleared its routing
+    record inside ``return_to_app``/``recover``, and the logged event carries
+    ``transition: false`` so the offline rebuild and converter skip it.
+    """
     state.external_app_count += 1
     logger.warning(
         f"Step {state.step}: external app detected "
@@ -288,23 +301,50 @@ def _handle_external_app(
             f"force-relaunching {package}"
         )
         try:
-            collector.explorer.recover(package)
+            launched = collector.explorer.recover(package)
         except Exception as e:
             logger.error(f"External reinit failed: {e}")
+            launched = False
+        _record_open_app(collector, state, package, payload, launched)
         collector.server.clear_signal_queue()
         state.external_app_count = 0
+        state.last_action = None
+        state.last_ui_tree = None
         time.sleep(collector.action_delay)
         return False
+    launched = False
     try:
         if state.external_app_count <= 3:
-            collector.explorer.return_to_app(package)
+            launched = collector.explorer.return_to_app(package)
         else:
-            collector.explorer.recover(package)
+            launched = collector.explorer.recover(package)
     except Exception as e:
         logger.error(f"Recovery attempt failed: {e}")
+    _record_open_app(collector, state, package, payload, launched)
     collector.server.clear_signal_queue()
+    state.last_action = None
+    state.last_ui_tree = None
     time.sleep(collector.action_delay)
     return False
+
+
+def _record_open_app(
+    collector: Collector,
+    state: CollectionState,
+    package: str,
+    payload: dict | None,
+    launched: bool,
+) -> None:
+    """Log an open_app once per excursion when recovery relaunched the app."""
+    if not launched or state.open_app_logged:
+        return
+    app_name = collector._app_names.get(package, "")
+    from_package = payload.get("detected_package") if payload else None
+    collector.writer.log_open_app(
+        package, app_name, step=state.step, from_package=from_package
+    )
+    state.open_app_logged = True
+    logger.info(f"Step {state.step}: recorded open_app for {package}")
 
 
 def _handle_permission_dialog(
@@ -594,6 +634,13 @@ def _process_xml_signal(
         return True
 
     state.empty_ui_retries = 0
+    # Back on a real in-app interactive frame: the external excursion (if any)
+    # is over, so the next drift starts a fresh excursion that records its own
+    # open_app. (The external-app *counter* below is deliberately stickier — it
+    # only resets on a brand-new page to break external↔return loops on a known
+    # page — but open_app dedup must clear here or a return to a known page
+    # would suppress the next excursion's open_app.)
+    state.open_app_logged = False
     # Only reset the external-app counter on genuine progress (a brand-new page).
     # Resetting on every in-app frame let an external↔return loop run forever
     # because each return landed on an already-known page.

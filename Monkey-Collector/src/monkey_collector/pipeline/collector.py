@@ -57,6 +57,7 @@ class Collector:
         screen_matcher: ScreenMatcher | None = None,
         new_session: bool = False,
         app_contexts: dict[str, str] | None = None,
+        app_names: dict[str, str] | None = None,
     ):
         self.adb = adb
         self.explorer = explorer
@@ -73,6 +74,9 @@ class Collector:
         self._screen_matcher = screen_matcher
         self._new_session = new_session
         self._app_contexts = app_contexts or {}
+        # package -> human-readable app name (apps.csv), used to label open_app
+        # events on external recovery. Falls back to "" when unresolved.
+        self._app_names = app_names or {}
         # The live element-set page graph of the current session (set per
         # session), persisted by finalize when a ScreenMatcher is active.
         self._live_page_graph: PageGraph | None = None

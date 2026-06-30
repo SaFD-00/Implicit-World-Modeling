@@ -394,7 +394,15 @@ def _load_events(session_dir: str) -> dict[int, dict]:
             try:
                 event = json.loads(line)
                 step = event.get("step")
-                if step is not None and not event.get("no_change_retry"):
+                # Skip no-change retries and non-transition markers. An event
+                # with transition=False (e.g. an open_app logged on external
+                # recovery) must never label a rebuilt edge — external excursions
+                # are not navigation.
+                if (
+                    step is not None
+                    and not event.get("no_change_retry")
+                    and event.get("transition") is not False
+                ):
                     mapping[int(step)] = event
             except (json.JSONDecodeError, ValueError):
                 continue
