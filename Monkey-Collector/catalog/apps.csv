@@ -14,8 +14,8 @@ Shopping,Grocery,Walmart,com.walmart.android,PlayStore,Medium,General + grocery 
 Productivity,Notes,Google Keep,com.google.android.keep,PlayStore,High,Note-taking; lists/reminders,false
 Productivity,Notes,Notion,me.notion.notionso,PlayStore,High,Complex workspace; pages/databases,false
 Productivity,Notes,Obsidian,md.obsidian,PlayStore,Medium,Markdown notes; file management,false
-Productivity,Notes,Joplin,net.cozic.joplin,F-Droid,High,Open-source notes; sync features,false
-Productivity,Notes,Markor,net.gsantner.markor,F-Droid,High,Markdown editor; file browser,false
+Productivity,Notes,Joplin,net.cozic.joplin,F-Droid,High,Open-source notes; sync features,true
+Productivity,Notes,Markor,net.gsantner.markor,F-Droid,High,Markdown editor; file browser,true
 Productivity,Office,Google Docs,com.google.android.apps.docs.editors.docs,PlayStore,High,Document editing,false
 Productivity,Office,Google Sheets,com.google.android.apps.docs.editors.sheets,PlayStore,High,Spreadsheet editing,false
 Productivity,Office,Google Slides,com.google.android.apps.docs.editors.slides,PlayStore,Medium,Presentation editing,false
@@ -24,12 +24,12 @@ Productivity,Office,WPS Office,cn.wps.moffice_eng,PlayStore,Medium,Multi-format 
 Productivity,Storage,Google Drive,com.google.android.apps.docs,PlayStore,High,Cloud storage; file management,true
 Productivity,Storage,Dropbox,com.dropbox.android,PlayStore,Medium,Cloud storage + sharing,false
 Productivity,Tasks,TickTick,com.ticktick.task,PlayStore,Medium,Task manager + calendar,false
-Productivity,Tasks,Tasks.org,org.tasks,F-Droid,Medium,Open-source task manager,false
+Productivity,Tasks,Tasks.org,org.tasks,F-Droid,Medium,Open-source task manager,true
 Productivity,Tasks,Todoist,com.todoist,PlayStore,Medium,Popular task manager,false
 Productivity,Calendar,Google Calendar,com.google.android.calendar,PlayStore,High,Calendar + event management,true
 Productivity,Calendar,Simple Calendar,com.simplemobiletools.calendar.pro,F-Droid,High,Open-source calendar,true
 Productivity,Email,Gmail,com.google.android.gm,PlayStore,High,Email client,true
-Productivity,Email,K-9 Mail,com.fsck.k9,F-Droid,High,Open-source email client,false
+Productivity,Email,K-9 Mail,com.fsck.k9,F-Droid,High,Open-source email client,true
 Productivity,Email,Microsoft Outlook,com.microsoft.office.outlook,PlayStore,Medium,Email + calendar,false
 Communication,Messaging,Signal,org.thoughtcrime.securesms,PlayStore,High,Encrypted messaging,false
 Communication,Messaging,Telegram,org.telegram.messenger,PlayStore,High,Feature-rich messaging,false
@@ -37,12 +37,12 @@ Communication,Messaging,Discord,com.discord,PlayStore,High,Community + voice cha
 Communication,Messaging,Slack,com.Slack,PlayStore,Medium,Workspace messaging,false
 Communication,Messaging,WhatsApp,com.whatsapp,PlayStore,High,Popular messaging,false
 Communication,Social,Reddit,com.reddit.frontpage,PlayStore,Medium,Forum-style social media,false
-Communication,Social,Mastodon,org.joinmastodon.android,F-Droid,Medium,Decentralized social network,false
+Communication,Social,Mastodon,org.joinmastodon.android,F-Droid,Medium,Decentralized social network,true
 Communication,Phone,Contacts,com.google.android.contacts,PlayStore,Medium,Contact management,true
 Communication,Phone,Simple Contacts,com.simplemobiletools.contacts.pro,F-Droid,Medium,Open-source contacts,false
 Media,Video,YouTube,com.google.android.youtube,PlayStore,High,Video streaming; search/browse,true
-Media,Video,VLC,org.videolan.vlc,F-Droid,High,Video player; file browser,false
-Media,Video,NewPipe,org.schabi.newpipe,F-Droid,Medium,YouTube frontend; open-source,false
+Media,Video,VLC,org.videolan.vlc,F-Droid,High,Video player; file browser,true
+Media,Video,NewPipe,org.schabi.newpipe,F-Droid,Medium,YouTube frontend; open-source,true
 Media,Music,Spotify,com.spotify.music,PlayStore,High,Music streaming; playlists,false
 Media,Music,YouTube Music,com.google.android.apps.youtube.music,PlayStore,Medium,Music streaming,true
 Media,Music,Retro Music,code.name.monkey.retromusic,F-Droid,High,Local music player; rich UI,true
@@ -52,12 +52,12 @@ Media,Photo,Simple Gallery,com.simplemobiletools.gallery.pro,F-Droid,High,Open-s
 Media,Photo,Snapseed,com.niksoftware.snapseed,PlayStore,Medium,Photo editing,false
 Media,Reading,Google Play Books,com.google.android.apps.books,PlayStore,Medium,E-book reader,false
 Media,Reading,Librera Reader,com.foobnix.pdf.reader,F-Droid,Medium,Document/book reader,false
-Media,Reading,KOReader,org.koreader.launcher.fdroid,F-Droid,Medium,E-book reader,false
+Media,Reading,KOReader,org.koreader.launcher.fdroid,F-Droid,Medium,E-book reader,true
 Media,Drawing,Sketchbook,com.adsk.sketchbook,PlayStore,Medium,Digital drawing/sketching,false
-Media,Podcast,AntennaPod,de.danoeh.antennapod,F-Droid,Medium,Open-source podcast player,false
+Media,Podcast,AntennaPod,de.danoeh.antennapod,F-Droid,Medium,Open-source podcast player,true
 Navigation,Maps,Google Maps,com.google.android.apps.maps,PlayStore,High,Maps/navigation/search,true
 Navigation,Maps,OsmAnd,net.osmand,F-Droid,High,Offline maps; open-source,true
-Navigation,Maps,Organic Maps,app.organicmaps,F-Droid,Medium,Privacy-focused maps,false
+Navigation,Maps,Organic Maps,app.organicmaps,F-Droid,Medium,Privacy-focused maps,true
 Navigation,Transit,Citymapper,com.citymapper.app.release,PlayStore,Medium,Multi-modal transit,false
 Navigation,Transit,Moovit,com.tranzmate,PlayStore,Medium,Public transit planner,false
 Navigation,Transit,Transportr,de.grobox.stocktransportr,F-Droid,Medium,Open-source transit,false
@@ -69,8 +69,8 @@ Travel,Booking,Agoda,com.agoda.mobile.consumer,PlayStore,Medium,Hotel booking,fa
 Travel,Flights,Skyscanner,net.skyscanner.android.main,PlayStore,Medium,Flight search/compare,false
 Travel,Flights,Google Flights,com.google.android.apps.flights,PlayStore,Medium,Flight search,false
 Travel,Planner,TripIt,com.tripit,PlayStore,Medium,Travel itinerary organizer,false
-Travel,Planner,Trainline,com.thetrainline,PlayStore,Medium,Train ticket booking,false
-Food,Recipes,Kitchen Stories,com.ajnsnewmedia.kitchenstories,PlayStore,Medium,Recipe browsing + cooking,false
+Travel,Planner,Trainline,com.thetrainline,PlayStore,Medium,Train ticket booking,true
+Food,Recipes,Kitchen Stories,com.ajnsnewmedia.kitchenstories,PlayStore,Medium,Recipe browsing + cooking,true
 Food,Recipes,Yummly,com.yummly.android,PlayStore,Medium,Recipe search + meal planning,false
 Food,Recipes,Cookpad,com.mufumbo.android.recipe.search,PlayStore,Medium,Community recipes,false
 Food,Delivery,DoorDash,com.dd.doordash,PlayStore,Medium,Food delivery,false
@@ -79,8 +79,8 @@ Food,Delivery,Grubhub,com.grubhub.android,PlayStore,Medium,Food ordering,false
 Food,Grocery,Kroger,com.kroger.mobile,PlayStore,Medium,Grocery shopping + coupons,false
 Health,Fitness,Google Fit,com.google.android.apps.fitness,PlayStore,Medium,Activity tracking,false
 Health,Fitness,Strava,com.strava,PlayStore,Medium,Run/cycle tracking,false
-Health,Fitness,Nike Training Club,com.nike.ntc,PlayStore,Medium,Workout programs,false
-Health,Fitness,OpenTracks,de.dennisguse.opentracks,F-Droid,High,Open-source sport tracker,false
+Health,Fitness,Nike Training Club,com.nike.ntc,PlayStore,Medium,Workout programs,true
+Health,Fitness,OpenTracks,de.dennisguse.opentracks,F-Droid,High,Open-source sport tracker,true
 Health,Meditation,Insight Timer,com.spotlightsix.zentimerlite2,PlayStore,Medium,Meditation timer + guided,false
 Health,Meditation,Medito,meditofoundation.medito,F-Droid,Medium,Open-source meditation,false
 Health,Medical,MyFitnessPal,com.myfitnesspal.android,PlayStore,Medium,Calorie/nutrition tracking,false
@@ -88,10 +88,10 @@ Health,Medical,Clue,com.clue.android,PlayStore,Medium,Period tracking,false
 Health,Plants,PlantNet,org.plantnet,PlayStore,Medium,Plant identification,false
 Education,Language,Duolingo,com.duolingo,PlayStore,High,Language learning; gamified,false
 Education,Language,Memrise,com.memrise.android.memrisecompanion,PlayStore,Medium,Vocabulary learning,false
-Education,Language,Anki,com.ichi2.anki,F-Droid,High,Flashcard-based learning,false
+Education,Language,Anki,com.ichi2.anki,F-Droid,High,Flashcard-based learning,true
 Education,Academic,Khan Academy,org.khanacademy.android,PlayStore,Medium,Video lessons + exercises,false
 Education,Academic,Coursera,org.coursera.android,PlayStore,Medium,Online courses,false
-Education,Academic,Wikipedia,org.wikipedia,F-Droid,Medium,Encyclopedia browsing,false
+Education,Academic,Wikipedia,org.wikipedia,F-Droid,Medium,Encyclopedia browsing,true
 Education,Reference,Dict.cc,cc.dict,PlayStore,Medium,Dictionary lookup,false
 Education,Reference,Linguee,com.linguee.linguee,PlayStore,Medium,Translation context,false
 Finance,Banking,PayPal,com.paypal.android.p2pmobile,PlayStore,Medium,Payment + transfer,false
@@ -102,34 +102,34 @@ Finance,Expense,GnuCash,org.gnucash.android,F-Droid,Medium,Open-source accountin
 Finance,Crypto,CoinGecko,com.coingecko.coingeckoapp,PlayStore,Medium,Crypto price tracking,false
 System,Settings,Settings,com.android.settings,System,High,System settings; deep menus,true
 System,Files,Files by Google,com.google.android.apps.nbu.files,PlayStore,High,File manager,false
-System,Files,Material Files,me.zhanghai.android.files,F-Droid,Medium,Open-source file manager,false
+System,Files,Material Files,me.zhanghai.android.files,F-Droid,Medium,Open-source file manager,true
 System,Clock,Clock,com.google.android.deskclock,PlayStore,High,Timer/alarm/stopwatch,true
 System,Phone,Phone,com.google.android.dialer,System,Medium,Dialer,true
-System,Camera,Open Camera,net.sourceforge.opencamera,F-Droid,Medium,Open-source camera,false
+System,Camera,Open Camera,net.sourceforge.opencamera,F-Droid,Medium,Open-source camera,true
 System,Calculator,Calculator,com.google.android.calculator,PlayStore,Medium,Basic calculator,false
-System,Launcher,KISS Launcher,fr.neamar.kiss,F-Droid,Low,Minimal launcher,false
+System,Launcher,KISS Launcher,fr.neamar.kiss,F-Droid,Low,Minimal launcher,true
 System,Browser,Firefox,org.mozilla.firefox,PlayStore,Medium,Web browser,false
 System,Browser,Brave,com.brave.browser,PlayStore,Medium,Privacy browser,false
 System,Keyboard,OpenBoard,org.dslul.openboard.inputmethod.latin,F-Droid,Low,Open-source keyboard,false
 Weather,Forecast,AccuWeather,com.accuweather.android,PlayStore,Medium,Weather forecasting,false
 Weather,Forecast,Geometric Weather,wangdaye.com.geometricweather,F-Droid,Medium,Open-source weather,false
-Weather,Forecast,Weather Underground,com.wunderground.android.weather,PlayStore,Medium,Detailed weather data,false
+Weather,Forecast,Weather Underground,com.wunderground.android.weather,PlayStore,Medium,Detailed weather data,true
 News,Aggregator,Google News,com.google.android.apps.magazines,PlayStore,Medium,News aggregation,false
-News,Aggregator,Feeder,com.nononsenseapps.feeder,F-Droid,Medium,RSS feed reader,false
+News,Aggregator,Feeder,com.nononsenseapps.feeder,F-Droid,Medium,RSS feed reader,true
 News,Aggregator,Flipboard,flipboard.app,PlayStore,Medium,Magazine-style news,false
 News,Publisher,BBC News,bbc.mobile.news.ww,PlayStore,Medium,International news,false
 News,Publisher,Reuters,com.thomsonreuters.reuters,PlayStore,Medium,Business/world news,false
 News,Publisher,AP News,mnn.Android,PlayStore,Medium,Breaking news,false
-Entertainment,Games,Chess.com,com.chess,PlayStore,Low,Board game; interactive UI,false
+Entertainment,Games,Chess.com,com.chess,PlayStore,Low,Board game; interactive UI,true
 Entertainment,Games,Lichess,org.lichess.mobileapp,F-Droid,Low,Open-source chess,false
 Entertainment,Streaming,Twitch,tv.twitch.android.app,PlayStore,Low,Live streaming,false
-Entertainment,Events,Eventbrite,com.eventbrite.attendee,PlayStore,Medium,Event discovery/tickets,false
+Entertainment,Events,Eventbrite,com.eventbrite.attendee,PlayStore,Medium,Event discovery/tickets,true
 Lifestyle,Home,Home Assistant,io.homeassistant.companion.android,F-Droid,Medium,Smart home control,false
 Lifestyle,Real Estate,Zillow,com.zillow.android.zillowmap,PlayStore,Medium,Real estate search,false
 Lifestyle,Real Estate,Redfin,com.redfin.android,PlayStore,Medium,Home buying,false
-Lifestyle,Habit,Loop Habit Tracker,org.isoron.uhabits,F-Droid,Medium,Open-source habit tracking,false
-Lifestyle,Diary,Diary,org.billthefarmer.diary,F-Droid,Medium,Simple diary app,false
-Tools,QR,Binary Eye,de.markusfisch.android.binaryeye,F-Droid,Low,QR/barcode scanner,false
+Lifestyle,Habit,Loop Habit Tracker,org.isoron.uhabits,F-Droid,Medium,Open-source habit tracking,true
+Lifestyle,Diary,Diary,org.billthefarmer.diary,F-Droid,Medium,Simple diary app,true
+Tools,QR,Binary Eye,de.markusfisch.android.binaryeye,F-Droid,Low,QR/barcode scanner,true
 Tools,Password,Bitwarden,com.x8bit.bitwarden,F-Droid,Medium,Password manager,false
 Tools,VPN,ProtonVPN,ch.protonvpn.android,PlayStore,Low,VPN client,false
 Tools,Scanner,OpenScan,com.ethereal.openscan,F-Droid,Medium,Document scanner,false
@@ -137,17 +137,17 @@ Tools,Translate,DeepL,com.deepl.mobiletranslator,PlayStore,Medium,Translation,fa
 Tools,Converter,Unit Converter,com.androidfromhome.unitconverter,F-Droid,Low,Unit conversion,false
 Social,Photo,Pinterest,com.pinterest,PlayStore,Medium,Visual discovery/pinning,false
 Social,Photo,Pixelfed,org.pixeldroid,F-Droid,Low,Decentralized photo sharing,false
-Social,Forum,Lemmy,com.jerboa,F-Droid,Low,Decentralized link aggregator,false
-Automotive,EV,PlugShare,com.xatori.Plugshare,PlayStore,Low,EV charging station finder,false
+Social,Forum,Lemmy,com.jerboa,F-Droid,Low,Decentralized link aggregator,true
+Automotive,EV,PlugShare,com.xatori.Plugshare,PlayStore,Low,EV charging station finder,true
 Automotive,Parking,ParkMobile,net.sharewire.parkmobilev2,PlayStore,Low,Parking payment,false
-Sports,Scores,ESPN,com.espn.score_center,PlayStore,Medium,Sports scores/news,false
-Sports,Tracking,Nike Run Club,com.nike.plusgps,PlayStore,Medium,Running tracker,false
+Sports,Scores,ESPN,com.espn.score_center,PlayStore,Medium,Sports scores/news,true
+Sports,Tracking,Nike Run Club,com.nike.plusgps,PlayStore,Medium,Running tracker,true
 Sports,Scores,FotMob,com.mobilefootie.wc2010,PlayStore,Low,Football/soccer scores,false
 Podcast,Player,Pocket Casts,au.com.shiftyjelly.pocketcasts,PlayStore,Medium,Podcast player,false
-Podcast,Player,AntennaPod,de.danoeh.antennapod,F-Droid,Medium,Open-source podcast,false
-Music,Instrument,Tuner,org.billthefarmer.tuner,F-Droid,Low,Musical instrument tuner,false
-Music,Radio,RadioDroid,net.programmierecke.radiodroid2,F-Droid,Low,Internet radio,false
-Photography,Editor,Photo Editor,com.iudesk.android.photo.editor,PlayStore,Low,Photo editing tools,false
-Photography,Camera,FreeDCam,troop.com.freedcam,F-Droid,Low,Advanced camera controls,false
+Podcast,Player,AntennaPod,de.danoeh.antennapod,F-Droid,Medium,Open-source podcast,true
+Music,Instrument,Tuner,org.billthefarmer.tuner,F-Droid,Low,Musical instrument tuner,true
+Music,Radio,RadioDroid,net.programmierecke.radiodroid2,F-Droid,Low,Internet radio,true
+Photography,Editor,Photo Editor,com.iudesk.android.photo.editor,PlayStore,Low,Photo editing tools,true
+Photography,Camera,FreeDCam,troop.com.freedcam,F-Droid,Low,Advanced camera controls,true
 Accessibility,Reader,Voice Aloud,com.hyperionics.avar,PlayStore,Low,Text-to-speech reader,false
 Accessibility,Magnifier,Magnifier Plus,com.vistechprojects.magnifierplus,PlayStore,Low,Screen magnification,false
