@@ -28,6 +28,10 @@ class TestRunArgsParsing:
             assert args.config is None
             assert args.new_session is False
             assert args.force is False
+            assert args.luminance_prefilter is None
+            assert args.luminance_threshold is None
+            assert args.screenshot_diff_threshold is None
+            assert args.luminance_low_res_width is None
 
     def test_apps_required(self):
         from monkey_collector.cli import main
@@ -68,6 +72,23 @@ class TestRunArgsParsing:
             main()
             args = mock_cmd.call_args[0][0]
             assert args.strategy == "DFS"
+
+    def test_luminance_flags(self):
+        from monkey_collector.cli import main
+
+        with patch("sys.argv", [
+            "monkey-collect", "run", "--apps", "all",
+            "--luminance-prefilter", "off",
+            "--luminance-threshold", "25",
+            "--screenshot-diff-threshold", "0.05",
+            "--luminance-low-res-width", "64",
+        ]), patch("monkey_collector.cli.cmd_run") as mock_cmd:
+            main()
+            args = mock_cmd.call_args[0][0]
+            assert args.luminance_prefilter == "off"
+            assert args.luminance_threshold == 25
+            assert args.screenshot_diff_threshold == 0.05
+            assert args.luminance_low_res_width == 64
 
     def test_config_flag(self):
         from monkey_collector.cli import main

@@ -32,6 +32,10 @@ def _full_args(**overrides) -> argparse.Namespace:
         screen_grouping=None,
         cluster_merge_tolerance=None,
         max_expand_iters=None,
+        luminance_prefilter=None,
+        luminance_threshold=None,
+        screenshot_diff_threshold=None,
+        luminance_low_res_width=None,
         config=None,
     )
     base.update(overrides)
@@ -52,6 +56,10 @@ def test_builtin_defaults_no_yaml():
     assert cfg.llm.element_extraction is True
     assert cfg.screen_matching.cluster_merge_tolerance == 0.2
     assert cfg.screen_matching.max_expand_iters == 3
+    assert cfg.screen_matching.luminance_prefilter is True
+    assert cfg.screen_matching.luminance_threshold == 10
+    assert cfg.screen_matching.screenshot_diff_threshold == 0.02
+    assert cfg.screen_matching.luminance_low_res_width == 100
 
 
 def test_valid_strategies_set():
@@ -103,6 +111,18 @@ def test_env_float_coercion(monkeypatch):
     monkeypatch.setenv("MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE", "0.45")
     cfg = load_run_config(path=NONEXISTENT)
     assert cfg.screen_matching.cluster_merge_tolerance == 0.45
+
+
+def test_env_luminance_coercion(monkeypatch):
+    monkeypatch.setenv("MC_SCREEN_MATCHING_LUMINANCE_PREFILTER", "off")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD", "25")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD", "0.1")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH", "64")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.screen_matching.luminance_prefilter is False
+    assert cfg.screen_matching.luminance_threshold == 25
+    assert cfg.screen_matching.screenshot_diff_threshold == 0.1
+    assert cfg.screen_matching.luminance_low_res_width == 64
 
 
 def test_env_bool_coercion(monkeypatch):
@@ -219,6 +239,10 @@ def test_cli_full_override():
             input_mode="random",
             cluster_merge_tolerance=0.9,
             max_expand_iters=5,
+            luminance_prefilter="off",
+            luminance_threshold=30,
+            screenshot_diff_threshold=0.05,
+            luminance_low_res_width=80,
         ),
     )
     assert cfg.exploration.strategy == "GREEDY"
@@ -230,3 +254,15 @@ def test_cli_full_override():
     assert cfg.llm.input_mode == "random"
     assert cfg.screen_matching.cluster_merge_tolerance == 0.9
     assert cfg.screen_matching.max_expand_iters == 5
+    assert cfg.screen_matching.luminance_prefilter is False
+    assert cfg.screen_matching.luminance_threshold == 30
+    assert cfg.screen_matching.screenshot_diff_threshold == 0.05
+    assert cfg.screen_matching.luminance_low_res_width == 80
+
+
+def test_cli_luminance_prefilter_on_off():
+    cfg = load_run_config(path=NONEXISTENT)
+    off = merge_with_cli_args(cfg, _full_args(luminance_prefilter="off"))
+    assert off.screen_matching.luminance_prefilter is False
+    on = merge_with_cli_args(cfg, _full_args(luminance_prefilter="on"))
+    assert on.screen_matching.luminance_prefilter is True

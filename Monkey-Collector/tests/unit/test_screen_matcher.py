@@ -1,6 +1,9 @@
 """Tests for ScreenMatcher: prefilter, NEW, MERGE (superset), DISJOINT, expand."""
 
+import io
 import xml.etree.ElementTree as ET
+
+from PIL import Image
 
 from monkey_collector.llm.element_extractor import ExtractedElement
 from monkey_collector.pipeline.screen_matching.screen_matcher import ScreenMatcher
@@ -68,6 +71,21 @@ def _enc(raw):
 
 def _matcher():
     return ScreenMatcher(FakeExtractor(), cluster_merge_tolerance=0.2, max_expand_iters=3)
+
+
+def _jpeg(color, size=(40, 80)):
+    """Solid-colour JPEG bytes for the luminance prefilter (decoded via BytesIO)."""
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def _lum_matcher():
+    return ScreenMatcher(
+        FakeExtractor(), cluster_merge_tolerance=0.2, max_expand_iters=3,
+        luminance_prefilter=True, luminance_threshold=10,
+        screenshot_diff_threshold=0.02, luminance_low_res_width=20,
+    )
 
 
 def test_new_page_on_empty_registry():
@@ -207,3 +225,56 @@ def test_remap_families_drops_unrendered_elements():
     # RAW_C (Play only) has none of page_0's anchors → every element dropped.
     tree_c = ET.fromstring(_enc(RAW_C))
     assert sm._remap_families(tree_c, page) == []
+
+
+# ── Stage-0 luminance prefilter ──
+
+SHOT_A = _jpeg((10, 20, 30))
+SHOT_B = _jpeg((240, 230, 220))  # bright → very different luminance from SHOT_A
+
+
+def test_luminance_prefilter_hit_reuses_page_no_llm():
+    sm = _lum_matcher()
+    a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    calls_after_first = sm._extractor.calls
+    # RAW_C would normally DISJOINT into a NEW page; the identical screenshot makes
+    # the luminance prefilter short-circuit it to page_0 with no extractor call.
+    m = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_A)
+    assert not m.is_new_page
+    assert m.match_type == "LUMINANCE_PREFILTER"
+    assert m.page_key == a.page_key
+    assert sm._extractor.calls == calls_after_first  # LLM/expand path skipped
+
+
+def test_luminance_prefilter_miss_falls_through():
+    sm = _lum_matcher()
+    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    # A very different screenshot → no luminance hit → normal element matching.
+    c = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_B)
+    assert c.is_new_page and c.match_type == "DISJOINT"
+
+
+def test_luminance_prefilter_off_is_noop():
+    sm = _matcher()  # luminance_prefilter defaults OFF
+    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    # Even with an identical screenshot, OFF routes RAW_B through element matching.
+    b = sm.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=SHOT_A)
+    assert b.match_type == "SUPERSET_MERGE"
+
+
+def test_luminance_prefilter_none_screenshot_degrades():
+    sm = _lum_matcher()
+    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    # Enabled but no screenshot bytes → no image work, normal element path.
+    c = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=None)
+    assert c.is_new_page and c.match_type == "DISJOINT"
+
+
+def test_luminance_observations_capped():
+    sm = _lum_matcher()
+    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    page = sm._registry.get("page_0")
+    # Drive many structural revisits (each stores an observation) past the cap.
+    for _ in range(ScreenMatcher._MAX_LUMINANCE_OBS + 5):
+        sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    assert len(page.luminance_features) <= ScreenMatcher._MAX_LUMINANCE_OBS
