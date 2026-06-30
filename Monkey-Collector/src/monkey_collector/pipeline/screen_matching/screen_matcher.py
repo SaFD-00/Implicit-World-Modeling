@@ -4,7 +4,10 @@ Replaces the structural-fingerprint page identity with MobileGPT-V2's
 element-set cluster assignment, run live in the collection loop. Per screen:
 
   0. Pre-filter   — a structural fingerprint short-circuits exact revisits with
-                    NO LLM call (the cheap analogue of V2's luminance prefilter).
+                    NO LLM call (the cheap analogue of V2's luminance prefilter);
+                    a screen with no interactable (button/input) is declined
+                    outright (``pending``) so a loading/splash frame never
+                    registers as a page — the first VALID screen becomes page_0.
   1. Step-1 match — for each stored page, text-blind ALL-match its anchor
                     fingerprints against the current screen → supported element
                     names + remaining (unaccounted) interactable indices.
@@ -52,22 +55,37 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ElementFamily:
-    """A same-function element family with current-screen indices (for Memory)."""
+    """A same-function element family with current-screen indices (for Memory).
+
+    ``description`` / ``parameters`` carry the LLM's extracted semantics through
+    to ``{step}_elements.json`` (they originate on :class:`ExtractedElement` and
+    are filled at family-build time; both are appended at the END to preserve the
+    positional construction and the dataclass default-ordering rule).
+    """
 
     name: str
     element_index: list[int]
     key_element_index: list[int]
+    description: str = ""
+    parameters: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class ScreenMatch:
-    """Outcome of matching one screen: its page identity and (on a new page) families."""
+    """Outcome of matching one screen: its page identity and (on a new page) families.
+
+    ``pending`` flags a screen the matcher declined to register (a loading /
+    splash frame with no interactable, or an otherwise empty extract): it carries
+    no ``page_key`` and the collection loop must NOT create a page node or persist
+    elements for it — the first VALID screen of a session becomes ``page_0``.
+    """
 
     page_key: str
     is_new_page: bool
     match_type: str
     families: list[ElementFamily] = field(default_factory=list)
     page_description: str = ""
+    pending: bool = False
 
 
 class ScreenMatcher:
@@ -110,6 +128,14 @@ class ScreenMatcher:
         if cached is not None:
             logger.debug(f"screen_match: structural prefilter hit page={cached}")
             return ScreenMatch(cached, is_new_page=False, match_type="STRUCTURAL_IDENTICAL")
+
+        # No interactable (button/input) on this screen → a loading/splash frame.
+        # Decline to register it (no LLM call, no page): the first VALID screen of
+        # the session must become page_0, not an empty blackhole that later
+        # screens merge into. The loop's empty-UI guard then waits / relaunches.
+        if not extract_interactable_indexes(encoded_xml):
+            logger.debug("screen_match: no interactable, declining (pending)")
+            return ScreenMatch("", is_new_page=False, match_type="PENDING_EMPTY", pending=True)
 
         try:
             tree = ET.fromstring(encoded_xml)
@@ -310,8 +336,15 @@ class ScreenMatcher:
         # Families for Memory: ONLY the freshly-extracted (current-index)
         # elements. Supported-from-B elements anchor page identity but carry
         # stored indices, so they are not handed to same-function compression.
+        # description/parameters ride along so they reach {step}_elements.json.
         families = [
-            ElementFamily(e.name, list(e.element_index), list(e.key_element_index))
+            ElementFamily(
+                name=e.name,
+                element_index=list(e.element_index),
+                key_element_index=list(e.key_element_index),
+                description=e.description,
+                parameters=dict(e.parameters),
+            )
             for e in additional
         ]
         return ScreenMatch(

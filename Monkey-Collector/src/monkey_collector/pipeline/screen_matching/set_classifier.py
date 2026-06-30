@@ -5,18 +5,21 @@ Ports MobileGPT-V2 Node-Clustering's ``find_best_match`` step-3 classification
 recognized on the current screen (supported ∪ newly-extracted) and B = a stored
 page's element-name set, decide the match type:
 
-    A == B               -> EQSET           (merge into B)
-    A ⊋ B                -> SUPERSET_MERGE   (containment → always merge)
-    A ⊊ B (A non-empty)  -> SUBSET_MERGE     (containment → always merge)
-    partial overlap      -> OVERLAP_MERGE iff two-sided tolerance band passes,
-                            else OVERLAP_NEW
-    A ∩ B = ∅            -> DISJOINT         (new page)
+    A == B                       -> EQSET           (merge into B)
+    A ⊋ B (both non-empty)       -> SUPERSET_MERGE   (containment → always merge)
+    A ⊊ B (both non-empty)       -> SUBSET_MERGE     (containment → always merge)
+    partial overlap              -> OVERLAP_MERGE iff two-sided tolerance band
+                                    passes, else OVERLAP_NEW
+    A ∩ B = ∅, or B = ∅          -> DISJOINT         (new page)
 
 Containment always merges: a SUPERSET/SUBSET match is the same screen at a
-different scroll/render state (collapses the scroll-reveal over-split). The
-two-sided tolerance band is retained ONLY for OVERLAP — the case where a rich
-new screen would wrongly collapse into a small stored page on an incidental
-shared element (e.g. a persistent bottom bar).
+different scroll/render state (collapses the scroll-reveal over-split). BOTH
+containment branches require a non-empty B: an empty stored page (B=∅) is never
+a merge target, so an accidentally-registered empty page can never become a sink
+that swallows every later screen (the blackhole). The two-sided tolerance band
+is retained ONLY for OVERLAP — the case where a rich new screen would wrongly
+collapse into a small stored page on an incidental shared element (e.g. a
+persistent bottom bar).
 """
 
 from __future__ import annotations
@@ -46,7 +49,11 @@ def classify(a_names: set[str], b_names: set[str], tolerance: float) -> Classifi
 
     if a == b:
         match_type = "EQSET"
-    elif a and a > b:
+    elif a and b and a > b:
+        # b non-empty guard: an empty stored page (B=∅) must NOT swallow this
+        # screen as a superset — that is the blackhole. With B=∅ this falls
+        # through to DISJOINT, so any accidentally-registered empty page is
+        # harmless (the next real screen forks its own node) rather than a sink.
         match_type = "SUPERSET_MERGE"  # containment → always merge (scroll-reveal)
     elif a and b and a < b:
         # A must be non-empty: empty A means we recognized nothing → DISJOINT.

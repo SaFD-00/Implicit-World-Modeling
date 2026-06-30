@@ -488,11 +488,16 @@ def _process_xml_signal(
     if collector._screen_matcher is not None:
         encoded_xml, _ = encode_with_bounds(xml_str)
         match = collector._screen_matcher.match(xml_str, encoded_xml, activity_name)
-        state.current_screen_match = match
-        state.current_page_id = state.page_graph.get_or_create_page_by_match(
-            match, activity_name, xml_str, state.step,
-        )
-        collector.explorer.set_match_context(match.page_key, match.families)
+        # A pending match is a loading/splash (or empty-extract) frame the matcher
+        # declined to register: keep current_screen_match=None so save_elements is
+        # skipped and no page node is created, leaving current_page_id at its prior
+        # value. The empty-UI guard below then waits / relaunches.
+        if not match.pending:
+            state.current_screen_match = match
+            state.current_page_id = state.page_graph.get_or_create_page_by_match(
+                match, activity_name, xml_str, state.step,
+            )
+            collector.explorer.set_match_context(match.page_key, match.families)
     else:
         state.current_page_id = state.page_graph.get_or_create_page(
             activity_name, xml_str, state.step,

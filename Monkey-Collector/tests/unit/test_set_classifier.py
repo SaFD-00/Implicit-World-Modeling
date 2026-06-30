@@ -29,6 +29,19 @@ def test_disjoint():
     assert c.match_type == "DISJOINT" and not c.is_merge
 
 
+def test_empty_b_is_disjoint_not_superset():
+    # An empty stored page (B=∅) must NOT swallow a real screen as a superset —
+    # that is the blackhole. With B=∅ classification falls through to DISJOINT so
+    # an accidentally-registered empty page can never become a sink.
+    c = classify({"a", "b"}, set(), 0.2)
+    assert c.match_type == "DISJOINT" and not c.is_merge
+
+
+def test_both_empty_is_eqset():
+    c = classify(set(), set(), 0.2)
+    assert c.match_type == "EQSET" and c.is_merge
+
+
 def test_overlap_in_band_merges():
     # |A∩B|=3, N=|B|=4, M=|A|=4, tol=0.5 → bands [2,6] both → merge.
     a = {"a", "b", "c", "x"}

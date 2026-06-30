@@ -50,7 +50,15 @@ class FakeExtractor:
                 if name in known:
                     continue
                 i = int(n.attrib["index"])
-                out.append(ExtractedElement(name=name, element_index=[i], key_element_index=[i]))
+                out.append(
+                    ExtractedElement(
+                        name=name,
+                        description=f"open {n.attrib['aria-label']}",
+                        parameters={"idx": str(i)},
+                        element_index=[i],
+                        key_element_index=[i],
+                    )
+                )
         return out
 
 
@@ -67,6 +75,10 @@ def test_new_page_on_empty_registry():
     m = sm.match(RAW_A, _enc(RAW_A), "act.Main")
     assert m.is_new_page and m.match_type == "NEW"
     assert {f.name for f in m.families} == {"open_add", "open_search"}
+    # description/parameters extracted by the LLM ride through onto the family.
+    fam = next(f for f in m.families if f.name == "open_add")
+    assert fam.description == "open Add"
+    assert fam.parameters == {"idx": str(fam.element_index[0])}
 
 
 def test_structural_prefilter_short_circuits_revisit():
@@ -106,12 +118,34 @@ def test_expand_discovers_new_element_via_mask():
     assert b.match_type == "SUPERSET_MERGE"  # add,search,filter ⊋ add,search
 
 
-def test_no_interactables_makes_empty_new_page():
+def test_no_interactables_is_pending_not_registered():
+    # A loading/splash frame with no button/input must be declined (pending),
+    # not registered as an empty page — otherwise it becomes a blackhole that
+    # every later screen merges into. No extractor (LLM) call is made.
     sm = _matcher()
     raw_empty = _screen('<node class="android.widget.TextView" text="hi" bounds="[0,0][10,10]"/>')
     m = sm.match(raw_empty, _enc(raw_empty), "act.Main")
-    assert m.is_new_page
+    assert m.pending
+    assert not m.is_new_page
+    assert m.match_type == "PENDING_EMPTY"
     assert m.families == []
+    assert len(sm._registry) == 0
+    assert sm._counter == 0
+    assert sm._extractor.calls == 0
+
+
+def test_pending_loading_then_first_valid_screen_is_page_0():
+    # The first VALID screen after a declined loading frame must become page_0
+    # (the loading frame left the registry empty).
+    sm = _matcher()
+    raw_empty = _screen('<node class="android.widget.TextView" text="hi" bounds="[0,0][10,10]"/>')
+    pending = sm.match(raw_empty, _enc(raw_empty), "act.Splash")
+    assert pending.pending and len(sm._registry) == 0
+
+    m = sm.match(RAW_A, _enc(RAW_A), "act.Main")
+    assert m.is_new_page and m.match_type == "NEW"
+    assert m.page_key == "page_0"
+    assert {f.name for f in m.families} == {"open_add", "open_search"}
 
 
 def test_reset_clears_registry():
