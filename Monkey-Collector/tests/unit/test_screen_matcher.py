@@ -87,8 +87,11 @@ def test_structural_prefilter_short_circuits_revisit():
     calls_after_first = sm._extractor.calls
     m = sm.match(RAW_A, _enc(RAW_A), "act.Main")
     assert not m.is_new_page and m.match_type == "STRUCTURAL_IDENTICAL"
-    assert m.families == []
-    # no extra extractor call on an exact revisit
+    # revisit fills families from the cached page, re-grounded on this screen.
+    assert {f.name for f in m.families} == {"open_add", "open_search"}
+    # indices are current-screen (anchor) indices, not empty.
+    assert all(f.element_index and f.element_index == f.key_element_index for f in m.families)
+    # no extra extractor call on an exact revisit (families come from the registry)
     assert sm._extractor.calls == calls_after_first
 
 
@@ -100,6 +103,10 @@ def test_superset_merges_into_existing_page():
     assert not b.is_new_page
     assert b.match_type == "SUPERSET_MERGE"
     assert b.page_key == a.page_key  # merged into the same page
+    # merge fills families: the matched page's elements re-grounded on the
+    # current screen (open_add, open_search) PLUS the expand-found open_filter.
+    assert {f.name for f in b.families} == {"open_add", "open_search", "open_filter"}
+    assert all(f.element_index for f in b.families)
 
 
 def test_disjoint_creates_new_page():
@@ -155,3 +162,48 @@ def test_reset_clears_registry():
     sm.reset()
     assert len(sm._registry) == 0
     assert sm._counter == 0
+
+
+def test_families_from_elements_copies_verbatim():
+    from monkey_collector.pipeline.screen_matching.screen_matcher import (
+        _families_from_elements,
+    )
+
+    els = [
+        ExtractedElement(
+            name="open_add",
+            description="open Add",
+            parameters={"idx": "3"},
+            element_index=[3, 4],
+            key_element_index=[3],
+        )
+    ]
+    fams = _families_from_elements(els)
+    assert len(fams) == 1
+    f = fams[0]
+    assert (f.name, f.description, f.parameters) == ("open_add", "open Add", {"idx": "3"})
+    assert f.element_index == [3, 4]
+    assert f.key_element_index == [3]
+
+
+def test_remap_families_regrounds_on_current_screen():
+    sm = _matcher()
+    # Register page_0 from RAW_A (open_add, open_search anchored on this screen).
+    sm.match(RAW_A, _enc(RAW_A), "act.Main")
+    page = sm._registry.get("page_0")
+
+    # Re-ground on RAW_A's own tree: both elements present → current indices,
+    # element_index approximated to (== ) the anchor indices.
+    tree = ET.fromstring(_enc(RAW_A))
+    fams = sm._remap_families(tree, page)
+    assert {f.name for f in fams} == {"open_add", "open_search"}
+    assert all(f.element_index and f.element_index == f.key_element_index for f in fams)
+
+
+def test_remap_families_drops_unrendered_elements():
+    sm = _matcher()
+    sm.match(RAW_A, _enc(RAW_A), "act.Main")
+    page = sm._registry.get("page_0")
+    # RAW_C (Play only) has none of page_0's anchors → every element dropped.
+    tree_c = ET.fromstring(_enc(RAW_C))
+    assert sm._remap_families(tree_c, page) == []

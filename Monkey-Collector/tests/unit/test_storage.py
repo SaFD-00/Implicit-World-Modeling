@@ -142,7 +142,9 @@ class TestSaveElements:
         assert data["elements"][0]["element_index"] == [1, 2]
         assert data["elements"][0]["key_element_index"] == [1]
 
-    def test_merge_writes_empty_elements(self, writer, tmp_path):
+    def test_empty_families_writes_empty_elements(self, writer, tmp_path):
+        # save_elements serializes whatever families the match carries; an empty
+        # families list (e.g. nothing re-grounded on this screen) yields elements=[].
         from tests.fixtures.xml_samples import SIMPLE_XML
 
         writer.save_xml(SIMPLE_XML)
@@ -152,6 +154,33 @@ class TestSaveElements:
             data = json.loads(f.read())
         assert data["match_type"] == "EQSET"
         assert data["elements"] == []
+
+    def test_merge_with_families_writes_elements(self, writer, tmp_path):
+        # On a merge/revisit the matcher now fills families from the matched page
+        # (re-grounded on the current screen); save_elements writes them through.
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        writer.save_xml(SIMPLE_XML)
+        match = _FakeMatch(
+            "page_0",
+            "EQSET",
+            False,
+            families=[
+                _FakeFamily(
+                    "open_search", [5], [5],
+                    description="open the search bar",
+                    parameters={},
+                )
+            ],
+        )
+        path = writer.save_elements(match)
+        with open(path) as f:
+            data = json.loads(f.read())
+        assert data["match_type"] == "EQSET"
+        assert data["is_new_page"] is False
+        assert data["elements"][0]["name"] == "open_search"
+        assert data["elements"][0]["element_index"] == [5]
+        assert data["elements"][0]["key_element_index"] == [5]
 
     def test_returns_none_before_any_step(self, writer):
         match = _FakeMatch("page_0", "NEW", True, families=[])
