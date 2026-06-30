@@ -1,0 +1,50 @@
+# Monkey-Collector — 수집 파라미터.
+#
+# Resolution order (later wins):
+#   builtin defaults (src/monkey_collector/config.py) → run.yaml → MC_* env vars → CLI flags
+#
+# CLI flags take highest precedence. Operational flags (--force, --new-session, --apps)
+# are CLI-only — not configurable here.
+#
+# Experiment runs sweep several keys. Canonical git default: exploration.strategy=GREEDY,
+# collection.max_steps=1500, collection.action_delay_ms=1500, screen_matching.element_extraction=true.
+# Reset to these before committing.
+
+exploration:
+  # Traversal strategy. Options: DFS | BFS | GREEDY
+  #   GREEDY: navigate to the nearest unexplored screen (minimum navigation cost) — current default
+  #   BFS:    navigate to the shallowest unexplored screen (closest to app root first)
+  #   DFS:    navigate to the deepest unexplored screen (deepest reachable screen first)
+  # Env: MC_EXPLORATION_STRATEGY
+  strategy: BFS
+
+collection:
+  # Max steps per app session. Env: MC_COLLECTION_MAX_STEPS
+  max_steps: 1500
+  # Random seed for the explorer. Env: MC_COLLECTION_SEED
+  seed: 42
+  # Delay between actions (milliseconds). Env: MC_COLLECTION_ACTION_DELAY_MS
+  action_delay_ms: 1500
+  # TCP server port. Env: MC_COLLECTION_PORT
+  port: 12345
+  # Raw session output root directory. Env: MC_COLLECTION_OUTPUT_DIR
+  output_dir: data/raw
+
+llm:
+  # Input text generation mode. Options: api | random
+  #   api    = OpenRouter LLM (requires OPENROUTER_API_KEY)
+  #   random = hardcoded fallback (no API cost)
+  # Env: MC_LLM_INPUT_MODE
+  input_mode: api
+  # LLM element extraction + element-set screen matching. Options: true | false
+  # Disabled automatically when OPENROUTER_API_KEY is unset (degrades to structural fingerprint).
+  # Env: MC_LLM_ELEMENT_EXTRACTION
+  element_extraction: true
+
+screen_matching:
+  # Two-sided tolerance band for OVERLAP element-set merges (0.0–1.0).
+  # Env: MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE
+  cluster_merge_tolerance: 0.2
+  # Max expand (re-extract on leftover UI) iterations per screen.
+  # Env: MC_SCREEN_MATCHING_MAX_EXPAND_ITERS
+  max_expand_iters: 3
