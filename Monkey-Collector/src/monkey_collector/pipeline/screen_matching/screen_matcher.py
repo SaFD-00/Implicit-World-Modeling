@@ -20,10 +20,15 @@ element-set cluster assignment, run live in the collection loop. Per screen:
                     current screen.
 
 The emitted ``page_key`` drives BOTH the ``page_graph.json`` node identity and
-the exploration abstract page. ``families`` (freshly-extracted, current-index
-element families) feed the explorer's same-function compression; on a merge /
-prefilter revisit it is empty (the page's families were recorded on first
-sighting).
+the exploration abstract page. On a NEW page ``families`` carries the
+freshly-extracted, current-index element families that feed the explorer's
+same-function compression. On a merge / prefilter revisit ``families`` is also
+populated — the matched page's stored elements re-grounded on the current
+screen (their anchors re-matched here, so ``{step}_elements.json`` records
+current-screen indices) — but the explorer ignores them (the page's groups were
+computed on first sighting); since only anchors are stored the merge-path
+``element_index`` approximates to the anchor indices and elements not rendered
+on the current screen are dropped.
 """
 
 from __future__ import annotations
@@ -72,7 +77,13 @@ class ElementFamily:
 
 @dataclass(frozen=True)
 class ScreenMatch:
-    """Outcome of matching one screen: its page identity and (on a new page) families.
+    """Outcome of matching one screen: its page identity and its element families.
+
+    ``families`` is populated both on a new page (freshly-extracted, current-index
+    families) and on a merge / prefilter revisit (the matched page's stored
+    elements re-grounded on the current screen — see the module docstring). The
+    explorer consumes it only on the first sighting of a ``page_key``; on a
+    revisit it reaches ``{step}_elements.json`` but not same-function compression.
 
     ``pending`` flags a screen the matcher declined to register (a loading /
     splash frame with no interactable, or an otherwise empty extract): it carries
@@ -86,6 +97,27 @@ class ScreenMatch:
     families: list[ElementFamily] = field(default_factory=list)
     page_description: str = ""
     pending: bool = False
+
+
+def _families_from_elements(elements: list[ExtractedElement]) -> list[ElementFamily]:
+    """Convert ExtractedElements to an ElementFamily list, copying indices verbatim.
+
+    ``name`` / ``description`` / ``parameters`` carry the LLM semantics; the
+    indices are copied as-is. Use this ONLY for elements whose indices already
+    live in the CURRENT screen's index space (a fresh extract / the expand
+    output). A stored page's elements on a revisit carry first-sighting indices
+    and must be re-grounded via :meth:`ScreenMatcher._remap_families` instead.
+    """
+    return [
+        ElementFamily(
+            name=e.name,
+            element_index=list(e.element_index),
+            key_element_index=list(e.key_element_index),
+            description=e.description,
+            parameters=dict(e.parameters),
+        )
+        for e in elements
+    ]
 
 
 class ScreenMatcher:
@@ -127,7 +159,21 @@ class ScreenMatcher:
         cached = self._fp_to_key.get(fp_key)
         if cached is not None:
             logger.debug(f"screen_match: structural prefilter hit page={cached}")
-            return ScreenMatch(cached, is_new_page=False, match_type="STRUCTURAL_IDENTICAL")
+            # Fill families from the cached page, re-grounded on the current
+            # screen (still no LLM call — anchors come from the registry).
+            cached_page = self._registry.get(cached)
+            try:
+                c_tree = ET.fromstring(encoded_xml)
+            except ET.ParseError:
+                c_tree = None
+            fams = (
+                self._remap_families(c_tree, cached_page)
+                if (c_tree is not None and cached_page is not None)
+                else []
+            )
+            return ScreenMatch(
+                cached, is_new_page=False, match_type="STRUCTURAL_IDENTICAL", families=fams
+            )
 
         # No interactable (button/input) on this screen → a loading/splash frame.
         # Decline to register it (no LLM call, no page): the first VALID screen of
@@ -178,7 +224,16 @@ class ScreenMatcher:
 
         if cls.is_merge:
             self._fp_to_key[fp_key] = best_key
-            return ScreenMatch(best_key, is_new_page=False, match_type=cls.match_type)
+            # Fill families from the matched page, re-grounded on the current
+            # screen (stored indices are first-sighting; remap to this step).
+            # Then append any expand-discovered elements (e.g. SUPERSET
+            # scroll-reveal), which already carry current-screen indices.
+            fams = self._remap_families(tree, best) if tree is not None else []
+            seen = {f.name for f in fams}
+            fams += [f for f in _families_from_elements(additional) if f.name not in seen]
+            return ScreenMatch(
+                best_key, is_new_page=False, match_type=cls.match_type, families=fams
+            )
 
         return self._new_page(
             fp_key, encoded_xml, tree, supported_names=list(supported), best=best,
@@ -224,6 +279,36 @@ class ScreenMatcher:
             if idx is not None:
                 out.append(int(idx))
         return out
+
+    def _remap_families(self, tree: ET.Element, page: PageKnowledge) -> list[ElementFamily]:
+        """Re-ground a stored page's elements on the CURRENT screen.
+
+        On a merge / structural revisit the page_key is reused, but the stored
+        ``element_index`` / ``key_element_index`` live in the page's
+        FIRST-SIGHTING index space, which need not match the current step's
+        encoded XML. Re-match each element's anchor fingerprints
+        (``page.key_elements[name]``) against the current ``tree`` to recover
+        current-screen indices. Only anchors are stored, so ``element_index`` is
+        approximated by the anchor indices (the full same-function family is not
+        recoverable); an element with no current match (not rendered on this
+        screen) is dropped.
+        """
+        fams: list[ElementFamily] = []
+        for e in page.elements:
+            anchors = page.key_elements.get(e.name, [])
+            cur = sorted({mi for ui in anchors for mi in self._matched_indexes(tree, ui)})
+            if not cur:
+                continue
+            fams.append(
+                ElementFamily(
+                    name=e.name,
+                    element_index=cur,
+                    key_element_index=cur,
+                    description=e.description,
+                    parameters=dict(e.parameters),
+                )
+            )
+        return fams
 
     # -- step 2 (expand) ------------------------------------------------------
 
@@ -337,16 +422,7 @@ class ScreenMatcher:
         # elements. Supported-from-B elements anchor page identity but carry
         # stored indices, so they are not handed to same-function compression.
         # description/parameters ride along so they reach {step}_elements.json.
-        families = [
-            ElementFamily(
-                name=e.name,
-                element_index=list(e.element_index),
-                key_element_index=list(e.key_element_index),
-                description=e.description,
-                parameters=dict(e.parameters),
-            )
-            for e in additional
-        ]
+        families = _families_from_elements(additional)
         return ScreenMatch(
             page_key, is_new_page=True, match_type=match_type, families=families
         )
