@@ -95,6 +95,7 @@ class LLMGuidedExplorer:
         adb: AdbClient,
         text_generator: TextGenerator | None = None,
         config: dict | None = None,
+        strategy: str = "GREEDY",
     ):
         config = config or {}
         self.adb = adb
@@ -102,10 +103,13 @@ class LLMGuidedExplorer:
         self._screen_width = config.get("screen_width", 1080)
         self._screen_height = config.get("screen_height", 1920)
         self._action_mapper = ActionMapper(text_generator=text_generator)
+        # Traversal strategy (DFS | BFS | GREEDY) — only affects which unexplored
+        # target the Navigator routes to; the route itself is always shortest-path.
+        self._strategy = strategy.strip().upper()
 
         # Per-session exploration state (rebuilt by reset()).
         self._memory = Memory()
-        self._navigator = Navigator(self._memory, self._rng)
+        self._navigator = Navigator(self._memory, self._rng, strategy=self._strategy)
 
         # Current screen context, set by the loop before each select_action.
         self._raw_xml = ""
@@ -153,7 +157,7 @@ class LLMGuidedExplorer:
     def reset(self) -> None:
         """Drop all per-session memory so each app session explores in isolation."""
         self._memory = Memory()
-        self._navigator = Navigator(self._memory, self._rng)
+        self._navigator = Navigator(self._memory, self._rng, strategy=self._strategy)
         self._page_key = ""
         self._families = None
         self._current_state = None

@@ -100,6 +100,16 @@ class TransitionGraph:
             )
         return steps
 
+    def bfs_distances(self, from_page_key: str) -> dict[str, int]:
+        """BFS hop-counts from *from_page_key* to every reachable node.
+
+        Returns an empty dict when the source is not in the graph.
+        Used by Navigator to rank unexplored targets by depth for BFS/DFS strategy.
+        """
+        if from_page_key not in self._graph:
+            return {}
+        return dict(nx.single_source_shortest_path_length(self._graph, from_page_key))
+
     def _representative_action(self, src: str, dst: str) -> tuple[str, str]:
         """Pick a deterministic (signature, action_type) for the src→dst edge."""
         actions: set[tuple[str, str]] = self._graph[src][dst]["actions"]

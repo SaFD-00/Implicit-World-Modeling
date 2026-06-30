@@ -118,6 +118,17 @@ class Memory:
                     candidates.append((state, element, action_type))
         return candidates
 
+    @property
+    def root_page_key(self) -> str | None:
+        """page_key of the first state observed in this session.
+
+        Used by Navigator to compute BFS depths for DFS/BFS target selection.
+        Returns None if no states have been recorded yet.
+        """
+        if not self._states:
+            return None
+        return next(iter(self._states.values())).page_key
+
     def in_app_states(self) -> list[SemanticState]:
         """All observed screens that belong to the target app."""
         return [state for state in self._states.values() if state.is_in_app()]
