@@ -125,6 +125,7 @@ monkey-collect run --apps all --input-mode random
 - 한 세션이 끝나면 서버가 `SESSION_END` 를 보내 클라이언트를 정리하고, Android 는 `F` 회신 후 새 소켓으로 자동 재접속한다. 서버는 이 fresh 소켓을 그대로 유지하고 다음 앱으로 `START` 를 송신한다. 이때 이전 세션의 `F`(finish) 회신이 신호 큐에 남을 수 있어, `run_collection_loop` 는 시작 시 큐를 비운다 — 비우지 않으면 새 세션이 stale finish 를 읽고 0-step 으로 끝나며 큐의 다음 앱들까지 연쇄로 0-step 된다.
 - 큐 구성 시 `data/raw/{pkg}/metadata.json` 의 `completed_at` 이 채워진 앱은 **완료로 판정되어 스킵**. `--force` 로 우회하거나, 중단된(미완료) 세션은 `completed_at` 이 `null` 이라 자동으로 resume 된다.
 - **재초기화(reinit)**: signal timeout 5연속 또는 external app 10회 도달 시 세션을 종료하는 대신, target app 을 force-stop + relaunch 하고 카운터를 초기화해 탐색을 재개한다. 재초기화는 각각 최대 3회까지 허용되며, 초과 시 세션이 종료된다.
+- **open_app 기록**: external app 복구가 타깃 앱을 실제로 재실행하면 그 재실행을 `open_app` 액션으로 `events.jsonl` 에 **이탈(excursion) 당 1회** 기록한다(`{"action_type":"open_app", "package", "app_name", "transition":false, "trigger":"external_recovery", "from_package"}`). 이 open_app 은 복구 동작이지 의도된 화면 전이가 아니므로 page graph·탐색 전이·world-modeling 변환 어디에도 navigation 으로 쓰이지 않는다(`transition:false`).
 
 ## 설정 (`config/run.yaml`)
 

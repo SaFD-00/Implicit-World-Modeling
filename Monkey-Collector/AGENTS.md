@@ -34,6 +34,7 @@
 - App -> Server signal 이름 `P`, `S`, `X`, `E`, `N`, `F` 와 Server -> App 제어 메시지 (`{"type":"START","package":...}`, `{"type":"SESSION_END"}`) 계약을 깨지 마라. Android 측 `CollectorService.beginStandby` 루프가 이 계약에 의존한다.
 - 세션 전환 핸드셰이크: `SESSION_END` → 클라이언트 `F` 회신 + 소켓 close → 클라이언트 한 번 자동 재접속. Python 의 `CollectionServer.reset_for_new_session()` 은 큐/이벤트만 초기화하고 fresh 소켓은 보존해야 한다. 여기서 소켓을 닫으면 클라이언트가 두 번째 재접속을 하지 않아 두 번째 세션부터 `wait_for_connection` 이 전부 타임아웃한다.
 - first screen 보호, no-change retry, external app recovery 는 collector 의 핵심 동작이다. 관련 상수는 [`src/monkey_collector/pipeline/recovery.py`](./src/monkey_collector/pipeline/recovery.py) 에 있다.
+- external 복구가 타깃 앱을 재실행하면 `open_app` 액션을 events.jsonl 에 excursion 당 1회 기록한다(`collection_loop._record_open_app`, `DataWriter.log_open_app`). 이 open_app 은 **navigation 전이가 아니다** — 복구 시 `state.last_action` 클리어(live graph) + `explorer._last_record` 클리어(routing memory) + 이벤트 `transition: false`(offline `_load_events` 재빌드·world-modeling converter)로 3중 격리한다. `return_to_app`/`recover` 의 `bool` 반환(launch 여부)·이 격리·`transition` 표식 중 하나라도 바꾸면 open_app 이 가짜 전이로 샐 수 있으니 함께 검토하라.
 - `src/monkey_collector/__init__.py` 의 공개 export 를 바꾸면 패키지 사용 코드와 문서도 같이 갱신한다.
 - 저장 포맷을 바꾸면 converter, page-map, regenerate, 테스트를 함께 갱신해야 한다.
 
