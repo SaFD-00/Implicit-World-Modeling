@@ -6,6 +6,7 @@
 ## [Unreleased]
 
 ### Added
+- Monkey-Collector: external 복구의 타깃 앱 재실행을 `open_app` 액션으로 events.jsonl 에 기록(`DataWriter.log_open_app`, excursion 당 1회) — open_app 학습용. `return_to_app`/`recover` 가 launch 여부를 `bool` 반환, `cli._resolve_app_names`→`Collector(app_names=...)` 로 `app_name` 조인. navigation 격리 3중(`state.last_action` 클리어·`explorer._last_record` 클리어·`transition:false` + `page_graph._load_events` 스킵) + `DataWriter` 멀티스레드 `threading.Lock`  (2026-06-30)
 - `docs/` 루트 문서 허브 + `/project-sync` 설정(`.project-sync.json`) 도입  (2026-06-28)
 - Monkey-Collector: OpenRouter 공용 LLM 클라이언트(`llm/client.py`, 기본 `qwen/qwen3.7-plus`) + 화면 의미 그룹핑(`llm/screen_grouper.py`, `--screen-grouping` 플래그)  (2026-06-28)
 - Monkey-Collector: `setup-collector` 스킬 `references/` deep-dive 8종(client-build, mediaprojection-accessibility, google-login, run-and-verify, seed-helpers, seed-pim, seed-notes-tasks, seed-media-misc) + 런타임 권한 다이얼로그 adb 자동허용(`collection_loop._try_grant_permission_via_adb`, "While using the app" 우선 탭·deny-guard)  (2026-06-29)

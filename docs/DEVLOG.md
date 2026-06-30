@@ -3,6 +3,21 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-06-30 — Monkey-Collector external 복구 시 open_app 기록 (navigation 격리)
+
+external app 이탈에서 복구 루프가 타깃 앱을 재실행하는 동작(=사실상의 `open_app`)을 events.jsonl 에
+액션으로 기록하기 시작했다 — open_app 학습 데이터 확보용. 단 external 이탈은 의도된 화면 전이가 아니므로
+이 open_app 은 **navigation 으로 절대 쓰이지 않게 3중 격리**했다. 코드 변경(기록 동작 추가), 작업트리 미커밋.
+
+- 기록: `return_to_app()`/`recover()` 를 `-> bool`(실제 `launch_app` 여부)로 바꾸고, `collection_loop._handle_external_app` 가 launch 시 `_record_open_app`→`DataWriter.log_open_app` 로 `{action_type:"open_app", package, app_name, step, transition:false, trigger:"external_recovery", from_package}` 를 **excursion 당 1회**(`state.open_app_logged` dedup, 다음 in-app 프레임에서 재무장) 기록. `app_name` 은 apps.csv 조인(`cli._resolve_app_names`→`Collector(app_names=...)`), 없으면 빈 문자열.
+- navigation 격리(3중): (1) 복구 후 `state.last_action`/`last_ui_tree` 클리어 → live page graph 엣지 차단, (2) `return_to_app`/`recover` 진입 시 `explorer._last_record` 클리어 → routing memory 전이 차단(모든 복구 호출처의 선재 stale-전이 버그도 동시 수정), (3) 이벤트 `transition:false` + `page_graph._load_events` 스킵 가드 → offline 재빌드(`page-map`)·world-modeling converter 배제.
+- 스레드 안전: open_app 은 메인 루프, external_app 콜백은 TCP 수신 스레드에서 events.jsonl/metadata.json 에 동시 기록 → `DataWriter` 에 `threading.Lock` 추가해 append·counter 보호. `OpenApp` dataclass 는 record-only(execute_action·select_action 미경유)지만 `ACTION_REGISTRY` 등록으로 라운드트립 가능.
+- 한계: 서버측 기록은 서버 주도 재실행만 포착. 클라이언트(`CollectorService.kt`)가 자체 force-launch 하는 경우는 과소기록될 수 있음. open_app 이벤트는 before/after XML 쌍이 없어 기존 world-modeling 변환으로는 소비되지 않음(의도된 분리) — 학습은 별도 변환에서 `step`/`package` 로 직전 in-app 프레임과 페어링해 파생.
+- 변경(작업트리, 18 files): src 7(`domain/actions.py`, `storage.py`, `pipeline/exploration/explorer.py`, `pipeline/collection_loop.py`, `domain/page_graph.py`, `pipeline/collector.py`, `cli.py`) + 패키지문서 3(`Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md`) + tests 6 + repo docs 2(`docs/{DEVLOG,CHANGELOG}.md`).
+- 검증: 전체 **pytest passed**, ruff 신규 위반 0(선재 위반은 그대로). 부수: external 카운터 테스트 2건의 stale 기댓값(`recover==6`)을 실제 동작(reinit 분기도 recover 호출 → 7)에 맞게 수정 — HEAD 에서도 이미 실패하던 선재 red.
+- 커밋: 미커밋(작업트리). 직후 project-sync + git-push 예정.
+- 카테고리: devlog
+
 ## 2026-06-30 — Monkey-Collector 빈 page_0 blackhole 버그 수정 + LLM element description/parameters 디스크 보존
 
 element-set screen matching에서 두 결함을 함께 고쳤다: (1) 세션 첫 로딩/스플래시처럼 interactable이 0개인
