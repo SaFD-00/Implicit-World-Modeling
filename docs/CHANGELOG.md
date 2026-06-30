@@ -6,6 +6,7 @@
 ## [Unreleased]
 
 ### Added
+- Monkey-Collector: luminance prefilter(MobileGPT-V2 Stage-0 포팅) — 시각적으로 동일한 화면 재방문 시 LLM element-extraction 0회 단락. `ScreenMatcher.match()` 에 Stage-0c 추가(screenshot luminance 지문 비교, 차이 픽셀 비율 < `screenshot_diff_threshold` 면 기존 `page_key` 로 merge, `match_type=LUMINANCE_PREFILTER`, pending guard 뒤 배치로 blackhole 보호 유지), 신규 `pipeline/screen_matching/luminance.py`(순수 Pillow, numpy 미사용) + `PageKnowledge.luminance_features`(세션 인메모리, page 당 cap 10). 하이퍼파라미터 4종 config 6-place 노출(`luminance_prefilter` 기본 ON·`luminance_threshold`·`screenshot_diff_threshold`·`luminance_low_res_width`: `config.py`·`config/run.yaml`·`MC_SCREEN_MATCHING_*` env·`cli.py`)  (2026-07-01)
 - Monkey-Collector: external 복구의 타깃 앱 재실행을 `open_app` 액션으로 events.jsonl 에 기록(`DataWriter.log_open_app`, excursion 당 1회) — open_app 학습용. `return_to_app`/`recover` 가 launch 여부를 `bool` 반환, `cli._resolve_app_names`→`Collector(app_names=...)` 로 `app_name` 조인. navigation 격리 3중(`state.last_action` 클리어·`explorer._last_record` 클리어·`transition:false` + `page_graph._load_events` 스킵) + `DataWriter` 멀티스레드 `threading.Lock`  (2026-06-30)
 - `docs/` 루트 문서 허브 + `/project-sync` 설정(`.project-sync.json`) 도입  (2026-06-28)
 - Monkey-Collector: OpenRouter 공용 LLM 클라이언트(`llm/client.py`, 기본 `qwen/qwen3.7-plus`) + 화면 의미 그룹핑(`llm/screen_grouper.py`, `--screen-grouping` 플래그)  (2026-06-28)

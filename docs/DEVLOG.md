@@ -3,6 +3,21 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-01 — Monkey-Collector luminance prefilter 포팅 — 동일 화면 재방문 시 LLM element-extraction 0회 (MobileGPT-V2 Stage-0)
+
+MobileGPT-V2 의 Stage-0 luminance prefilter 를 Monkey-Collector `ScreenMatcher` 에 포팅했다. 시각적으로 동일한 화면을 재방문할 때 LLM element-extraction 호출을 **0회로 단락**해 수집 비용을 줄인다. 기존 page_key 를 재사용하므로 page_graph/explorer 일관성도 보존된다. 코드 변경(기록 전용 아님), 작업트리 미커밋.
+
+- Stage-0c prefilter: `ScreenMatcher.match()` 에 신규 단계 추가 — screenshot 의 luminance 지문(순수 PIL, BT.601 luma via `convert("L")`, width-100 LANCZOS 리사이즈)을 저장 page 지문과 비교해 차이 픽셀 비율 < `screenshot_diff_threshold` 면 그 `page_key` 로 merge(`match_type=LUMINANCE_PREFILTER`, LLM 0회). **pending guard 뒤에 배치**해 빈-page blackhole 보호를 유지하고, 기존 `page_key` 재사용으로 page_graph/explorer 일관성 보존.
+- 신규 모듈 `pipeline/screen_matching/luminance.py`(`extract_luminance_features`, `luminance_diff`): numpy 미사용(기존 선언된 Pillow 재사용), `ImageChops.difference` 히스토그램의 strict `|ΔY|>threshold` 카운트로 차이 픽셀 비율 산출.
+- `PageKnowledge.luminance_features`: 세션 인메모리 지문(page 당 cap 10, 디스크 미영속).
+- 하이퍼파라미터 4종을 config 6-place 노출: `luminance_prefilter`(기본 ON, 사용자 결정)·`luminance_threshold`(10)·`screenshot_diff_threshold`(0.02)·`luminance_low_res_width`(100) → `config.py` + `config/run.yaml` + `MC_SCREEN_MATCHING_*` env + `cli.py`(`--luminance-prefilter` 등). run.yaml 의 stale 헤더 주석(GREEDY→BFS, element_extraction 섹션)도 동시 정정.
+- 주입: `collection_loop` 가 `collector._latest_screenshot` 을 `match()` 에 전달. element_extraction off(matcher 없음)면 prefilter 도 비활성.
+- 변경(작업트리, 17 files): src 7(NEW `pipeline/screen_matching/luminance.py` + MOD `screen_matcher.py`·`page_knowledge.py`·`screen_matching/__init__.py`·`pipeline/collection_loop.py`·`config.py`·`cli.py`) + config 1(`config/run.yaml`) + 패키지문서 3(`Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md`) + tests 4(NEW `tests/unit/test_luminance.py` + MOD `tests/unit/test_{screen_matcher,config,cli}.py`) + repo docs 2(`docs/{DEVLOG,CHANGELOG}.md`).
+- 검증: **462 unit tests passed**(신규 `test_luminance.py` + `test_{screen_matcher,config,cli}` 확장). 신규 파일 ruff/mypy clean, baseline 대비 신규 에러 0.
+- 커밋: 미커밋(작업트리). 직후 git-push 예정.
+- 문서: 패키지 정본 `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md` 갱신. 루트 `docs/{README,ARCHITECTURE}.md` 는 패키지 정본을 가리키므로 추가 수정 없음.
+- 카테고리: devlog
+
 ## 2026-06-30 — Monkey-Collector converter 프레임-이벤트 정렬 버그 수정 (frame_index 도입)
 
 world-modeling 학습데이터 변환에서 **action 라벨이 엉뚱한 프레임에 붙는 정렬 버그**를 발견·수정했다. `input_text` 처럼 페이지가 안 바뀌는 action 도 `_encoded.xml` 의 `value` 변화로 before≠after 학습쌍이 되는데, 실제 변환 결과는 `input_text` 가 중복되고 Discard 다이얼로그 프레임에 input 라벨이 붙는 등 어긋나 있었다. 근본 원인은 events.jsonl 의 `step`(루프 카운터, 비-저장 반복에서도 증가)과 프레임 파일 인덱스(`step_count`, 저장 시에만 증가)가 다른 체계인데 둘을 잇는 조인 키가 디스크에 없던 것. 코드 변경(저장 포맷 변경 포함), 작업트리 미커밋.
