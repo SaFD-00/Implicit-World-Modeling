@@ -78,9 +78,10 @@
   - [`screen_guard.py`](./src/monkey_collector/pipeline/screen_guard.py): 화면 분류 가드(키보드/권한 다이얼로그/시스템·런처 화면). `SYSTEM_PACKAGES` 에 `gms`/`gsf`/`vending`/launcher 를 포함해, 타깃 앱이 Google 로그인·Play 화면으로 drift 한 것을 "앱 이탈"로 판정(클라이언트 `EXCLUDED_PACKAGES` 와 이중 방어). 권한 다이얼로그는 grant 우선 버튼 탐색으로 자동 처리.
   - [`screen_matching/`](./src/monkey_collector/pipeline/screen_matching): **element-set screen matching** 엔진 (MobileGPT-V2 Node-Clustering 포팅). `ScreenMatcher` 가 화면마다 page 식별을 수행하고 그 `page_key` 가 page_graph 노드와 탐색 abstract page 를 모두 결정한다. 키 없으면(extractor=None) 생성되지 않아 구조 지문 식별로 degrade.
     - [`ui_attributes.py`](./src/monkey_collector/pipeline/screen_matching/ui_attributes.py): `UIAttributes`(self+parent+children 구조 지문)와 매칭 primitives(`find_matching_node` ancestor-walk, `text_blind_requirements`, `get_ui_key_attrib`, `extract_interactable_indexes`, `mask_xml_to_indexes`). MobileGPT-V2 xml_parser 를 MC encoded 스키마(`tag/aria-label/alt/text/type/value`, `id`/`class` 없음)로 적응 포팅, distinctive 판정은 `aria-label/alt`.
-    - [`screen_matcher.py`](./src/monkey_collector/pipeline/screen_matching/screen_matcher.py): `ScreenMatcher.match` — ① 구조 지문 pre-filter(exact 재방문 short-circuit, LLM 0회) + interactable(button/input) 0개 화면 거부(`pending`, LLM 0회 — 로딩/스플래시가 빈 page 로 등록돼 이후 화면을 모두 흡수하는 blackhole 차단; 첫 유효 화면이 `page_0`) ② step-1 text-blind ALL-match(저장 anchor) → supported + remaining ③ expand(remaining 마스킹 후 재추출, dry/cap 까지) ④ set-classify(A vs B) ⑤ dispatch(MERGE=stored page_key frozen / NEW=새 page_key, anchor 를 현재 화면에서 fingerprint). `families`(현재 인덱스 element family, `description`/`parameters` 포함)는 새 페이지면 추출 family 를, merge·구조 재방문이면 매칭 page 의 저장 element 를 현재 화면 anchor 로 재매핑해 채워 반환한다(재방문 family 는 `{step}_elements.json` 에만 쓰이고 same-function 압축에는 미반영 — page_key 가드). (한계: element-set 은 scroll 컨테이너를 제외하므로 button/input 없이 scroll/long-click 만 있는 드문 화면도 pending 처리된다.)
+    - [`screen_matcher.py`](./src/monkey_collector/pipeline/screen_matching/screen_matcher.py): `ScreenMatcher.match` — ① 구조 지문 pre-filter(exact 재방문 short-circuit, LLM 0회) + interactable(button/input) 0개 화면 거부(`pending`, LLM 0회 — 로딩/스플래시가 빈 page 로 등록돼 이후 화면을 모두 흡수하는 blackhole 차단; 첫 유효 화면이 `page_0`) **+ ①c luminance prefilter**(pending guard 직후, `luminance_prefilter` on·screenshot 존재 시: 현재 화면 luminance 지문을 저장 page 들의 지문과 비교해 차이 픽셀 비율 < `screenshot_diff_threshold` 면 그 page_key 로 `LUMINANCE_PREFILTER` merge, LLM 0회 — XML 지문이 달라도 픽셀상 동일한 재방문을 단락; 비활성/screenshot 없으면 이미지 처리 0) ② step-1 text-blind ALL-match(저장 anchor) → supported + remaining ③ expand(remaining 마스킹 후 재추출, dry/cap 까지) ④ set-classify(A vs B) ⑤ dispatch(MERGE=stored page_key frozen / NEW=새 page_key, anchor 를 현재 화면에서 fingerprint). `families`(현재 인덱스 element family, `description`/`parameters` 포함)는 새 페이지면 추출 family 를, merge·구조 재방문·luminance 재방문이면 매칭 page 의 저장 element 를 현재 화면 anchor 로 재매핑해 채워 반환한다(재방문 family 는 `{step}_elements.json` 에만 쓰이고 same-function 압축에는 미반영 — page_key 가드). (한계: element-set 은 scroll 컨테이너를 제외하므로 button/input 없이 scroll/long-click 만 있는 드문 화면도 pending 처리된다.)
+    - [`luminance.py`](./src/monkey_collector/pipeline/screen_matching/luminance.py): Stage-0 luminance prefilter primitives (MobileGPT-V2 `memory_manager` 포팅). `extract_luminance_features`(screenshot bytes → `convert("RGB")` → width-100 LANCZOS 리사이즈 → `convert("L")` = ITU-R BT.601 luma)·`luminance_diff`(`ImageChops.difference` 히스토그램의 strict `|ΔY| > threshold` 픽셀 비율). **순수 Pillow**(numpy 미사용; `Pillow>=10.0` 의존성). 지문은 `ScreenMatcher` 가 `PageKnowledge.luminance_features` 에 세션 인메모리로만 보관(page 당 `_MAX_LUMINANCE_OBS=10` cap, 디스크 미영속). LLM 결정성 산출물이 아니라 `regenerate` 재생성 대상 아님.
     - [`set_classifier.py`](./src/monkey_collector/pipeline/screen_matching/set_classifier.py): A vs B set 분류(EQSET/SUPERSET_MERGE/SUBSET_MERGE/OVERLAP_MERGE/OVERLAP_NEW/DISJOINT). containment 는 무조건 merge(scroll-reveal 수렴)하되 **B 가 비어있지 않을 때만** — 빈 저장 page(B=∅)는 merge 대상이 될 수 없어(→ DISJOINT) 어쩌다 등록된 빈 page 도 blackhole 이 되지 않는다. OVERLAP 만 two-sided tolerance band 게이트.
-    - [`page_knowledge.py`](./src/monkey_collector/pipeline/screen_matching/page_knowledge.py): `PageKnowledge`(page_key·elements·`key_elements`(name→anchor 지문)·`extra_uis`) + `KnowledgeRegistry`(세션별 in-memory 저장).
+    - [`page_knowledge.py`](./src/monkey_collector/pipeline/screen_matching/page_knowledge.py): `PageKnowledge`(page_key·elements·`key_elements`(name→anchor 지문)·`extra_uis`·`luminance_features`[Stage-0 prefilter 지문, 인메모리 capped]) + `KnowledgeRegistry`(세션별 in-memory 저장).
   - [`exploration/`](./src/monkey_collector/pipeline/exploration): LLM-guided 탐색 엔진 (LLM-Explorer 포팅). `Explorer` Protocol 을 구현하는 `LLMGuidedExplorer` 가 coverage-driven unexplored-first 선택 + same-function 압축 + 최단경로 navigation 을 수행한다. `set_match_context(page_key, families)` 로 ScreenMatcher 결과를 받는다(없으면 `structure_str` fallback).
     - [`state.py`](./src/monkey_collector/pipeline/exploration/state.py): `SemanticState` — raw XML → `state_str`(내용 포함)·`structure_str`(구조만)·`page_key`(element-set 식별, matcher 없으면 structure_str)·`SemanticElement` 목록. element 는 encoded index 기준이라 extractor family 와 1:1 정렬, scroll 컨테이너는 UITree 에서 음수 index 로 보강.
     - [`memory.py`](./src/monkey_collector/pipeline/exploration/memory.py): `Memory` — `(page_key, element_signature, action_type)` 단위 커버리지 추적. extractor 의 element family(`element_index`)로 동등 element 를 한 번에 explored 처리(탐색 공간 압축); same-function group 은 `page_key` 첫 sighting 에만 계산하고(matcher 없으면 degrade), merge 재방문은 family 가 전달돼도 첫 sighting group 을 재사용한다(page_key 가드).
@@ -148,7 +149,7 @@ Android AccessibilityEvent
   -> 변화가 있으면 screenshot + XML + metadata 전송
   -> Python server 가 latest signal 소비
   -> XML parse + (element-extraction on 이면) ScreenMatcher 가 element-set 으로 page 식별
-       (pre-filter[+interactable 0개 화면은 pending 거부] → step-1 ALL-match → expand 재추출 → set-classify → page_key)
+       (pre-filter[+interactable 0개 화면은 pending 거부][+luminance prefilter: 픽셀상 동일 재방문은 LLM 0회 단락] → step-1 ALL-match → expand 재추출 → set-classify → page_key)
        → pending 이면 page 노드·{step}_elements.json 생성 안 함(로딩/스플래시 대기)
        → 아니면 page_graph 노드 = page_key, 새 페이지 element family(description/parameters 포함) 는 탐색에 전달, {step}_elements.json 저장(merge·재방문이면 매칭 page element 를 현재 화면 기준으로 재매핑해 저장)
   -> LLMGuidedExplorer 가 action 선택 (미탐색 우선 + element family 압축 + 미탐색 화면 navigation; input_text 필요 시 공용 LLMClient 로 텍스트 생성)
@@ -293,7 +294,7 @@ data/raw/{package}/
 - `_encoded.xml`: bounds 제거, index 유지
 - `_pretty.xml`: encoded XML pretty-print
 
-`{step}_elements.json` 은 `--element-extraction on` 일 때 `ScreenMatcher` 가 만든 element-set match annotation 이다: `page_key`/`match_type`/`is_new_page` 와 element family 목록(`name`/`description`/`parameters`/`element_index`/`key_element_index`; index 는 `{step}_encoded.xml` 기준, `description`/`parameters` 는 LLM 이 추출한 의미·인자). 새 페이지면 그 화면에서 추출된 family 가, merge·구조 재방문이면 매칭된 page 의 저장 element 를 현재 화면 anchor 에 재매칭해 채운다(anchor 기준이라 `element_index` 는 anchor index 로 근사되고, 현재 화면에 렌더되지 않은 element 는 제외 — 모두 현재 step 인덱스 공간). interactable(button/input) 이 없는 로딩/스플래시 화면은 matcher 가 등록을 거부(`pending`)해 page 노드도 `_elements.json` 도 만들지 않는다(첫 유효 화면이 `page_0`). LLM 호출 결과이므로 `save_xml`/`regenerate_xml_variants` 의 결정적 파생 대상이 아니다.
+`{step}_elements.json` 은 `--element-extraction on` 일 때 `ScreenMatcher` 가 만든 element-set match annotation 이다: `page_key`/`match_type`/`is_new_page` 와 element family 목록(`name`/`description`/`parameters`/`element_index`/`key_element_index`; index 는 `{step}_encoded.xml` 기준, `description`/`parameters` 는 LLM 이 추출한 의미·인자). 새 페이지면 그 화면에서 추출된 family 가, merge·구조 재방문·luminance 재방문이면 매칭된 page 의 저장 element 를 현재 화면 anchor 에 재매칭해 채운다(anchor 기준이라 `element_index` 는 anchor index 로 근사되고, 현재 화면에 렌더되지 않은 element 는 제외 — 모두 현재 step 인덱스 공간). `match_type` 은 `NEW`/`STRUCTURAL_IDENTICAL`/`LUMINANCE_PREFILTER`/`*_MERGE`/`DISJOINT` 등이며, `LUMINANCE_PREFILTER` 는 Stage-0 luminance prefilter 가 픽셀상 동일 재방문을 LLM 0회로 단락한 경우다. interactable(button/input) 이 없는 로딩/스플래시 화면은 matcher 가 등록을 거부(`pending`)해 page 노드도 `_elements.json` 도 만들지 않는다(첫 유효 화면이 `page_0`). LLM 호출 결과이므로 `save_xml`/`regenerate_xml_variants` 의 결정적 파생 대상이 아니다.
 
 ## 6. CLI 와 공개 API
 
@@ -358,6 +359,10 @@ builtin canonical default 의 `exploration.strategy` 는 **BFS** 이며 `config/
 | `llm` | `element_extraction` | LLM element 추출 + element-set screen matching on/off (기본 `true`; `OPENROUTER_API_KEY` 없으면 구조 지문으로 자동 degrade) |
 | `screen_matching` | `cluster_merge_tolerance` | OVERLAP element-set merge 의 two-sided tolerance band 0.0–1.0 (기본 0.2) |
 | `screen_matching` | `max_expand_iters` | 화면당 expand(잔여 UI 재추출) 최대 반복 (기본 3) |
+| `screen_matching` | `luminance_prefilter` | Stage-0 luminance prefilter on/off (기본 `true`; `element_extraction on`·screenshot 존재 시 동작, 픽셀상 동일 재방문을 LLM 0회로 단락) |
+| `screen_matching` | `luminance_threshold` | 픽셀 밝기 `|ΔY|` 변화 임계값 0–255 (기본 10) |
+| `screen_matching` | `screenshot_diff_threshold` | 같은 page 로 판정할 차이 픽셀 비율 (기본 0.02) |
+| `screen_matching` | `luminance_low_res_width` | luminance 지문 다운스케일 너비 px (기본 100) |
 
 ### MC_* 환경변수
 
@@ -375,6 +380,10 @@ YAML 위, CLI 아래 레이어. 각 변수는 대응 키를 타입 변환해 덮
 | `MC_LLM_ELEMENT_EXTRACTION` | `llm.element_extraction` | bool (`true/1/yes/on`) |
 | `MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE` | `screen_matching.cluster_merge_tolerance` | float |
 | `MC_SCREEN_MATCHING_MAX_EXPAND_ITERS` | `screen_matching.max_expand_iters` | int |
+| `MC_SCREEN_MATCHING_LUMINANCE_PREFILTER` | `screen_matching.luminance_prefilter` | bool (`true/1/yes/on`) |
+| `MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD` | `screen_matching.luminance_threshold` | int |
+| `MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD` | `screen_matching.screenshot_diff_threshold` | float |
+| `MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH` | `screen_matching.luminance_low_res_width` | int |
 | `MC_CONFIG_PATH` | (YAML 파일 경로 자체) | path — 대체 yaml 위치 지정 |
 
 ### `config.py` API
