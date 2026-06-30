@@ -150,16 +150,19 @@ class DataWriter:
 
         Writes ``xml/{step}_elements.json`` for the step most recently produced
         by :meth:`save_xml` (i.e. ``step_count - 1``): the page identity
-        (``page_key`` / ``match_type``) and, on a new page, the extracted
-        element families (``name`` + ``description`` + ``parameters`` +
-        ``element_index`` + ``key_element_index``; the indices are encoded-XML
-        indices, the description/parameters carry the LLM's extracted semantics).
-        On a merge / structural revisit ``elements`` is empty (the families were
-        recorded when the page was first seen). A pending (loading / splash)
-        screen the matcher declined produces NO ``_elements.json`` at all (the
-        loop skips this call). This artifact depends on a live LLM call, so it is
-        NOT reproduced by ``regenerate_xml_variants``. Returns the path, or
-        ``None`` if no step has been saved yet.
+        (``page_key`` / ``match_type``) and the extracted element families
+        (``name`` + ``description`` + ``parameters`` + ``element_index`` +
+        ``key_element_index``; the indices are encoded-XML indices, the
+        description/parameters carry the LLM's extracted semantics). On a new
+        page these are the freshly-extracted families; on a merge / structural
+        revisit they are the matched page's stored elements re-grounded on the
+        current screen (anchors re-matched here, so the indices are current-step
+        — ``element_index`` approximates to the anchor indices, and elements not
+        rendered on this screen are omitted). A pending (loading / splash) screen
+        the matcher declined produces NO ``_elements.json`` at all (the loop
+        skips this call). This artifact depends on a live LLM call, so it is NOT
+        reproduced by ``regenerate_xml_variants``. Returns the path, or ``None``
+        if no step has been saved yet.
         """
         if self.session_dir is None or self.step_count == 0:
             return None

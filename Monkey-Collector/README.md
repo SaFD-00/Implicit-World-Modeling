@@ -297,7 +297,7 @@ data/raw/{package}/
 - `{step}_hierarchy.xml`
 - `{step}_encoded.xml`
 - `{step}_pretty.xml`
-- `{step}_elements.json` — `--element-extraction on` 일 때만. `ScreenMatcher` 의 element-set match: `page_key`/`match_type`/`is_new_page` + (새 페이지면) 추출된 element family(`name`/`description`/`parameters`/`element_index`/`key_element_index`, index 는 `{step}_encoded.xml` 기준). interactable 없는 로딩/스플래시 화면은 page 로 등록하지 않으므로(첫 유효 화면이 `page_0`) 그 step 에는 `_elements.json` 이 생성되지 않는다. LLM 호출 결과라 `regenerate` 로는 재생성되지 않는다.
+- `{step}_elements.json` — `--element-extraction on` 일 때만. `ScreenMatcher` 의 element-set match: `page_key`/`match_type`/`is_new_page` + element family(`name`/`description`/`parameters`/`element_index`/`key_element_index`, index 는 `{step}_encoded.xml` 기준). 새 페이지면 그 화면에서 추출된 family 가, merge·재방문(`is_new_page=false`)이면 매칭된 page 의 저장 element 를 현재 화면 anchor 에 재매핑해 채운다(anchor 기준이라 `element_index` 는 anchor index 로 근사, 현재 화면에 없는 element 는 제외). interactable 없는 로딩/스플래시 화면은 page 로 등록하지 않으므로(첫 유효 화면이 `page_0`) 그 step 에는 `_elements.json` 이 생성되지 않는다. LLM 호출 결과라 `regenerate` 로는 재생성되지 않는다.
 
 ## 프로젝트 구조
 
