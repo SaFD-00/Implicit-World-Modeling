@@ -37,6 +37,7 @@
 - external 복구가 타깃 앱을 재실행하면 `open_app` 액션을 events.jsonl 에 excursion 당 1회 기록한다(`collection_loop._record_open_app`, `DataWriter.log_open_app`). 이 open_app 은 **navigation 전이가 아니다** — 복구 시 `state.last_action` 클리어(live graph) + `explorer._last_record` 클리어(routing memory) + 이벤트 `transition: false`(offline `_load_events` 재빌드·world-modeling converter)로 3중 격리한다. `return_to_app`/`recover` 의 `bool` 반환(launch 여부)·이 격리·`transition` 표식 중 하나라도 바꾸면 open_app 이 가짜 전이로 샐 수 있으니 함께 검토하라.
 - `src/monkey_collector/__init__.py` 의 공개 export 를 바꾸면 패키지 사용 코드와 문서도 같이 갱신한다.
 - 저장 포맷을 바꾸면 converter, page-map, regenerate, 테스트를 함께 갱신해야 한다.
+- action 이벤트의 `frame_index`(= `save_xml` 직후의 `step_count - 1`, before 프레임 파일 인덱스)는 converter·offline page-graph 재빌드가 action 을 프레임에 정렬하는 **조인 키**다. `state.step` 은 **정상 action 경로에서만** `+1` 한다 — signal timeout·no_change·empty-UI 대기·keyboard/permission/system/stale 같은 비-action 반복에서 step 을 올리면 `step` 이 파일 인덱스와 어긋나 정렬이 깨진다(이게 과거 정렬 버그의 원인이었다). step 증가 지점이나 frame_index 주입/조인을 바꾸면 converter·page-map·테스트를 함께 검토하라.
 
 ## 빠른 검증 포인트
 

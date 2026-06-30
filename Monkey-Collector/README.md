@@ -292,6 +292,8 @@ data/raw/{package}/
 └── page_graph.html
 ```
 
+`events.jsonl` 은 실행된 action 당 한 줄이며, 각 action 은 `frame_index`(그 action 이 결정된 before 프레임의 파일 인덱스)로 저장된 프레임에 정렬된다 — world-modeling converter 와 offline page-graph 재빌드의 조인 키다. `step` 은 루프 카운터 라벨로 정상 action 에서만 증가한다. 자세한 스키마는 [ARCHITECTURE.md](./ARCHITECTURE.md) 참조.
+
 `xml/` 아래에는 raw XML 과 함께 다음 파생 파일이 저장된다.
 
 - `{step}_parsed.xml`

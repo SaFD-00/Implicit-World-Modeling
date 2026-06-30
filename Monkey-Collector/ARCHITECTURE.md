@@ -98,7 +98,7 @@
   - [`structured_parser.py`](./src/monkey_collector/xml/structured_parser.py): 구조적 XML parser
   - [`parser_base.py`](./src/monkey_collector/xml/parser_base.py): `Parser` ABC
 - `export/`
-  - [`converter.py`](./src/monkey_collector/export/converter.py): raw session -> ShareGPT JSONL
+  - [`converter.py`](./src/monkey_collector/export/converter.py): raw session -> ShareGPT JSONL. 각 action 을 이벤트의 `frame_index` 로 before 프레임에 조인하고, after 는 다음 action 의 before 프레임으로 잡아 중간 로딩 프레임을 건너뛴다.
   - [`graph_visualizer.py`](./src/monkey_collector/export/graph_visualizer.py): page graph HTML 시각화
 
 ### 앱 카탈로그 & 설치 상태
@@ -279,10 +279,12 @@ data/raw/{package}/
 └── page_graph.html
 ```
 
-`events.jsonl` 은 한 줄에 하나의 이벤트다. 대부분은 실행된 domain action(`action.to_dict()` + `step` [+`activity_name`/`no_change_retry`])이고, 그 외 두 종류의 비-탐색 마커가 섞인다:
+`events.jsonl` 은 한 줄에 하나의 이벤트다. 대부분은 실행된 domain action(`action.to_dict()` + `step` + `frame_index` [+`activity_name`/`no_change_retry`])이고, 그 외 두 종류의 비-탐색 마커가 섞인다:
 
 - `{"type": "external_app", "step", ...payload}` — external 이탈 신호(TCP 수신 스레드에서 기록).
 - `{"action_type": "open_app", "element_index": -1, "package", "app_name", "step", "transition": false, "trigger": "external_recovery", "from_package"}` — external 복구의 타깃 앱 재실행(메인 루프에서 excursion 당 1회). `transition: false` 는 **navigation 소비자(offline page-graph 재빌드 `_load_events`, world-modeling converter)가 이 이벤트를 건너뛰게** 하는 표식이다. events.jsonl/metadata.json 은 두 스레드에서 동시 기록되므로 `DataWriter` 가 `threading.Lock` 으로 append·counter 를 보호한다.
+
+**`frame_index` vs `step` (정렬 조인 키).** `frame_index` 는 그 action 이 결정된 **before 프레임의 파일 인덱스**(`save_xml` 직후의 `step_count - 1`)로, converter 와 offline page-graph 재빌드가 action 을 저장된 `{frame_index:04d}.xml`/`_encoded.xml`/`.png` 에 정렬하는 **조인 키**다. `step` 은 루프 카운터 라벨이며 더 이상 조인 키가 아니다 — signal timeout·no_change·empty-UI 대기·keyboard/permission/system 처리 같은 비-action 반복에서는 증가하지 않고 **실제 action 을 실행한 경우에만 증가**한다(과거엔 모든 반복에서 증가해 파일 인덱스와 어긋났고, 그 결과 action 라벨이 엉뚱한 프레임에 붙었다). `no_change_retry` 이벤트와 `transition: false` 마커는 `frame_index` 를 갖지 않아 converter·page-graph 가 건너뛴다. `frame_index` 가 없는 구(舊) 세션은 converter 가 변환을 스킵하고(조인 키 부재), page-graph 재빌드는 토폴로지만 복원하고 엣지 라벨이 `unknown` 으로 degrade 한다 — 재수집/regenerate 필요.
 
 `DataWriter.save_xml()` 와 `regenerate_xml_variants()` 는 raw XML 에서 아래 파생 파일을 만든다.
 
