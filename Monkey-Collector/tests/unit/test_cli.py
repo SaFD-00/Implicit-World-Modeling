@@ -7,6 +7,11 @@ import pytest
 
 class TestRunArgsParsing:
     def test_defaults(self):
+        """YAML-covered params default to None (sentinel for 'use config').
+
+        Effective values come from monkey_collector.config (see test_config.py);
+        argparse only records whether the user supplied a flag.
+        """
         from monkey_collector.cli import main
 
         with patch(
@@ -15,10 +20,12 @@ class TestRunArgsParsing:
             main()
             args = mock_cmd.call_args[0][0]
             assert args.apps == ["all"]
-            assert args.steps == 100
-            assert args.seed == 42
-            assert args.port == 12345
-            assert args.input_mode == "api"
+            assert args.steps is None
+            assert args.seed is None
+            assert args.port is None
+            assert args.input_mode is None
+            assert args.strategy is None
+            assert args.config is None
             assert args.new_session is False
             assert args.force is False
 
@@ -51,6 +58,26 @@ class TestRunArgsParsing:
             assert args.new_session is True
             assert args.force is True
             assert args.input_mode == "random"
+
+    def test_strategy_flag(self):
+        from monkey_collector.cli import main
+
+        with patch("sys.argv", [
+            "monkey-collect", "run", "--apps", "all", "--strategy", "DFS",
+        ]), patch("monkey_collector.cli.cmd_run") as mock_cmd:
+            main()
+            args = mock_cmd.call_args[0][0]
+            assert args.strategy == "DFS"
+
+    def test_config_flag(self):
+        from monkey_collector.cli import main
+
+        with patch("sys.argv", [
+            "monkey-collect", "run", "--apps", "all", "--config", "/tmp/x.yaml",
+        ]), patch("monkey_collector.cli.cmd_run") as mock_cmd:
+            main()
+            args = mock_cmd.call_args[0][0]
+            assert args.config == "/tmp/x.yaml"
 
 class TestConvertArgsParsing:
     def test_required_args(self):
@@ -112,7 +139,7 @@ class TestNoCommand:
 
 class TestRunArgsDefaults:
     def test_default_output(self):
-        """Default output value."""
+        """output / delay default to None sentinel; config supplies the value."""
         from monkey_collector.cli import main
 
         with patch(
@@ -120,8 +147,8 @@ class TestRunArgsDefaults:
         ), patch("monkey_collector.cli.cmd_run") as mock_cmd:
             main()
             args = mock_cmd.call_args[0][0]
-            assert args.output == "data/raw"
-            assert args.delay == 1500
+            assert args.output is None
+            assert args.delay is None
 
 
 class TestSyncInstalledArgsParsing:

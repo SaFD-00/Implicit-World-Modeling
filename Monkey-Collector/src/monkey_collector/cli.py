@@ -17,6 +17,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     logger.info(f"[run] log file: {log_path}")
 
     from monkey_collector.adb import AdbClient
+    from monkey_collector.config import load_run_config, merge_with_cli_args
     from monkey_collector.domain.activity_coverage import ActivityCoverageTracker
     from monkey_collector.domain.cost_tracker import CostTracker
     from monkey_collector.llm import create_element_extractor, create_llm_client
@@ -27,7 +28,24 @@ def cmd_run(args: argparse.Namespace) -> None:
     from monkey_collector.storage import DataWriter
     from monkey_collector.tcp_server import CollectionServer
 
-    packages = _resolve_run_packages(args.apps, args.output, args.force)
+    # Resolve config: builtin defaults → run.yaml → MC_* env → CLI flags.
+    # --screen-grouping deprecation is honoured by merge_with_cli_args; warn here.
+    if getattr(args, "screen_grouping", None) == "off":
+        logger.warning(
+            "--screen-grouping is deprecated; use --element-extraction. "
+            "Treating --screen-grouping off as --element-extraction off."
+        )
+    cfg = load_run_config(path=getattr(args, "config", None))
+    cfg = merge_with_cli_args(cfg, args)
+    logger.info(
+        f"Config: strategy={cfg.exploration.strategy}, "
+        f"max_steps={cfg.collection.max_steps}, seed={cfg.collection.seed}, "
+        f"delay_ms={cfg.collection.action_delay_ms}, port={cfg.collection.port}, "
+        f"input_mode={cfg.llm.input_mode}, "
+        f"element_extraction={cfg.llm.element_extraction}"
+    )
+
+    packages = _resolve_run_packages(args.apps, cfg.collection.output_dir, args.force)
     if not packages:
         logger.info(
             "Nothing to collect. All requested apps are already marked "
@@ -42,25 +60,18 @@ def cmd_run(args: argparse.Namespace) -> None:
     activity_tracker = ActivityCoverageTracker()
     cost_tracker = CostTracker()
 
-    # --screen-grouping is a deprecated alias for --element-extraction.
-    element_extraction_on = args.element_extraction == "on"
-    if getattr(args, "screen_grouping", None) == "off":
-        logger.warning(
-            "--screen-grouping is deprecated; use --element-extraction. "
-            "Treating --screen-grouping off as --element-extraction off."
-        )
-        element_extraction_on = False
+    element_extraction_on = cfg.llm.element_extraction
 
     # Single shared OpenRouter client reused by input-text generation and
     # element extraction. Created only when an LLM feature is requested; returns
     # None (→ random text / structural-fingerprint matching) when
     # OPENROUTER_API_KEY is unset.
     llm_client = None
-    if args.input_mode == "api" or element_extraction_on:
+    if cfg.llm.input_mode == "api" or element_extraction_on:
         llm_client = create_llm_client(cost_tracker=cost_tracker)
 
     text_gen = create_text_generator(
-        mode=args.input_mode, seed=args.seed, llm_client=llm_client,
+        mode=cfg.llm.input_mode, seed=cfg.collection.seed, llm_client=llm_client,
     )
     # One ElementExtractor feeds the ScreenMatcher, which the loop queries once
     # per new screen (plus expand passes) for element-set page identity.
@@ -68,26 +79,27 @@ def cmd_run(args: argparse.Namespace) -> None:
     screen_matcher = create_screen_matcher(
         extractor,
         enabled=element_extraction_on,
-        cluster_merge_tolerance=args.cluster_merge_tolerance,
-        max_expand_iters=args.max_expand_iters,
+        cluster_merge_tolerance=cfg.screen_matching.cluster_merge_tolerance,
+        max_expand_iters=cfg.screen_matching.max_expand_iters,
     )
     explorer = LLMGuidedExplorer(
         adb,
         text_generator=text_gen,
         config={
-            "seed": args.seed,
-            "action_delay_ms": args.delay,
+            "seed": cfg.collection.seed,
+            "action_delay_ms": cfg.collection.action_delay_ms,
         },
+        strategy=cfg.exploration.strategy,
     )
-    server = CollectionServer(host="0.0.0.0", port=args.port)
-    writer = DataWriter(base_dir=args.output)
+    server = CollectionServer(host="0.0.0.0", port=cfg.collection.port)
+    writer = DataWriter(base_dir=cfg.collection.output_dir)
     collector = Collector(
         adb=adb,
         explorer=explorer,
         server=server,
         writer=writer,
-        max_steps=args.steps,
-        action_delay=args.delay / 1000.0,
+        max_steps=cfg.collection.max_steps,
+        action_delay=cfg.collection.action_delay_ms / 1000.0,
         activity_coverage_tracker=activity_tracker,
         cost_tracker=cost_tracker,
         text_generator=text_gen,
@@ -100,7 +112,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     session_ids = collector.run_queue(packages)
     logger.info(f"All sessions complete ({len(session_ids)}/{len(packages)})")
     for sid in session_ids:
-        logger.info(f"  {args.output}/{sid}")
+        logger.info(f"  {cfg.collection.output_dir}/{sid}")
 
 
 def _resolve_run_packages(
@@ -391,21 +403,36 @@ def main() -> None:
             "(e.g. --apps com.google.android.deskclock com.google.android.calculator)."
         ),
     )
-    p.add_argument("--steps", type=int, default=1500, help="Max steps per session")
-    p.add_argument("--seed", type=int, default=42, help="Random seed")
-    p.add_argument("--delay", type=int, default=1500, help="Action delay in ms")
-    p.add_argument("--port", type=int, default=12345, help="TCP server port")
-    p.add_argument("--output", default="data/raw", help="Output directory")
+    # YAML-covered params default to None (sentinel): None means "not set on the
+    # CLI", so the value resolves from config/run.yaml → MC_* env → builtin.
+    # An explicit CLI flag always wins. See monkey_collector.config.
+    p.add_argument(
+        "--config",
+        default=None,
+        metavar="PATH",
+        help="Path to run.yaml (default: config/run.yaml, or MC_CONFIG_PATH)",
+    )
+    p.add_argument(
+        "--strategy",
+        choices=["DFS", "BFS", "GREEDY"],
+        default=None,
+        help="Exploration strategy (DFS | BFS | GREEDY; default from config/run.yaml)",
+    )
+    p.add_argument("--steps", type=int, default=None, help="Max steps per session")
+    p.add_argument("--seed", type=int, default=None, help="Random seed")
+    p.add_argument("--delay", type=int, default=None, help="Action delay in ms")
+    p.add_argument("--port", type=int, default=None, help="TCP server port")
+    p.add_argument("--output", default=None, help="Output directory")
     p.add_argument(
         "--input-mode",
         choices=["api", "random"],
-        default="api",
+        default=None,
         help="Input text generation mode: 'api' (LLM) or 'random' (hardcoded)",
     )
     p.add_argument(
         "--element-extraction",
         choices=["on", "off"],
-        default="on",
+        default=None,
         help=(
             "LLM element extraction + element-set screen matching. 'on' extracts "
             "each screen's elements (same-function family + representative anchor) "
@@ -424,13 +451,13 @@ def main() -> None:
     p.add_argument(
         "--cluster-merge-tolerance",
         type=float,
-        default=0.2,
+        default=None,
         help="Two-sided tolerance band for OVERLAP element-set merges (default 0.2)",
     )
     p.add_argument(
         "--max-expand-iters",
         type=int,
-        default=3,
+        default=None,
         help="Max expand (re-extract on leftover UI) iterations per screen (default 3)",
     )
     p.add_argument(
