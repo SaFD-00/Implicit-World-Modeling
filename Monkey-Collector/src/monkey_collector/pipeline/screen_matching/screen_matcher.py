@@ -3,11 +3,15 @@
 Replaces the structural-fingerprint page identity with MobileGPT-V2's
 element-set cluster assignment, run live in the collection loop. Per screen:
 
-  0. Pre-filter   — a structural fingerprint short-circuits exact revisits with
-                    NO LLM call (the cheap analogue of V2's luminance prefilter);
-                    a screen with no interactable (button/input) is declined
-                    outright (``pending``) so a loading/splash frame never
-                    registers as a page — the first VALID screen becomes page_0.
+  0. Pre-filter   — a structural fingerprint short-circuits exact XML revisits
+                    with NO LLM call; a screen with no interactable (button/input)
+                    is declined outright (``pending``) so a loading/splash frame
+                    never registers as a page — the first VALID screen becomes
+                    page_0. Then (Stage-0c) an optional luminance prefilter
+                    (MobileGPT-V2 port) short-circuits a near-pixel-identical
+                    screen to a stored page with NO LLM call, even when its XML
+                    fingerprint differs — gated on ``luminance_prefilter`` and the
+                    presence of a screenshot; disabled ⇒ zero image work.
   1. Step-1 match — for each stored page, text-blind ALL-match its anchor
                     fingerprints against the current screen → supported element
                     names + remaining (unaccounted) interactable indices.
@@ -40,6 +44,10 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from monkey_collector.domain.page_graph import compute_xml_fingerprint
+from monkey_collector.pipeline.screen_matching.luminance import (
+    extract_luminance_features,
+    luminance_diff,
+)
 from monkey_collector.pipeline.screen_matching.page_knowledge import (
     KnowledgeRegistry,
     PageKnowledge,
@@ -55,6 +63,8 @@ from monkey_collector.pipeline.screen_matching.ui_attributes import (
 )
 
 if TYPE_CHECKING:
+    from PIL.Image import Image as PILImage
+
     from monkey_collector.llm.element_extractor import ElementExtractor, ExtractedElement
 
 
@@ -123,15 +133,30 @@ def _families_from_elements(elements: list[ExtractedElement]) -> list[ElementFam
 class ScreenMatcher:
     """Element-set page identifier with on-the-fly single-call extraction."""
 
+    # Per-page luminance-fingerprint observation cap. Bounds the Stage-0 compare
+    # loop (O(pages × observations)) over a long session.
+    _MAX_LUMINANCE_OBS = 10
+
     def __init__(
         self,
         extractor: ElementExtractor,
         cluster_merge_tolerance: float = 0.2,
         max_expand_iters: int = 3,
+        luminance_prefilter: bool = False,
+        luminance_threshold: int = 10,
+        screenshot_diff_threshold: float = 0.02,
+        luminance_low_res_width: int = 100,
     ):
         self._extractor = extractor
         self._tolerance = cluster_merge_tolerance
         self._max_expand_iters = max_expand_iters
+        # Stage-0 luminance prefilter knobs. The function default is OFF (safe
+        # library default); production activation is decided by the config layer
+        # (builtin/run.yaml). All image work is skipped when disabled.
+        self._luma_enabled = luminance_prefilter
+        self._luma_threshold = luminance_threshold
+        self._luma_diff_threshold = screenshot_diff_threshold
+        self._luma_width = luminance_low_res_width
         self._registry = KnowledgeRegistry()
         self._fp_to_key: dict[tuple[str, str], str] = {}
         self._counter = 0
@@ -149,16 +174,26 @@ class ScreenMatcher:
         raw_xml: str,
         encoded_xml: str,
         activity: str,
-        screenshot_path: str | None = None,
+        screenshot: bytes | None = None,
     ) -> ScreenMatch:
         """Identify the page of the current screen (see module docstring)."""
         fp = compute_xml_fingerprint(raw_xml)
         fp_key = (activity or "", fp)
 
+        # Luminance fingerprint of the current frame, computed once. Only when the
+        # prefilter is enabled AND a screenshot arrived — otherwise zero image work
+        # and the behaviour is identical to before this feature.
+        current_feat = (
+            extract_luminance_features(screenshot, self._luma_width)
+            if (self._luma_enabled and screenshot)
+            else None
+        )
+
         # 0. Structural pre-filter: exact revisit short-circuits, no LLM.
         cached = self._fp_to_key.get(fp_key)
         if cached is not None:
             logger.debug(f"screen_match: structural prefilter hit page={cached}")
+            self._store_luma(cached, current_feat)
             # Fill families from the cached page, re-grounded on the current
             # screen (still no LLM call — anchors come from the registry).
             cached_page = self._registry.get(cached)
@@ -188,11 +223,35 @@ class ScreenMatcher:
         except ET.ParseError:
             tree = None
 
+        # 0c. Luminance pre-filter (Stage-0 identical-page dedup, MobileGPT-V2
+        # port). A near-pixel-identical screen short-circuits to a stored page
+        # with NO LLM call, even when its XML fingerprint differs from any cached
+        # structural one. Runs AFTER the pending guard so a loading/splash frame
+        # is still declined; reuses an existing page_key only, so the page_graph
+        # node and explorer abstract page stay consistent.
+        if current_feat is not None and len(self._registry) > 0:
+            hit = self._luminance_lookup(current_feat)
+            if hit is not None:
+                logger.info(f"screen_match: luminance prefilter hit page={hit}")
+                # Back-fill the structural cache so the next exact revisit of this
+                # XML resolves via the cheaper structural prefilter. The hit frame
+                # itself is NOT stored as an observation (it is already a near-dup).
+                self._fp_to_key[fp_key] = hit
+                hit_page = self._registry.get(hit)
+                fams = (
+                    self._remap_families(tree, hit_page)
+                    if (tree is not None and hit_page is not None)
+                    else []
+                )
+                return ScreenMatch(
+                    hit, is_new_page=False, match_type="LUMINANCE_PREFILTER", families=fams
+                )
+
         # No stored pages yet → straight to a new page (full extract).
         if len(self._registry) == 0 or tree is None:
             return self._new_page(
                 fp_key, encoded_xml, tree, supported_names=[], best=None, additional=None,
-                screenshot_path=screenshot_path,
+                current_feat=current_feat,
             )
 
         # 1. Step-1 trigger match per stored page.
@@ -224,6 +283,7 @@ class ScreenMatcher:
 
         if cls.is_merge:
             self._fp_to_key[fp_key] = best_key
+            self._store_luma(best_key, current_feat)
             # Fill families from the matched page, re-grounded on the current
             # screen (stored indices are first-sighting; remap to this step).
             # Then append any expand-discovered elements (e.g. SUPERSET
@@ -237,7 +297,7 @@ class ScreenMatcher:
 
         return self._new_page(
             fp_key, encoded_xml, tree, supported_names=list(supported), best=best,
-            additional=additional, match_type=cls.match_type, screenshot_path=screenshot_path,
+            additional=additional, match_type=cls.match_type, current_feat=current_feat,
         )
 
     # -- step 1 ---------------------------------------------------------------
@@ -310,6 +370,39 @@ class ScreenMatcher:
             )
         return fams
 
+    # -- stage-0 luminance prefilter ------------------------------------------
+
+    def _luminance_lookup(self, feat: PILImage) -> str | None:
+        """First stored page whose luminance fingerprint matches *feat*, else None.
+
+        Mirrors MobileGPT-V2 ``check_identical_page``: scan every (page,
+        observation) fingerprint and return the first page whose differing-pixel
+        fraction is below ``screenshot_diff_threshold``.
+        """
+        for page_key in self._registry.all_page_keys():
+            page = self._registry.get(page_key)
+            if page is None:
+                continue
+            for stored in page.luminance_features:
+                if luminance_diff(feat, stored, self._luma_threshold) < self._luma_diff_threshold:
+                    return page_key
+        return None
+
+    def _store_luma(self, page_key: str, feat: PILImage | None) -> None:
+        """Append *feat* as a new luminance observation of *page_key* (capped).
+
+        No-op when the prefilter is disabled, no fingerprint was computed, or the
+        page is unknown.
+        """
+        if not self._luma_enabled or feat is None:
+            return
+        page = self._registry.get(page_key)
+        if page is None:
+            return
+        page.luminance_features.append(feat)
+        if len(page.luminance_features) > self._MAX_LUMINANCE_OBS:
+            del page.luminance_features[0]
+
     # -- step 2 (expand) ------------------------------------------------------
 
     def _expand(
@@ -354,7 +447,7 @@ class ScreenMatcher:
         best: PageKnowledge | None,
         additional: list[ExtractedElement] | None,
         match_type: str = "NEW",
-        screenshot_path: str | None = None,
+        current_feat: PILImage | None = None,
     ) -> ScreenMatch:
         """Register a fresh page; fingerprint its anchors on the current screen."""
         # Freshly-extracted elements (current-screen indices). For an empty
@@ -413,6 +506,9 @@ class ScreenMatcher:
             )
         )
         self._fp_to_key[fp_key] = page_key
+        # Record the first-sighting luminance fingerprint so future screens can
+        # prefilter-hit this page (no-op when the prefilter is disabled).
+        self._store_luma(page_key, current_feat)
         logger.debug(
             f"screen_match: new page={page_key} type={match_type} "
             f"elements={[e.name for e in page_elements]} extras={len(extra_uis)}"

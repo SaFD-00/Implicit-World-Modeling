@@ -6,9 +6,9 @@
 # CLI flags take highest precedence. Operational flags (--force, --new-session, --apps)
 # are CLI-only — not configurable here.
 #
-# Experiment runs sweep several keys. Canonical git default: exploration.strategy=GREEDY,
-# collection.max_steps=1500, collection.action_delay_ms=1500, screen_matching.element_extraction=true.
-# Reset to these before committing.
+# Experiment runs sweep several keys. Canonical git default: exploration.strategy=BFS,
+# collection.max_steps=1500, collection.action_delay_ms=1500, llm.element_extraction=true,
+# screen_matching.luminance_prefilter=true. Reset to these before committing.
 
 exploration:
   # Traversal strategy. Options: DFS | BFS | GREEDY
@@ -48,3 +48,17 @@ screen_matching:
   # Max expand (re-extract on leftover UI) iterations per screen.
   # Env: MC_SCREEN_MATCHING_MAX_EXPAND_ITERS
   max_expand_iters: 3
+  # Stage-0 luminance prefilter (MobileGPT-V2 port): dedup a near-pixel-identical
+  # screen to a stored page with NO LLM call, before element-set matching.
+  # Needs element_extraction on (a ScreenMatcher). Default ON.
+  # Env: MC_SCREEN_MATCHING_LUMINANCE_PREFILTER
+  luminance_prefilter: true
+  # Per-pixel brightness |ΔY| above which a pixel counts as "changed" (0–255).
+  # Env: MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD
+  luminance_threshold: 10
+  # Fraction of changed pixels below which two screens are treated as the same page.
+  # Env: MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD
+  screenshot_diff_threshold: 0.02
+  # Downscale width (px) for the luminance fingerprint.
+  # Env: MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH
+  luminance_low_res_width: 100

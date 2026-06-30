@@ -27,6 +27,11 @@ class PageKnowledge:
     key_elements: dict[str, list[UIAttributes]] = field(default_factory=dict)
     # leftover interactable fingerprints not owned by any element's anchors.
     extra_uis: list[UIAttributes] = field(default_factory=list)
+    # Stage-0 luminance prefilter observations: resized BT.601 L-mode PIL images
+    # (one per sighting of this page). In-memory only — session-scoped like the
+    # rest of the registry, never serialized. Typed ``list`` to avoid importing
+    # PIL here; capped by ScreenMatcher._MAX_LUMINANCE_OBS.
+    luminance_features: list = field(default_factory=list)
 
     @property
     def element_names(self) -> set[str]:

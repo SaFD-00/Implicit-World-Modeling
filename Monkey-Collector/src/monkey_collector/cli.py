@@ -42,7 +42,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         f"max_steps={cfg.collection.max_steps}, seed={cfg.collection.seed}, "
         f"delay_ms={cfg.collection.action_delay_ms}, port={cfg.collection.port}, "
         f"input_mode={cfg.llm.input_mode}, "
-        f"element_extraction={cfg.llm.element_extraction}"
+        f"element_extraction={cfg.llm.element_extraction}, "
+        f"luminance_prefilter={cfg.screen_matching.luminance_prefilter}"
     )
 
     packages = _resolve_run_packages(args.apps, cfg.collection.output_dir, args.force)
@@ -82,6 +83,10 @@ def cmd_run(args: argparse.Namespace) -> None:
         enabled=element_extraction_on,
         cluster_merge_tolerance=cfg.screen_matching.cluster_merge_tolerance,
         max_expand_iters=cfg.screen_matching.max_expand_iters,
+        luminance_prefilter=cfg.screen_matching.luminance_prefilter,
+        luminance_threshold=cfg.screen_matching.luminance_threshold,
+        screenshot_diff_threshold=cfg.screen_matching.screenshot_diff_threshold,
+        luminance_low_res_width=cfg.screen_matching.luminance_low_res_width,
     )
     explorer = LLMGuidedExplorer(
         adb,
@@ -484,6 +489,34 @@ def main() -> None:
         type=int,
         default=None,
         help="Max expand (re-extract on leftover UI) iterations per screen (default 3)",
+    )
+    p.add_argument(
+        "--luminance-prefilter",
+        choices=["on", "off"],
+        default=None,
+        help=(
+            "Stage-0 luminance prefilter: dedup a near-pixel-identical screen to a "
+            "stored page with no LLM call before element-set matching (default on; "
+            "needs --element-extraction on)"
+        ),
+    )
+    p.add_argument(
+        "--luminance-threshold",
+        type=int,
+        default=None,
+        help="Per-pixel brightness |ΔY| change threshold, 0–255 (default 10)",
+    )
+    p.add_argument(
+        "--screenshot-diff-threshold",
+        type=float,
+        default=None,
+        help="Changed-pixel fraction below which two screens are the same page (default 0.02)",
+    )
+    p.add_argument(
+        "--luminance-low-res-width",
+        type=int,
+        default=None,
+        help="Downscale width (px) for the luminance fingerprint (default 100)",
     )
     p.add_argument(
         "--new-session",

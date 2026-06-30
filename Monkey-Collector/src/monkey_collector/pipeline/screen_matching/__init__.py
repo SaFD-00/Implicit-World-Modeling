@@ -41,6 +41,10 @@ def create_screen_matcher(
     enabled: bool = True,
     cluster_merge_tolerance: float = 0.2,
     max_expand_iters: int = 3,
+    luminance_prefilter: bool = False,
+    luminance_threshold: int = 10,
+    screenshot_diff_threshold: float = 0.02,
+    luminance_low_res_width: int = 100,
 ) -> ScreenMatcher | None:
     """Build a :class:`ScreenMatcher`, or ``None`` when disabled / no extractor."""
     if not enabled or extractor is None:
@@ -49,4 +53,8 @@ def create_screen_matcher(
         extractor,
         cluster_merge_tolerance=cluster_merge_tolerance,
         max_expand_iters=max_expand_iters,
+        luminance_prefilter=luminance_prefilter,
+        luminance_threshold=luminance_threshold,
+        screenshot_diff_threshold=screenshot_diff_threshold,
+        luminance_low_res_width=luminance_low_res_width,
     )

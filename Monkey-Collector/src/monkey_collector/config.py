@@ -41,6 +41,10 @@ _BUILTIN_DEFAULTS: dict = {
     "screen_matching": {
         "cluster_merge_tolerance": 0.2,
         "max_expand_iters": 3,
+        "luminance_prefilter": True,
+        "luminance_threshold": 10,
+        "screenshot_diff_threshold": 0.02,
+        "luminance_low_res_width": 100,
     },
 }
 
@@ -78,6 +82,11 @@ class LlmConfig:
 class ScreenMatchingConfig:
     cluster_merge_tolerance: float = 0.2
     max_expand_iters: int = 3
+    # Stage-0 luminance prefilter (MobileGPT-V2 port). Default ON.
+    luminance_prefilter: bool = True
+    luminance_threshold: int = 10           # per-pixel |ΔY| change cutoff (0–255)
+    screenshot_diff_threshold: float = 0.02  # changed-pixel fraction → same page
+    luminance_low_res_width: int = 100       # fingerprint downscale width (px)
 
 
 @dataclass
@@ -152,6 +161,10 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_LLM_ELEMENT_EXTRACTION",                "llm",             "element_extraction",        "bool"),
         ("MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE", "screen_matching", "cluster_merge_tolerance", "float"),
         ("MC_SCREEN_MATCHING_MAX_EXPAND_ITERS",      "screen_matching", "max_expand_iters",          "int"),
+        ("MC_SCREEN_MATCHING_LUMINANCE_PREFILTER",     "screen_matching", "luminance_prefilter",       "bool"),
+        ("MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD",     "screen_matching", "luminance_threshold",       "int"),
+        ("MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD", "screen_matching", "screenshot_diff_threshold", "float"),
+        ("MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH", "screen_matching", "luminance_low_res_width",   "int"),
     ]
 
     # raw is already an isolated deep copy (see load_run_config); mutate in place.
@@ -198,6 +211,10 @@ def _from_raw(raw: dict) -> RunConfig:
         screen_matching=ScreenMatchingConfig(
             cluster_merge_tolerance=float(sm.get("cluster_merge_tolerance", 0.2)),
             max_expand_iters=int(sm.get("max_expand_iters", 3)),
+            luminance_prefilter=_coerce_bool(sm.get("luminance_prefilter", True)),
+            luminance_threshold=int(sm.get("luminance_threshold", 10)),
+            screenshot_diff_threshold=float(sm.get("screenshot_diff_threshold", 0.02)),
+            luminance_low_res_width=int(sm.get("luminance_low_res_width", 100)),
         ),
     )
 
@@ -285,5 +302,19 @@ def merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfi
         sm = replace(sm, cluster_merge_tolerance=cmt)
     if mei is not None:
         sm = replace(sm, max_expand_iters=mei)
+    # luminance prefilter: --luminance-prefilter uses the {on,off} string sentinel
+    # (like --element-extraction); the rest are typed scalars.
+    lum = getattr(args, "luminance_prefilter", None)
+    lt = getattr(args, "luminance_threshold", None)
+    sdt = getattr(args, "screenshot_diff_threshold", None)
+    lrw = getattr(args, "luminance_low_res_width", None)
+    if lum is not None:
+        sm = replace(sm, luminance_prefilter=(lum == "on"))
+    if lt is not None:
+        sm = replace(sm, luminance_threshold=lt)
+    if sdt is not None:
+        sm = replace(sm, screenshot_diff_threshold=sdt)
+    if lrw is not None:
+        sm = replace(sm, luminance_low_res_width=lrw)
 
     return RunConfig(exploration=expl, collection=coll, llm=llm, screen_matching=sm)

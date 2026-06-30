@@ -536,7 +536,13 @@ def _process_xml_signal(
     state.current_screen_match = None
     if collector._screen_matcher is not None:
         encoded_xml, _ = encode_with_bounds(xml_str)
-        match = collector._screen_matcher.match(xml_str, encoded_xml, activity_name)
+        # Pass the in-memory screenshot bytes so the matcher's Stage-0 luminance
+        # prefilter can dedup a near-pixel-identical screen with no LLM call. The
+        # bytes are still held here (saved/cleared only further below); None when
+        # no screenshot arrived → the prefilter degrades gracefully.
+        match = collector._screen_matcher.match(
+            xml_str, encoded_xml, activity_name, screenshot=collector._latest_screenshot
+        )
         # A pending match is a loading/splash (or empty-extract) frame the matcher
         # declined to register: keep current_screen_match=None so save_elements is
         # skipped and no page node is created, leaving current_page_id at its prior
