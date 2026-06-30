@@ -233,18 +233,24 @@ class TestBuildGraphFromSession:
 
     def test_no_change_retries_skipped(self, tmp_path):
         session_dir = create_mock_session(tmp_path, num_steps=2)
-        # Overwrite events.jsonl with a no_change_retry event
+        # The retry carries no frame_index (it saved no new frame); the two real
+        # actions reference frames 0 and 1.
         events = [
-            {"action_type": "tap", "element_index": 0, "step": 0},
-            {"action_type": "tap", "element_index": 1, "step": 0, "no_change_retry": True},
-            {"action_type": "tap", "element_index": 2, "step": 1},
+            {"action_type": "tap", "element_index": 0,
+             "step": 0, "frame_index": 0},
+            {"action_type": "tap", "element_index": 1,
+             "step": 0, "no_change_retry": True},
+            {"action_type": "tap", "element_index": 2,
+             "step": 1, "frame_index": 1},
         ]
         (session_dir / "events.jsonl").write_text(
             "\n".join(json.dumps(e) for e in events) + "\n"
         )
         graph = build_graph_from_session(str(session_dir))
-        # no_change_retry events should be excluded from event mapping
-        assert len(graph.nodes) >= 1
+        # The 0->1 edge is labeled by the frame-0 action (element_0); the
+        # excluded retry (element_1) must never label an edge.
+        assert any(e.element_info == "element_0" for e in graph.edges)
+        assert all(e.element_info != "element_1" for e in graph.edges)
 
     def test_open_app_transition_false_not_an_edge_label(self, tmp_path):
         # An open_app event (transition:false) sitting where it would otherwise
@@ -258,16 +264,35 @@ class TestBuildGraphFromSession:
                 "package": "com.test.app",
                 "app_name": "Test",
                 "step": 0,
+                "frame_index": 0,
                 "transition": False,
                 "trigger": "external_recovery",
             },
-            {"action_type": "tap", "element_index": 2, "step": 1},
+            {"action_type": "tap", "element_index": 2,
+             "step": 1, "frame_index": 1},
         ]
         (session_dir / "events.jsonl").write_text(
             "\n".join(json.dumps(e) for e in events) + "\n"
         )
         graph = build_graph_from_session(str(session_dir))
         assert all(e.action_type != "open_app" for e in graph.edges)
+
+    def test_edge_label_uses_frame_index_not_step(self, tmp_path):
+        # Events whose `step` (777, 888) is unrelated to their frame_index
+        # (0, 1). A step-keyed join would mislabel the 0->1 edge; frame_index
+        # join labels it with the frame-0 action (swipe).
+        session_dir = create_mock_session(tmp_path, num_steps=2)
+        events = [
+            {"action_type": "swipe", "element_index": -1,
+             "step": 777, "frame_index": 0},
+            {"action_type": "tap", "element_index": 2,
+             "step": 888, "frame_index": 1},
+        ]
+        (session_dir / "events.jsonl").write_text(
+            "\n".join(json.dumps(e) for e in events) + "\n"
+        )
+        graph = build_graph_from_session(str(session_dir))
+        assert any(e.action_type == "swipe" for e in graph.edges)
 
 
 class _FakeFamily:

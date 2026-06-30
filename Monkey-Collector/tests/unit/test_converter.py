@@ -8,14 +8,34 @@ from monkey_collector.export.converter import (
     _map_event_to_action,
     generate_example,
 )
-from monkey_collector.xml.structured_parser import parse_to_html_xml
+from monkey_collector.xml.structured_parser import (
+    encode_to_html_xml,
+    parse_to_html_xml,
+)
 from monkey_collector.xml.ui_tree import parse_uiautomator_xml
 from tests.conftest import make_element
-from tests.fixtures.session_fixtures import create_mock_session
+from tests.fixtures.session_fixtures import (
+    create_aligned_session,
+    create_mock_session,
+)
 from tests.fixtures.xml_samples import COMPLEX_XML, SIMPLE_XML
 
 SIMPLE_PARSED = parse_to_html_xml(SIMPLE_XML) or ""
 COMPLEX_PARSED = parse_to_html_xml(COMPLEX_XML) or ""
+SIMPLE_ENCODED = encode_to_html_xml(SIMPLE_XML) or ""
+COMPLEX_ENCODED = encode_to_html_xml(COMPLEX_XML) or ""
+
+
+def _action_from_human(human_value: str) -> dict:
+    """Extract the action JSON embedded after '## Action' in a human turn."""
+    return json.loads(human_value.split("## Action\n", 1)[1])
+
+
+def _before_from_human(human_value: str) -> str:
+    """Extract the before-state encoded XML from a human turn."""
+    return human_value.split("## Current State\n", 1)[1].split(
+        "\n\n## Action", 1
+    )[0]
 
 
 class TestFindElementAt:
@@ -158,6 +178,9 @@ class TestGenerateExample:
 
 class TestConverterSession:
     def test_convert_session(self, tmp_path):
+        # create_mock_session writes frames 0=SIMPLE, 1=COMPLEX with events
+        # whose `step` (100, 101) deliberately differs from `frame_index` (0, 1)
+        # — a session that joins on `step` would mismatch every frame.
         session_dir = create_mock_session(tmp_path)
         output_path = tmp_path / "output.jsonl"
         images_dir = tmp_path / "images"
@@ -165,13 +188,23 @@ class TestConverterSession:
         converter = Converter(str(output_path), str(images_dir))
         count = converter.convert_session(str(session_dir), session_label=1)
 
-        assert count >= 1
+        # frame 0 → frame 1 is the only pair; the frame-1 event is the last
+        # action and has no after-frame, so exactly one example is produced.
+        assert count == 1
         assert output_path.exists()
         lines = output_path.read_text().strip().split("\n")
-        assert len(lines) == count
-        for line in lines:
-            data = json.loads(line)
-            assert "messages" in data
+        assert len(lines) == 1
+
+        data = json.loads(lines[0])
+        msgs = data["messages"]
+        human = msgs[1]["value"]
+        # before/after joined by frame_index, not step.
+        assert _before_from_human(human) == SIMPLE_ENCODED
+        assert msgs[2]["value"] == COMPLEX_ENCODED
+        # action label comes from the frame-0 event (element_index 0).
+        action = _action_from_human(human)
+        assert action["type"] == "Click"
+        assert action["index"] == 0
 
     def test_convert_session_insufficient_xml(self, tmp_path):
         session_dir = tmp_path / "short_session"
@@ -194,14 +227,109 @@ class TestConverterSession:
         output_path = tmp_path / "output.jsonl"
         converter = Converter(str(output_path), str(tmp_path / "images"))
         total = converter.convert_all(str(raw_dir))
-        assert total >= 2  # at least 1 per session
+        assert total == 2  # exactly 1 pair per 2-frame session
 
 
-class TestFindEventByIndex:
-    def test_out_of_range(self):
-        """Index beyond events -> empty dict."""
-        result = Converter._find_event_by_index({0: {"step": 0}}, index=5)
-        assert result == {}
+class TestFrameIndexAlignment:
+    """Regression: events join to frames by frame_index, not the loop step."""
+
+    def _convert(self, tmp_path, session_dir):
+        out = tmp_path / "out.jsonl"
+        conv = Converter(str(out), str(tmp_path / "images"))
+        count = conv.convert_session(str(session_dir), session_label=1)
+        lines = (
+            out.read_text().strip().split("\n")
+            if out.exists() and out.read_text().strip()
+            else []
+        )
+        return count, [json.loads(line) for line in lines]
+
+    def test_joins_on_frame_index_not_step(self, tmp_path):
+        # Two frames; the single action's step (999) is unrelated to its
+        # frame_index (0). A step-keyed join would never find frame 0.
+        session = create_aligned_session(
+            tmp_path,
+            frames=[(0, "before"), (1, "after")],
+            events=[{
+                "action_type": "tap", "element_index": 7,
+                "step": 999, "frame_index": 0,
+            }],
+        )
+        count, examples = self._convert(tmp_path, session)
+        assert count == 1
+        human = examples[0]["messages"][1]["value"]
+        assert "before" in _before_from_human(human)
+        assert "after" in examples[0]["messages"][2]["value"]
+        assert _action_from_human(human)["index"] == 7
+
+    def test_after_is_next_action_frame_skipping_empty_ui(self, tmp_path):
+        # Frame 1 is an empty-UI frame with no event. The action on frame 0
+        # must pair with frame 2 (next action), skipping the transient frame 1.
+        session = create_aligned_session(
+            tmp_path,
+            frames=[(0, "start"), (1, "loading"), (2, "settled")],
+            events=[
+                {"action_type": "tap", "element_index": 1,
+                 "step": 0, "frame_index": 0},
+                {"action_type": "tap", "element_index": 2,
+                 "step": 1, "frame_index": 2},
+            ],
+        )
+        count, examples = self._convert(tmp_path, session)
+        assert count == 1  # frame-2 action is last → no after-frame
+        assert "settled" in examples[0]["messages"][2]["value"]
+        assert "loading" not in examples[0]["messages"][2]["value"]
+
+    def test_no_change_retry_excluded(self, tmp_path):
+        session = create_aligned_session(
+            tmp_path,
+            frames=[(0, "a"), (1, "b")],
+            events=[
+                {"action_type": "tap", "element_index": 1,
+                 "step": 0, "frame_index": 0},
+                {"action_type": "tap", "element_index": 2,
+                 "step": 0, "no_change_retry": True},
+            ],
+        )
+        count, _ = self._convert(tmp_path, session)
+        assert count == 1  # the retry (no frame_index) contributes nothing
+
+    def test_transition_false_excluded(self, tmp_path):
+        session = create_aligned_session(
+            tmp_path,
+            frames=[(0, "a"), (1, "b"), (2, "c")],
+            events=[
+                {"action_type": "tap", "element_index": 1,
+                 "step": 0, "frame_index": 0},
+                {"action_type": "open_app", "transition": False,
+                 "step": 0, "frame_index": 1},
+                {"action_type": "tap", "element_index": 3,
+                 "step": 1, "frame_index": 2},
+            ],
+        )
+        count, examples = self._convert(tmp_path, session)
+        # open_app (transition:false) is dropped; frame 0 pairs with frame 2.
+        assert count == 1
+        assert "c" in examples[0]["messages"][2]["value"]
+
+    def test_missing_frame_index_skipped(self, tmp_path):
+        session = create_aligned_session(
+            tmp_path,
+            frames=[(0, "a"), (1, "b")],
+            events=[{"action_type": "tap", "element_index": 1, "step": 0}],
+        )
+        count, _ = self._convert(tmp_path, session)
+        assert count == 0  # pre-alignment event has no join key
+
+    def test_last_action_has_no_after_frame(self, tmp_path):
+        session = create_aligned_session(
+            tmp_path,
+            frames=[(0, "a"), (1, "b")],
+            events=[{"action_type": "tap", "element_index": 1,
+                     "step": 0, "frame_index": 1}],
+        )
+        count, _ = self._convert(tmp_path, session)
+        assert count == 0  # frame_index == max_saved → no after-frame
 
 
 class TestConvertAllEmpty:

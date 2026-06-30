@@ -50,13 +50,17 @@ def create_mock_session(
         encoded = encode_to_html_xml(raw_xml)
         if encoded:
             (xml_dir / f"{i:04d}_encoded.xml").write_text(encoded)
-        # Event
+        # Event. `frame_index` is the join key the Converter / page-graph rebuild
+        # use to map an action onto its before-frame file index. `step` is the
+        # loop-counter label and is deliberately offset from frame_index here so
+        # tests fail loudly if a consumer regresses to joining on `step`.
         events.append({
             "action_type": "tap",
             "x": 500,
             "y": 500,
             "element_index": i,
-            "step": i,
+            "step": i + 100,
+            "frame_index": i,
         })
 
     # events.jsonl
@@ -76,4 +80,57 @@ def create_mock_session(
     }
     (session_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
+    return session_dir
+
+
+def _marker_xml(marker: str) -> str:
+    """A minimal uiautomator dump whose single TextView carries ``marker`` —
+    so each frame encodes to a unique ``_encoded.xml`` (before != after)."""
+    return (
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        '<hierarchy rotation="0">'
+        f'<node index="0" text="{marker}" class="android.widget.TextView" '
+        'bounds="[0,0][100,100]" />'
+        "</hierarchy>"
+    )
+
+
+def create_aligned_session(
+    base_dir: Path,
+    frames: list[tuple[int, str]],
+    events: list[dict],
+    session_id: str = "aligned",
+) -> Path:
+    """Build a session with explicit frame file indices and events.
+
+    ``frames`` is a list of ``(frame_index, marker)`` — each writes
+    ``{idx:04d}.png/.xml/_encoded.xml`` with a marker-unique encoding, letting a
+    test decouple the saved file indices from the events that reference them
+    (e.g. an empty-UI frame with no event, or events whose ``step`` differs from
+    ``frame_index``). ``events`` is written verbatim to events.jsonl.
+
+    Returns the session directory path.
+    """
+    session_dir = base_dir / session_id
+    screenshots_dir = session_dir / "screenshots"
+    xml_dir = session_dir / "xml"
+    screenshots_dir.mkdir(parents=True)
+    xml_dir.mkdir(parents=True)
+
+    for idx, marker in frames:
+        (screenshots_dir / f"{idx:04d}.png").write_bytes(TINY_PNG)
+        raw = _marker_xml(marker)
+        (xml_dir / f"{idx:04d}.xml").write_text(raw)
+        encoded = encode_to_html_xml(raw)
+        (xml_dir / f"{idx:04d}_encoded.xml").write_text(
+            encoded or f"<div>{marker}</div>"
+        )
+
+    events_path = session_dir / "events.jsonl"
+    events_path.write_text(
+        "\n".join(json.dumps(e, ensure_ascii=False) for e in events) + "\n"
+    )
+    (session_dir / "metadata.json").write_text(
+        json.dumps({"total_steps": len(frames)}, indent=2)
+    )
     return session_dir
