@@ -40,6 +40,48 @@ def test_explores_distinct_elements_then_backs_off(mock_adb):
     assert "press_back" in types
 
 
+def test_recover_clears_pending_transition_record(mock_adb):
+    # After an action is selected, a transition is pending attribution
+    # (_last_record). Recovery (relaunch after an excursion) must clear it so
+    # the excursion is never recorded as a routing-memory transition.
+    explorer = _explorer(mock_adb)
+    tree = _on_screen(explorer)
+    explorer.select_action(tree, is_first_screen=False)
+    assert explorer._last_record is not None
+
+    launched = explorer.recover(PACKAGE)
+
+    assert launched is True  # mock adb relaunches
+    assert explorer._last_record is None
+
+
+def test_return_to_app_clears_pending_transition_record(mock_adb):
+    explorer = _explorer(mock_adb)
+    tree = _on_screen(explorer)
+    explorer.select_action(tree, is_first_screen=False)
+    assert explorer._last_record is not None
+
+    # Still on the external app after Back → a relaunch happens → True.
+    mock_adb.get_current_package.return_value = "com.other"
+    launched = explorer.return_to_app(PACKAGE)
+
+    assert launched is True
+    assert explorer._last_record is None
+
+
+def test_return_to_app_no_relaunch_when_back_returns(mock_adb):
+    # Back alone landed us back in the target app → no relaunch, returns False.
+    explorer = _explorer(mock_adb)
+    tree = _on_screen(explorer)
+    explorer.select_action(tree, is_first_screen=False)
+
+    mock_adb.get_current_package.return_value = PACKAGE
+    launched = explorer.return_to_app(PACKAGE)
+
+    assert launched is False
+    assert explorer._last_record is None
+
+
 def test_first_screen_never_presses_back(mock_adb):
     explorer = _explorer(mock_adb)
     tree = _on_screen(explorer)

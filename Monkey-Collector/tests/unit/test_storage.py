@@ -31,6 +31,7 @@ class TestInitSession:
         assert meta["completed_at"] is None
         assert meta["total_steps"] == 0
         assert meta["external_app_events"] == 0
+        assert meta["open_app_events"] == 0
 
 
 class TestSaveScreenshot:
@@ -215,6 +216,39 @@ class TestLogExternalApp:
             (tmp_path / "com.test.app" / "metadata.json").read_text()
         )
         assert meta["external_app_events"] == 1
+
+
+class TestLogOpenApp:
+    def test_logs_action_and_increments(self, writer, tmp_path):
+        writer.log_open_app(
+            "com.target.app",
+            app_name="Target App",
+            step=42,
+            from_package="com.android.chrome",
+        )
+
+        events_path = tmp_path / "com.test.app" / "events.jsonl"
+        event = json.loads(events_path.read_text().strip().split("\n")[0])
+        assert event["action_type"] == "open_app"
+        assert event["package"] == "com.target.app"
+        assert event["app_name"] == "Target App"
+        assert event["step"] == 42
+        assert event["from_package"] == "com.android.chrome"
+        # Marked non-transition so navigation consumers skip it.
+        assert event["transition"] is False
+        assert event["trigger"] == "external_recovery"
+
+        meta = json.loads(
+            (tmp_path / "com.test.app" / "metadata.json").read_text()
+        )
+        assert meta["open_app_events"] == 1
+
+    def test_from_package_omitted_when_none(self, writer, tmp_path):
+        writer.log_open_app("com.target.app", step=1)
+        events_path = tmp_path / "com.test.app" / "events.jsonl"
+        event = json.loads(events_path.read_text().strip().split("\n")[0])
+        assert "from_package" not in event
+        assert event["app_name"] == ""
 
 
 class TestFinalizeSession:

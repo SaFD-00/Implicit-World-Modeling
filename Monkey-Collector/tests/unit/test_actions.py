@@ -7,6 +7,7 @@ from monkey_collector.domain.actions import (
     Action,
     InputText,
     LongPress,
+    OpenApp,
     PressBack,
     PressHome,
     Swipe,
@@ -116,7 +117,10 @@ class TestFromDict:
 
 class TestRegistry:
     def test_all_types_registered(self):
-        expected = {"tap", "swipe", "input_text", "press_back", "press_home", "long_press"}
+        expected = {
+            "tap", "swipe", "input_text", "press_back", "press_home",
+            "long_press", "open_app",
+        }
         assert set(ACTION_REGISTRY.keys()) == expected
 
     def test_registry_maps_to_correct_classes(self):
@@ -126,3 +130,45 @@ class TestRegistry:
         assert ACTION_REGISTRY["press_back"] is PressBack
         assert ACTION_REGISTRY["press_home"] is PressHome
         assert ACTION_REGISTRY["long_press"] is LongPress
+        assert ACTION_REGISTRY["open_app"] is OpenApp
+
+
+class TestOpenApp:
+    def test_defaults(self):
+        o = OpenApp()
+        assert o.action_type == "open_app"
+        assert o.package == ""
+        assert o.app_name == ""
+        assert o.element_index == -1
+
+    def test_to_dict(self):
+        o = OpenApp(package="com.target.app", app_name="Target App")
+        assert o.to_dict() == {
+            "action_type": "open_app",
+            "element_index": -1,
+            "package": "com.target.app",
+            "app_name": "Target App",
+        }
+
+    def test_round_trip(self):
+        d = OpenApp(package="com.x", app_name="X").to_dict()
+        restored = action_from_dict(d)
+        assert isinstance(restored, OpenApp)
+        assert restored.package == "com.x"
+        assert restored.app_name == "X"
+
+    def test_from_dict_ignores_extra_log_fields(self):
+        # The logged event carries step/transition/trigger/from_package on top
+        # of the dataclass fields; from_dict must drop them, not choke.
+        restored = action_from_dict({
+            "action_type": "open_app",
+            "package": "com.x",
+            "app_name": "X",
+            "step": 42,
+            "transition": False,
+            "trigger": "external_recovery",
+            "from_package": "com.android.chrome",
+        })
+        assert isinstance(restored, OpenApp)
+        assert restored.package == "com.x"
+        assert not hasattr(restored, "trigger")

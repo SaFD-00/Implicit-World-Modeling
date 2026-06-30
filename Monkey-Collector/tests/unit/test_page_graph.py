@@ -246,6 +246,29 @@ class TestBuildGraphFromSession:
         # no_change_retry events should be excluded from event mapping
         assert len(graph.nodes) >= 1
 
+    def test_open_app_transition_false_not_an_edge_label(self, tmp_path):
+        # An open_app event (transition:false) sitting where it would otherwise
+        # label the page(0)->page(1) edge must be skipped: external recovery is
+        # not navigation. The edge falls back to "unknown", never "open_app".
+        session_dir = create_mock_session(tmp_path, num_steps=2)
+        events = [
+            {
+                "action_type": "open_app",
+                "element_index": -1,
+                "package": "com.test.app",
+                "app_name": "Test",
+                "step": 0,
+                "transition": False,
+                "trigger": "external_recovery",
+            },
+            {"action_type": "tap", "element_index": 2, "step": 1},
+        ]
+        (session_dir / "events.jsonl").write_text(
+            "\n".join(json.dumps(e) for e in events) + "\n"
+        )
+        graph = build_graph_from_session(str(session_dir))
+        assert all(e.action_type != "open_app" for e in graph.edges)
+
 
 class _FakeFamily:
     def __init__(self, name):

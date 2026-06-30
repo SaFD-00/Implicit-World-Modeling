@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from monkey_collector.domain.page_graph import PageGraph
+from tests.fixtures.xml_samples import COMPLEX_XML, SIMPLE_XML
 from tests.integration.test_collector import _make_collector, _make_xml_signal
 
 _PERMISSION_XML = (
@@ -90,7 +91,84 @@ class TestExternalCounterAccumulates:
         session_id = collector.run(package="com.test.app")
 
         assert session_id != ""
-        # counts 1-3 → return_to_app, 4-9 → recover, 10th → immediate end
+        # counts 1-3 → return_to_app (×3); counts 4-9 → recover (×6); the 10th
+        # (count==MAX) enters the reinit branch which also relaunches via
+        # recover (×1) before resetting the counter, so recover totals 7. The
+        # session then ends on the trailing finish signal.
         assert explorer.return_to_app.call_count == 3
-        assert explorer.recover.call_count == 6
+        assert explorer.recover.call_count == 7
         writer.finalize_session.assert_called_once()
+
+
+@pytest.mark.integration
+class TestOpenAppRecording:
+    @patch("monkey_collector.pipeline.collection_loop.time.sleep")
+    def test_open_app_logged_once_per_excursion(self, _sleep, mock_adb):
+        # Two excursions, each = several externals in a row then a return to an
+        # in-app frame. open_app must be logged exactly once per excursion
+        # (dedup within an excursion; the in-app frame between excursions
+        # re-arms the dedup flag).
+        ext = ("external_app", None, {"detected_package": "com.other"})
+        signals = [
+            _make_xml_signal(),
+            ext, ext, ext,            # excursion 1
+            _make_xml_signal(),       # back in-app → re-arm
+            ext, ext,                 # excursion 2
+            _make_xml_signal(),
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(
+            mock_adb, signals, max_steps=50,
+        )
+        explorer.return_to_app.return_value = True  # an actual relaunch
+
+        collector.run(package="com.test.app")
+
+        assert writer.log_open_app.call_count == 2
+        # Always the target package, never the external one.
+        for call in writer.log_open_app.call_args_list:
+            assert call.args[0] == "com.test.app"
+
+    @patch("monkey_collector.pipeline.collection_loop.time.sleep")
+    def test_no_open_app_when_back_suffices(self, _sleep, mock_adb):
+        # return_to_app returns False (a single Back landed back in the app, no
+        # relaunch) → nothing to record.
+        ext = ("external_app", None, {"detected_package": "com.other"})
+        signals = [
+            _make_xml_signal(),
+            ext,
+            _make_xml_signal(),
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(
+            mock_adb, signals, max_steps=50,
+        )
+        explorer.return_to_app.return_value = False
+
+        collector.run(package="com.test.app")
+
+        writer.log_open_app.assert_not_called()
+
+    @patch("monkey_collector.pipeline.collection_loop.time.sleep")
+    def test_external_recovery_draws_no_navigation_edge(self, _sleep, mock_adb):
+        # A→B is a normal navigation edge. After B the device drifts external and
+        # recovery lands back on A. That return must NOT add a B→A edge: external
+        # recovery is not navigation. Only the A→B edge survives.
+        ext = ("external_app", None, {"detected_package": "com.other"})
+        signals = [
+            _make_xml_signal(xml=SIMPLE_XML),
+            _make_xml_signal(xml=COMPLEX_XML),   # edge A→B
+            ext,                                 # drift + recovery (clears last_action)
+            _make_xml_signal(xml=SIMPLE_XML),    # back on A — must not add B→A
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(
+            mock_adb, signals, max_steps=50,
+        )
+        explorer.return_to_app.return_value = True
+
+        collector.run(package="com.test.app")
+
+        edges = collector._live_page_graph.edges
+        assert len(edges) == 1
+        assert edges[0].action_type == "tap"

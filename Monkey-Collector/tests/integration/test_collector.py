@@ -508,16 +508,18 @@ class TestNoChangeNoUITree:
 class TestExternalAppMax:
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
     def test_max_retries_ends_session(self, mock_sleep, mock_adb):
-        """10 external_app signals → session ends."""
+        """10 external_app signals escalate through recovery, then finish."""
         signals = [_make_xml_signal()]
         signals += [("external_app", None, {"detected_package": "com.other"})] * 10
+        signals.append(("finish", None, None))
         collector, explorer, server, writer = _make_collector(mock_adb, signals, max_steps=50)
 
         collector.run(package="com.test.app")
         writer.finalize_session.assert_called_once()
-        # First 3 → return_to_app, count 4-9 → recover, count 10 → break (no call)
+        # counts 1-3 → return_to_app (×3); counts 4-9 → recover (×6); count 10
+        # → reinit branch also relaunches via recover (×1) → recover totals 7.
         assert explorer.return_to_app.call_count == 3
-        assert explorer.recover.call_count == 6
+        assert explorer.recover.call_count == 7
 
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
     def test_recovery_exception(self, mock_sleep, mock_adb):
