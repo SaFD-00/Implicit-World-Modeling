@@ -201,8 +201,18 @@ Server -> App (newline-delimited JSON):
 
 1. **진행 중 navigation** 이 있으면 큐의 다음 step 을 현재 화면에서 signature 로 재매칭해 실행.
 2. **현재 화면 미탐색** action 이 있으면 그중 하나를 선택(`long_touch` 후순위).
-3. 없으면 **전역 미탐색** action 까지 `TransitionGraph` 최단경로를 큐에 적재하고 첫 step 실행.
+3. 없으면 **전역 미탐색** action 을 target 으로 골라 `TransitionGraph` 최단경로를 큐에 적재하고 첫 step 실행. **어느 target 을 고를지는 `exploration.strategy` (DFS/BFS/GREEDY) 가 결정한다** (아래 참조).
 4. 그래도 없으면 **back** 으로 후퇴 (첫/루트 화면에서는 앱 종료 방지를 위해 back 대신 화면 내 tap).
+
+#### navigate-target 선택 전략 (`exploration.strategy`)
+
+위 3단계의 **전역 미탐색 target 선택**은 `exploration.strategy` 값에 따라 달라진다([`navigator.py`](./src/monkey_collector/pipeline/exploration/navigator.py) `plan_to_unexplored`). 세 전략 모두 미탐색 target 을 하나 고른 뒤 현재 화면에서 그 target 까지 `TransitionGraph` 최단경로로 라우팅하는 점은 같고, **어떤 target 을 고르는가**만 다르다.
+
+- **GREEDY** — 현재 화면에서 navigation path 가 가장 짧은 (= 이동 비용 최소) target. 기존 동작이며 `LLMGuidedExplorer.__init__` 의 backward-compat 기본값.
+- **BFS** — 세션 root page 로부터 **BFS depth 가 가장 얕은** target (root 에 가까운 shallow 화면 우선). builtin/`config/run.yaml` 의 canonical 기본값(= production 기본값).
+- **DFS** — 세션 root page 로부터 **BFS depth 가 가장 깊은** target (deep 화면 우선).
+
+depth 는 `TransitionGraph.bfs_distances(root_page_key)` 로 산출하며 root 는 `Memory.root_page_key`(이번 세션에서 가장 먼저 관측한 state)다. root 가 아직 없으면(세션 첫 step) BFS/DFS 도 GREEDY 로 폴백하고, depth 를 알 수 없는 후보는 BFS 에선 가장 깊게(=후순위)·DFS 에선 가장 얕게 취급한다. 동률은 navigation path 가 짧은 쪽으로 깬다. CLI/config 가 해소한 strategy 를 `cli.py` 가 `LLMGuidedExplorer` 에 명시적으로 주입하므로 production 기본값은 BFS 가 된다.
 
 핵심 특성:
 
@@ -307,3 +317,63 @@ data/raw/{package}/
 - `Converter`
 - `PageGraph`
 - `build_graph_from_session`
+
+## 7. 설정 시스템
+
+수집 파라미터는 [`config/run.yaml`](./config/run.yaml) 과 [`src/monkey_collector/config.py`](./src/monkey_collector/config.py) 로 중앙화되어 있다. 같은 값을 여러 경로로 지정할 수 있고, **나중 레이어가 앞 레이어를 덮어쓴다**.
+
+### 해석 순서 (4단계, later wins)
+
+```
+builtin defaults  (config.py `_BUILTIN_DEFAULTS`)
+  → config/run.yaml
+  → MC_* 환경변수
+  → CLI 플래그
+```
+
+builtin canonical default 의 `exploration.strategy` 는 **BFS** 이며 `config/run.yaml` 의 canonical 값과 일치한다. 알 수 없는 strategy 값은 경고 로그 후 **GREEDY** 로 폴백한다. 운영 플래그 `--apps`/`--force`/`--new-session` 은 YAML/env 로 설정할 수 없는 **CLI 전용**이다. CLI 의 YAML-커버 파라미터는 기본값이 `None`(= "CLI 에서 지정 안 함" sentinel)이라, 플래그를 주지 않으면 config 값이 그대로 쓰인다.
+
+### `config/run.yaml` 섹션
+
+| 섹션 | 키 | 설명 |
+| ---- | -- | ---- |
+| `exploration` | `strategy` | 탐색 전략 `DFS`\|`BFS`\|`GREEDY` (canonical 기본 `BFS`). navigate-target 선택 의미는 §3 참조 |
+| `collection` | `max_steps` | 앱 세션당 최대 step 수 (기본 1500) |
+| `collection` | `seed` | explorer random seed (기본 42) |
+| `collection` | `action_delay_ms` | action 간 지연(ms) (기본 1500) |
+| `collection` | `port` | TCP 서버 포트 (기본 12345) |
+| `collection` | `output_dir` | raw session 출력 루트 (기본 `data/raw`) |
+| `llm` | `input_mode` | 입력 텍스트 생성 모드 `api`\|`random` (기본 `api`) |
+| `llm` | `element_extraction` | LLM element 추출 + element-set screen matching on/off (기본 `true`; `OPENROUTER_API_KEY` 없으면 구조 지문으로 자동 degrade) |
+| `screen_matching` | `cluster_merge_tolerance` | OVERLAP element-set merge 의 two-sided tolerance band 0.0–1.0 (기본 0.2) |
+| `screen_matching` | `max_expand_iters` | 화면당 expand(잔여 UI 재추출) 최대 반복 (기본 3) |
+
+### MC_* 환경변수
+
+YAML 위, CLI 아래 레이어. 각 변수는 대응 키를 타입 변환해 덮어쓴다.
+
+| 환경변수 | 대상 키 | 타입 |
+| -------- | ------- | ---- |
+| `MC_EXPLORATION_STRATEGY` | `exploration.strategy` | str (upper-case 정규화) |
+| `MC_COLLECTION_MAX_STEPS` | `collection.max_steps` | int |
+| `MC_COLLECTION_SEED` | `collection.seed` | int |
+| `MC_COLLECTION_ACTION_DELAY_MS` | `collection.action_delay_ms` | int |
+| `MC_COLLECTION_PORT` | `collection.port` | int |
+| `MC_COLLECTION_OUTPUT_DIR` | `collection.output_dir` | str |
+| `MC_LLM_INPUT_MODE` | `llm.input_mode` | str |
+| `MC_LLM_ELEMENT_EXTRACTION` | `llm.element_extraction` | bool (`true/1/yes/on`) |
+| `MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE` | `screen_matching.cluster_merge_tolerance` | float |
+| `MC_SCREEN_MATCHING_MAX_EXPAND_ITERS` | `screen_matching.max_expand_iters` | int |
+| `MC_CONFIG_PATH` | (YAML 파일 경로 자체) | path — 대체 yaml 위치 지정 |
+
+### `config.py` API
+
+타입드 dataclass: `RunConfig`(`exploration`/`collection`/`llm`/`screen_matching` = `ExplorationConfig`/`CollectionConfig`/`LlmConfig`/`ScreenMatchingConfig`).
+
+- `load_run_config(path: Path | str | None = None) -> RunConfig`
+  - builtin defaults → YAML → MC_* env 를 순서대로 병합해 `RunConfig` 반환.
+  - `path` 가 주어지면 그 YAML 을 사용, 없으면 `MC_CONFIG_PATH`, 그래도 없으면 패키지 루트의 `config/run.yaml`. 존재하지 않는 파일은 무시(빈 dict 취급)된다 — 테스트에서 `Path("/nonexistent")` 로 파일 레이어를 건너뛸 수 있다.
+- `merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfig`
+  - CLI 플래그 중 `None` 이 아닌 것만 `config` 위에 덮어써 새 `RunConfig` 반환(`dataclasses.replace`). `--element-extraction on/off`, 폐기 예정 `--screen-grouping off` 도 여기서 `element_extraction` 으로 매핑된다. boolean 운영 플래그(`force`/`new_session`)는 `RunConfig` 에 들어가지 않는 CLI 전용이다.
+
+`cli.py` 의 `run` 서브커맨드는 `load_run_config(args.config)` → `merge_with_cli_args(cfg, args)` 로 최종 설정을 만든 뒤, 해소된 strategy 를 `LLMGuidedExplorer` 에 명시적으로 주입한다.

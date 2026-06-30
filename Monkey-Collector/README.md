@@ -126,6 +126,47 @@ monkey-collect run --apps all --input-mode random
 - 큐 구성 시 `data/raw/{pkg}/metadata.json` 의 `completed_at` 이 채워진 앱은 **완료로 판정되어 스킵**. `--force` 로 우회하거나, 중단된(미완료) 세션은 `completed_at` 이 `null` 이라 자동으로 resume 된다.
 - **재초기화(reinit)**: signal timeout 5연속 또는 external app 10회 도달 시 세션을 종료하는 대신, target app 을 force-stop + relaunch 하고 카운터를 초기화해 탐색을 재개한다. 재초기화는 각각 최대 3회까지 허용되며, 초과 시 세션이 종료된다.
 
+## 설정 (`config/run.yaml`)
+
+수집 파라미터는 `config/run.yaml` 로 관리한다. 값은 **4단계**로 해석되며 뒤쪽이 앞쪽을 덮어쓴다:
+
+1. 빌트인 기본값 (canonical strategy = `BFS`)
+2. `config/run.yaml` (다른 경로는 `MC_CONFIG_PATH` 또는 `--config` 로 지정)
+3. `MC_*` 환경변수
+4. CLI 플래그
+
+즉 **빌트인 → `run.yaml` → `MC_*` env → CLI** 순으로 우선순위가 높아진다. YAML 이 커버하는 argparse 파라미터는 CLI 기본값이 `None`(미지정 sentinel)이라, 플래그를 주지 않으면 config 값이 그대로 쓰인다. `--apps` / `--force` / `--new-session` 같은 운영 플래그는 CLI 전용이다.
+
+`config/run.yaml` 섹션:
+
+- `exploration.strategy`: `DFS` | `BFS` | `GREEDY` (canonical 기본 `BFS`)
+- `collection.{max_steps, seed, action_delay_ms, port, output_dir}`
+- `llm.{input_mode, element_extraction}`
+- `screen_matching.{cluster_merge_tolerance, max_expand_iters}`
+
+대응 환경변수: `MC_EXPLORATION_STRATEGY`, `MC_COLLECTION_MAX_STEPS`, `MC_COLLECTION_SEED`, `MC_COLLECTION_ACTION_DELAY_MS`, `MC_COLLECTION_PORT`, `MC_COLLECTION_OUTPUT_DIR`, `MC_LLM_INPUT_MODE`, `MC_LLM_ELEMENT_EXTRACTION`, `MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE`, `MC_SCREEN_MATCHING_MAX_EXPAND_ITERS`, 그리고 대체 yaml 을 가리키는 `MC_CONFIG_PATH`.
+
+### 탐색 전략 (DFS / BFS / GREEDY)
+
+세 전략 모두 미탐색 target 을 고른 뒤 shortest path 로 route 하며, target 선택 기준만 다르다:
+
+- `BFS`: 세션 root page 기준 BFS depth 가 가장 얕은 target (shallow first) — **canonical 기본값**
+- `DFS`: BFS depth 가 가장 깊은 target (deep first)
+- `GREEDY`: 현재 화면에서 navigation path 가 가장 짧은 target (기존 동작)
+
+depth 는 이번 세션에서 처음 관측한 root page 를 기준으로 계산한다. 전략은 다음 중 하나로 지정하며 우선순위는 위 4단계와 동일하다:
+
+- `config/run.yaml` 의 `exploration.strategy`
+- `--strategy {DFS,BFS,GREEDY}` CLI 플래그
+- `MC_EXPLORATION_STRATEGY` 환경변수
+
+```bash
+monkey-collect run --apps all --strategy DFS
+monkey-collect run --apps all --config config/run.yaml
+```
+
+잘못된 값은 경고를 출력한 뒤 `GREEDY` 로 폴백한다.
+
 ## CLI
 
 ### `run`
@@ -140,6 +181,8 @@ monkey-collect run --apps com.google.android.deskclock --steps 1500
 주요 옵션:
 
 - `--apps` (필수): `all` 이면 `catalog/apps.csv` 의 `installed=true` 전부. 아니면 하나 이상의 package_id.
+- `--strategy`: 탐색 전략 `DFS` / `BFS` / `GREEDY` 선택 (canonical 기본 `BFS`). 미지정 시 `config/run.yaml` 의 `exploration.strategy` 를 따른다 (의미는 「설정」 섹션 참조).
+- `--config`: 사용할 config YAML 경로 (기본 `config/run.yaml`).
 - `--steps`: 세션당 최대 step 수 (기본 1500)
 - `--seed`: explorer 랜덤 시드 (기본 42)
 - `--delay`: action 사이 대기 시간(ms, 기본 1500)
