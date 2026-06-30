@@ -3,6 +3,20 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-06-30 — Monkey-Collector converter 프레임-이벤트 정렬 버그 수정 (frame_index 도입)
+
+world-modeling 학습데이터 변환에서 **action 라벨이 엉뚱한 프레임에 붙는 정렬 버그**를 발견·수정했다. `input_text` 처럼 페이지가 안 바뀌는 action 도 `_encoded.xml` 의 `value` 변화로 before≠after 학습쌍이 되는데, 실제 변환 결과는 `input_text` 가 중복되고 Discard 다이얼로그 프레임에 input 라벨이 붙는 등 어긋나 있었다. 근본 원인은 events.jsonl 의 `step`(루프 카운터, 비-저장 반복에서도 증가)과 프레임 파일 인덱스(`step_count`, 저장 시에만 증가)가 다른 체계인데 둘을 잇는 조인 키가 디스크에 없던 것. 코드 변경(저장 포맷 변경 포함), 작업트리 미커밋.
+
+- Fix: 수집 시점에 정상 action 이벤트에 `frame_index = writer.step_count - 1`(before 프레임 파일 인덱스)을 기록(`collection_loop._process_xml_signal`). converter(`export/converter.py`)와 offline page-graph 재빌드(`domain/page_graph.py _load_events`)를 `events.get(step_idx)` 추측·`_find_event_by_index` 폴백에서 **`frame_index` 직접 조인**으로 교체. converter 의 after 프레임은 "다음 action 의 before 프레임"으로 잡아 중간 로딩 프레임을 건너뛴다.
+- step 의미 재정의: `state.step += 1` 을 정상 action 경로 1곳만 남기고 **13곳 제거**(signal timeout·permission·system·stale·no_change·keyboard·same-page-stuck·empty-UI·예외). 이제 `step` 은 실제 action 에서만 증가 → 사용자 요청대로 signal timeout 등이 step 을 소비하지 않음. 부수: step 이 상한 역할을 하던 경로 보호용 `idle_iterations` 절대 가드(`max_step*4`) 추가 + stale 경로 `clear_signal_queue` 보강. activity_coverage 기록을 `step_count`(파일 인덱스)로 키잉해 page-graph CSV 폴백 정합 유지.
+- 하위호환: `frame_index` 없는 구(舊) 세션은 converter 가 변환 스킵, page-graph 재빌드는 토폴로지만 복원하고 엣지 라벨 `unknown` 으로 degrade → 재수집/regenerate 필요(옛 휴리스틱 폴백 제거).
+- 검증: 합성 세션 sanity 로 same-page `input_text` 가 (before=빈 필드 → Input → after=채워진 필드, element_index 정확) 학습쌍으로 정렬됨을 실증. 회귀 테스트 6종(step≠frame_index 조인, empty-UI 건너뜀, no_change_retry/transition:false/frame_index 부재 제외, 마지막 action after 부재) + page-graph 엣지 라벨 회귀 추가. 기존 fixture 가 `step==파일인덱스` 를 우연히 1:1 로 맞춰 버그를 못 잡던 것도 `step=frame_index+100` 으로 어긋나게 수정.
+- 변경(작업트리, 11 files): src 3(`pipeline/collection_loop.py`, `export/converter.py`, `domain/page_graph.py`) + 패키지문서 3(`Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md`) + tests 3(`tests/unit/{test_converter,test_page_graph}.py`, `tests/fixtures/session_fixtures.py`) + repo docs 2(`docs/{DEVLOG,CHANGELOG}.md`).
+- 검증: 전체 **pytest passed**, ruff 신규 위반 0(변경 파일 clean; 선재 `test_structured_parser.py` F401 은 그대로).
+- 커밋: 미커밋(작업트리). 직후 project-sync + git-push 예정.
+- 문서: 패키지 정본 `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md` 갱신. 루트 `docs/{README,ARCHITECTURE}.md` 는 패키지 정본을 가리키므로 추가 수정 없음.
+- 카테고리: devlog
+
 ## 2026-06-30 — Monkey-Collector external 복구 시 open_app 기록 (navigation 격리)
 
 external app 이탈에서 복구 루프가 타깃 앱을 재실행하는 동작(=사실상의 `open_app`)을 events.jsonl 에
