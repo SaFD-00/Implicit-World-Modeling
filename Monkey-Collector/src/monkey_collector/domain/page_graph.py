@@ -381,7 +381,15 @@ def _load_activity_map(session_dir: str) -> dict[int, str]:
 
 
 def _load_events(session_dir: str) -> dict[int, dict]:
-    """Load step → event dict mapping from events.jsonl."""
+    """Load frame_index → event dict mapping from events.jsonl.
+
+    Keyed by ``frame_index`` (the file index of the screen the action was taken
+    on), which is the authoritative join to the saved XML frames. ``step`` is a
+    loop counter that advances on non-saving waits, so it must not be used as
+    the join key. Events without ``frame_index`` (pre-alignment sessions) are
+    skipped: the topology still rebuilds from XML fingerprints, only the edge
+    labels degrade to "unknown".
+    """
     events_path = os.path.join(session_dir, "events.jsonl")
     mapping: dict[int, dict] = {}
     if not os.path.exists(events_path):
@@ -393,17 +401,17 @@ def _load_events(session_dir: str) -> dict[int, dict]:
                 continue
             try:
                 event = json.loads(line)
-                step = event.get("step")
+                frame_index = event.get("frame_index")
                 # Skip no-change retries and non-transition markers. An event
                 # with transition=False (e.g. an open_app logged on external
                 # recovery) must never label a rebuilt edge — external excursions
                 # are not navigation.
                 if (
-                    step is not None
+                    frame_index is not None
                     and not event.get("no_change_retry")
                     and event.get("transition") is not False
                 ):
-                    mapping[int(step)] = event
+                    mapping[int(frame_index)] = event
             except (json.JSONDecodeError, ValueError):
                 continue
     return mapping
@@ -436,9 +444,9 @@ def build_graph_from_session(
     previous_page_id: int | None = None
 
     for xml_file in xml_files:
-        step_str = os.path.splitext(xml_file)[0]
+        index_str = os.path.splitext(xml_file)[0]
         try:
-            step = int(step_str)
+            frame_index = int(index_str)
         except ValueError:
             continue
 
@@ -446,19 +454,23 @@ def build_graph_from_session(
         with open(xml_path, encoding="utf-8") as f:
             xml_str = f.read()
 
-        # Get activity name (prefer events.jsonl, fall back to coverage CSV)
-        event = events.get(step, {})
+        # Activity name: prefer the event recorded on this frame, fall back to
+        # the coverage CSV. `events` is keyed by frame_index (== file index).
+        event = events.get(frame_index, {})
         activity = event.get("activity_name", "")
         if not activity:
-            activity = activity_map.get(step, "")
+            activity = activity_map.get(frame_index, "")
 
         # Identify page
-        current_page_id = graph.get_or_create_page(activity, xml_str, step)
+        current_page_id = graph.get_or_create_page(
+            activity, xml_str, frame_index
+        )
 
-        # Add transition from previous step
-        if previous_page_id is not None and step > 0:
-            prev_step = step - 1
-            prev_event = events.get(prev_step, {})
+        # The transition into this frame was caused by the action taken on the
+        # previous frame (frame_index - 1) — saved frames are contiguous, so the
+        # previous file index is the action that produced the current screen.
+        if previous_page_id is not None and frame_index > 0:
+            prev_event = events.get(frame_index - 1, {})
             action_type = prev_event.get("action_type", "unknown")
             element_info = _element_info_from_event(prev_event)
             graph.add_transition(
@@ -466,7 +478,7 @@ def build_graph_from_session(
                 to_page=current_page_id,
                 action_type=action_type,
                 element_info=element_info,
-                step=step,
+                step=frame_index,
             )
 
         previous_page_id = current_page_id

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -64,6 +65,12 @@ class CollectionState:
     # Set per screen when a ScreenMatcher is active; carries the element-set
     # match so the loop can persist it (save_elements) after save_xml.
     current_screen_match: ScreenMatch | None = None
+    # Iterations spent on non-action waits (timeouts, no-change, stale XML,
+    # keyboard/permission/system handling) since the last real action. `step`
+    # no longer advances on these paths, so this is an independent absolute cap
+    # that breaks pathological loops where the device emits signals forever
+    # without ever producing an actionable frame.
+    idle_iterations: int = 0
 
 
 def _is_root_screen(state: CollectionState) -> bool:
@@ -94,7 +101,13 @@ def run_collection_loop(
     # at step 0 — and it cascades to every later app in the queue.
     collector.server.clear_signal_queue()
 
-    while state.step < state.max_step:
+    # `step` only advances on a real action now, so a session that can never act
+    # (e.g. a system screen that emits signals but no actionable frame) would
+    # never reach max_step. idle_iterations is the absolute backstop.
+    max_idle = max(state.max_step * 4, 20)
+
+    while state.step < state.max_step and state.idle_iterations < max_idle:
+        state.idle_iterations += 1
         try:
             result = collector.server.get_latest_signal(timeout=collector.xml_timeout)
 
@@ -128,7 +141,6 @@ def run_collection_loop(
                     state.last_ui_tree = None
                     state.last_action = None
                     time.sleep(3.0)
-                    state.step += 1
                     continue
                 # A timeout means no screenshot/XML arrived. A runtime
                 # permission dialog (permissioncontroller) emits no a11y events,
@@ -137,7 +149,6 @@ def run_collection_loop(
                 # an ungranted permission.
                 if _try_grant_permission_via_adb(collector, state):
                     state.timeout_count = 0
-                    state.step += 1
                     continue
                 # If we drifted out of the target app (e.g. a system role screen
                 # that emits no accessibility events and can't be closed via
@@ -155,7 +166,6 @@ def run_collection_loop(
                     nudge_static_screen(
                         collector.adb, state.last_ui_tree, state.timeout_count
                     )
-                state.step += 1
                 continue
 
             signal_type = result[0]
@@ -185,11 +195,8 @@ def run_collection_loop(
 
         except Exception as e:
             logger.error(f"Step {state.step}: error - {e}")
-            try:
+            with contextlib.suppress(Exception):
                 collector.explorer.recover(package)
-            except Exception:
-                pass
-            state.step += 1
 
 
 def _handle_no_change(
@@ -226,7 +233,6 @@ def _handle_no_change(
         state.last_action = None
         state.last_ui_tree = None
         time.sleep(collector.action_delay)
-        state.step += 1
         return False
 
     if state.last_ui_tree is not None and len(state.last_ui_tree) > 0:
@@ -262,7 +268,6 @@ def _handle_no_change(
         collector.explorer.clear_excluded()
         state.last_action = None
         time.sleep(collector.action_delay)
-    state.step += 1
     return False
 
 
@@ -473,14 +478,12 @@ def _process_xml_signal(
         state.last_action = None
         state.last_ui_tree = None
         time.sleep(collector.action_delay)
-        state.step += 1
         return True
 
     # Permission / install grant dialog: act on it (grant > dismiss) instead of
     # burning steps skipping it as stale XML — otherwise we loop here forever.
     if is_permission_dialog(top_package):
         _handle_permission_dialog(collector, state, xml_str)
-        state.step += 1
         return True
 
     # Drifted into another system screen we cannot drive: relaunch the target.
@@ -491,7 +494,6 @@ def _process_xml_signal(
         )
         collector.explorer.return_to_app(package)
         collector.server.clear_signal_queue()
-        state.step += 1
         return True
 
     if top_package and top_package != package:
@@ -499,14 +501,21 @@ def _process_xml_signal(
             f"Step {state.step}: stale XML from {top_package} "
             f"(expected {package}), skipping"
         )
-        state.step += 1
+        # Drop the foreign signal so a stuck background app can't spin this path.
+        collector.server.clear_signal_queue()
         return True
 
     if not activity_name:
         activity_name = collector.adb.get_current_activity()
 
     if collector._activity_tracker is not None:
-        entry = collector._activity_tracker.record(activity_name, state.step)
+        # Key coverage rows by the frame file index (== the frame_index this
+        # screen will be saved under), so the offline page-graph rebuild's CSV
+        # fallback joins on the same index events use. `step` is a loop counter
+        # and no longer matches file indices.
+        entry = collector._activity_tracker.record(
+            activity_name, collector.writer.step_count
+        )
         logger.debug(
             f"Activity coverage: {entry['coverage']:.2%} "
             f"({entry['unique_visited']}/{entry['total_activities']})"
@@ -582,7 +591,6 @@ def _process_xml_signal(
             state.last_action = None
             state.last_ui_tree = None
             time.sleep(collector.action_delay)
-            state.step += 1
             return True
 
     if collector._latest_screenshot:
@@ -613,7 +621,6 @@ def _process_xml_signal(
                 f"({state.empty_ui_retries}/{MAX_EMPTY_UI_RETRIES})"
             )
             time.sleep(1.0)
-            state.step += 1
             state.last_ui_tree = None
             state.last_action = None
             return True
@@ -630,7 +637,6 @@ def _process_xml_signal(
             safe_press_back(collector.adb, collector.explorer, package)
         state.last_ui_tree = None
         state.last_action = None
-        state.step += 1
         return True
 
     state.empty_ui_retries = 0
@@ -659,6 +665,9 @@ def _process_xml_signal(
 
     collector.explorer.execute_action(action)
     state.total_actions += 1
+    # A real action ran: this is the only path that advances `step` and the only
+    # one that clears the idle backstop.
+    state.idle_iterations = 0
 
     collector.server.clear_signal_queue()
 
@@ -669,6 +678,11 @@ def _process_xml_signal(
     event = action.to_dict()
     event["step"] = state.step
     event["activity_name"] = activity_name
+    # before-frame file index. save_xml above already advanced step_count, so the
+    # frame this action was decided on is step_count - 1. This is the join key the
+    # converter and offline page-graph rebuild use to map the action onto its
+    # screen — `step` is a loop-counter label only.
+    event["frame_index"] = collector.writer.step_count - 1
     collector.writer.log_event(event)
 
     time.sleep(collector.action_delay)

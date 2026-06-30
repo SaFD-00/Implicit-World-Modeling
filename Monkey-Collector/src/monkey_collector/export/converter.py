@@ -168,6 +168,19 @@ class Converter:
     ) -> int:
         """Convert a single session to JSONL examples.
 
+        Each action event is joined to its before-frame via the event's
+        ``frame_index`` — the file index of the screen the action was decided
+        on (recorded by the collection loop). The after-frame is the *next*
+        action's before-frame, so transient loading frames captured between two
+        actions are skipped and the model learns the settled next screen rather
+        than a blank/IME intermediate.
+
+        Events are excluded when they carry no ``frame_index`` (pre-alignment
+        sessions — there is no reliable join key, so they are dropped rather
+        than guessed), are ``transition: false`` markers (e.g. ``open_app`` on
+        external recovery), or are ``no_change_retry`` retries (which saved no
+        new frame).
+
         Returns:
             Number of examples generated.
         """
@@ -176,78 +189,85 @@ class Converter:
         screenshots_dir = session / "screenshots"
         events_path = session / "events.jsonl"
 
-        # Load raw XML files for step enumeration and element lookup
+        # Saved raw frames → file indices. step_count only advances when a frame
+        # is written, so these are contiguous and gap-free.
         raw_xml_files = sorted(
             f for f in xml_dir.glob("*.xml") if "_" not in f.stem
         )
         if len(raw_xml_files) < 2:
             logger.warning(f"Session {session_dir}: not enough XML files")
             return 0
+        max_saved = max(int(f.stem) for f in raw_xml_files)
 
-        # Load events with transition=true
-        events: dict[int, dict] = {}
+        # Action events ordered by their before-frame file index. frame_index is
+        # the authoritative join key (not `step`, which is a loop counter that
+        # advances on non-saving waits and therefore diverges from file indices).
+        events: list[dict] = []
         if events_path.exists():
             for line in events_path.read_text().splitlines():
                 if not line.strip():
                     continue
                 ev = json.loads(line)
-                if ev.get("transition", True):
-                    events[ev.get("step", -1)] = ev
+                if not ev.get("transition", True):
+                    continue  # open_app / external markers are not transitions
+                if ev.get("no_change_retry"):
+                    continue  # retried action saved no new frame
+                if "frame_index" not in ev:
+                    continue  # pre-alignment data: no reliable join key
+                events.append(ev)
+        events.sort(key=lambda e: e["frame_index"])
 
         count = 0
-        for i in range(len(raw_xml_files) - 1):
-            step_idx = int(raw_xml_files[i].stem)
-            next_step_idx = int(raw_xml_files[i + 1].stem)
+        for i, event in enumerate(events):
+            before_idx = event["frame_index"]
+            # after = next action's before-frame (skips transient frames). The
+            # last action has no following frame to pair with → skip it.
+            after_idx = (
+                events[i + 1]["frame_index"]
+                if i + 1 < len(events)
+                else max_saved
+            )
+            if after_idx <= before_idx:
+                continue
 
-            # Read encoded XML (_encoded.xml) for training data
-            before_encoded_path = xml_dir / f"{step_idx:04d}_encoded.xml"
-            after_encoded_path = xml_dir / f"{next_step_idx:04d}_encoded.xml"
-
-            if not before_encoded_path.exists() or not after_encoded_path.exists():
+            before_encoded_path = xml_dir / f"{before_idx:04d}_encoded.xml"
+            after_encoded_path = xml_dir / f"{after_idx:04d}_encoded.xml"
+            if (
+                not before_encoded_path.exists()
+                or not after_encoded_path.exists()
+            ):
                 logger.debug(
-                    f"Encoded XML not found for step {step_idx} or {next_step_idx}"
+                    f"Encoded XML missing for frame {before_idx} or {after_idx}"
                 )
                 continue
 
-            before_encoded = before_encoded_path.read_text()
-            after_encoded = after_encoded_path.read_text()
+            before_raw_path = xml_dir / f"{before_idx:04d}.xml"
+            before_elements = parse_uiautomator_xml(before_raw_path.read_text())
 
-            # Read raw XML for element coordinate lookup
-            before_raw = raw_xml_files[i].read_text()
-            before_elements = parse_uiautomator_xml(before_raw)
-
-            # Find matching event
-            event = events.get(step_idx, {})
-            if not event:
-                # Try to find event by sequential index
-                event = self._find_event_by_index(events, i)
-
-            # Image naming: episode_{label:06d}_step_{step:04d}.png
+            # Image naming: episode_{label:06d}_step_{n:04d}.png (n = example seq)
             image_name = f"episode_{session_label:06d}_step_{count + 1:04d}.png"
             image_rel = f"GUI-Model/images/{image_name}"
 
-            # Copy screenshot
-            src_screenshot = screenshots_dir / f"{step_idx:04d}.png"
+            src_screenshot = screenshots_dir / f"{before_idx:04d}.png"
             if not src_screenshot.exists():
-                src_screenshot = screenshots_dir / f"{i:04d}.png"
-            if not src_screenshot.exists():
-                logger.debug(f"Screenshot not found for step {step_idx}")
+                logger.debug(f"Screenshot not found for frame {before_idx}")
                 continue
 
             example = generate_example(
-                before_encoded, after_encoded, event, image_rel, before_elements
+                before_encoded_path.read_text(),
+                after_encoded_path.read_text(),
+                event,
+                image_rel,
+                before_elements,
             )
             if example is None:
                 continue
 
-            # Copy image
             dest_image = self.images_dir / image_name
             shutil.copy2(src_screenshot, dest_image)
 
-            # Append to JSONL
             with open(self.output_path, "a") as f:
                 f.write(json.dumps(example, ensure_ascii=False) + "\n")
-
             count += 1
 
         logger.info(
@@ -277,13 +297,3 @@ class Converter:
 
         logger.info(f"Total: {total} examples from {len(sessions)} sessions")
         return total
-
-    @staticmethod
-    def _find_event_by_index(
-        events: dict[int, dict], index: int
-    ) -> dict:
-        """Fallback: find event by sequential position."""
-        sorted_keys = sorted(events.keys())
-        if index < len(sorted_keys):
-            return events[sorted_keys[index]]
-        return {}
