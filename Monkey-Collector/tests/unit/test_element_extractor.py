@@ -57,6 +57,9 @@ def test_extract_parses_both_index_lists():
     assert el.name == "open_row"
     assert el.element_index == [3, 4]
     assert el.key_element_index == [3]
+    # description/parameters survive extraction (they ride through to elements.json)
+    assert el.description == "open a row"
+    assert el.parameters == {"which": "?"}
     # cost attribution + json mode requested
     assert client.last_kwargs["agent"] == "element_extractor"
     assert client.last_kwargs["response_format"] == {"type": "json_object"}

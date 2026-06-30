@@ -91,10 +91,12 @@ class TestSaveXml:
 
 
 class _FakeFamily:
-    def __init__(self, name, element_index, key_element_index):
+    def __init__(self, name, element_index, key_element_index, description="", parameters=None):
         self.name = name
         self.element_index = element_index
         self.key_element_index = key_element_index
+        self.description = description
+        self.parameters = parameters or {}
 
 
 class _FakeMatch:
@@ -115,7 +117,13 @@ class TestSaveElements:
             page_key="page_0",
             match_type="NEW",
             is_new_page=True,
-            families=[_FakeFamily("open_search", [1, 2], [1])],
+            families=[
+                _FakeFamily(
+                    "open_search", [1, 2], [1],
+                    description="open the search bar",
+                    parameters={"query": "what to search?"},
+                )
+            ],
             page_description="search screen",
         )
         path = writer.save_elements(match)
@@ -129,6 +137,8 @@ class TestSaveElements:
         assert data["match_type"] == "NEW"
         assert data["is_new_page"] is True
         assert data["elements"][0]["name"] == "open_search"
+        assert data["elements"][0]["description"] == "open the search bar"
+        assert data["elements"][0]["parameters"] == {"query": "what to search?"}
         assert data["elements"][0]["element_index"] == [1, 2]
         assert data["elements"][0]["key_element_index"] == [1]
 
