@@ -72,7 +72,7 @@ uv run monkey-collect run --apps org.tasks com.google.android.apps.docs \
 ```
 
 ### 성공판정
-- 두 앱 모두 `data/raw/<pkg>/page_graph*`(또는 세션 dir 내 page_graph json) **노드 ≥ 2** 생성.
+- 두 앱 모두 `data/<pkg>/page_graph*`(또는 세션 dir 내 page_graph json) **노드 ≥ 2** 생성.
 - 서버 로그에 **연속 signal-timeout 없음**, `external app (10/10)` 스톰 **없음**.
 - client 프로세스 사망 없음:
   ```bash
@@ -81,5 +81,6 @@ uv run monkey-collect run --apps org.tasks com.google.android.apps.docs \
 - Drive 세션이 gms 로그인 핸드오프에서 **무한 재실행으로 빠지지 않음**(로그인돼 있으면 정상 탐색, 로그아웃이면 drift 처리 후 깔끔히 종료).
 
 ### 결과 위치
-- 세션 데이터: `data/raw/<pkg>/` (screenshots/, xml, metadata.json, page_graph).
+- 영속 데이터: `data/<pkg>/pages/` (page/observation: screenshot, xml, elements.json), `data/<pkg>/page_graph*`.
+- 휘발성 상태: `runtime/<pkg>/` (metadata.json, events.jsonl, cost/coverage csv).
 - page map 시각화: `monkey-collect page-map`(또는 세션 finalize 시 자동 생성).
