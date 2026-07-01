@@ -26,7 +26,8 @@ def _full_args(**overrides) -> argparse.Namespace:
         seed=None,
         delay=None,
         port=None,
-        output=None,
+        data_dir=None,
+        runtime_dir=None,
         input_mode=None,
         element_extraction=None,
         screen_grouping=None,
@@ -51,7 +52,8 @@ def test_builtin_defaults_no_yaml():
     assert cfg.collection.seed == 42
     assert cfg.collection.action_delay_ms == 1500
     assert cfg.collection.port == 12345
-    assert cfg.collection.output_dir == "data/raw"
+    assert cfg.collection.data_dir == "data"
+    assert cfg.collection.runtime_dir == "runtime"
     assert cfg.llm.input_mode == "api"
     assert cfg.llm.element_extraction is True
     assert cfg.screen_matching.cluster_merge_tolerance == 0.2
@@ -235,7 +237,8 @@ def test_cli_full_override():
             seed=7,
             delay=250,
             port=4000,
-            output="/tmp/out",
+            data_dir="/tmp/out",
+            runtime_dir="/tmp/rt",
             input_mode="random",
             cluster_merge_tolerance=0.9,
             max_expand_iters=5,
@@ -250,7 +253,8 @@ def test_cli_full_override():
     assert cfg.collection.seed == 7
     assert cfg.collection.action_delay_ms == 250
     assert cfg.collection.port == 4000
-    assert cfg.collection.output_dir == "/tmp/out"
+    assert cfg.collection.data_dir == "/tmp/out"
+    assert cfg.collection.runtime_dir == "/tmp/rt"
     assert cfg.llm.input_mode == "random"
     assert cfg.screen_matching.cluster_merge_tolerance == 0.9
     assert cfg.screen_matching.max_expand_iters == 5

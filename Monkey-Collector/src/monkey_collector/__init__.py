@@ -1,7 +1,11 @@
 """Monkey-Collector: Android GUI data collector for world modeling."""
 
 from monkey_collector.adb import AdbClient
-from monkey_collector.domain.page_graph import PageGraph, build_graph_from_session
+from monkey_collector.domain.page_graph import (
+    PageGraph,
+    build_graph_from_new_layout,
+    build_graph_from_session,
+)
 from monkey_collector.export.converter import Converter
 from monkey_collector.llm import (
     ElementExtractor,
@@ -41,6 +45,7 @@ __all__ = [
     "RandomTextGenerator",
     "ScreenMatcher",
     "TextGenerator",
+    "build_graph_from_new_layout",
     "build_graph_from_session",
     "create_element_extractor",
     "create_llm_client",

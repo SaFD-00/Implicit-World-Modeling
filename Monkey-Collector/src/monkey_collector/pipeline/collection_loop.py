@@ -63,7 +63,8 @@ class CollectionState:
     same_page_count: int = 0
     page_graph: PageGraph = field(default_factory=PageGraph)
     # Set per screen when a ScreenMatcher is active; carries the element-set
-    # match so the loop can persist it (save_elements) after save_xml.
+    # match so the loop can persist it (save_observation, gated on
+    # is_new_observation) and its page_key (save_page_knowledge, on a new page).
     current_screen_match: ScreenMatch | None = None
     # Iterations spent on non-action waits (timeouts, no-change, stale XML,
     # keyboard/permission/system handling) since the last real action. `step`
@@ -509,10 +510,11 @@ def _process_xml_signal(
         activity_name = collector.adb.get_current_activity()
 
     if collector._activity_tracker is not None:
-        # Key coverage rows by the frame file index (== the frame_index this
-        # screen will be saved under), so the offline page-graph rebuild's CSV
-        # fallback joins on the same index events use. `step` is a loop counter
-        # and no longer matches file indices.
+        # Key coverage rows by the frame_index this screen will be allocated
+        # below (next_frame_index() reads/advances the same step_count value),
+        # so the offline page-graph rebuild's CSV fallback joins on the same
+        # index events use. `step` is a loop counter and no longer matches
+        # frame indices.
         entry = collector._activity_tracker.record(
             activity_name, collector.writer.step_count
         )
@@ -533,7 +535,13 @@ def _process_xml_signal(
     # Page identity. With a ScreenMatcher, element-set matching decides the page
     # (and feeds the explorer's same-function compression); without one, fall
     # back to the structural-fingerprint identity (byte-for-byte legacy path).
+    # Alongside page identity, resolve OBSERVATION identity: which of the
+    # page's stored visual states (if any) this screen matches — is_new_observation
+    # gates whether the save block below writes new observation files at all.
     state.current_screen_match = None
+    page_key: str | None = None
+    observation_num = 0
+    is_new_observation = False
     if collector._screen_matcher is not None:
         encoded_xml, _ = encode_with_bounds(xml_str)
         # Pass the in-memory screenshot bytes so the matcher's Stage-0 luminance
@@ -544,19 +552,32 @@ def _process_xml_signal(
             xml_str, encoded_xml, activity_name, screenshot=collector._latest_screenshot
         )
         # A pending match is a loading/splash (or empty-extract) frame the matcher
-        # declined to register: keep current_screen_match=None so save_elements is
-        # skipped and no page node is created, leaving current_page_id at its prior
-        # value. The empty-UI guard below then waits / relaunches.
+        # declined to register: keep current_screen_match=None (page_key stays
+        # None too) so the save block below persists nothing and no page node is
+        # created, leaving current_page_id at its prior value. The empty-UI guard
+        # below then waits / relaunches.
         if not match.pending:
             state.current_screen_match = match
             state.current_page_id = state.page_graph.get_or_create_page_by_match(
                 match, activity_name, xml_str, state.step,
             )
+            state.page_graph.record_observation(
+                state.current_page_id, match.is_new_observation,
+            )
             collector.explorer.set_match_context(match.page_key, match.families)
+            page_key = match.page_key
+            observation_num = match.observation_num
+            is_new_observation = match.is_new_observation
     else:
         state.current_page_id = state.page_graph.get_or_create_page(
             activity_name, xml_str, state.step,
         )
+        # No anchor/pixel comparator on this path — every frame is a new
+        # observation (a location/shape unification with the matcher path's
+        # pages/{page_key}/{obs}/ layout, not a new dedup behavior).
+        observation_num = state.page_graph.next_observation_num(state.current_page_id)
+        is_new_observation = True
+        page_key = f"page_{state.current_page_id}"
     # The first in-app page registered this session is the root (back from it
     # only exits to the launcher); pin it once for back-suppression.
     if state.root_page_id is None:
@@ -599,18 +620,35 @@ def _process_xml_signal(
             time.sleep(collector.action_delay)
             return True
 
-    if collector._latest_screenshot:
-        collector.writer.save_screenshot(collector._latest_screenshot)
-        collector._latest_screenshot = None
-    collector.writer.save_xml(xml_str)
+    # Allocate this frame's join key for events.jsonl BEFORE the save block —
+    # unconditionally, pending or not, so activity_coverage.csv's step_count
+    # keying (read above, before match()) stays exactly aligned to "frames
+    # processed so far" as it was before this refactor.
+    frame_index = collector.writer.next_frame_index()
 
-    # Persist the element-set match for the just-saved screen
-    # (xml/{step}_elements.json). Best-effort: never break collection.
-    if state.current_screen_match is not None:
+    # Persist a new observation's files ONLY when this screen isn't a reuse of
+    # one already on disk (page_key is None for a pending/declined frame — see
+    # above). Best-effort: never break collection on a write failure.
+    if page_key is not None and is_new_observation:
         try:
-            collector.writer.save_elements(state.current_screen_match)
+            collector.writer.save_observation(
+                page_key, observation_num, collector._latest_screenshot, xml_str,
+                match=state.current_screen_match, activity=activity_name,
+            )
         except Exception as e:
-            logger.warning(f"Step {state.step}: save_elements failed ({e})")
+            logger.warning(f"Step {state.step}: save_observation failed ({e})")
+        if (
+            state.current_screen_match is not None
+            and state.current_screen_match.is_new_page
+            and collector._screen_matcher is not None
+        ):
+            try:
+                knowledge = collector._screen_matcher.get_page_knowledge(page_key)
+                if knowledge is not None:
+                    collector.writer.save_page_knowledge(page_key, knowledge)
+            except Exception as e:
+                logger.warning(f"Step {state.step}: save_page_knowledge failed ({e})")
+    collector._latest_screenshot = None
 
     ui_tree = UITree.from_xml_string(xml_str)
     # A tree with nodes but NO interactable element (e.g. a React-Native screen
@@ -684,11 +722,13 @@ def _process_xml_signal(
     event = action.to_dict()
     event["step"] = state.step
     event["activity_name"] = activity_name
-    # before-frame file index. save_xml above already advanced step_count, so the
-    # frame this action was decided on is step_count - 1. This is the join key the
-    # converter and offline page-graph rebuild use to map the action onto its
-    # screen — `step` is a loop-counter label only.
-    event["frame_index"] = collector.writer.step_count - 1
+    # frame_index (allocated above, before the save block) orders events;
+    # page_key/observation_num are the join key to the actual screen files —
+    # data/{package}/pages/{page_key}/{observation_num:04d}/ — on EVERY event,
+    # new observation or reused. `step` is a loop-counter label only.
+    event["frame_index"] = frame_index
+    event["page_key"] = page_key
+    event["observation_num"] = observation_num
     collector.writer.log_event(event)
 
     time.sleep(collector.action_delay)

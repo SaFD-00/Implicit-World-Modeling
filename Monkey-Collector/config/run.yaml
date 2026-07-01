@@ -27,8 +27,10 @@ collection:
   action_delay_ms: 1500
   # TCP server port. Env: MC_COLLECTION_PORT
   port: 12345
-  # Raw session output root directory. Env: MC_COLLECTION_OUTPUT_DIR
-  output_dir: data/raw
+  # Durable data root (pages/observations, page_graph). Env: MC_COLLECTION_DATA_DIR
+  data_dir: data
+  # Ephemeral runtime root (metadata, events.jsonl, cost/coverage CSVs). Env: MC_COLLECTION_RUNTIME_DIR
+  runtime_dir: runtime
 
 llm:
   # Input text generation mode. Options: api | random

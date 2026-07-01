@@ -14,6 +14,9 @@ from monkey_collector.pipeline.screen_matching.page_knowledge import (
     KnowledgeRegistry,
     PageKnowledge,
 )
+from monkey_collector.pipeline.screen_matching.rehydrate import (
+    rehydrate_screen_matcher,
+)
 from monkey_collector.pipeline.screen_matching.screen_matcher import (
     ElementFamily,
     ScreenMatch,
@@ -33,6 +36,7 @@ __all__ = [
     "UIAttributes",
     "MatchResult",
     "create_screen_matcher",
+    "rehydrate_screen_matcher",
 ]
 
 

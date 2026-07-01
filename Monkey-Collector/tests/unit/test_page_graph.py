@@ -5,6 +5,7 @@ import json
 from monkey_collector.domain.page_graph import (
     PageGraph,
     _extract_structural_tuples,
+    build_graph_from_new_layout,
     build_graph_from_session,
     compute_xml_fingerprint,
 )
@@ -197,6 +198,33 @@ class TestGraphSerialization:
         assert "metadata" in d
         assert d["metadata"]["total_pages"] == 1
 
+    def test_observation_count_round_trips(self, tmp_path):
+        g = PageGraph()
+        page_id = g.get_or_create_page("com.test/.Main", SIMPLE_XML, step=0)
+        g.next_observation_num(page_id)
+        g.next_observation_num(page_id)
+        assert g.nodes[page_id].observation_count == 2
+
+        path = str(tmp_path / "graph.json")
+        g.save(path)
+        loaded = PageGraph.load(path)
+        assert loaded.nodes[page_id].observation_count == 2
+
+    def test_observation_count_defaults_to_zero_for_old_files(self, tmp_path):
+        """A page_graph.json written before this field existed still loads."""
+        data = {
+            "nodes": [{
+                "id": 0, "activity": "com.test/.Main", "xml_fingerprint": "abc",
+                "first_seen_step": 0, "screenshot_step": 0,
+            }],
+            "edges": [],
+            "metadata": {"total_pages": 1, "total_transitions": 0, "threshold": 0.85},
+        }
+        path = tmp_path / "graph.json"
+        path.write_text(json.dumps(data))
+        loaded = PageGraph.load(str(path))
+        assert loaded.nodes[0].observation_count == 0
+
 
 # ── Post-hoc build ──
 
@@ -293,6 +321,72 @@ class TestBuildGraphFromSession:
         )
         graph = build_graph_from_session(str(session_dir))
         assert any(e.action_type == "swipe" for e in graph.edges)
+
+
+class TestBuildGraphFromNewLayout:
+    """Exact rebuild from pages/{page_key}/{obs}/ + events.jsonl — unlike
+    build_graph_from_session, page_key is read directly, no fingerprint
+    guessing."""
+
+    def _writer(self, tmp_path):
+        from monkey_collector.storage import DataWriter
+
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
+        w.init_session("com.test.app", "com.test.app")
+        return w
+
+    def test_builds_nodes_and_edges_from_events(self, tmp_path):
+        w = self._writer(tmp_path)
+        w.save_observation("page_0", 0, None, SIMPLE_XML)
+        w.save_observation("page_1", 0, None, COMPLEX_XML)
+        w.log_event({
+            "action_type": "tap", "element_index": 0, "activity_name": "act.Main",
+            "frame_index": 0, "page_key": "page_0", "observation_num": 0,
+        })
+        w.log_event({
+            "action_type": "tap", "element_index": 1, "activity_name": "act.Settings",
+            "frame_index": 1, "page_key": "page_1", "observation_num": 0,
+        })
+
+        graph = build_graph_from_new_layout(w.data_session_dir, w.runtime_session_dir)
+        assert len(graph.nodes) == 2
+        assert len(graph.edges) == 1
+        assert graph.edges[0].action_type == "tap"
+        assert graph.edges[0].element_info == "element_0"
+
+    def test_observation_count_counts_distinct_observations(self, tmp_path):
+        w = self._writer(tmp_path)
+        w.save_observation("page_0", 0, None, SIMPLE_XML)
+        w.save_observation("page_0", 1, None, SIMPLE_XML)
+        w.log_event({
+            "action_type": "tap", "frame_index": 0,
+            "page_key": "page_0", "observation_num": 0,
+        })
+        w.log_event({
+            "action_type": "tap", "frame_index": 1,
+            "page_key": "page_0", "observation_num": 1,
+        })
+        w.log_event({
+            "action_type": "tap", "frame_index": 2,
+            "page_key": "page_0", "observation_num": 0,  # revisit, not a 3rd observation
+        })
+
+        graph = build_graph_from_new_layout(w.data_session_dir, w.runtime_session_dir)
+        assert len(graph.nodes) == 1
+        assert graph.nodes[0].observation_count == 2
+
+    def test_no_pages_dir_returns_empty_graph(self, tmp_path):
+        w = self._writer(tmp_path)  # init_session only, no pages/ ever created
+        graph = build_graph_from_new_layout(w.data_session_dir, w.runtime_session_dir)
+        assert graph.nodes == []
+        assert graph.edges == []
+
+    def test_events_missing_page_key_are_skipped(self, tmp_path):
+        w = self._writer(tmp_path)
+        w.save_observation("page_0", 0, None, SIMPLE_XML)
+        w.log_event({"action_type": "tap", "frame_index": 0})  # pre-migration
+        graph = build_graph_from_new_layout(w.data_session_dir, w.runtime_session_dir)
+        assert graph.nodes == []
 
 
 class _FakeFamily:

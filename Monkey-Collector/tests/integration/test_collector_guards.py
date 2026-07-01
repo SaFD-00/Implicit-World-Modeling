@@ -42,7 +42,7 @@ class TestKeyboardGuard:
         # keyboard is dismissed via back and not treated as a page/step content
         mock_adb.press_back.assert_called()
         explorer.select_action.assert_not_called()
-        writer.save_xml.assert_not_called()
+        writer.save_observation.assert_not_called()
 
 
 @pytest.mark.integration
@@ -66,7 +66,7 @@ class TestPermissionGuard:
         # exploration / save happens for the dialog frame
         mock_adb.tap.assert_called_with(100, 50)
         explorer.select_action.assert_not_called()
-        writer.save_xml.assert_not_called()
+        writer.save_observation.assert_not_called()
 
 
 @pytest.mark.integration

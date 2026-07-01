@@ -46,7 +46,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         f"luminance_prefilter={cfg.screen_matching.luminance_prefilter}"
     )
 
-    packages = _resolve_run_packages(args.apps, cfg.collection.output_dir, args.force)
+    packages = _resolve_run_packages(args.apps, cfg.collection.runtime_dir, args.force)
     if not packages:
         logger.info(
             "Nothing to collect. All requested apps are already marked "
@@ -98,7 +98,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         strategy=cfg.exploration.strategy,
     )
     server = CollectionServer(host="0.0.0.0", port=cfg.collection.port)
-    writer = DataWriter(base_dir=cfg.collection.output_dir)
+    writer = DataWriter(
+        data_dir=cfg.collection.data_dir, runtime_dir=cfg.collection.runtime_dir,
+    )
     collector = Collector(
         adb=adb,
         explorer=explorer,
@@ -119,12 +121,12 @@ def cmd_run(args: argparse.Namespace) -> None:
     session_ids = collector.run_queue(packages)
     logger.info(f"All sessions complete ({len(session_ids)}/{len(packages)})")
     for sid in session_ids:
-        logger.info(f"  {cfg.collection.output_dir}/{sid}")
+        logger.info(f"  {cfg.collection.data_dir}/{sid}")
 
 
 def _resolve_run_packages(
     apps_arg: list[str],
-    output_dir: str,
+    runtime_dir: str,
     force: bool = False,
 ) -> list[str]:
     """Translate the ``--apps`` CLI argument into an ordered package list.
@@ -133,7 +135,7 @@ def _resolve_run_packages(
     * ``["com.X", "com.Y"]`` → exactly those package ids (preserves order,
       deduplicates, warns on unknown packages).
 
-    Sessions whose ``{output_dir}/{pkg}/metadata.json`` has a non-empty
+    Sessions whose ``{runtime_dir}/{pkg}/metadata.json`` has a non-empty
     ``completed_at`` field are skipped — those apps are treated as done.
     Pass ``force=True`` to include them anyway (useful for re-collection).
     """
@@ -181,7 +183,7 @@ def _resolve_run_packages(
     if force:
         return candidates
 
-    completed = _load_completed_packages(output_dir)
+    completed = _load_completed_packages(runtime_dir)
     if not completed:
         return candidates
 
@@ -246,16 +248,16 @@ def _resolve_app_names(packages: list[str]) -> dict[str, str]:
     return names
 
 
-def _load_completed_packages(output_dir: str) -> set[str]:
+def _load_completed_packages(runtime_dir: str) -> set[str]:
     """Return package ids whose session is already marked complete.
 
-    Scans ``output_dir`` for ``{pkg}/metadata.json`` files and collects every
+    Scans ``runtime_dir`` for ``{pkg}/metadata.json`` files and collects every
     package whose metadata has a non-empty ``completed_at`` value.
     """
     import json
     from pathlib import Path
 
-    base = Path(output_dir)
+    base = Path(runtime_dir)
     if not base.is_dir():
         return set()
     completed: set[str] = set()
@@ -287,7 +289,8 @@ def cmd_reset(args: argparse.Namespace) -> None:
         sys.exit(2)
 
     targets = resolve_targets(
-        output_dir=args.output,
+        data_dir=args.data_dir,
+        runtime_dir=args.runtime_dir,
         all_=args.all,
         packages=packages,
     )
@@ -329,27 +332,53 @@ def cmd_sync_installed(args: argparse.Namespace) -> None:
 
 def cmd_convert(args: argparse.Namespace) -> None:
     """Convert a single session to JSONL."""
+    import os
+
     from monkey_collector.export.converter import Converter
 
+    data_session_dir = os.path.join(args.data_dir, args.package)
+    runtime_session_dir = os.path.join(args.runtime_dir, args.package)
     converter = Converter(
         output_path=args.output,
         images_dir=args.images_dir,
     )
-    count = converter.convert_session(args.session, args.label)
+    count = converter.convert_session(data_session_dir, runtime_session_dir, args.label)
     logger.info(f"Generated {count} examples -> {args.output}")
 
 
 def cmd_page_map(args: argparse.Namespace) -> None:
-    """Build page map from a saved session."""
+    """Build page map from a saved session.
+
+    Dispatches on layout: ``pages/`` present → exact rebuild from
+    events.jsonl's recorded page_key/observation_num; else a legacy flat
+    ``xml/`` dir → the structural/Jaccard offline rebuild; else skipped (no
+    migration script for pre-migration sessions).
+    """
     import os
 
-    from monkey_collector.domain.page_graph import build_graph_from_session
+    from monkey_collector.domain.page_graph import (
+        build_graph_from_new_layout,
+        build_graph_from_session,
+    )
     from monkey_collector.export.graph_visualizer import visualize_session
 
-    graph = build_graph_from_session(args.session, threshold=args.threshold)
-    graph.save(os.path.join(args.session, "page_graph.json"))
+    data_session_dir = os.path.join(args.data_dir, args.package)
+    runtime_session_dir = os.path.join(args.runtime_dir, args.package)
+
+    if os.path.isdir(os.path.join(data_session_dir, "pages")):
+        graph = build_graph_from_new_layout(
+            data_session_dir, runtime_session_dir, threshold=args.threshold,
+        )
+    elif os.path.isdir(os.path.join(data_session_dir, "xml")):
+        logger.info(f"{data_session_dir}: legacy flat layout, using structural rebuild")
+        graph = build_graph_from_session(data_session_dir, threshold=args.threshold)
+    else:
+        logger.warning(f"{data_session_dir}: no pages/ or xml/ found, skipping")
+        return
+
+    graph.save(os.path.join(data_session_dir, "page_graph.json"))
     html = visualize_session(
-        args.session, output_path=args.output, open_browser=not args.no_open,
+        data_session_dir, output_path=args.output, open_browser=not args.no_open,
     )
     logger.info(
         f"Page map: {len(graph.nodes)} pages, "
@@ -360,27 +389,37 @@ def cmd_page_map(args: argparse.Namespace) -> None:
 
 
 def cmd_page_map_all(args: argparse.Namespace) -> None:
-    """Build page maps for all sessions in a directory."""
+    """Build page maps for all sessions under a data directory."""
     import os
 
-    from monkey_collector.domain.page_graph import build_graph_from_session
+    from monkey_collector.domain.page_graph import (
+        build_graph_from_new_layout,
+        build_graph_from_session,
+    )
     from monkey_collector.export.graph_visualizer import visualize_session
 
-    raw_dir = args.raw_dir
-    if not os.path.isdir(raw_dir):
-        logger.error(f"Directory not found: {raw_dir}")
+    data_dir = args.data_dir
+    if not os.path.isdir(data_dir):
+        logger.error(f"Directory not found: {data_dir}")
         return
 
     total = 0
-    for name in sorted(os.listdir(raw_dir)):
-        session_dir = os.path.join(raw_dir, name)
-        xml_dir = os.path.join(session_dir, "xml")
-        if not os.path.isdir(xml_dir):
+    for name in sorted(os.listdir(data_dir)):
+        data_session_dir = os.path.join(data_dir, name)
+        runtime_session_dir = os.path.join(args.runtime_dir, name)
+
+        if os.path.isdir(os.path.join(data_session_dir, "pages")):
+            graph = build_graph_from_new_layout(
+                data_session_dir, runtime_session_dir, threshold=args.threshold,
+            )
+        elif os.path.isdir(os.path.join(data_session_dir, "xml")):
+            graph = build_graph_from_session(data_session_dir, threshold=args.threshold)
+        else:
             continue
-        graph = build_graph_from_session(session_dir, threshold=args.threshold)
+
         if graph.nodes:
-            graph.save(os.path.join(session_dir, "page_graph.json"))
-            visualize_session(session_dir, open_browser=False)
+            graph.save(os.path.join(data_session_dir, "page_graph.json"))
+            visualize_session(data_session_dir, open_browser=False)
             total += 1
             logger.info(
                 f"  {name}: {len(graph.nodes)} pages, "
@@ -394,20 +433,20 @@ def cmd_regenerate(args: argparse.Namespace) -> None:
     """Regenerate all XML variants from raw XML files."""
     from monkey_collector.storage import regenerate_xml_variants
 
-    logger.info(f"Regenerating XML variants under: {args.raw_dir}")
-    count = regenerate_xml_variants(args.raw_dir)
+    logger.info(f"Regenerating XML variants under: {args.data_dir}")
+    count = regenerate_xml_variants(args.data_dir)
     logger.info(f"Regenerated {count} files total")
 
 
 def cmd_convert_all(args: argparse.Namespace) -> None:
-    """Convert all sessions in a directory to JSONL."""
+    """Convert all sessions under a data directory to JSONL."""
     from monkey_collector.export.converter import Converter
 
     converter = Converter(
         output_path=args.output,
         images_dir=args.images_dir,
     )
-    total = converter.convert_all(args.raw_dir)
+    total = converter.convert_all(args.data_dir, args.runtime_dir)
     logger.info(f"Generated {total} total examples -> {args.output}")
 
 
@@ -452,7 +491,8 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=None, help="Random seed")
     p.add_argument("--delay", type=int, default=None, help="Action delay in ms")
     p.add_argument("--port", type=int, default=None, help="TCP server port")
-    p.add_argument("--output", default=None, help="Output directory")
+    p.add_argument("--data-dir", default=None, help="Durable data root (pages/observations, page_graph)")
+    p.add_argument("--runtime-dir", default=None, help="Ephemeral runtime root (metadata, events, cost/coverage)")
     p.add_argument(
         "--input-mode",
         choices=["api", "random"],
@@ -542,7 +582,8 @@ def main() -> None:
         "reset",
         help="Delete collected session data by scope (all / apps)",
     )
-    p.add_argument("--output", default="data/raw", help="Data root directory")
+    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
     p.add_argument(
         "--all",
         action="store_true",
@@ -578,37 +619,43 @@ def main() -> None:
 
     # convert
     p = sub.add_parser("convert", help="Convert session to JSONL")
-    p.add_argument("--session", required=True, help="Session directory path")
+    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
+    p.add_argument("--package", required=True, help="Package id (session directory name)")
     p.add_argument("--output", required=True, help="Output JSONL path")
     p.add_argument("--images-dir", required=True, help="Images output directory")
     p.add_argument("--label", type=int, default=1, help="Session label for image naming")
 
     # page-map
     p = sub.add_parser("page-map", help="Build page map from session data")
-    p.add_argument("--session", required=True, help="Session directory path")
+    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
+    p.add_argument("--package", required=True, help="Package id (session directory name)")
     p.add_argument(
         "--threshold", type=float, default=0.85,
-        help="XML fingerprint similarity threshold (0.0-1.0)",
+        help="XML fingerprint similarity threshold (0.0-1.0, legacy flat-layout sessions only)",
     )
     p.add_argument("--output", default=None, help="Output HTML path")
     p.add_argument("--no-open", action="store_true", help="Do not open browser")
 
     # page-map-all
     p = sub.add_parser("page-map-all", help="Build page maps for all sessions")
-    p.add_argument("--raw-dir", default="data/raw", help="Raw sessions directory")
+    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
     p.add_argument(
         "--threshold", type=float, default=0.85,
-        help="XML fingerprint similarity threshold (0.0-1.0)",
+        help="XML fingerprint similarity threshold (0.0-1.0, legacy flat-layout sessions only)",
     )
     p.add_argument("--no-open", action="store_true", help="Do not open browser")
 
     # regenerate
     p = sub.add_parser("regenerate", help="Regenerate XML variants from raw XML")
-    p.add_argument("--raw-dir", default="data/raw", help="Raw sessions directory")
+    p.add_argument("--data-dir", default="data", help="Durable data root directory")
 
     # convert-all
     p = sub.add_parser("convert-all", help="Convert all sessions to JSONL")
-    p.add_argument("--raw-dir", default="data/raw", help="Raw sessions directory")
+    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
     p.add_argument("--output", required=True, help="Output JSONL path")
     p.add_argument("--images-dir", required=True, help="Images output directory")
 

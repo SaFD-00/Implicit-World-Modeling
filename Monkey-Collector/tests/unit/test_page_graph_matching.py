@@ -77,3 +77,36 @@ class TestCrossActivityMatching:
         p1 = g.get_or_create_page("com.app/.ActivityB", _BASE_XML, 1)
         assert p0 != p1
         assert len(g.nodes) == 2
+
+
+class TestObservationTracking:
+    """next_observation_num/record_observation — the legacy no-matcher path's
+    observation allocator, and the shared observation_count bump point."""
+
+    def test_next_observation_num_allocates_sequentially(self):
+        g = PageGraph()
+        page_id = g.get_or_create_page("com.app/.MainActivity", _BASE_XML, 0)
+        assert g.next_observation_num(page_id) == 0
+        assert g.next_observation_num(page_id) == 1
+        assert g.next_observation_num(page_id) == 2
+        assert g.nodes[page_id].observation_count == 3
+
+    def test_next_observation_num_is_per_page(self):
+        g = PageGraph()
+        p0 = g.get_or_create_page("com.app/.ActivityA", _BASE_XML, 0)
+        p1 = g.get_or_create_page("com.app/.ActivityB", _WITH_SNACKBAR, 1)
+        assert g.next_observation_num(p0) == 0
+        assert g.next_observation_num(p1) == 0
+        assert g.next_observation_num(p0) == 1
+
+    def test_record_observation_is_new_false_does_not_bump(self):
+        g = PageGraph()
+        page_id = g.get_or_create_page("com.app/.MainActivity", _BASE_XML, 0)
+        g.record_observation(page_id, is_new=False)
+        assert g.nodes[page_id].observation_count == 0
+        g.record_observation(page_id, is_new=True)
+        assert g.nodes[page_id].observation_count == 1
+
+    def test_record_observation_out_of_range_id_is_a_noop(self):
+        g = PageGraph()
+        g.record_observation(99, is_new=True)  # must not raise

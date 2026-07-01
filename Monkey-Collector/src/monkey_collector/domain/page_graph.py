@@ -143,6 +143,10 @@ class PageNode:
     # (offline / degrade) path so old page_graph.json files load unchanged.
     page_key: str = ""
     element_names: list[str] = field(default_factory=list)
+    # Distinct visual states persisted under data/{package}/pages/{page_key}/ —
+    # bumped via record_observation()/next_observation_num() (0 default so old
+    # page_graph.json files load unchanged).
+    observation_count: int = 0
 
 
 @dataclass
@@ -174,6 +178,8 @@ class PageGraph:
         self._edge_lookup: set[tuple[int, int, str]] = set()
         # page_key -> node id, for the element-set (live) identity path.
         self._key_to_id: dict[str, int] = {}
+        # page_id -> next observation number (legacy no-matcher path only).
+        self._next_obs_num: dict[int, int] = {}
 
     # -- Page identification --------------------------------------------------
 
@@ -253,6 +259,29 @@ class PageGraph:
         self._page_lookup[key] = page_id
         self._page_tuples[page_id] = tuples
         return page_id
+
+    # -- Observation tracking (data/{package}/pages/{page_key}/{obs}/) --------
+
+    def next_observation_num(self, page_id: int) -> int:
+        """Allocate the next observation number for *page_id* — legacy
+        no-``ScreenMatcher`` path only. Always a fresh allocation: this path
+        has no anchor/pixel comparator to safely dedupe against, so every
+        processed frame becomes a new observation (a location/shape
+        unification with the matcher path's ``pages/{page_key}/{obs}/``
+        layout, not a new dedup behavior). Also bumps ``observation_count``.
+        """
+        obs_num = self._next_obs_num.get(page_id, 0)
+        self._next_obs_num[page_id] = obs_num + 1
+        self.record_observation(page_id, is_new=True)
+        return obs_num
+
+    def record_observation(self, page_id: int, is_new: bool) -> None:
+        """Bump a node's ``observation_count`` — the shared increment point
+        used by both the live-matcher path (``collection_loop.py``, gated on
+        ``ScreenMatch.is_new_observation``) and :meth:`next_observation_num`
+        above."""
+        if is_new and 0 <= page_id < len(self.nodes):
+            self.nodes[page_id].observation_count += 1
 
     # -- Transition management ------------------------------------------------
 
@@ -334,6 +363,7 @@ class PageGraph:
                 visit_count=nd.get("visit_count", 1),
                 page_key=nd.get("page_key", ""),
                 element_names=nd.get("element_names", []),
+                observation_count=nd.get("observation_count", 0),
             )
             graph.nodes.append(node)
             graph._page_lookup[(node.activity, node.xml_fingerprint)] = node.id
@@ -485,6 +515,88 @@ def build_graph_from_session(
 
     logger.info(
         f"Built graph from {session_dir}: "
+        f"{len(graph.nodes)} pages, {len(graph.edges)} transitions"
+    )
+    return graph
+
+
+def build_graph_from_new_layout(
+    data_session_dir: str,
+    runtime_session_dir: str,
+    threshold: float = 0.85,
+) -> PageGraph:
+    """Reconstruct a page graph from the ``pages/{page_key}/{obs}/`` layout.
+
+    Unlike :func:`build_graph_from_session` (a structural/Jaccard
+    *approximation* for the legacy flat layout — no page identity survives on
+    disk there), this rebuild is EXACT: ``events.jsonl`` now carries the real
+    ``page_key``/``observation_num`` directly, so no XML-fingerprint guessing
+    is needed. One :class:`PageNode` per distinct ``page_key`` seen in the
+    event log (in visit order); edges from consecutive events with a
+    different ``page_key``, labeled by the *earlier* event's action (the one
+    that caused the transition) — mirroring ``build_graph_from_session``'s
+    "previous frame's action produced this frame" convention.
+    """
+    graph = PageGraph(threshold=threshold)
+    pages_dir = os.path.join(data_session_dir, "pages")
+    if not os.path.isdir(pages_dir):
+        logger.warning(f"No pages/ directory in {data_session_dir}")
+        return graph
+
+    events = _load_events(runtime_session_dir)
+    if not events:
+        logger.warning(f"No events.jsonl in {runtime_session_dir}")
+        return graph
+
+    key_to_id: dict[str, int] = {}
+    obs_seen: dict[str, set[int]] = {}
+    previous_page_id: int | None = None
+    previous_event: dict | None = None
+
+    for frame_index, event in sorted(events.items(), key=lambda kv: kv[0]):
+        page_key = event.get("page_key")
+        if not page_key:
+            continue  # pre-migration event (no reliable page reference)
+
+        if page_key in key_to_id:
+            page_id = key_to_id[page_key]
+            graph.nodes[page_id].visit_count += 1
+        else:
+            page_id = len(graph.nodes)
+            graph.nodes.append(
+                PageNode(
+                    id=page_id,
+                    activity=_canonical_activity(event.get("activity_name", "")),
+                    xml_fingerprint="",
+                    first_seen_step=frame_index,
+                    screenshot_step=frame_index,
+                    page_key=page_key,
+                )
+            )
+            key_to_id[page_key] = page_id
+            graph._key_to_id[page_key] = page_id
+
+        obs_num = event.get("observation_num")
+        if isinstance(obs_num, int):
+            obs_seen.setdefault(page_key, set()).add(obs_num)
+
+        if previous_page_id is not None and previous_event is not None:
+            graph.add_transition(
+                from_page=previous_page_id,
+                to_page=page_id,
+                action_type=previous_event.get("action_type", "unknown"),
+                element_info=_element_info_from_event(previous_event),
+                step=frame_index,
+            )
+
+        previous_page_id = page_id
+        previous_event = event
+
+    for node in graph.nodes:
+        node.observation_count = len(obs_seen.get(node.page_key, set()))
+
+    logger.info(
+        f"Built graph from {data_session_dir}: "
         f"{len(graph.nodes)} pages, {len(graph.edges)} transitions"
     )
     return graph

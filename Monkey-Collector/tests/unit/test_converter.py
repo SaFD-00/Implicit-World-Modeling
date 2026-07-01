@@ -15,6 +15,7 @@ from monkey_collector.xml.structured_parser import (
 from monkey_collector.xml.ui_tree import parse_uiautomator_xml
 from tests.conftest import make_element
 from tests.fixtures.session_fixtures import (
+    TINY_PNG,
     create_aligned_session,
     create_mock_session,
 )
@@ -186,7 +187,7 @@ class TestConverterSession:
         images_dir = tmp_path / "images"
 
         converter = Converter(str(output_path), str(images_dir))
-        count = converter.convert_session(str(session_dir), session_label=1)
+        count = converter.convert_session(str(session_dir), str(session_dir), session_label=1)
 
         # frame 0 → frame 1 is the only pair; the frame-1 event is the last
         # action and has no after-frame, so exactly one example is produced.
@@ -217,7 +218,7 @@ class TestConverterSession:
 
         output_path = tmp_path / "output.jsonl"
         converter = Converter(str(output_path), str(tmp_path / "images"))
-        assert converter.convert_session(str(session_dir), session_label=1) == 0
+        assert converter.convert_session(str(session_dir), str(session_dir), session_label=1) == 0
 
     def test_convert_all(self, tmp_path):
         raw_dir = tmp_path / "raw"
@@ -226,7 +227,7 @@ class TestConverterSession:
 
         output_path = tmp_path / "output.jsonl"
         converter = Converter(str(output_path), str(tmp_path / "images"))
-        total = converter.convert_all(str(raw_dir))
+        total = converter.convert_all(str(raw_dir), str(raw_dir))
         assert total == 2  # exactly 1 pair per 2-frame session
 
 
@@ -236,7 +237,7 @@ class TestFrameIndexAlignment:
     def _convert(self, tmp_path, session_dir):
         out = tmp_path / "out.jsonl"
         conv = Converter(str(out), str(tmp_path / "images"))
-        count = conv.convert_session(str(session_dir), session_label=1)
+        count = conv.convert_session(str(session_dir), str(session_dir), session_label=1)
         lines = (
             out.read_text().strip().split("\n")
             if out.exists() and out.read_text().strip()
@@ -338,5 +339,100 @@ class TestConvertAllEmpty:
         output = tmp_path / "output.jsonl"
         images = tmp_path / "images"
         converter = Converter(str(output), str(images))
-        result = converter.convert_all(str(tmp_path))
+        result = converter.convert_all(str(tmp_path), str(tmp_path))
         assert result == 0
+
+    def test_missing_data_dir_no_crash(self, tmp_path):
+        """A --data-dir that doesn't exist logs and returns 0 rather than
+        raising FileNotFoundError."""
+        output = tmp_path / "output.jsonl"
+        images = tmp_path / "images"
+        converter = Converter(str(output), str(images))
+        result = converter.convert_all(str(tmp_path / "missing"), str(tmp_path / "missing_rt"))
+        assert result == 0
+
+
+def _writer(tmp_path):
+    from monkey_collector.storage import DataWriter
+
+    w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
+    w.init_session("com.test.app", "com.test.app")
+    return w
+
+
+class TestConverterNewLayout:
+    def test_convert_new_layout_session(self, tmp_path):
+        w = _writer(tmp_path)
+        w.save_observation("page_0", 0, TINY_PNG, SIMPLE_XML)
+        w.save_observation("page_1", 0, TINY_PNG, COMPLEX_XML)
+        w.log_event({
+            "action_type": "tap", "element_index": 0,
+            "frame_index": 0, "page_key": "page_0", "observation_num": 0,
+        })
+        w.log_event({
+            "action_type": "tap", "element_index": 1,
+            "frame_index": 1, "page_key": "page_1", "observation_num": 0,
+        })
+
+        output_path = tmp_path / "output.jsonl"
+        converter = Converter(str(output_path), str(tmp_path / "images"))
+        count = converter.convert_session(
+            w.data_session_dir, w.runtime_session_dir, session_label=1,
+        )
+
+        # frame 0 (page_0) -> frame 1 (page_1) is the only pair; frame 1's
+        # event is the last action and has no after-pair.
+        assert count == 1
+        data = json.loads(output_path.read_text().strip())
+        human = data["messages"][1]["value"]
+        assert _before_from_human(human) == SIMPLE_ENCODED
+        assert data["messages"][2]["value"] == COMPLEX_ENCODED
+
+    def test_same_observation_before_and_after_skipped(self, tmp_path):
+        # A reused observation (e.g. luminance prefilter hit) between two
+        # events means no visual change — must not produce an example.
+        w = _writer(tmp_path)
+        w.save_observation("page_0", 0, TINY_PNG, SIMPLE_XML)
+        w.log_event({
+            "action_type": "tap", "element_index": 0,
+            "frame_index": 0, "page_key": "page_0", "observation_num": 0,
+        })
+        w.log_event({
+            "action_type": "tap", "element_index": 1,
+            "frame_index": 1, "page_key": "page_0", "observation_num": 0,
+        })
+
+        output_path = tmp_path / "output.jsonl"
+        converter = Converter(str(output_path), str(tmp_path / "images"))
+        count = converter.convert_session(
+            w.data_session_dir, w.runtime_session_dir, session_label=1,
+        )
+        assert count == 0
+
+    def test_no_pages_and_no_xml_skips_gracefully(self, tmp_path):
+        w = _writer(tmp_path)  # init_session only, no observations written
+        output_path = tmp_path / "output.jsonl"
+        converter = Converter(str(output_path), str(tmp_path / "images"))
+        count = converter.convert_session(
+            w.data_session_dir, w.runtime_session_dir, session_label=1,
+        )
+        assert count == 0
+
+    def test_events_missing_join_key_skipped(self, tmp_path):
+        # A pre-migration event (no page_key/observation_num) can't be joined
+        # under the new layout and is dropped, not guessed.
+        w = _writer(tmp_path)
+        w.save_observation("page_0", 0, TINY_PNG, SIMPLE_XML)
+        w.save_observation("page_1", 0, TINY_PNG, COMPLEX_XML)
+        w.log_event({"action_type": "tap", "element_index": 0, "frame_index": 0})
+        w.log_event({
+            "action_type": "tap", "element_index": 1,
+            "frame_index": 1, "page_key": "page_1", "observation_num": 0,
+        })
+
+        output_path = tmp_path / "output.jsonl"
+        converter = Converter(str(output_path), str(tmp_path / "images"))
+        count = converter.convert_session(
+            w.data_session_dir, w.runtime_session_dir, session_label=1,
+        )
+        assert count == 0

@@ -1,5 +1,6 @@
 """Tests for monkey_collector.collector — main collection orchestration (integration)."""
 
+import itertools
 import json
 from unittest.mock import MagicMock, patch
 
@@ -47,11 +48,13 @@ def _make_collector(mock_adb, signals, max_steps=10):
 
     mock_writer = MagicMock(spec=DataWriter)
     mock_writer.step_count = 0
-    mock_writer.save_xml.return_value = "/tmp/xml/0000.xml"
-    mock_writer.save_screenshot.return_value = "/tmp/screenshots/0000.png"
+    mock_writer.next_frame_index.side_effect = itertools.count()
+    mock_writer.save_observation.return_value = {}
     mock_writer.find_existing_session.return_value = None
-    mock_writer.base_dir = "/tmp/sessions"
-    mock_writer.session_dir = "/tmp/sessions/com.test.app"
+    mock_writer.data_dir = "/tmp/data"
+    mock_writer.runtime_dir = "/tmp/runtime"
+    mock_writer.data_session_dir = "/tmp/data/com.test.app"
+    mock_writer.runtime_session_dir = "/tmp/runtime/com.test.app"
 
     collector = Collector(
         adb=mock_adb,
@@ -78,7 +81,8 @@ class TestSessionResume:
         collector, explorer, server, writer = _make_collector(mock_adb, signals)
         writer.find_existing_session.return_value = "com.test.app"
         writer.resume_session.return_value = 5
-        writer.session_dir = "/tmp/sessions/com.test.app"
+        writer.data_session_dir = "/tmp/data/com.test.app"
+        writer.runtime_session_dir = "/tmp/runtime/com.test.app"
 
         session_id = collector.run(package="com.test.app")
 
@@ -135,7 +139,7 @@ class TestRunSessionHappyPath:
         assert session_id == "com.test.app"
         assert explorer.select_action.call_count == 3
         assert explorer.execute_action.call_count == 3
-        assert writer.save_xml.call_count == 3
+        assert writer.save_observation.call_count == 3
         writer.finalize_session.assert_called_once()
 
 
@@ -592,7 +596,9 @@ class TestScreenshotSaving:
         collector._latest_screenshot = b"fake_png_data"
 
         collector.run(package="com.test.app")
-        writer.save_screenshot.assert_called_once_with(b"fake_png_data")
+        writer.save_observation.assert_called_once()
+        args, _ = writer.save_observation.call_args
+        assert args[2] == b"fake_png_data"
 
 
 @pytest.mark.integration

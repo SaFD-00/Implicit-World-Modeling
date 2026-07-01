@@ -32,7 +32,8 @@ _BUILTIN_DEFAULTS: dict = {
         "seed": 42,
         "action_delay_ms": 1500,
         "port": 12345,
-        "output_dir": "data/raw",
+        "data_dir": "data",
+        "runtime_dir": "runtime",
     },
     "llm": {
         "input_mode": "api",
@@ -69,7 +70,8 @@ class CollectionConfig:
     seed: int = 42
     action_delay_ms: int = 1500
     port: int = 12345
-    output_dir: str = "data/raw"
+    data_dir: str = "data"
+    runtime_dir: str = "runtime"
 
 
 @dataclass
@@ -156,7 +158,8 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_COLLECTION_SEED",                       "collection",      "seed",                      "int"),
         ("MC_COLLECTION_ACTION_DELAY_MS",            "collection",      "action_delay_ms",            "int"),
         ("MC_COLLECTION_PORT",                       "collection",      "port",                      "int"),
-        ("MC_COLLECTION_OUTPUT_DIR",                 "collection",      "output_dir",                "str"),
+        ("MC_COLLECTION_DATA_DIR",                   "collection",      "data_dir",                  "str"),
+        ("MC_COLLECTION_RUNTIME_DIR",                "collection",      "runtime_dir",               "str"),
         ("MC_LLM_INPUT_MODE",                        "llm",             "input_mode",                "str"),
         ("MC_LLM_ELEMENT_EXTRACTION",                "llm",             "element_extraction",        "bool"),
         ("MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE", "screen_matching", "cluster_merge_tolerance", "float"),
@@ -202,7 +205,8 @@ def _from_raw(raw: dict) -> RunConfig:
             seed=int(coll.get("seed", 42)),
             action_delay_ms=int(coll.get("action_delay_ms", 1500)),
             port=int(coll.get("port", 12345)),
-            output_dir=str(coll.get("output_dir", "data/raw")),
+            data_dir=str(coll.get("data_dir", "data")),
+            runtime_dir=str(coll.get("runtime_dir", "runtime")),
         ),
         llm=LlmConfig(
             input_mode=str(llm.get("input_mode", "api")),
@@ -271,7 +275,8 @@ def merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfi
     seed = getattr(args, "seed", None)
     delay = getattr(args, "delay", None)
     port = getattr(args, "port", None)
-    output = getattr(args, "output", None)
+    data_dir = getattr(args, "data_dir", None)
+    runtime_dir = getattr(args, "runtime_dir", None)
     if steps is not None:
         coll = replace(coll, max_steps=steps)
     if seed is not None:
@@ -280,8 +285,10 @@ def merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfi
         coll = replace(coll, action_delay_ms=delay)
     if port is not None:
         coll = replace(coll, port=port)
-    if output is not None:
-        coll = replace(coll, output_dir=output)
+    if data_dir is not None:
+        coll = replace(coll, data_dir=data_dir)
+    if runtime_dir is not None:
+        coll = replace(coll, runtime_dir=runtime_dir)
 
     # llm
     input_mode = getattr(args, "input_mode", None)

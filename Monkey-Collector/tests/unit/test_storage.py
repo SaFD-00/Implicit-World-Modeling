@@ -10,19 +10,23 @@ from monkey_collector.storage import DataWriter
 
 @pytest.fixture
 def writer(tmp_path):
-    w = DataWriter(base_dir=str(tmp_path))
+    w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
     w.init_session("com.test.app", "com.test.app")
     return w
 
 
 class TestInitSession:
     def test_creates_directories(self, writer, tmp_path):
-        session_dir = tmp_path / "com.test.app"
-        assert (session_dir / "screenshots").is_dir()
-        assert (session_dir / "xml").is_dir()
+        # pages/ (data side) is created lazily by save_observation/
+        # save_page_knowledge on first write — init_session only needs the
+        # bare session roots to exist.
+        data_session_dir = tmp_path / "data" / "com.test.app"
+        runtime_session_dir = tmp_path / "runtime" / "com.test.app"
+        assert data_session_dir.is_dir()
+        assert runtime_session_dir.is_dir()
 
     def test_writes_metadata(self, writer, tmp_path):
-        meta_path = tmp_path / "com.test.app" / "metadata.json"
+        meta_path = tmp_path / "runtime" / "com.test.app" / "metadata.json"
         assert meta_path.exists()
         meta = json.loads(meta_path.read_text())
         assert meta["session_id"] == "com.test.app"
@@ -34,61 +38,12 @@ class TestInitSession:
         assert meta["open_app_events"] == 0
 
 
-class TestSaveScreenshot:
-    def test_save(self, writer, tmp_path):
-        path = writer.save_screenshot(b"\x89PNG_fake_data")
-        assert "0000.png" in path
-        saved = (tmp_path / "com.test.app" / "screenshots" / "0000.png").read_bytes()
-        assert saved == b"\x89PNG_fake_data"
-
-
-class TestSaveXml:
-    def test_increments_step(self, writer, tmp_path):
-        assert writer.step_count == 0
-
-        path1 = writer.save_xml("<xml>first</xml>")
-        assert "0000.xml" in path1
-        assert writer.step_count == 1
-
-        path2 = writer.save_xml("<xml>second</xml>")
-        assert "0001.xml" in path2
-        assert writer.step_count == 2
-
-        content = (tmp_path / "com.test.app" / "xml" / "0001.xml").read_text()
-        assert content == "<xml>second</xml>"
-
-    def test_saves_five_variants(self, writer, tmp_path):
-        """save_xml should produce 5 XML files for valid uiautomator input."""
-        from tests.fixtures.xml_samples import SIMPLE_XML
-
-        writer.save_xml(SIMPLE_XML)
-
-        xml_dir = tmp_path / "com.test.app" / "xml"
-        assert (xml_dir / "0000.xml").exists()
-        assert (xml_dir / "0000_parsed.xml").exists()
-        assert (xml_dir / "0000_hierarchy.xml").exists()
-        assert (xml_dir / "0000_encoded.xml").exists()
-        assert (xml_dir / "0000_pretty.xml").exists()
-
-    def test_encoded_has_no_bounds(self, writer, tmp_path):
-        """Encoded XML should have no bounds attributes."""
-        import xml.etree.ElementTree as ET
-
-        from tests.fixtures.xml_samples import SIMPLE_XML
-
-        writer.save_xml(SIMPLE_XML)
-        xml_dir = tmp_path / "com.test.app" / "xml"
-        encoded = (xml_dir / "0000_encoded.xml").read_text()
-        root = ET.fromstring(encoded)
-        for el in root.iter():
-            assert "bounds" not in el.attrib
-
-    def test_invalid_xml_still_saves_raw(self, writer, tmp_path):
-        """Invalid XML should still save raw file without crashing."""
-        writer.save_xml("<not valid!!!")
-        xml_dir = tmp_path / "com.test.app" / "xml"
-        assert (xml_dir / "0000.xml").exists()
-        assert not (xml_dir / "0000_parsed.xml").exists()
+class TestNextFrameIndex:
+    def test_allocates_monotonically(self, writer):
+        assert writer.next_frame_index() == 0
+        assert writer.next_frame_index() == 1
+        assert writer.next_frame_index() == 2
+        assert writer.step_count == 3
 
 
 class _FakeFamily:
@@ -109,91 +64,12 @@ class _FakeMatch:
         self.page_description = page_description
 
 
-class TestSaveElements:
-    def test_writes_elements_json_for_last_step(self, writer, tmp_path):
-        from tests.fixtures.xml_samples import SIMPLE_XML
-
-        writer.save_xml(SIMPLE_XML)  # saves step 0, step_count -> 1
-        match = _FakeMatch(
-            page_key="page_0",
-            match_type="NEW",
-            is_new_page=True,
-            families=[
-                _FakeFamily(
-                    "open_search", [1, 2], [1],
-                    description="open the search bar",
-                    parameters={"query": "what to search?"},
-                )
-            ],
-            page_description="search screen",
-        )
-        path = writer.save_elements(match)
-
-        assert path is not None
-        assert "0000_elements.json" in path
-        data = json.loads(
-            (tmp_path / "com.test.app" / "xml" / "0000_elements.json").read_text()
-        )
-        assert data["page_key"] == "page_0"
-        assert data["match_type"] == "NEW"
-        assert data["is_new_page"] is True
-        assert data["elements"][0]["name"] == "open_search"
-        assert data["elements"][0]["description"] == "open the search bar"
-        assert data["elements"][0]["parameters"] == {"query": "what to search?"}
-        assert data["elements"][0]["element_index"] == [1, 2]
-        assert data["elements"][0]["key_element_index"] == [1]
-
-    def test_empty_families_writes_empty_elements(self, writer, tmp_path):
-        # save_elements serializes whatever families the match carries; an empty
-        # families list (e.g. nothing re-grounded on this screen) yields elements=[].
-        from tests.fixtures.xml_samples import SIMPLE_XML
-
-        writer.save_xml(SIMPLE_XML)
-        match = _FakeMatch("page_0", "EQSET", False, families=[])
-        path = writer.save_elements(match)
-        with open(path) as f:
-            data = json.loads(f.read())
-        assert data["match_type"] == "EQSET"
-        assert data["elements"] == []
-
-    def test_merge_with_families_writes_elements(self, writer, tmp_path):
-        # On a merge/revisit the matcher now fills families from the matched page
-        # (re-grounded on the current screen); save_elements writes them through.
-        from tests.fixtures.xml_samples import SIMPLE_XML
-
-        writer.save_xml(SIMPLE_XML)
-        match = _FakeMatch(
-            "page_0",
-            "EQSET",
-            False,
-            families=[
-                _FakeFamily(
-                    "open_search", [5], [5],
-                    description="open the search bar",
-                    parameters={},
-                )
-            ],
-        )
-        path = writer.save_elements(match)
-        with open(path) as f:
-            data = json.loads(f.read())
-        assert data["match_type"] == "EQSET"
-        assert data["is_new_page"] is False
-        assert data["elements"][0]["name"] == "open_search"
-        assert data["elements"][0]["element_index"] == [5]
-        assert data["elements"][0]["key_element_index"] == [5]
-
-    def test_returns_none_before_any_step(self, writer):
-        match = _FakeMatch("page_0", "NEW", True, families=[])
-        assert writer.save_elements(match) is None
-
-
 class TestLogEvent:
     def test_appends_jsonl(self, writer, tmp_path):
         writer.log_event({"action_type": "tap", "x": 100, "y": 200})
         writer.log_event({"action_type": "swipe", "step": 1})
 
-        events_path = tmp_path / "com.test.app" / "events.jsonl"
+        events_path = tmp_path / "runtime" / "com.test.app" / "events.jsonl"
         lines = events_path.read_text().strip().split("\n")
         assert len(lines) == 2
         assert json.loads(lines[0])["action_type"] == "tap"
@@ -205,7 +81,7 @@ class TestLogExternalApp:
         writer.log_external_app({"detected_package": "com.other"})
 
         # Check event written
-        events_path = tmp_path / "com.test.app" / "events.jsonl"
+        events_path = tmp_path / "runtime" / "com.test.app" / "events.jsonl"
         lines = events_path.read_text().strip().split("\n")
         event = json.loads(lines[0])
         assert event["type"] == "external_app"
@@ -213,7 +89,7 @@ class TestLogExternalApp:
 
         # Check metadata counter
         meta = json.loads(
-            (tmp_path / "com.test.app" / "metadata.json").read_text()
+            (tmp_path / "runtime" / "com.test.app" / "metadata.json").read_text()
         )
         assert meta["external_app_events"] == 1
 
@@ -227,7 +103,7 @@ class TestLogOpenApp:
             from_package="com.android.chrome",
         )
 
-        events_path = tmp_path / "com.test.app" / "events.jsonl"
+        events_path = tmp_path / "runtime" / "com.test.app" / "events.jsonl"
         event = json.loads(events_path.read_text().strip().split("\n")[0])
         assert event["action_type"] == "open_app"
         assert event["package"] == "com.target.app"
@@ -239,13 +115,13 @@ class TestLogOpenApp:
         assert event["trigger"] == "external_recovery"
 
         meta = json.loads(
-            (tmp_path / "com.test.app" / "metadata.json").read_text()
+            (tmp_path / "runtime" / "com.test.app" / "metadata.json").read_text()
         )
         assert meta["open_app_events"] == 1
 
     def test_from_package_omitted_when_none(self, writer, tmp_path):
         writer.log_open_app("com.target.app", step=1)
-        events_path = tmp_path / "com.test.app" / "events.jsonl"
+        events_path = tmp_path / "runtime" / "com.test.app" / "events.jsonl"
         event = json.loads(events_path.read_text().strip().split("\n")[0])
         assert "from_package" not in event
         assert event["app_name"] == ""
@@ -253,12 +129,12 @@ class TestLogOpenApp:
 
 class TestFinalizeSession:
     def test_updates_metadata(self, writer, tmp_path):
-        writer.save_xml("<xml>a</xml>")
-        writer.save_xml("<xml>b</xml>")
+        writer.next_frame_index()
+        writer.next_frame_index()
         writer.finalize_session()
 
         meta = json.loads(
-            (tmp_path / "com.test.app" / "metadata.json").read_text()
+            (tmp_path / "runtime" / "com.test.app" / "metadata.json").read_text()
         )
         assert meta["completed_at"] is not None
         assert meta["total_steps"] == 2
@@ -269,7 +145,7 @@ class TestFinalizeSession:
         writer.finalize_session()
 
         meta = json.loads(
-            (tmp_path / "com.test.app" / "metadata.json").read_text()
+            (tmp_path / "runtime" / "com.test.app" / "metadata.json").read_text()
         )
         assert meta["completed_at"] is None
         assert meta["total_steps"] == 0
@@ -278,26 +154,28 @@ class TestFinalizeSession:
 class TestMultipleSteps:
     def test_sequential_operations(self, writer, tmp_path):
         for i in range(3):
-            writer.save_screenshot(f"png_data_{i}".encode())
-            writer.save_xml(f"<xml>step_{i}</xml>")
-            writer.log_event({"step": i, "action_type": "tap"})
+            frame_index = writer.next_frame_index()
+            writer.save_observation(
+                f"page_{i}", 0, f"png_data_{i}".encode(), f"<xml>step_{i}</xml>",
+            )
+            writer.log_event({"step": i, "action_type": "tap", "frame_index": frame_index})
 
         assert writer.step_count == 3
 
-        screenshots_dir = tmp_path / "com.test.app" / "screenshots"
-        xml_dir = tmp_path / "com.test.app" / "xml"
-        assert len(list(screenshots_dir.iterdir())) == 3
-        # 3 raw files; parsed variants may or may not exist depending on XML validity
-        raw_files = [f for f in xml_dir.iterdir() if "_" not in f.stem]
-        assert len(raw_files) == 3
+        pages_dir = tmp_path / "data" / "com.test.app" / "pages"
+        assert len(list(pages_dir.iterdir())) == 3
+        for i in range(3):
+            obs_dir = pages_dir / f"page_{i}" / "0000"
+            assert (obs_dir / "screenshot.png").exists()
+            assert (obs_dir / "raw.xml").exists()
 
 
 class TestFinalizeNoMetadata:
     def test_no_crash(self, tmp_path):
         """finalize_session when metadata.json doesn't exist -> no crash."""
-        w = DataWriter(base_dir=str(tmp_path))
-        w.session_dir = str(tmp_path / "nonexistent_session")
-        os.makedirs(w.session_dir, exist_ok=True)
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
+        w.runtime_session_dir = str(tmp_path / "runtime" / "nonexistent_session")
+        os.makedirs(w.runtime_session_dir, exist_ok=True)
         # No metadata.json exists
         w.finalize_session()  # should not raise
 
@@ -305,68 +183,83 @@ class TestFinalizeNoMetadata:
 class TestReinitSession:
     def test_reinit_resets_state(self, tmp_path):
         """Re-initializing session resets step_count."""
-        w = DataWriter(base_dir=str(tmp_path))
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w.init_session("session_1", "com.test.app")
-        w.save_xml("<xml>a</xml>")
-        w.save_xml("<xml>b</xml>")
+        w.next_frame_index()
+        w.next_frame_index()
         assert w.step_count == 2
 
         w.init_session("session_2", "com.test.app")
         assert w.step_count == 0
-        assert "session_2" in w.session_dir
+        assert "session_2" in w.data_session_dir
+        assert "session_2" in w.runtime_session_dir
 
 
 class TestFindExistingSession:
     def test_returns_package(self, tmp_path):
         """Existing session for package → returns the package name."""
-        w = DataWriter(base_dir=str(tmp_path))
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w.init_session("com.test.app", "com.test.app")
 
         result = w.find_existing_session("com.test.app")
         assert result == "com.test.app"
 
     def test_returns_none_when_no_session(self, tmp_path):
-        w = DataWriter(base_dir=str(tmp_path))
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         assert w.find_existing_session("com.test.app") is None
 
     def test_ignores_other_packages(self, tmp_path):
-        w = DataWriter(base_dir=str(tmp_path))
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w.init_session("com.other.app", "com.other.app")
 
         assert w.find_existing_session("com.test.app") is None
 
     def test_ignores_dirs_without_metadata(self, tmp_path):
         """Directory without metadata.json is not a valid session."""
-        w = DataWriter(base_dir=str(tmp_path))
-        os.makedirs(tmp_path / "com.test.app")
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
+        os.makedirs(tmp_path / "runtime" / "com.test.app")
         # No metadata.json created
         assert w.find_existing_session("com.test.app") is None
 
 
 class TestResumeSession:
     def test_restores_step_count(self, tmp_path):
-        """Step count restored from existing raw XML files."""
-        w = DataWriter(base_dir=str(tmp_path))
+        """Step count restored from events.jsonl's highest frame_index — not
+        by counting on-disk files, since a reused observation writes none."""
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w.init_session("com.test.app", "com.test.app")
-        w.save_xml("<xml>step0</xml>")
-        w.save_xml("<xml>step1</xml>")
-        w.save_xml("<xml>step2</xml>")
+        for i in range(3):
+            w.log_event({"step": i, "frame_index": w.next_frame_index()})
         w.finalize_session()
 
-        w2 = DataWriter(base_dir=str(tmp_path))
+        w2 = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         step_count = w2.resume_session("com.test.app")
         assert step_count == 3
         assert w2.step_count == 3
 
+    def test_restores_step_count_past_a_reused_observation_gap(self, tmp_path):
+        """A frame_index with no on-disk observation (a pending/reused frame)
+        must not desync resume — the max recorded frame_index is what counts."""
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
+        w.init_session("com.test.app", "com.test.app")
+        w.log_event({"frame_index": 0})
+        # frame_index 1 was a pending frame: consumed but never logged (no
+        # observation written) — the log jumps straight to 2.
+        w.log_event({"frame_index": 2})
+        w.finalize_session()
+
+        w2 = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
+        assert w2.resume_session("com.test.app") == 3
+
     def test_preserves_started_at(self, tmp_path):
         """Original started_at is preserved on resume."""
-        w = DataWriter(base_dir=str(tmp_path))
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w.init_session("com.test.app", "com.test.app")
-        meta_path = tmp_path / "com.test.app" / "metadata.json"
+        meta_path = tmp_path / "runtime" / "com.test.app" / "metadata.json"
         original_meta = json.loads(meta_path.read_text())
         original_started = original_meta["started_at"]
 
-        w2 = DataWriter(base_dir=str(tmp_path))
+        w2 = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w2.resume_session("com.test.app")
 
         meta = json.loads(meta_path.read_text())
@@ -374,41 +267,268 @@ class TestResumeSession:
 
     def test_adds_resumed_at(self, tmp_path):
         """Resume adds resumed_at timestamp array."""
-        w = DataWriter(base_dir=str(tmp_path))
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w.init_session("com.test.app", "com.test.app")
 
-        w2 = DataWriter(base_dir=str(tmp_path))
+        w2 = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w2.resume_session("com.test.app")
 
-        meta_path = tmp_path / "com.test.app" / "metadata.json"
+        meta_path = tmp_path / "runtime" / "com.test.app" / "metadata.json"
         meta = json.loads(meta_path.read_text())
         assert "resumed_at" in meta
         assert len(meta["resumed_at"]) == 1
         assert meta["completed_at"] is None
 
     def test_continues_numbering(self, tmp_path):
-        """After resume, new files continue from existing step count."""
-        w = DataWriter(base_dir=str(tmp_path))
+        """After resume, new frame_index values continue from the resumed count."""
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w.init_session("com.test.app", "com.test.app")
-        w.save_xml("<xml>step0</xml>")
-        w.save_xml("<xml>step1</xml>")
+        w.log_event({"frame_index": w.next_frame_index()})
+        w.log_event({"frame_index": w.next_frame_index()})
         w.finalize_session()
 
-        w2 = DataWriter(base_dir=str(tmp_path))
+        w2 = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w2.resume_session("com.test.app")
-        path = w2.save_xml("<xml>step2</xml>")
-        assert "0002.xml" in path
+        assert w2.next_frame_index() == 2
         assert w2.step_count == 3
 
 
 class TestIncrementMetadata:
     def test_increment_twice(self, tmp_path):
         """_increment_metadata twice -> value is 2."""
-        w = DataWriter(base_dir=str(tmp_path))
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w.init_session("test_session", "com.test.app")
         w._increment_metadata("external_app_events")
         w._increment_metadata("external_app_events")
 
-        meta_path = tmp_path / "test_session" / "metadata.json"
+        meta_path = tmp_path / "runtime" / "test_session" / "metadata.json"
         meta = json.loads(meta_path.read_text())
         assert meta["external_app_events"] == 2
+
+
+class TestSaveObservation:
+    def test_writes_screenshot_and_xml_variants(self, writer, tmp_path):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        paths = writer.save_observation("page_0", 0, b"\x89PNG_fake", SIMPLE_XML)
+
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        assert (obs_dir / "screenshot.png").read_bytes() == b"\x89PNG_fake"
+        assert (obs_dir / "raw.xml").read_text() == SIMPLE_XML
+        assert (obs_dir / "parsed.xml").exists()
+        assert (obs_dir / "hierarchy.xml").exists()
+        assert (obs_dir / "encoded.xml").exists()
+        assert (obs_dir / "pretty.xml").exists()
+        assert "screenshot" in paths and "raw" in paths and "encoded" in paths
+
+    def test_encoded_has_no_bounds(self, writer, tmp_path):
+        import xml.etree.ElementTree as ET
+
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        writer.save_observation("page_0", 0, None, SIMPLE_XML)
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        root = ET.fromstring((obs_dir / "encoded.xml").read_text())
+        for el in root.iter():
+            assert "bounds" not in el.attrib
+
+    def test_invalid_xml_still_saves_raw(self, writer, tmp_path):
+        """Invalid XML should still save the raw file without crashing."""
+        writer.save_observation("page_0", 0, None, "<not valid!!!")
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        assert (obs_dir / "raw.xml").read_text() == "<not valid!!!"
+        assert not (obs_dir / "parsed.xml").exists()
+
+    def test_no_screenshot_omits_file_and_key(self, writer, tmp_path):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        paths = writer.save_observation("page_0", 0, None, SIMPLE_XML)
+
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        assert not (obs_dir / "screenshot.png").exists()
+        assert "screenshot" not in paths
+
+    def test_no_elements_json_without_match(self, writer, tmp_path):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        writer.save_observation("page_0", 0, None, SIMPLE_XML)
+
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        assert not (obs_dir / "elements.json").exists()
+
+    def test_writes_elements_json_with_activity(self, writer, tmp_path):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        match = _FakeMatch(
+            page_key="page_0",
+            match_type="NEW",
+            is_new_page=True,
+            families=[
+                _FakeFamily("open_search", [1, 2], [1], description="open search")
+            ],
+        )
+        writer.save_observation(
+            "page_0", 0, None, SIMPLE_XML, match=match, activity="act.Main",
+        )
+
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        data = json.loads((obs_dir / "elements.json").read_text())
+        assert data["page_key"] == "page_0"
+        assert data["activity"] == "act.Main"
+        assert data["elements"][0]["name"] == "open_search"
+
+    def test_second_observation_gets_own_directory(self, writer, tmp_path):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        writer.save_observation("page_0", 0, None, SIMPLE_XML)
+        writer.save_observation("page_0", 1, None, SIMPLE_XML)
+
+        pages_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0"
+        assert (pages_dir / "0000").is_dir()
+        assert (pages_dir / "0001").is_dir()
+
+    def test_empty_families_writes_empty_elements(self, writer, tmp_path):
+        # elements.json serializes whatever families the match carries; an
+        # empty families list (e.g. nothing re-grounded on this screen) yields
+        # elements=[].
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        match = _FakeMatch("page_0", "EQSET", False, families=[])
+        writer.save_observation("page_0", 0, None, SIMPLE_XML, match=match)
+
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        data = json.loads((obs_dir / "elements.json").read_text())
+        assert data["match_type"] == "EQSET"
+        assert data["elements"] == []
+
+
+class TestPageKnowledgePersistence:
+    def test_save_and_load_round_trips(self, writer, tmp_path):
+        from monkey_collector.llm.element_extractor import ExtractedElement
+        from monkey_collector.pipeline.screen_matching.page_knowledge import (
+            PageKnowledge,
+        )
+        from monkey_collector.pipeline.screen_matching.ui_attributes import (
+            UIAttributes,
+        )
+
+        page = PageKnowledge(
+            page_key="page_0",
+            elements=[
+                ExtractedElement(
+                    name="open_search", description="open search",
+                    parameters={}, element_index=[1], key_element_index=[1],
+                )
+            ],
+            key_elements={
+                "open_search": [UIAttributes(self_attrs={"tag": "button"}, parent={}, children=[])]
+            },
+            extra_uis=[],
+        )
+        path = writer.save_page_knowledge("page_0", page)
+        assert (tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "page.json").exists()
+        assert str(path) == str(
+            tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "page.json"
+        )
+
+        loaded = writer.load_page_knowledge("page_0")
+        assert loaded is not None
+        assert loaded.page_key == "page_0"
+        assert loaded.elements[0].name == "open_search"
+        assert loaded.key_elements["open_search"][0].self_attrs == {"tag": "button"}
+        # luminance_features/next_observation_num are never persisted.
+        assert loaded.luminance_features == []
+        assert loaded.next_observation_num == 0
+
+    def test_load_missing_page_returns_none(self, writer):
+        assert writer.load_page_knowledge("page_absent") is None
+
+
+class TestListPagesAndObservations:
+    def test_list_pages_empty_before_any_write(self, writer):
+        assert writer.list_pages() == []
+
+    def test_list_pages_requires_page_json(self, writer, tmp_path):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        # An observation dir with no page.json doesn't count as a registered page.
+        writer.save_observation("page_0", 0, None, SIMPLE_XML)
+        assert writer.list_pages() == []
+
+        from monkey_collector.pipeline.screen_matching.page_knowledge import (
+            PageKnowledge,
+        )
+        writer.save_page_knowledge("page_0", PageKnowledge(page_key="page_0"))
+        assert writer.list_pages() == ["page_0"]
+
+    def test_list_observations_sorted_numerically(self, writer, tmp_path):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        writer.save_observation("page_0", 2, None, SIMPLE_XML)
+        writer.save_observation("page_0", 0, None, SIMPLE_XML)
+        writer.save_observation("page_0", 1, None, SIMPLE_XML)
+
+        assert writer.list_observations("page_0") == [0, 1, 2]
+
+    def test_list_observations_empty_for_unknown_page(self, writer):
+        assert writer.list_observations("page_absent") == []
+
+
+class TestLoadObservationHelpers:
+    def test_load_raw_xml_and_screenshot(self, writer):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        writer.save_observation("page_0", 0, b"\x89PNG_fake", SIMPLE_XML)
+
+        assert writer.load_observation_raw_xml("page_0", 0) == SIMPLE_XML
+        assert writer.load_observation_screenshot("page_0", 0) == b"\x89PNG_fake"
+
+    def test_load_missing_observation_returns_none(self, writer):
+        assert writer.load_observation_raw_xml("page_0", 0) is None
+        assert writer.load_observation_screenshot("page_0", 0) is None
+        assert writer.load_observation_elements_meta("page_0", 0) is None
+
+    def test_load_elements_meta(self, writer):
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        match = _FakeMatch("page_0", "NEW", True, families=[])
+        writer.save_observation(
+            "page_0", 0, None, SIMPLE_XML, match=match, activity="act.Main",
+        )
+        meta = writer.load_observation_elements_meta("page_0", 0)
+        assert meta is not None
+        assert meta["activity"] == "act.Main"
+
+
+class TestRegenerateXmlVariantsNewLayout:
+    def test_regenerates_new_layout_observations(self, tmp_path):
+        from monkey_collector.storage import regenerate_xml_variants
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
+        w.init_session("com.test.app", "com.test.app")
+        w.save_observation("page_0", 0, None, SIMPLE_XML)
+
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        (obs_dir / "parsed.xml").unlink()
+
+        count = regenerate_xml_variants(str(tmp_path / "data"))
+        assert count == 1
+        assert (obs_dir / "parsed.xml").exists()
+
+    def test_legacy_flat_layout_still_regenerates(self, tmp_path):
+        """A pre-migration session (no pages/, only a flat xml/ dir with raw
+        {step}.xml dumps) still works — no migration needed for old sessions."""
+        from monkey_collector.storage import regenerate_xml_variants
+        from tests.fixtures.xml_samples import SIMPLE_XML
+
+        xml_dir = tmp_path / "data" / "com.legacy.app" / "xml"
+        xml_dir.mkdir(parents=True)
+        (xml_dir / "0000.xml").write_text(SIMPLE_XML, encoding="utf-8")
+
+        count = regenerate_xml_variants(str(tmp_path / "data"))
+        assert count == 1
+        assert (xml_dir / "0000_parsed.xml").exists()
+        assert (xml_dir / "0000_hierarchy.xml").exists()
+        assert (xml_dir / "0000_encoded.xml").exists()
+        assert (xml_dir / "0000_pretty.xml").exists()

@@ -17,31 +17,54 @@ def _seed(root: Path, package: str) -> Path:
 
 
 class TestResolveTargets:
-    def test_all_returns_output_root(self, tmp_path):
-        _seed(tmp_path, "com.a")
-        targets = resolve_targets(tmp_path, all_=True)
-        assert targets == [tmp_path]
+    def test_all_returns_both_roots(self, tmp_path):
+        data_dir = tmp_path / "data"
+        runtime_dir = tmp_path / "runtime"
+        _seed(data_dir, "com.a")
+        _seed(runtime_dir, "com.a")
+        targets = resolve_targets(data_dir, runtime_dir, all_=True)
+        assert sorted(targets) == sorted([data_dir, runtime_dir])
 
-    def test_all_excludes_missing_output(self, tmp_path):
-        missing = tmp_path / "nonexistent"
-        targets = resolve_targets(missing, all_=True)
-        assert targets == []
+    def test_all_excludes_missing_root(self, tmp_path):
+        data_dir = tmp_path / "data"
+        runtime_dir = tmp_path / "runtime"  # never created
+        _seed(data_dir, "com.a")
+        targets = resolve_targets(data_dir, runtime_dir, all_=True)
+        assert targets == [data_dir]
 
-    def test_packages_returns_matching_dirs(self, tmp_path):
-        _seed(tmp_path, "com.a")
-        _seed(tmp_path, "com.b")
-        _seed(tmp_path, "com.c")
-        targets = resolve_targets(tmp_path, packages=["com.a", "com.c"])
-        assert sorted(targets) == sorted([tmp_path / "com.a", tmp_path / "com.c"])
+    def test_packages_returns_matching_dirs_in_both_roots(self, tmp_path):
+        data_dir = tmp_path / "data"
+        runtime_dir = tmp_path / "runtime"
+        _seed(data_dir, "com.a")
+        _seed(data_dir, "com.c")
+        _seed(runtime_dir, "com.a")
+        _seed(runtime_dir, "com.c")
+        targets = resolve_targets(data_dir, runtime_dir, packages=["com.a", "com.c"])
+        assert sorted(targets) == sorted([
+            data_dir / "com.a", data_dir / "com.c",
+            runtime_dir / "com.a", runtime_dir / "com.c",
+        ])
 
     def test_packages_filters_out_nonexistent(self, tmp_path):
-        _seed(tmp_path, "com.a")
-        targets = resolve_targets(tmp_path, packages=["com.a", "com.missing"])
-        assert targets == [tmp_path / "com.a"]
+        data_dir = tmp_path / "data"
+        runtime_dir = tmp_path / "runtime"
+        _seed(data_dir, "com.a")
+        _seed(runtime_dir, "com.a")
+        targets = resolve_targets(data_dir, runtime_dir, packages=["com.a", "com.missing"])
+        assert sorted(targets) == sorted([data_dir / "com.a", runtime_dir / "com.a"])
+
+    def test_packages_missing_one_root_returns_only_existing(self, tmp_path):
+        # A package present only under data/ (e.g. runtime/ already wiped)
+        # still resolves — the other root's absence isn't an error.
+        data_dir = tmp_path / "data"
+        runtime_dir = tmp_path / "runtime"
+        _seed(data_dir, "com.a")
+        targets = resolve_targets(data_dir, runtime_dir, packages=["com.a"])
+        assert targets == [data_dir / "com.a"]
 
     def test_no_scope_raises(self, tmp_path):
         with pytest.raises(ValueError, match="scope"):
-            resolve_targets(tmp_path)
+            resolve_targets(tmp_path / "data", tmp_path / "runtime")
 
 
 class TestDeleteTargets:

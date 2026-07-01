@@ -9,25 +9,32 @@ from loguru import logger
 
 
 def resolve_targets(
-    output_dir: str | Path,
+    data_dir: str | Path,
+    runtime_dir: str | Path,
     all_: bool = False,
     packages: list[str] | None = None,
 ) -> list[Path]:
-    """Return existing directories that match the reset scope.
+    """Return existing directories that match the reset scope, across BOTH
+    roots — a full reset must clear ``data/{package}/`` and
+    ``runtime/{package}/`` together, or a surviving ``data/`` half would
+    immediately rehydrate stale page knowledge into what's supposed to be a
+    wiped/fresh session.
 
-    * ``all_=True``   → ``[output_dir]`` (if it exists).
-    * ``packages``    → ``[output_dir / pkg for each existing pkg dir]``.
+    * ``all_=True``   → ``[data_dir, runtime_dir]`` (whichever exist).
+    * ``packages``    → ``[data_dir / pkg, runtime_dir / pkg for each existing pkg dir]``.
 
     Raises ValueError if no scope is given.
     """
-    output_dir = Path(output_dir)
+    data_dir = Path(data_dir)
+    runtime_dir = Path(runtime_dir)
 
     if all_:
-        return [output_dir] if output_dir.exists() else []
+        return [p for p in (data_dir, runtime_dir) if p.exists()]
 
     if packages:
         return [
-            p for p in (output_dir / pkg for pkg in packages)
+            p for pkg in packages
+            for p in (data_dir / pkg, runtime_dir / pkg)
             if p.exists()
         ]
 

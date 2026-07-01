@@ -97,11 +97,14 @@ def test_new_page_on_empty_registry():
     fam = next(f for f in m.families if f.name == "open_add")
     assert fam.description == "open Add"
     assert fam.parameters == {"idx": str(fam.element_index[0])}
+    # A brand-new page always starts at observation 0 (nothing to reuse yet).
+    assert m.observation_num == 0
+    assert m.is_new_observation
 
 
 def test_structural_prefilter_short_circuits_revisit():
     sm = _matcher()
-    sm.match(RAW_A, _enc(RAW_A), "act.Main")
+    first = sm.match(RAW_A, _enc(RAW_A), "act.Main")
     calls_after_first = sm._extractor.calls
     m = sm.match(RAW_A, _enc(RAW_A), "act.Main")
     assert not m.is_new_page and m.match_type == "STRUCTURAL_IDENTICAL"
@@ -111,6 +114,9 @@ def test_structural_prefilter_short_circuits_revisit():
     assert all(f.element_index and f.element_index == f.key_element_index for f in m.families)
     # no extra extractor call on an exact revisit (families come from the registry)
     assert sm._extractor.calls == calls_after_first
+    # exact revisit reuses the first sighting's observation — no new write.
+    assert not m.is_new_observation
+    assert m.observation_num == first.observation_num
 
 
 def test_superset_merges_into_existing_page():
@@ -125,6 +131,10 @@ def test_superset_merges_into_existing_page():
     # current screen (open_add, open_search) PLUS the expand-found open_filter.
     assert {f.name for f in b.families} == {"open_add", "open_search", "open_filter"}
     assert all(f.element_index for f in b.families)
+    # a visually/structurally distinct render with no luminance comparator
+    # (prefilter off on the plain _matcher()) always allocates a new observation.
+    assert b.is_new_observation
+    assert b.observation_num != a.observation_num
 
 
 def test_disjoint_creates_new_page():
@@ -244,6 +254,9 @@ def test_luminance_prefilter_hit_reuses_page_no_llm():
     assert m.match_type == "LUMINANCE_PREFILTER"
     assert m.page_key == a.page_key
     assert sm._extractor.calls == calls_after_first  # LLM/expand path skipped
+    # reuses the existing observation — no new write for the caller to persist.
+    assert not m.is_new_observation
+    assert m.observation_num == a.observation_num
 
 
 def test_luminance_prefilter_miss_falls_through():
@@ -271,10 +284,70 @@ def test_luminance_prefilter_none_screenshot_degrades():
 
 
 def test_luminance_observations_capped():
+    # An exact structural (_fp_to_key) repeat no longer appends anything (reuse
+    # means no new observation) — driving eviction now requires many distinct
+    # SUPERSET_MERGE visits, each visually distinct enough that the page-scoped
+    # luminance lookup misses and a new observation is allocated every time.
     sm = _lum_matcher()
     sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     page = sm._registry.get("page_0")
-    # Drive many structural revisits (each stores an observation) past the cap.
-    for _ in range(ScreenMatcher._MAX_LUMINANCE_OBS + 5):
-        sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
-    assert len(page.luminance_features) <= ScreenMatcher._MAX_LUMINANCE_OBS
+
+    n = ScreenMatcher._MAX_LUMINANCE_OBS + 5
+    for i in range(n):
+        # A uniquely-id'd extra button keeps the XML fingerprint distinct each
+        # time (bypassing the free structural short-circuit) while staying a
+        # superset of RAW_A's anchors (add/search), so classify() always merges
+        # into page_0 instead of forking a new page.
+        raw = _screen(
+            _btn("add", "Add", "[0,0][100,100]")
+            + _btn("search", "Search", "[0,100][100,200]")
+            + _btn(f"filter{i}", "Filter", "[0,200][100,300]")
+        )
+        # Solid grays spaced 15 luma levels apart, starting well clear of
+        # SHOT_A's luma (~18, from RGB (10,20,30)) so none of them accidentally
+        # luminance-match the very first stored observation via the GLOBAL
+        # Stage-0c lookup before classify() even runs.
+        shot = _jpeg((40 + i * 15, 40 + i * 15, 40 + i * 15))
+        m = sm.match(raw, _enc(raw), "act.Main", screenshot=shot)
+        assert m.match_type == "SUPERSET_MERGE"
+        assert m.is_new_observation
+
+    assert len(page.luminance_features) == ScreenMatcher._MAX_LUMINANCE_OBS
+
+
+def test_structural_hit_returns_stored_observation_num():
+    # A merge allocates a new observation (obs 1); an EXACT revisit of that same
+    # screen must resolve back to obs 1 via the free structural cache — not
+    # obs 0 (the page's first-sighting observation).
+    sm = _matcher()
+    sm.match(RAW_A, _enc(RAW_A), "act.Main")
+    merged = sm.match(RAW_B, _enc(RAW_B), "act.Main")
+    assert merged.match_type == "SUPERSET_MERGE"
+    assert merged.observation_num != 0
+
+    revisit = sm.match(RAW_B, _enc(RAW_B), "act.Main")
+    assert revisit.match_type == "STRUCTURAL_IDENTICAL"
+    assert revisit.observation_num == merged.observation_num
+    assert not revisit.is_new_observation
+
+
+def test_luminance_disabled_merge_always_allocates_new_observation():
+    # With the prefilter off there is no pixel comparator to dedupe against, so
+    # every classify-merge with a distinct XML fingerprint must allocate a new
+    # observation — never silently reuse one (that would risk collapsing
+    # genuinely different render states with no visual evidence they match).
+    sm = _matcher()  # luminance_prefilter defaults OFF
+    sm.match(RAW_A, _enc(RAW_A), "act.Main")
+
+    seen_obs = set()
+    for i in range(3):
+        raw = _screen(
+            _btn("add", "Add", "[0,0][100,100]")
+            + _btn("search", "Search", "[0,100][100,200]")
+            + _btn(f"filter{i}", "Filter", "[0,200][100,300]")
+        )
+        m = sm.match(raw, _enc(raw), "act.Main")
+        assert m.match_type == "SUPERSET_MERGE"
+        assert m.is_new_observation
+        assert m.observation_num not in seen_obs
+        seen_obs.add(m.observation_num)

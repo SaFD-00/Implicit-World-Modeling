@@ -1,9 +1,10 @@
 # Data & Models
-**/data/
-**/outputs/
-**/exports/
-**/saves/
-**/logs/
+**/data*/
+**/runtime*/
+**/outputs*/
+**/exports*/
+**/saves*/
+**/logs*/
 # nested 프로젝트의 data/outputs 는 top-level 정본으로의 심볼릭 링크 (대용량은 git 제외)
 Implicit-World-Modeling/data
 Implicit-World-Modeling/outputs

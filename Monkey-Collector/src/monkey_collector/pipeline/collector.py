@@ -26,6 +26,7 @@ from monkey_collector.pipeline.session_manager import (
     finalize_session,
     init_or_resume_session,
     receive_target_package,
+    rehydrate_session,
     wait_for_connection,
 )
 from monkey_collector.pipeline.text_generator import TextGenerator
@@ -177,7 +178,7 @@ class Collector:
             logger.debug(f"force_stop({package}) ignored: {e}")
         self.adb.launch_app(package)
 
-        session_id, resume_step = init_or_resume_session(self, package)
+        session_id, resume_step, is_resumed = init_or_resume_session(self, package)
         logger.info(f"Starting session: {session_id}")
         logger.info(f"Target app: {package}, max_steps: {self.max_steps}")
 
@@ -185,9 +186,6 @@ class Collector:
             step=resume_step,
             max_step=resume_step + self.max_steps,
         )
-        # Expose the live (element-set) page graph to finalize. It mutates in
-        # place during the loop, so this reference captures the final graph.
-        self._live_page_graph = state.page_graph
 
         # Each app session explores in isolation — drop the previous session's
         # transition graph / coverage and page knowledge so cross-app memory
@@ -195,6 +193,17 @@ class Collector:
         self.explorer.reset()
         if self._screen_matcher is not None:
             self._screen_matcher.reset()
+
+        # Resume rehydrates state.page_graph + the ScreenMatcher's knowledge
+        # from the durable data/{package}/pages/ tree — a fresh session's tree
+        # is empty, so this only matters (and is only called) on resume.
+        if is_resumed:
+            rehydrate_session(self, state)
+
+        # Expose the live (element-set) page graph to finalize. It mutates in
+        # place during the loop, so this reference captures the final graph —
+        # AFTER rehydration, since rehydrate_session may have replaced it.
+        self._live_page_graph = state.page_graph
 
         try:
             run_collection_loop(self, state, package)
