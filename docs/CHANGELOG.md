@@ -14,6 +14,7 @@
 - Monkey-Collector: element-set screen matching 패키지(`pipeline/screen_matching/` — ScreenMatcher·ui_attributes·set_classifier·page_knowledge) + 화면당 단일 LLM 호출 `llm/element_extractor.py`/`llm/prompts/element_extractor_prompt.py`(element_index family + key_element_index anchor 동시 추출, MobileGPT-V2 Node-Clustering 포팅); CLI `--cluster-merge-tolerance`·`--max-expand-iters` 플래그  (2026-06-29)
 
 ### Changed
+- Monkey-Collector: 저장 레이아웃을 flat `data/raw/{package}/`에서 `data/`(memory: `pages/{page_key}/{observation_num}`) + `runtime/`(세션 진행: `metadata.json`·`events.jsonl`·`cost.csv`·`activity_coverage.csv`) 이원화로 재설계(MobileGPT-V2 memory/runtime 분리 포팅) — 재방문 관측은 파일 미기록, `screen_matcher._record_observation`이 page-scoped 재사용 판단, 신규 `pipeline/screen_matching/rehydrate.py`가 세션 재개 시 ScreenMatcher/page_graph 지식을 디스크에서 복원(기존 매 세션 강제 reset 버그 수정); `cli.py`의 `--output`/`--raw-dir` → `--data-dir`/`--runtime-dir`, `config.py`의 `output_dir` → `data_dir`/`runtime_dir`  (2026-07-01)
 - Monkey-Collector: 입력 텍스트 생성을 OpenAI Responses API(gpt-5-nano)에서 공용 OpenRouter `LLMClient`(Chat Completions)로 이전  (2026-06-28)
 - Monkey-Collector: 탐색 엔진을 `SmartExplorer`(화면 단위 weighted-random)에서 `LLMGuidedExplorer`(coverage-driven unexplored-first + LLM same-function 압축 + transition-graph 최단경로 navigation, 신규 `pipeline/exploration/` 패키지)로 전면 교체; App/Server TCP·저장 포맷 유지, `networkx` 의존성 추가  (2026-06-29)
 - Monkey-Collector: `setup-collector` 스킬을 SKILL.md 오케스트레이션 + `references/` 구조로 재구성(AVD Pixel6-2, 빌드 JDK17/AGP8.2, MediaProjection 재동의·Google 로그인·더미데이터 시드·라이브 검증 단계 추가, 전 단계 멱등)  (2026-06-29)

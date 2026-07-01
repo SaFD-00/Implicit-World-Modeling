@@ -3,6 +3,26 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-01 — Monkey-Collector 저장 레이아웃 재설계: `data/`+`runtime/` 이원화 + page/observation 구조 (MobileGPT-V2 memory/runtime 포팅)
+
+Monkey-Collector의 저장 레이아웃을 flat `data/raw/{package}/` 구조에서 `data/`(memory)와 `runtime/`(세션 진행 상태) 이원화 + page/observation 기반 구조로 재설계했다. MobileGPT-V2의 memory/runtime 분리 설계를 포팅했다. 핵심 동기는 세 가지: (1) luminance/구조적 재방문 화면이 매번 새 파일을 쓰던 낭비 제거(재사용 관측은 파일을 전혀 쓰지 않음), (2) luminance prefilter가 "어떤 observation과 동일한지" 판단하는 실질적 역할을 갖게 됨(기존엔 페이지 식별에만 관여, observation 단위 재사용 판단이 없었음), (3) 세션 재개(resume) 시 ScreenMatcher/page_graph 지식이 디스크에서 복원되도록 수정(기존엔 매번 무조건 reset되어 이미 아는 page를 다시 "새 page"로 재발견하던 pre-existing 버그를 함께 고침). 코드 변경, 작업트리 미커밋.
+
+- 새 디렉토리 구조: `data/{package}/pages/{page_key}/page.json`(고정 anchor, 최초 1회만) + `{observation_num:04d}/{screenshot.png,raw.xml,parsed.xml,hierarchy.xml,encoded.xml,pretty.xml,elements.json}` + `page_graph.json`/`.html`. `runtime/{package}/metadata.json`+`events.jsonl`+`cost.csv`+`activity_coverage.csv`.
+- `storage.py`: 구 flat 저장 메서드(`save_screenshot`/`save_xml`/`save_elements`) 제거하고 `save_observation`/`save_page_knowledge`/`load_page_knowledge`/`list_pages`/`list_observations`/`next_frame_index` 신설. `regenerate_xml_variants`는 신규/구형 레이아웃 자동 판별.
+- `screen_matcher.py`: `ScreenMatch`에 `observation_num`/`is_new_observation` 추가. 전역 `_luminance_lookup`(페이지 식별, 기존과 동일 역할)과 별개로 page-scoped `_page_luminance_lookup` + `_record_observation` 신설해 "이 페이지의 어떤 observation과 같은가"를 판단 — luminance 비활성 시엔 항상 새 observation 할당(픽셀 비교 근거가 없으므로 안전하게 dedupe 안 함).
+- 신규 모듈 `pipeline/screen_matching/rehydrate.py`: 세션 재개 시 `data/{package}/pages/`를 순회해 ScreenMatcher의 registry/`_fp_to_key`/`_counter`를 복원. luminance 지문은 각 observation의 저장된 `screenshot.png`에서 재추출(별도 캐시 파일 미도입, 기존 PIL-only 방침 유지).
+- `session_manager.py`: `init_or_resume_session`이 `(session_id, resume_step, is_resumed)` 3-tuple 반환. 신규 `rehydrate_session()`이 `page_graph.json`도 `state.page_graph`로 복원(안 하면 `finalize_session`이 이번 세션에서 재방문한 page만으로 그래프를 덮어써 나머지 이력을 잃는 버그가 있었음). `--new-session`은 `data/`+`runtime/` 두 root를 모두 삭제하도록 수정(한쪽만 지우면 resume 로직이 남은 쪽에서 지식을 복원해 "새 세션"이 되지 않는 문제).
+- `domain/page_graph.py`: `PageNode`에 `observation_count` 필드(구 `page_graph.json`은 `.get` 기본값 0으로 로드). `build_graph_from_new_layout` 신설 — `events.jsonl`의 `page_key`/`observation_num`을 직접 읽는 정확한 재구성(구조 근사 불필요). 기존 `build_graph_from_session`(activity+Jaccard 구조 근사)은 `pages/` 없는 마이그레이션 이전 세션의 degrade 경로로 유지.
+- `export/converter.py`: `page_key`/`observation_num`으로 before/after 화면을 조인(연속 이벤트가 같은 observation을 가리키면 시각적 변화 없음으로 스킵). `pages/` 없는 세션은 `_convert_session_legacy`로 degrade. `--data-dir`가 존재하지 않을 때 발생하던 미처리 `FileNotFoundError` 크래시를 경고+0건 반환으로 수정(사용자가 실제로 겪은 이슈).
+- `cli.py`: run/reset/convert/convert-all/page-map/page-map-all/regenerate의 `--output`/`--session`/`--raw-dir` 플래그를 `--data-dir`/`--runtime-dir`(+`--package`)로 교체. `pipeline/reset.py`의 `resolve_targets`가 두 root 모두 대상으로 삭제하도록 변경.
+- `config.py`/`run.yaml`: `collection.output_dir` → `data_dir`+`runtime_dir`, `MC_COLLECTION_OUTPUT_DIR` → `MC_COLLECTION_DATA_DIR`/`MC_COLLECTION_RUNTIME_DIR`.
+- 마이그레이션 스크립트는 만들지 않음(사용자 결정) — 기존 flat 레이아웃 세션은 그대로 두고 새 도구가 감지해 자동 degrade.
+- 변경(작업트리, 18 tracked files + 3 new files — `rehydrate.py`/`test_rehydrate.py`/`test_session_manager.py`): `README.md`/`ARCHITECTURE.md`/`AGENTS.md`/`.claude/skills/setup-collector/`(SKILL.md + `references/run-and-verify.md`)의 `data/raw` 참조를 전부 새 구조 설명으로 갱신. 루트 `.gitignore`에 `**/runtime*/` 패턴 추가(기존 `**/data*/` 패턴은 `runtime/`을 커버하지 않았음). `git diff --stat`(마지막 5커밋 기준): 18 files changed, 522 insertions(+), 23 deletions(-) — 작업트리 미커밋 변경 전체를 포함하는 수치는 아님.
+- 결과/검증: `uv run pytest -q`: **666 passed**(0 failed). `uv run ruff check src/ tests/`: 9건, 이 리팩터 이전 baseline과 정확히 동일(전부 `test_structured_parser.py`의 기존 이슈, 무관). `uv run mypy src/`: 37건, baseline 35건 대비 +2 — `storage.py`에 기존부터 있던 "Optional 경로 str|None" 패턴(accepted-debt로 문서화된 패턴)이 새 메서드에서 반복된 것으로 새로운 종류의 이슈는 아님. Collector+ScreenMatcher(FakeExtractor)+DataWriter를 스크립트로 구동한 수동 스모크 테스트: (1) 동일 화면 재방문 시 관측 파일 0개 생성 확인, (2) SUPERSET_MERGE로 다른 렌더 상태 진입 시 새 observation 폴더 생성 확인(page_graph의 `visit_count=3`, `observation_count=2`로 정확히 일치), (3) 세션 재개 후 같은 page가 재발견되지 않고 `observation_count`가 유지됨을 확인. `monkey-collect convert-all`을 실제 백업 데이터(4개 세션)로 재검증해 941개 예제 생성 확인(레거시 degrade 경로 정상 동작).
+- 커밋: 미커밋(작업트리). 직후 project-sync + git-push 예정.
+- 문서: 패키지 정본 `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md` + `.claude/skills/setup-collector/`(SKILL.md, `references/run-and-verify.md`) 갱신. 루트 `docs/{README,ARCHITECTURE}.md`는 패키지 정본을 가리키므로 추가 수정 없음.
+- 카테고리: devlog
+
 ## 2026-07-01 — Monkey-Collector luminance prefilter 포팅 — 동일 화면 재방문 시 LLM element-extraction 0회 (MobileGPT-V2 Stage-0)
 
 MobileGPT-V2 의 Stage-0 luminance prefilter 를 Monkey-Collector `ScreenMatcher` 에 포팅했다. 시각적으로 동일한 화면을 재방문할 때 LLM element-extraction 호출을 **0회로 단락**해 수집 비용을 줄인다. 기존 page_key 를 재사용하므로 page_graph/explorer 일관성도 보존된다. 코드 변경(기록 전용 아님), 작업트리 미커밋.
