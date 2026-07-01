@@ -577,7 +577,7 @@ def _process_xml_signal(
         # pages/{page_key}/{obs}/ layout, not a new dedup behavior).
         observation_num = state.page_graph.next_observation_num(state.current_page_id)
         is_new_observation = True
-        page_key = f"page_{state.current_page_id}"
+        page_key = str(state.current_page_id)
     # The first in-app page registered this session is the root (back from it
     # only exits to the launcher); pin it once for back-suppression.
     if state.root_page_id is None:
@@ -724,7 +724,7 @@ def _process_xml_signal(
     event["activity_name"] = activity_name
     # frame_index (allocated above, before the save block) orders events;
     # page_key/observation_num are the join key to the actual screen files —
-    # data/{package}/pages/{page_key}/{observation_num:04d}/ — on EVERY event,
+    # data/{package}/pages/{page_key}/{observation_num}/ — on EVERY event,
     # new observation or reused. `step` is a loop-counter label only.
     event["frame_index"] = frame_index
     event["page_key"] = page_key

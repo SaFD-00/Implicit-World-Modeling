@@ -549,7 +549,7 @@ class ScreenMatcher:
         if additional is None:
             additional = self._extractor.extract(encoded_xml, known_elements=[])
 
-        page_key = f"page_{self._counter}"
+        page_key = str(self._counter)
         self._counter += 1
 
         key_elements: dict[str, list[UIAttributes]] = {}

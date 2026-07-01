@@ -165,7 +165,7 @@ class TestMultipleSteps:
         pages_dir = tmp_path / "data" / "com.test.app" / "pages"
         assert len(list(pages_dir.iterdir())) == 3
         for i in range(3):
-            obs_dir = pages_dir / f"page_{i}" / "0000"
+            obs_dir = pages_dir / f"page_{i}" / "0"
             assert (obs_dir / "screenshot.png").exists()
             assert (obs_dir / "raw.xml").exists()
 
@@ -312,7 +312,7 @@ class TestSaveObservation:
 
         paths = writer.save_observation("page_0", 0, b"\x89PNG_fake", SIMPLE_XML)
 
-        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
         assert (obs_dir / "screenshot.png").read_bytes() == b"\x89PNG_fake"
         assert (obs_dir / "raw.xml").read_text() == SIMPLE_XML
         assert (obs_dir / "parsed.xml").exists()
@@ -327,7 +327,7 @@ class TestSaveObservation:
         from tests.fixtures.xml_samples import SIMPLE_XML
 
         writer.save_observation("page_0", 0, None, SIMPLE_XML)
-        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
         root = ET.fromstring((obs_dir / "encoded.xml").read_text())
         for el in root.iter():
             assert "bounds" not in el.attrib
@@ -335,7 +335,7 @@ class TestSaveObservation:
     def test_invalid_xml_still_saves_raw(self, writer, tmp_path):
         """Invalid XML should still save the raw file without crashing."""
         writer.save_observation("page_0", 0, None, "<not valid!!!")
-        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
         assert (obs_dir / "raw.xml").read_text() == "<not valid!!!"
         assert not (obs_dir / "parsed.xml").exists()
 
@@ -344,7 +344,7 @@ class TestSaveObservation:
 
         paths = writer.save_observation("page_0", 0, None, SIMPLE_XML)
 
-        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
         assert not (obs_dir / "screenshot.png").exists()
         assert "screenshot" not in paths
 
@@ -353,7 +353,7 @@ class TestSaveObservation:
 
         writer.save_observation("page_0", 0, None, SIMPLE_XML)
 
-        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
         assert not (obs_dir / "elements.json").exists()
 
     def test_writes_elements_json_with_activity(self, writer, tmp_path):
@@ -371,7 +371,7 @@ class TestSaveObservation:
             "page_0", 0, None, SIMPLE_XML, match=match, activity="act.Main",
         )
 
-        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
         data = json.loads((obs_dir / "elements.json").read_text())
         assert data["page_key"] == "page_0"
         assert data["activity"] == "act.Main"
@@ -384,8 +384,8 @@ class TestSaveObservation:
         writer.save_observation("page_0", 1, None, SIMPLE_XML)
 
         pages_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0"
-        assert (pages_dir / "0000").is_dir()
-        assert (pages_dir / "0001").is_dir()
+        assert (pages_dir / "0").is_dir()
+        assert (pages_dir / "1").is_dir()
 
     def test_empty_families_writes_empty_elements(self, writer, tmp_path):
         # elements.json serializes whatever families the match carries; an
@@ -396,7 +396,7 @@ class TestSaveObservation:
         match = _FakeMatch("page_0", "EQSET", False, families=[])
         writer.save_observation("page_0", 0, None, SIMPLE_XML, match=match)
 
-        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
         data = json.loads((obs_dir / "elements.json").read_text())
         assert data["match_type"] == "EQSET"
         assert data["elements"] == []
@@ -509,7 +509,7 @@ class TestRegenerateXmlVariantsNewLayout:
         w.init_session("com.test.app", "com.test.app")
         w.save_observation("page_0", 0, None, SIMPLE_XML)
 
-        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0000"
+        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
         (obs_dir / "parsed.xml").unlink()
 
         count = regenerate_xml_variants(str(tmp_path / "data"))

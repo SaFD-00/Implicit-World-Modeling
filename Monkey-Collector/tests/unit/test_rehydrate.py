@@ -113,7 +113,7 @@ def test_rehydrate_restores_registry_and_structural_cache(tmp_path):
 
     # _counter is past the highest rehydrated page index, so a genuinely new
     # page can't collide with a's page_key.
-    assert fresh._counter == int(a.page_key.removeprefix("page_")) + 1
+    assert fresh._counter == int(a.page_key) + 1
 
 
 def test_rehydrate_empty_tree_is_noop(tmp_path):
@@ -156,12 +156,12 @@ def test_rehydrate_skips_page_with_no_observations_gracefully(tmp_path):
     from monkey_collector.pipeline.screen_matching.page_knowledge import (
         PageKnowledge,
     )
-    writer.save_page_knowledge("page_0", PageKnowledge(page_key="page_0"))
+    writer.save_page_knowledge("0", PageKnowledge(page_key="0"))
 
     fresh = ScreenMatcher(FakeExtractor())
     rehydrate_screen_matcher(fresh, writer)
 
-    page = fresh._registry.get("page_0")
+    page = fresh._registry.get("0")
     assert page is not None
     assert page.next_observation_num == 0
     assert fresh._counter == 1

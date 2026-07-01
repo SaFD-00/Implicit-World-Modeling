@@ -170,7 +170,7 @@ class Converter:
 
         Each action event is joined to its before-screen via the event's
         ``page_key``/``observation_num`` — the durable
-        ``data/{package}/pages/{page_key}/{observation_num:04d}/`` folder the
+        ``data/{package}/pages/{page_key}/{observation_num}/`` folder the
         collection loop wrote (or reused with no new write). The after-screen
         is the *next* action's before-screen, so transient loading frames
         captured between two actions are skipped and the model learns the
@@ -235,14 +235,14 @@ class Converter:
             if (before_key, before_obs) == (after_key, after_obs):
                 continue  # reused observation → no visual change
 
-            before_dir = pages_dir / before_key / f"{before_obs:04d}"
-            after_dir = pages_dir / after_key / f"{after_obs:04d}"
+            before_dir = pages_dir / before_key / str(before_obs)
+            after_dir = pages_dir / after_key / str(after_obs)
             before_encoded_path = before_dir / "encoded.xml"
             after_encoded_path = after_dir / "encoded.xml"
             if not before_encoded_path.exists() or not after_encoded_path.exists():
                 logger.debug(
-                    f"Encoded XML missing for {before_key}/{before_obs:04d} "
-                    f"or {after_key}/{after_obs:04d}"
+                    f"Encoded XML missing for {before_key}/{before_obs} "
+                    f"or {after_key}/{after_obs}"
                 )
                 continue
 
@@ -255,7 +255,7 @@ class Converter:
 
             src_screenshot = before_dir / "screenshot.png"
             if not src_screenshot.exists():
-                logger.debug(f"Screenshot not found for {before_key}/{before_obs:04d}")
+                logger.debug(f"Screenshot not found for {before_key}/{before_obs}")
                 continue
 
             example = generate_example(

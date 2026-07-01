@@ -179,7 +179,7 @@ def test_pending_loading_then_first_valid_screen_is_page_0():
 
     m = sm.match(RAW_A, _enc(RAW_A), "act.Main")
     assert m.is_new_page and m.match_type == "NEW"
-    assert m.page_key == "page_0"
+    assert m.page_key == "0"
     assert {f.name for f in m.families} == {"open_add", "open_search"}
 
 
@@ -218,7 +218,7 @@ def test_remap_families_regrounds_on_current_screen():
     sm = _matcher()
     # Register page_0 from RAW_A (open_add, open_search anchored on this screen).
     sm.match(RAW_A, _enc(RAW_A), "act.Main")
-    page = sm._registry.get("page_0")
+    page = sm._registry.get("0")
 
     # Re-ground on RAW_A's own tree: both elements present → current indices,
     # element_index approximated to (== ) the anchor indices.
@@ -231,7 +231,7 @@ def test_remap_families_regrounds_on_current_screen():
 def test_remap_families_drops_unrendered_elements():
     sm = _matcher()
     sm.match(RAW_A, _enc(RAW_A), "act.Main")
-    page = sm._registry.get("page_0")
+    page = sm._registry.get("0")
     # RAW_C (Play only) has none of page_0's anchors → every element dropped.
     tree_c = ET.fromstring(_enc(RAW_C))
     assert sm._remap_families(tree_c, page) == []
@@ -290,7 +290,7 @@ def test_luminance_observations_capped():
     # luminance lookup misses and a new observation is allocated every time.
     sm = _lum_matcher()
     sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
-    page = sm._registry.get("page_0")
+    page = sm._registry.get("0")
 
     n = ScreenMatcher._MAX_LUMINANCE_OBS + 5
     for i in range(n):

@@ -74,7 +74,7 @@ def rehydrate_screen_matcher(matcher: ScreenMatcher, writer: DataWriter) -> None
                             page.luminance_features.append((obs_num, feat))
             except Exception as e:
                 logger.warning(
-                    f"rehydrate: {page_key}/{obs_num:04d} unreadable, skipping ({e})"
+                    f"rehydrate: {page_key}/{obs_num} unreadable, skipping ({e})"
                 )
 
         if len(page.luminance_features) > ScreenMatcher._MAX_LUMINANCE_OBS:
@@ -82,7 +82,7 @@ def rehydrate_screen_matcher(matcher: ScreenMatcher, writer: DataWriter) -> None
 
         pages[page_key] = page
         with contextlib.suppress(ValueError):
-            max_page_idx = max(max_page_idx, int(page_key.removeprefix("page_")))
+            max_page_idx = max(max_page_idx, int(page_key))
 
     matcher.rehydrate(pages, fp_to_key, counter=max_page_idx + 1)
     logger.info(f"screen_matcher rehydrated: {len(pages)} pages")

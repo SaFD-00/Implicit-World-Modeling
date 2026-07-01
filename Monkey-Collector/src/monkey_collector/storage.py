@@ -5,7 +5,7 @@ Directory structure::
     data/{package}/
     ├── pages/{page_key}/
     │   ├── page.json                 (frozen anchors, written once at page creation)
-    │   └── {observation_num:04d}/
+    │   └── {observation_num}/
     │       ├── screenshot.png, raw.xml, parsed.xml, hierarchy.xml, encoded.xml, pretty.xml
     │       └── elements.json         (only when a live match produced one)
     └── page_graph.json
@@ -220,7 +220,7 @@ class DataWriter:
 
     def _observation_dir(self, page_key: str, observation_num: int) -> str:
         return os.path.join(
-            self.data_session_dir, "pages", page_key, f"{observation_num:04d}"
+            self.data_session_dir, "pages", page_key, str(observation_num)
         )
 
     def save_observation(
@@ -294,7 +294,7 @@ class DataWriter:
                 paths["pretty"] = pretty_path
         except Exception as e:
             logger.warning(
-                f"XML parsing failed for {page_key}/{observation_num:04d}: {e}"
+                f"XML parsing failed for {page_key}/{observation_num}: {e}"
             )
 
         if match is not None:
