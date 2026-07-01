@@ -10,7 +10,7 @@ from loguru import logger
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Run server-driven data collection across one or more installed apps."""
-    log_dir = Path(__file__).resolve().parents[2] / "logs"
+    log_dir = Path(__file__).resolve().parents[2] / "runtime" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     logger.add(str(log_path), level="DEBUG", enqueue=True)
@@ -43,7 +43,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         f"delay_ms={cfg.collection.action_delay_ms}, port={cfg.collection.port}, "
         f"input_mode={cfg.llm.input_mode}, "
         f"element_extraction={cfg.llm.element_extraction}, "
-        f"luminance_prefilter={cfg.screen_matching.luminance_prefilter}"
+        f"luminance_prefilter={cfg.screen_matching.luminance_prefilter}, "
+        f"persist_filtered={cfg.screen_matching.persist_filtered}"
     )
 
     packages = _resolve_run_packages(args.apps, cfg.collection.runtime_dir, args.force)
@@ -75,18 +76,20 @@ def cmd_run(args: argparse.Namespace) -> None:
     text_gen = create_text_generator(
         mode=cfg.llm.input_mode, seed=cfg.collection.seed, llm_client=llm_client,
     )
-    # One ElementExtractor feeds the ScreenMatcher, which the loop queries once
-    # per new screen (plus expand passes) for element-set page identity.
+    # With element extraction on, one ElementExtractor feeds the ScreenMatcher
+    # for element-set page identity. With it off (extractor None), the matcher
+    # still runs prefilter-only (structural + luminance dedup, no LLM) whenever
+    # the luminance prefilter is on — see create_screen_matcher.
     extractor = create_element_extractor(llm_client) if element_extraction_on else None
     screen_matcher = create_screen_matcher(
         extractor,
-        enabled=element_extraction_on,
         cluster_merge_tolerance=cfg.screen_matching.cluster_merge_tolerance,
         max_expand_iters=cfg.screen_matching.max_expand_iters,
         luminance_prefilter=cfg.screen_matching.luminance_prefilter,
         luminance_threshold=cfg.screen_matching.luminance_threshold,
         screenshot_diff_threshold=cfg.screen_matching.screenshot_diff_threshold,
         luminance_low_res_width=cfg.screen_matching.luminance_low_res_width,
+        persist_filtered=cfg.screen_matching.persist_filtered,
     )
     explorer = LLMGuidedExplorer(
         adb,
@@ -536,8 +539,8 @@ def main() -> None:
         default=None,
         help=(
             "Stage-0 luminance prefilter: dedup a near-pixel-identical screen to a "
-            "stored page with no LLM call before element-set matching (default on; "
-            "needs --element-extraction on)"
+            "stored page with no LLM call (default on; runs standalone even with "
+            "--element-extraction off, keeping page/observation dedup)"
         ),
     )
     p.add_argument(
@@ -557,6 +560,16 @@ def main() -> None:
         type=int,
         default=None,
         help="Downscale width (px) for the luminance fingerprint (default 100)",
+    )
+    p.add_argument(
+        "--persist-filtered",
+        choices=["on", "off"],
+        default=None,
+        help=(
+            "Persist a prefilter/dedup revisit as its own fresh observation "
+            "(per-visit chain pages/{page_key}/0,1,2,...) instead of skipping the "
+            "write (default on; 'off' restores no-write-on-revisit dedup)"
+        ),
     )
     p.add_argument(
         "--new-session",

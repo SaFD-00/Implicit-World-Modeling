@@ -34,6 +34,18 @@ what ``ScreenMatch.observation_num``/``is_new_observation`` carry to the caller,
 which persists a new observation's files only when ``is_new_observation`` is
 true.
 
+The ``persist_filtered`` flag (config: ``screen_matching.persist_filtered``,
+default ON) inverts the reuse decision for STORAGE: when set, every deduped
+revisit — a structural-prefilter hit, a luminance-prefilter hit, or a
+classify-MERGE luminance dedup — allocates a FRESH ``observation_num`` under its
+(reused) ``page_key`` and reports ``is_new_observation=True``, so the caller
+persists it as its own observation (a per-visit chain ``0,1,2,...`` per page).
+Page identity is untouched (same ``page_key``, same page-graph node) and no LLM
+call is added (families still come from anchor re-grounding). A prefilter HIT
+allocates via ``_allocate_observation(..., append_luma=False)`` so the near-dup
+fingerprint is not re-appended to the capped luminance ring. With the flag off
+the historical no-write-on-reuse behaviour is preserved byte-for-byte.
+
 The emitted ``page_key`` drives BOTH the ``page_graph.json`` node identity and
 the exploration abstract page. On a NEW page ``families`` carries the
 freshly-extracted, current-index element families that feed the explorer's
@@ -115,6 +127,8 @@ class ScreenMatch:
     (see module docstring): which of the page's stored visual states this
     screenshot corresponds to, and whether the caller must persist a new
     observation's files (true) or reuse an existing one (false, no new write).
+    Under ``persist_filtered`` a deduped revisit reports true with a fresh
+    ``observation_num`` so it is persisted rather than collapsed.
     """
 
     page_key: str
@@ -149,7 +163,15 @@ def _families_from_elements(elements: list[ExtractedElement]) -> list[ElementFam
 
 
 class ScreenMatcher:
-    """Element-set page identifier with on-the-fly single-call extraction."""
+    """Element-set page identifier with on-the-fly single-call extraction.
+
+    Runs in one of two modes depending on whether an *extractor* was supplied:
+    with one, full element-set matching (structural + luminance prefilters, then
+    step-1/expand/classify). Without one (``extractor is None``), a
+    **prefilter-only** mode that keeps the structural + luminance prefilters and
+    observation dedup but registers unmatched screens as new pages directly,
+    never touching the element-set path — used when LLM element extraction is off.
+    """
 
     # Per-page luminance-fingerprint observation cap. Bounds the Stage-0 compare
     # loop (O(pages × observations)) over a long session.
@@ -157,13 +179,14 @@ class ScreenMatcher:
 
     def __init__(
         self,
-        extractor: ElementExtractor,
+        extractor: ElementExtractor | None,
         cluster_merge_tolerance: float = 0.2,
         max_expand_iters: int = 3,
         luminance_prefilter: bool = False,
         luminance_threshold: int = 10,
         screenshot_diff_threshold: float = 0.02,
         luminance_low_res_width: int = 100,
+        persist_filtered: bool = False,
     ):
         self._extractor = extractor
         self._tolerance = cluster_merge_tolerance
@@ -175,6 +198,14 @@ class ScreenMatcher:
         self._luma_threshold = luminance_threshold
         self._luma_diff_threshold = screenshot_diff_threshold
         self._luma_width = luminance_low_res_width
+        # When True, a prefilter/dedup revisit is NOT collapsed onto its stored
+        # observation: it allocates a FRESH observation_num under the (reused)
+        # page_key and is reported as is_new_observation=True, so the collection
+        # loop persists its files (per-visit observation chain 0,1,2,...). The
+        # function default is OFF (safe library default: current no-write-on-
+        # reuse behaviour); the config layer turns it ON. Still zero LLM calls —
+        # only the persistence decision changes, never page identity.
+        self._persist_filtered = persist_filtered
         self._registry = KnowledgeRegistry()
         self._fp_to_key: dict[tuple[str, str], tuple[str, int]] = {}
         self._counter = 0
@@ -230,9 +261,11 @@ class ScreenMatcher:
             else None
         )
 
-        # 0. Structural pre-filter: exact revisit short-circuits, no LLM. The
-        # cached (page_key, observation_num) IS the reused observation — no new
-        # luminance observation to append, no new files for the caller to write.
+        # 0. Structural pre-filter: exact revisit short-circuits, no LLM. When
+        # persist_filtered is off the cached (page_key, observation_num) IS the
+        # reused observation (no new files); when on, this revisit is persisted
+        # as a fresh observation under the same page (see below). Either way,
+        # zero LLM calls.
         cached = self._fp_to_key.get(fp_key)
         if cached is not None:
             cached_key, cached_obs = cached
@@ -251,6 +284,19 @@ class ScreenMatcher:
                 if (c_tree is not None and cached_page is not None)
                 else []
             )
+            if self._persist_filtered and cached_page is not None:
+                # Persist this revisit as its OWN fresh observation under the
+                # reused page. No luminance re-append (append_luma=False): the hit
+                # frame is already a near-dup of a stored fingerprint, so re-adding
+                # it would only churn the capped ring buffer. Re-point the
+                # structural cache at the newest obs so the next exact revisit
+                # still short-circuits the LLM and extends the per-visit chain.
+                new_obs = self._allocate_observation(cached_page, current_feat, append_luma=False)
+                self._fp_to_key[fp_key] = (cached_key, new_obs)
+                return ScreenMatch(
+                    cached_key, is_new_page=False, match_type="STRUCTURAL_IDENTICAL", families=fams,
+                    observation_num=new_obs, is_new_observation=True,
+                )
             return ScreenMatch(
                 cached_key, is_new_page=False, match_type="STRUCTURAL_IDENTICAL", families=fams,
                 observation_num=cached_obs, is_new_observation=False,
@@ -282,20 +328,46 @@ class ScreenMatcher:
                 logger.info(
                     f"screen_match: luminance prefilter hit page={hit_key} obs={hit_obs}"
                 )
-                # Back-fill the structural cache so the next exact revisit of this
-                # XML resolves via the cheaper structural prefilter. The hit frame
-                # itself is NOT stored as an observation (it is already a near-dup).
-                self._fp_to_key[fp_key] = (hit_key, hit_obs)
                 hit_page = self._registry.get(hit_key)
                 fams = (
                     self._remap_families(tree, hit_page)
                     if (tree is not None and hit_page is not None)
                     else []
                 )
+                if self._persist_filtered and hit_page is not None:
+                    # Persist this near-dup revisit as its OWN fresh observation
+                    # (append_luma=False — it already matches a stored fingerprint,
+                    # so re-appending would only churn the capped ring buffer).
+                    # Re-point the structural cache at the newest obs.
+                    new_obs = self._allocate_observation(hit_page, current_feat, append_luma=False)
+                    self._fp_to_key[fp_key] = (hit_key, new_obs)
+                    return ScreenMatch(
+                        hit_key, is_new_page=False, match_type="LUMINANCE_PREFILTER", families=fams,
+                        observation_num=new_obs, is_new_observation=True,
+                    )
+                # Back-fill the structural cache so the next exact revisit of this
+                # XML resolves via the cheaper structural prefilter. The hit frame
+                # itself is NOT stored as an observation (it is already a near-dup).
+                self._fp_to_key[fp_key] = (hit_key, hit_obs)
                 return ScreenMatch(
                     hit_key, is_new_page=False, match_type="LUMINANCE_PREFILTER", families=fams,
                     observation_num=hit_obs, is_new_observation=False,
                 )
+
+        # Prefilter-only mode (no extractor): page identity relies SOLELY on the
+        # Stage-0 structural fingerprint (checked at the top) and the Stage-0c
+        # luminance prefilter (checked just above) — both already MISSED here.
+        # Register a NEW page WITHOUT extracting elements, and NEVER fall through
+        # to step-1/expand/classify: those need element anchors (absent without
+        # an extractor) and classify(∅, ∅) would collapse every screen into one
+        # page. Re-identification on later visits then relies purely on the
+        # structural-fp exact match + luminance prefilter, neither of which needs
+        # anchors. Passing additional=[] makes _new_page skip the extractor.
+        if self._extractor is None:
+            return self._new_page(
+                fp_key, encoded_xml, tree, supported_names=[], best=None, additional=[],
+                current_feat=current_feat,
+            )
 
         # No stored pages yet → straight to a new page (full extract).
         if len(self._registry) == 0 or tree is None:
@@ -460,6 +532,28 @@ class ScreenMatcher:
                 return int(obs_num)
         return None
 
+    def _allocate_observation(
+        self, page: PageKnowledge, feat: PILImage | None, append_luma: bool = True,
+    ) -> int:
+        """Allocate *page*'s next observation_num (monotonic ++), the single
+        place per-page observation numbers are minted.
+
+        When *append_luma* and the luminance prefilter is on and a fingerprint
+        was computed, records ``(obs_num, feat)`` so future screens can
+        prefilter-hit this exact observation (capped at ``_MAX_LUMINANCE_OBS``,
+        oldest evicted). Callers persisting a prefilter/luminance HIT pass
+        ``append_luma=False``: that frame already matches a stored fingerprint,
+        so re-adding a near-dup would only churn the cap and risk evicting the
+        first-sighting fingerprint.
+        """
+        obs_num = page.next_observation_num
+        page.next_observation_num += 1
+        if append_luma and self._luma_enabled and feat is not None:
+            page.luminance_features.append((obs_num, feat))
+            if len(page.luminance_features) > self._MAX_LUMINANCE_OBS:
+                del page.luminance_features[0]
+        return obs_num
+
     def _record_observation(
         self, page_key: str, feat: PILImage | None, allow_reuse: bool,
     ) -> tuple[int, bool]:
@@ -476,6 +570,10 @@ class ScreenMatcher:
         structurally-different renders are visually identical, so allocating
         avoids silently collapsing genuinely different scroll/render states of
         a page into one.
+
+        When ``persist_filtered`` is on the reuse short-circuit is skipped
+        entirely: a merge revisit is persisted as its own fresh observation, so
+        every visit lands on disk (per-visit observation chain).
         """
         page = self._registry.get(page_key)
         if page is None:
@@ -484,18 +582,17 @@ class ScreenMatcher:
             # mid-collection.
             return 0, True
 
-        if allow_reuse and self._luma_enabled and feat is not None:
+        if (
+            allow_reuse
+            and not self._persist_filtered
+            and self._luma_enabled
+            and feat is not None
+        ):
             hit = self._page_luminance_lookup(page, feat)
             if hit is not None:
                 return hit, False
 
-        obs_num = page.next_observation_num
-        page.next_observation_num += 1
-        if self._luma_enabled and feat is not None:
-            page.luminance_features.append((obs_num, feat))
-            if len(page.luminance_features) > self._MAX_LUMINANCE_OBS:
-                del page.luminance_features[0]
-        return obs_num, True
+        return self._allocate_observation(page, feat, append_luma=True), True
 
     # -- step 2 (expand) ------------------------------------------------------
 

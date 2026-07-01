@@ -17,10 +17,13 @@ Directory structure::
 ``data/`` is the durable corpus root (pages/observations, page_graph);
 ``runtime/`` is ephemeral per-run bookkeeping (resume state, cost/coverage
 CSVs, the action timeline — each event carries the ``page_key``/
-``observation_num`` it maps onto, alongside a monotonic ``frame_index``). A
-screen that reuses an existing observation (see
-``pipeline.screen_matching.screen_matcher``) writes no new files at all — see
-``save_observation``.
+``observation_num`` it maps onto, alongside a monotonic ``frame_index``).
+Whether a prefilter/dedup revisit writes files is decided by the matcher (see
+``pipeline.screen_matching.screen_matcher``): with ``screen_matching.persist_filtered``
+on (default) every deduped revisit is persisted as its own fresh observation
+(a per-visit ``0,1,2,...`` chain per page); with it off, a screen that reuses an
+existing observation writes no new files at all. Either way ``save_observation``
+is called only when ``ScreenMatch.is_new_observation`` is true.
 
 A pre-migration session (flat ``screenshots/``/``xml/`` under ``data/{package}/``,
 no ``pages/``) is left as-is; ``regenerate_xml_variants`` still supports it,
@@ -236,8 +239,10 @@ class DataWriter:
         + 4 derived variants, and — iff *match* is given — ``elements.json``.
 
         Callers must only call this when they've already decided this screen is
-        a NEW observation (``ScreenMatch.is_new_observation``); a reused
-        observation has nothing new to write. Returns the paths actually
+        a NEW observation (``ScreenMatch.is_new_observation``): a brand-new page,
+        a genuinely new visual state, or — under ``persist_filtered`` — a deduped
+        revisit that was handed a fresh ``observation_num`` (so it never
+        overwrites an existing one). Returns the paths actually
         written, keyed by artifact name (a key is present only when that file
         was produced — e.g. no ``screenshot`` key when *screenshot_data* is
         falsy, matching today's "screenshot may be absent" degrade).

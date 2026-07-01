@@ -37,7 +37,7 @@ _BUILTIN_DEFAULTS: dict = {
     },
     "llm": {
         "input_mode": "api",
-        "element_extraction": True,
+        "element_extraction": False,
     },
     "screen_matching": {
         "cluster_merge_tolerance": 0.2,
@@ -46,6 +46,7 @@ _BUILTIN_DEFAULTS: dict = {
         "luminance_threshold": 10,
         "screenshot_diff_threshold": 0.02,
         "luminance_low_res_width": 100,
+        "persist_filtered": True,
     },
 }
 
@@ -77,7 +78,9 @@ class CollectionConfig:
 @dataclass
 class LlmConfig:
     input_mode: str = "api"       # api | random
-    element_extraction: bool = True
+    # Default OFF: the LLM is used for input-text generation only. Turn on to
+    # add LLM element extraction + element-set screen matching.
+    element_extraction: bool = False
 
 
 @dataclass
@@ -89,6 +92,9 @@ class ScreenMatchingConfig:
     luminance_threshold: int = 10           # per-pixel |ΔY| change cutoff (0–255)
     screenshot_diff_threshold: float = 0.02  # changed-pixel fraction → same page
     luminance_low_res_width: int = 100       # fingerprint downscale width (px)
+    # Persist a prefilter/dedup revisit as its OWN fresh observation (per-visit
+    # chain) instead of writing nothing. Default ON — filtered screens are saved.
+    persist_filtered: bool = True
 
 
 @dataclass
@@ -168,6 +174,7 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD",     "screen_matching", "luminance_threshold",       "int"),
         ("MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD", "screen_matching", "screenshot_diff_threshold", "float"),
         ("MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH", "screen_matching", "luminance_low_res_width",   "int"),
+        ("MC_SCREEN_MATCHING_PERSIST_FILTERED",        "screen_matching", "persist_filtered",          "bool"),
     ]
 
     # raw is already an isolated deep copy (see load_run_config); mutate in place.
@@ -210,7 +217,7 @@ def _from_raw(raw: dict) -> RunConfig:
         ),
         llm=LlmConfig(
             input_mode=str(llm.get("input_mode", "api")),
-            element_extraction=_coerce_bool(llm.get("element_extraction", True)),
+            element_extraction=_coerce_bool(llm.get("element_extraction", False)),
         ),
         screen_matching=ScreenMatchingConfig(
             cluster_merge_tolerance=float(sm.get("cluster_merge_tolerance", 0.2)),
@@ -219,6 +226,7 @@ def _from_raw(raw: dict) -> RunConfig:
             luminance_threshold=int(sm.get("luminance_threshold", 10)),
             screenshot_diff_threshold=float(sm.get("screenshot_diff_threshold", 0.02)),
             luminance_low_res_width=int(sm.get("luminance_low_res_width", 100)),
+            persist_filtered=_coerce_bool(sm.get("persist_filtered", True)),
         ),
     )
 
@@ -323,5 +331,9 @@ def merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfi
         sm = replace(sm, screenshot_diff_threshold=sdt)
     if lrw is not None:
         sm = replace(sm, luminance_low_res_width=lrw)
+    # persist_filtered: {on,off} string sentinel (like --luminance-prefilter).
+    pf = getattr(args, "persist_filtered", None)
+    if pf is not None:
+        sm = replace(sm, persist_filtered=(pf == "on"))
 
     return RunConfig(exploration=expl, collection=coll, llm=llm, screen_matching=sm)

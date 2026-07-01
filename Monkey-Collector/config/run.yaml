@@ -7,8 +7,9 @@
 # are CLI-only — not configurable here.
 #
 # Experiment runs sweep several keys. Canonical git default: exploration.strategy=BFS,
-# collection.max_steps=1500, collection.action_delay_ms=1500, llm.element_extraction=true,
-# screen_matching.luminance_prefilter=true. Reset to these before committing.
+# collection.max_steps=1500, collection.action_delay_ms=1500, llm.element_extraction=false,
+# screen_matching.luminance_prefilter=true, screen_matching.persist_filtered=true.
+# Reset to these before committing.
 
 exploration:
   # Traversal strategy. Options: DFS | BFS | GREEDY
@@ -39,9 +40,12 @@ llm:
   # Env: MC_LLM_INPUT_MODE
   input_mode: api
   # LLM element extraction + element-set screen matching. Options: true | false
-  # Disabled automatically when OPENROUTER_API_KEY is unset (degrades to structural fingerprint).
+  # Default false: the LLM is used for input-text generation ONLY. When true,
+  # each screen is element-extracted (one LLM call) for element-set page identity;
+  # disabled automatically when OPENROUTER_API_KEY is unset. Page/observation
+  # dedup keeps working either way via the luminance/structural prefilter below.
   # Env: MC_LLM_ELEMENT_EXTRACTION
-  element_extraction: true
+  element_extraction: false
 
 screen_matching:
   # Two-sided tolerance band for OVERLAP element-set merges (0.0–1.0).
@@ -51,8 +55,10 @@ screen_matching:
   # Env: MC_SCREEN_MATCHING_MAX_EXPAND_ITERS
   max_expand_iters: 3
   # Stage-0 luminance prefilter (MobileGPT-V2 port): dedup a near-pixel-identical
-  # screen to a stored page with NO LLM call, before element-set matching.
-  # Needs element_extraction on (a ScreenMatcher). Default ON.
+  # screen to a stored page with NO LLM call. Runs both alongside element-set
+  # matching AND standalone (prefilter-only mode) when element_extraction is off,
+  # so page/observation dedup survives with the LLM used for input text only.
+  # Default ON.
   # Env: MC_SCREEN_MATCHING_LUMINANCE_PREFILTER
   luminance_prefilter: true
   # Per-pixel brightness |ΔY| above which a pixel counts as "changed" (0–255).
@@ -64,3 +70,8 @@ screen_matching:
   # Downscale width (px) for the luminance fingerprint.
   # Env: MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH
   luminance_low_res_width: 100
+  # Persist a prefilter/dedup revisit as its OWN fresh observation (per-visit
+  # chain pages/{page_key}/0,1,2,...) instead of writing no files. true = filtered
+  # revisits are saved; false = restore no-write-on-revisit dedup. Default ON.
+  # Env: MC_SCREEN_MATCHING_PERSIST_FILTERED
+  persist_filtered: true

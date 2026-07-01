@@ -165,3 +165,62 @@ def test_rehydrate_skips_page_with_no_observations_gracefully(tmp_path):
     assert page is not None
     assert page.next_observation_num == 0
     assert fresh._counter == 1
+
+
+def test_rehydrate_prefilter_only_restores_luminance(tmp_path):
+    # Resume in prefilter-only mode (extractor None: LLM for input text only).
+    # The matcher is present, so rehydrate re-derives luminance features from the
+    # persisted screenshot, and a near-identical revisit luminance-hits the same
+    # page/observation — page dedup survives a resume with no extractor.
+    writer = _writer(tmp_path)
+    matcher = ScreenMatcher(
+        None, luminance_prefilter=True, luminance_threshold=10,
+        screenshot_diff_threshold=0.02, luminance_low_res_width=20,
+    )
+    shot = _jpeg((10, 20, 30))
+    a = _drive_and_persist(matcher, writer, RAW_A, screenshot=shot)
+    assert a.is_new_page and a.families == []
+
+    fresh = ScreenMatcher(
+        None, luminance_prefilter=True, luminance_threshold=10,
+        screenshot_diff_threshold=0.02, luminance_low_res_width=20,
+    )
+    rehydrate_screen_matcher(fresh, writer)
+
+    hit = fresh.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=shot)
+    assert hit.match_type == "LUMINANCE_PREFILTER"
+    assert hit.page_key == a.page_key
+    assert hit.observation_num == a.observation_num
+
+
+def _persist_lum_matcher():
+    return ScreenMatcher(
+        None, luminance_prefilter=True, luminance_threshold=10,
+        screenshot_diff_threshold=0.02, luminance_low_res_width=20,
+        persist_filtered=True,
+    )
+
+
+def test_rehydrate_after_persisted_revisits_continues_chain(tmp_path):
+    # With persist_filtered on, a structural revisit is written as its own
+    # observation dir (per-visit chain). After a resume, rehydration recovers
+    # next_observation_num = max(on-disk obs)+1 and the first post-resume revisit
+    # continues the chain with no gap or overwrite.
+    writer = _writer(tmp_path)
+    shot = _jpeg((10, 20, 30))
+    matcher = _persist_lum_matcher()
+    a = _drive_and_persist(matcher, writer, RAW_A, screenshot=shot)   # obs 0
+    r1 = _drive_and_persist(matcher, writer, RAW_A, screenshot=shot)  # obs 1 (structural)
+    assert (a.observation_num, r1.observation_num) == (0, 1)
+    assert r1.match_type == "STRUCTURAL_IDENTICAL" and r1.is_new_observation
+    assert writer.list_observations(a.page_key) == [0, 1]  # both on disk
+
+    fresh = _persist_lum_matcher()
+    rehydrate_screen_matcher(fresh, writer)
+    assert fresh._registry.get(a.page_key).next_observation_num == 2
+
+    # First post-resume revisit persists obs 2, extending the chain.
+    r2 = _drive_and_persist(fresh, writer, RAW_A, screenshot=shot)
+    assert r2.match_type == "STRUCTURAL_IDENTICAL" and r2.is_new_observation
+    assert r2.observation_num == 2
+    assert writer.list_observations(a.page_key) == [0, 1, 2]
