@@ -3,6 +3,32 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-02 — Monkey-Collector: 필터된 재방문도 저장 (`persist_filtered`, per-visit observation)
+
+사용자 질문("`data/com.flauschcode.broccoli/pages/` 에 observation 이 왜 페이지당 하나만 생기나")에서 출발했다. 원인은 prefilter-only 모드(`element_extraction=false`)에서 structural/luminance prefilter 로 dedup 된 재방문 화면이 파일을 전혀 안 쓰고, 재사용 못 하는 새 화면은 새 page 가 되어 "새 page = observation 0" 1:1 이 되기 때문이었다. 사용자가 "filtering 이 되더라도 저장되도록" 원해, 필터된 재방문을 그 page 아래 **자체 observation**(방문마다 `0,1,2,…` per-visit 체인)으로 저장하도록 신규 플래그 `screen_matching.persist_filtered`(기본 ON)를 추가했다. 설계는 3개 독립안(per-visit / frames-subdir / config-gated) 생성→심사→적대적 검증 워크플로로 도출했고, "매처 단독 변경(loop/storage/rehydrate 무변경)"이 최소 blast-radius·정합성 최고로 선정됐다. 코드 변경, 작업트리 미커밋.
+
+- `screen_matcher.py`(핵심): `ScreenMatcher.__init__` 에 `persist_filtered` kwarg 추가, allocate+luminance-append+cap 로직을 `_allocate_observation(page, feat, append_luma)` 헬퍼로 추출. 3개 재사용 종료지점을 플래그로 게이트 — structural prefilter hit·luminance prefilter hit 은 fresh `observation_num` 을 할당(`append_luma=False`: 히트 프레임은 이미 near-dup 이라 ring-buffer churn 방지)하고 `_fp_to_key` 를 최신 obs 로 재지정한 뒤 `is_new_observation=True` 반환; `_record_observation` 의 merge dedup 는 `not persist_filtered` 일 때만 재사용 단락. 플래그 off/`cached_page None` 이면 현행 reuse 반환을 byte-identical 유지. page 정체성(page_key)·LLM 0회 불변, no-overwrite(항상 새 번호).
+- config 6-place: `config.py`(builtin default True + `ScreenMatchingConfig.persist_filtered` + env map `MC_SCREEN_MATCHING_PERSIST_FILTERED` + `_from_raw` + `merge_with_cli_args`), `config/run.yaml`(키 + 헤더 canonical-defaults), `cli.py`(`--persist-filtered {on,off}` + `create_screen_matcher` 전달 + 시작 로그), `pipeline/screen_matching/__init__.py`(`create_screen_matcher` 파라미터 전달, None-guard 불변).
+- 무변경(설계상 확인): `collection_loop.py`(게이트 632 는 `is_new_observation=True` 오면 그대로 발화), `storage.py`(`save_observation` 이 fresh 번호로 새 dir), `rehydrate.py`(`next_observation_num = max(on-disk obs)+1` 로 per-visit 체인 이어감).
+- 변경(작업트리, 8 files): src 5(`screen_matcher.py`·`config.py`·`cli.py`·`screen_matching/__init__.py`·`config/run.yaml`) + tests 3(`test_screen_matcher.py`·`test_config.py`·`test_rehydrate.py`) + 패키지문서 3(`README`·`ARCHITECTURE`·`AGENTS`.md) + repo docs 2(`docs/{DEVLOG,CHANGELOG}.md`).
+- 신규 테스트: `test_screen_matcher.py` persist 픽스처 2종 + 6 케이스(structural/luminance 재방문 fresh obs·no-LLM·cache backfill, prefilter-only 체인, merge 할당+append, must-fix#1 luminance 미증가, off 회귀), `test_config.py`(기본 True·env·CLI·full-args), `test_rehydrate.py`(multi-obs 저장→resume→`next_observation_num`·체인 지속).
+- 결과/검증: `uv run pytest -q`: **684 passed**(0 failed). 기존 reuse 단언은 픽스처 기본값 `persist_filtered=False` 로 그대로 통과.
+- 커밋: 미커밋(작업트리). 직후 project-sync + git-push 예정.
+- 문서: 패키지 정본 `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md` 의 "재사용=파일 미기록" 서술을 `persist_filtered` 기준(기본 ON=저장, off=미기록)으로 정정 + config/CLI 표·저장 트리 반영. 루트 `docs/{README,ARCHITECTURE}.md`는 패키지 정본을 가리키므로 추가 수정 없음. 앞선 저장 재설계(2026-07-01) 엔트리의 "재사용 관측 파일 미기록"은 append-only 라 수정하지 않고 이 엔트리에서 기본값을 뒤집었음을 명시.
+- 트레이드오프: loop-heavy 앱에서 근접 중복 observation 다수 생성(prefilter 가 애초에 피하려던 디스크 비용) — `--persist-filtered off`/`MC_SCREEN_MATCHING_PERSIST_FILTERED=false` 로 기존 절약 동작 복원. resume 간 플래그는 일정하게 유지 권장.
+- 카테고리: devlog
+
+## 2026-07-01 — Monkey-Collector: LLM을 입력 텍스트 생성 전용으로 (element_extraction 기본 off + prefilter 결합 해제)
+
+사용자가 LLM을 input text 생성 과정에서만 쓰고 나머지(element 추출·screen matching·action 선택)에는 쓰지 않기를 원해 Monkey-Collector의 LLM 사용을 입력 텍스트 생성 전용으로 기본 전환했다. action 선택은 원래 LLM을 안 썼고(coverage + transition-graph + RNG), 실제 LLM 호출 지점은 `text_generator`(유지)와 `element_extractor`(이번에 기본 off) 둘뿐이라 element_extraction만 끄면 목표가 달성된다. 다만 시각적 재방문 dedup을 담당하던 luminance/structural prefilter가 그동안 element_extraction(=ScreenMatcher 존재)에 묶여 있었으므로, 이 결합을 분리해 element_extraction을 꺼도 prefilter-only ScreenMatcher로 재방문 dedup이 계속 동작하게 했다.
+
+- `llm.element_extraction` 기본값 true→false (`config.py` 3곳 + `config/run.yaml`). `input_mode=api` 는 그대로 유지 → 텍스트 입력 LLM 생성·비용추적 정상 동작.
+- prefilter 결합 해제: `create_screen_matcher` 가 extractor 없이도 `luminance_prefilter` on 이면 ScreenMatcher를 **prefilter-only 모드**로 생성하도록 변경(`pipeline/screen_matching/__init__.py`), `ScreenMatcher.match()` 에 `extractor is None` early-return 추가 — structural fingerprint + luminance prefilter + observation dedup 은 유지하되 element-set 경로(step-1/expand/classify)를 우회해 `classify(∅, ∅)` 로 인한 빈-page 붕괴를 방지한다.
+- `element_extraction` off 이면 same-function 압축(element family) 없이 pure unexplored-first 로 탐색이 degrade 된다(`pipeline/exploration/memory.py` 의 기존 graceful degrade 경로, 사용자 승인).
+- 신규 유닛 테스트: `tests/unit/test_screen_matcher.py` 에 prefilter-only 그룹 3종 + `tests/unit/test_rehydrate.py` 에 prefilter-only resume 케이스 추가. `tests/unit/test_config.py` 의 기본값 단언 갱신(element_extraction=false).
+- 문서: 패키지 정본 `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md` + repo `docs/{DEVLOG,CHANGELOG}.md` 갱신 — "luminance prefilter 는 element_extraction on 이 필요" 라는 옛 서술을 prefilter-only 모드로 정정.
+- 카테고리: devlog
+
 ## 2026-07-01 — Monkey-Collector 저장 레이아웃 재설계: `data/`+`runtime/` 이원화 + page/observation 구조 (MobileGPT-V2 memory/runtime 포팅)
 
 Monkey-Collector의 저장 레이아웃을 flat `data/raw/{package}/` 구조에서 `data/`(memory)와 `runtime/`(세션 진행 상태) 이원화 + page/observation 기반 구조로 재설계했다. MobileGPT-V2의 memory/runtime 분리 설계를 포팅했다. 핵심 동기는 세 가지: (1) luminance/구조적 재방문 화면이 매번 새 파일을 쓰던 낭비 제거(재사용 관측은 파일을 전혀 쓰지 않음), (2) luminance prefilter가 "어떤 observation과 동일한지" 판단하는 실질적 역할을 갖게 됨(기존엔 페이지 식별에만 관여, observation 단위 재사용 판단이 없었음), (3) 세션 재개(resume) 시 ScreenMatcher/page_graph 지식이 디스크에서 복원되도록 수정(기존엔 매번 무조건 reset되어 이미 아는 page를 다시 "새 page"로 재발견하던 pre-existing 버그를 함께 고침). 코드 변경, 작업트리 미커밋.
