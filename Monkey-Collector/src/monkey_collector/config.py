@@ -47,6 +47,12 @@ _BUILTIN_DEFAULTS: dict = {
         "screenshot_diff_threshold": 0.02,
         "luminance_low_res_width": 100,
         "persist_filtered": True,
+        # BM25 unique-page matching (Mobile3M mechanism).
+        "bm25_top_k": 5,
+        "element_criterion": "diff",
+        "element_diff_max": 5,
+        "element_jaccard_min": 0.5,
+        "page_pixel_diff_threshold": 0.3,
     },
 }
 
@@ -85,16 +91,25 @@ class LlmConfig:
 
 @dataclass
 class ScreenMatchingConfig:
+    # cluster_merge_tolerance / max_expand_iters: retained (deprecated no-op)
+    # from the former element-set matcher; unused by the BM25 match path.
     cluster_merge_tolerance: float = 0.2
     max_expand_iters: int = 3
-    # Stage-0 luminance prefilter (MobileGPT-V2 port). Default ON.
+    # Luminance prefilter (MobileGPT-V2 port). Governs the tighter OBSERVATION
+    # identity dedup + the PAGE-level pixel gate's fingerprints. Default ON.
     luminance_prefilter: bool = True
     luminance_threshold: int = 10           # per-pixel |ΔY| change cutoff (0–255)
-    screenshot_diff_threshold: float = 0.02  # changed-pixel fraction → same page
+    screenshot_diff_threshold: float = 0.02  # changed-pixel fraction → same OBSERVATION
     luminance_low_res_width: int = 100       # fingerprint downscale width (px)
     # Persist a prefilter/dedup revisit as its OWN fresh observation (per-visit
     # chain) instead of writing nothing. Default ON — filtered screens are saved.
     persist_filtered: bool = True
+    # BM25 unique-page matching (Mobile3M mechanism).
+    bm25_top_k: int = 5                       # BM25 candidates to verify per screen
+    element_criterion: str = "diff"           # "diff" (|A△B|<max) | "jaccard" (>min)
+    element_diff_max: int = 5                 # symmetric-diff cutoff → same page
+    element_jaccard_min: float = 0.5          # Jaccard floor → same page ("jaccard")
+    page_pixel_diff_threshold: float = 0.3    # PAGE-level pixel gate (changed frac)
 
 
 @dataclass
@@ -144,6 +159,24 @@ def _normalize_strategy(value: object, *, source: str) -> str:
     return s
 
 
+VALID_ELEMENT_CRITERIA: frozenset[str] = frozenset({"diff", "jaccard"})
+
+
+def _normalize_criterion(value: object, *, source: str) -> str:
+    """Lower + validate an element criterion; fall back to "diff" if invalid."""
+    s = str(value).strip().lower()
+    if s not in VALID_ELEMENT_CRITERIA:
+        logger.warning(
+            "Unknown element_criterion %r (from %s) — falling back to 'diff'. "
+            "Valid options: %s",
+            value,
+            source,
+            ", ".join(sorted(VALID_ELEMENT_CRITERIA)),
+        )
+        return "diff"
+    return s
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     """Recursively merge override onto base (non-destructive)."""
     result = dict(base)
@@ -175,6 +208,11 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD", "screen_matching", "screenshot_diff_threshold", "float"),
         ("MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH", "screen_matching", "luminance_low_res_width",   "int"),
         ("MC_SCREEN_MATCHING_PERSIST_FILTERED",        "screen_matching", "persist_filtered",          "bool"),
+        ("MC_SCREEN_MATCHING_BM25_TOP_K",              "screen_matching", "bm25_top_k",                "int"),
+        ("MC_SCREEN_MATCHING_ELEMENT_CRITERION",       "screen_matching", "element_criterion",         "str"),
+        ("MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX",        "screen_matching", "element_diff_max",          "int"),
+        ("MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN",     "screen_matching", "element_jaccard_min",       "float"),
+        ("MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD", "screen_matching", "page_pixel_diff_threshold", "float"),
     ]
 
     # raw is already an isolated deep copy (see load_run_config); mutate in place.
@@ -227,6 +265,13 @@ def _from_raw(raw: dict) -> RunConfig:
             screenshot_diff_threshold=float(sm.get("screenshot_diff_threshold", 0.02)),
             luminance_low_res_width=int(sm.get("luminance_low_res_width", 100)),
             persist_filtered=_coerce_bool(sm.get("persist_filtered", True)),
+            bm25_top_k=int(sm.get("bm25_top_k", 5)),
+            element_criterion=_normalize_criterion(
+                sm.get("element_criterion", "diff"), source="config"
+            ),
+            element_diff_max=int(sm.get("element_diff_max", 5)),
+            element_jaccard_min=float(sm.get("element_jaccard_min", 0.5)),
+            page_pixel_diff_threshold=float(sm.get("page_pixel_diff_threshold", 0.3)),
         ),
     )
 
@@ -335,5 +380,22 @@ def merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfi
     pf = getattr(args, "persist_filtered", None)
     if pf is not None:
         sm = replace(sm, persist_filtered=(pf == "on"))
+
+    # BM25 unique-page matching knobs.
+    btk = getattr(args, "bm25_top_k", None)
+    ecrit = getattr(args, "element_criterion", None)
+    edm = getattr(args, "element_diff_max", None)
+    ejm = getattr(args, "element_jaccard_min", None)
+    ppdt = getattr(args, "page_pixel_diff_threshold", None)
+    if btk is not None:
+        sm = replace(sm, bm25_top_k=btk)
+    if ecrit is not None:
+        sm = replace(sm, element_criterion=_normalize_criterion(ecrit, source="--element-criterion"))
+    if edm is not None:
+        sm = replace(sm, element_diff_max=edm)
+    if ejm is not None:
+        sm = replace(sm, element_jaccard_min=ejm)
+    if ppdt is not None:
+        sm = replace(sm, page_pixel_diff_threshold=ppdt)
 
     return RunConfig(exploration=expl, collection=coll, llm=llm, screen_matching=sm)

@@ -8,8 +8,10 @@
 #
 # Experiment runs sweep several keys. Canonical git default: exploration.strategy=BFS,
 # collection.max_steps=1500, collection.action_delay_ms=1500, llm.element_extraction=false,
-# screen_matching.luminance_prefilter=true, screen_matching.persist_filtered=true.
-# Reset to these before committing.
+# screen_matching.luminance_prefilter=true, screen_matching.persist_filtered=true,
+# screen_matching.bm25_top_k=5, screen_matching.element_criterion=diff,
+# screen_matching.element_diff_max=5, screen_matching.element_jaccard_min=0.5,
+# screen_matching.page_pixel_diff_threshold=0.3. Reset to these before committing.
 
 exploration:
   # Traversal strategy. Options: DFS | BFS | GREEDY
@@ -48,23 +50,19 @@ llm:
   element_extraction: false
 
 screen_matching:
-  # Two-sided tolerance band for OVERLAP element-set merges (0.0–1.0).
-  # Env: MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE
+  # DEPRECATED no-ops (retained for config/CLI stability; unused by BM25 matching).
+  # Env: MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE / _MAX_EXPAND_ITERS
   cluster_merge_tolerance: 0.2
-  # Max expand (re-extract on leftover UI) iterations per screen.
-  # Env: MC_SCREEN_MATCHING_MAX_EXPAND_ITERS
   max_expand_iters: 3
-  # Stage-0 luminance prefilter (MobileGPT-V2 port): dedup a near-pixel-identical
-  # screen to a stored page with NO LLM call. Runs both alongside element-set
-  # matching AND standalone (prefilter-only mode) when element_extraction is off,
-  # so page/observation dedup survives with the LLM used for input text only.
-  # Default ON.
+  # Luminance prefilter (MobileGPT-V2 port). Governs the tighter OBSERVATION
+  # dedup AND supplies the fingerprints for the PAGE-level pixel gate. Off ⇒ the
+  # pixel gate abstains and the element criterion alone decides a merge. Default ON.
   # Env: MC_SCREEN_MATCHING_LUMINANCE_PREFILTER
   luminance_prefilter: true
   # Per-pixel brightness |ΔY| above which a pixel counts as "changed" (0–255).
   # Env: MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD
   luminance_threshold: 10
-  # Fraction of changed pixels below which two screens are treated as the same page.
+  # Changed-pixel fraction below which two renders are the same OBSERVATION.
   # Env: MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD
   screenshot_diff_threshold: 0.02
   # Downscale width (px) for the luminance fingerprint.
@@ -75,3 +73,21 @@ screen_matching:
   # revisits are saved; false = restore no-write-on-revisit dedup. Default ON.
   # Env: MC_SCREEN_MATCHING_PERSIST_FILTERED
   persist_filtered: true
+  # --- BM25 unique-page matching (Mobile3M mechanism) ---
+  # BM25 candidate pages verified per screen (paper: top-5; reference code: 1).
+  # Env: MC_SCREEN_MATCHING_BM25_TOP_K
+  bm25_top_k: 5
+  # Element-set same-page criterion. Options: diff | jaccard
+  #   diff:    |A △ B| < element_diff_max      (paper default)
+  #   jaccard: Jaccard(A, B) > element_jaccard_min  (reference code)
+  # Env: MC_SCREEN_MATCHING_ELEMENT_CRITERION
+  element_criterion: diff
+  # Max differing element-lines to still count as the same page ('diff' mode).
+  # Env: MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX
+  element_diff_max: 5
+  # Min element-line Jaccard to count as the same page ('jaccard' mode).
+  # Env: MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN
+  element_jaccard_min: 0.5
+  # Changed-pixel fraction below which the pixel gate confirms a page merge.
+  # Env: MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD
+  page_pixel_diff_threshold: 0.3

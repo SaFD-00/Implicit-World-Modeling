@@ -38,6 +38,11 @@ def _full_args(**overrides) -> argparse.Namespace:
         screenshot_diff_threshold=None,
         luminance_low_res_width=None,
         persist_filtered=None,
+        bm25_top_k=None,
+        element_criterion=None,
+        element_diff_max=None,
+        element_jaccard_min=None,
+        page_pixel_diff_threshold=None,
         config=None,
     )
     base.update(overrides)
@@ -64,6 +69,11 @@ def test_builtin_defaults_no_yaml():
     assert cfg.screen_matching.screenshot_diff_threshold == 0.02
     assert cfg.screen_matching.luminance_low_res_width == 100
     assert cfg.screen_matching.persist_filtered is True
+    assert cfg.screen_matching.bm25_top_k == 5
+    assert cfg.screen_matching.element_criterion == "diff"
+    assert cfg.screen_matching.element_diff_max == 5
+    assert cfg.screen_matching.element_jaccard_min == 0.5
+    assert cfg.screen_matching.page_pixel_diff_threshold == 0.3
 
 
 def test_valid_strategies_set():
@@ -129,6 +139,26 @@ def test_env_luminance_coercion(monkeypatch):
     assert cfg.screen_matching.screenshot_diff_threshold == 0.1
     assert cfg.screen_matching.luminance_low_res_width == 64
     assert cfg.screen_matching.persist_filtered is False
+
+
+def test_env_bm25_matching_coercion(monkeypatch):
+    monkeypatch.setenv("MC_SCREEN_MATCHING_BM25_TOP_K", "3")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_ELEMENT_CRITERION", "jaccard")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX", "8")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN", "0.7")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD", "0.25")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.screen_matching.bm25_top_k == 3
+    assert cfg.screen_matching.element_criterion == "jaccard"
+    assert cfg.screen_matching.element_diff_max == 8
+    assert cfg.screen_matching.element_jaccard_min == 0.7
+    assert cfg.screen_matching.page_pixel_diff_threshold == 0.25
+
+
+def test_invalid_element_criterion_falls_back_to_diff(monkeypatch):
+    monkeypatch.setenv("MC_SCREEN_MATCHING_ELEMENT_CRITERION", "cosine")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.screen_matching.element_criterion == "diff"
 
 
 def test_env_bool_coercion(monkeypatch):
@@ -251,6 +281,11 @@ def test_cli_full_override():
             screenshot_diff_threshold=0.05,
             luminance_low_res_width=80,
             persist_filtered="off",
+            bm25_top_k=7,
+            element_criterion="jaccard",
+            element_diff_max=9,
+            element_jaccard_min=0.6,
+            page_pixel_diff_threshold=0.2,
         ),
     )
     assert cfg.exploration.strategy == "GREEDY"
@@ -268,6 +303,19 @@ def test_cli_full_override():
     assert cfg.screen_matching.screenshot_diff_threshold == 0.05
     assert cfg.screen_matching.luminance_low_res_width == 80
     assert cfg.screen_matching.persist_filtered is False
+    assert cfg.screen_matching.bm25_top_k == 7
+    assert cfg.screen_matching.element_criterion == "jaccard"
+    assert cfg.screen_matching.element_diff_max == 9
+    assert cfg.screen_matching.element_jaccard_min == 0.6
+    assert cfg.screen_matching.page_pixel_diff_threshold == 0.2
+
+
+def test_cli_element_criterion_normalised():
+    cfg = load_run_config(path=NONEXISTENT)
+    valid = merge_with_cli_args(cfg, _full_args(element_criterion="jaccard"))
+    assert valid.screen_matching.element_criterion == "jaccard"
+    invalid = merge_with_cli_args(cfg, _full_args(element_criterion="cosine"))
+    assert invalid.screen_matching.element_criterion == "diff"
 
 
 def test_cli_luminance_prefilter_on_off():

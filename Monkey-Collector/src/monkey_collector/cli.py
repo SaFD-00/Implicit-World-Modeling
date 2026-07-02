@@ -76,10 +76,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     text_gen = create_text_generator(
         mode=cfg.llm.input_mode, seed=cfg.collection.seed, llm_client=llm_client,
     )
-    # With element extraction on, one ElementExtractor feeds the ScreenMatcher
-    # for element-set page identity. With it off (extractor None), the matcher
-    # still runs prefilter-only (structural + luminance dedup, no LLM) whenever
-    # the luminance prefilter is on — see create_screen_matcher.
+    # Page identity is decided by the BM25 matcher (LLM-free). With element
+    # extraction on, one ElementExtractor additionally enriches a new page's
+    # families (exploration same-function grouping). With it off (extractor
+    # None), families are empty — see create_screen_matcher.
     extractor = create_element_extractor(llm_client) if element_extraction_on else None
     screen_matcher = create_screen_matcher(
         extractor,
@@ -90,6 +90,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         screenshot_diff_threshold=cfg.screen_matching.screenshot_diff_threshold,
         luminance_low_res_width=cfg.screen_matching.luminance_low_res_width,
         persist_filtered=cfg.screen_matching.persist_filtered,
+        bm25_top_k=cfg.screen_matching.bm25_top_k,
+        element_criterion=cfg.screen_matching.element_criterion,
+        element_diff_max=cfg.screen_matching.element_diff_max,
+        element_jaccard_min=cfg.screen_matching.element_jaccard_min,
+        page_pixel_diff_threshold=cfg.screen_matching.page_pixel_diff_threshold,
     )
     explorer = LLMGuidedExplorer(
         adb,
@@ -553,7 +558,7 @@ def main() -> None:
         "--screenshot-diff-threshold",
         type=float,
         default=None,
-        help="Changed-pixel fraction below which two screens are the same page (default 0.02)",
+        help="Changed-pixel fraction below which two renders are the same OBSERVATION (default 0.02)",
     )
     p.add_argument(
         "--luminance-low-res-width",
@@ -570,6 +575,39 @@ def main() -> None:
             "(per-visit chain pages/{page_key}/0,1,2,...) instead of skipping the "
             "write (default on; 'off' restores no-write-on-revisit dedup)"
         ),
+    )
+    p.add_argument(
+        "--bm25-top-k",
+        type=int,
+        default=None,
+        help="BM25 candidate pages verified per screen (default 5)",
+    )
+    p.add_argument(
+        "--element-criterion",
+        choices=["diff", "jaccard"],
+        default=None,
+        help=(
+            "Element-set same-page criterion: 'diff' (|A△B| < --element-diff-max) "
+            "or 'jaccard' (Jaccard > --element-jaccard-min) (default diff)"
+        ),
+    )
+    p.add_argument(
+        "--element-diff-max",
+        type=int,
+        default=None,
+        help="Max differing element-lines to still count as the same page (default 5)",
+    )
+    p.add_argument(
+        "--element-jaccard-min",
+        type=float,
+        default=None,
+        help="Min element-line Jaccard to count as the same page ('jaccard' mode, default 0.5)",
+    )
+    p.add_argument(
+        "--page-pixel-diff-threshold",
+        type=float,
+        default=None,
+        help="Changed-pixel fraction below which the pixel gate confirms a page merge (default 0.3)",
     )
     p.add_argument(
         "--new-session",
