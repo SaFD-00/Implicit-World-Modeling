@@ -1,4 +1,13 @@
-"""Tests for ScreenMatcher: prefilter, NEW, MERGE (superset), DISJOINT, expand."""
+"""Tests for ScreenMatcher: structural prefilter, NEW, BM25 merge, pixel gate.
+
+Fixtures (element-line sets, id/bounds dropped):
+    A = {button "Add", button "Search"}         |A|=2
+    B = A + {button "Filter"}                    |B|=3   → |A △ B| = 1
+    C = {button "Play"}                          |C|=1   → |A △ C| = 3
+
+So a matcher built with ``element_diff_max=2`` MERGES B into A (1 < 2) but keeps
+C separate (3 ≮ 2) — the calibration every fixture-based merge/new test uses.
+"""
 
 import io
 import xml.etree.ElementTree as ET
@@ -26,7 +35,7 @@ def _screen(children):
 
 
 # Distinct resource-ids → distinct structural fingerprints (so the prefilter
-# does not short-circuit) while encoded anchors use aria-label.
+# does not short-circuit) while encoded element-lines use aria-label (id-free).
 RAW_A = _screen(_btn("add", "Add", "[0,0][100,100]") + _btn("search", "Search", "[0,100][100,200]"))
 RAW_B = _screen(
     _btn("add", "Add", "[0,0][100,100]")
@@ -37,7 +46,7 @@ RAW_C = _screen(_btn("play", "Play", "[0,0][100,100]"))
 
 
 class FakeExtractor:
-    """Returns one element per button (by aria-label) present in the masked XML."""
+    """Returns one element per button (by aria-label) present in the XML."""
 
     def __init__(self):
         self.calls = 0
@@ -69,23 +78,36 @@ def _enc(raw):
     return encode_with_bounds(raw)[0]
 
 
-def _matcher():
-    return ScreenMatcher(FakeExtractor(), cluster_merge_tolerance=0.2, max_expand_iters=3)
+def _matcher(**kw):
+    """Element-extraction matcher, luminance OFF, element_diff_max=2."""
+    params = dict(cluster_merge_tolerance=0.2, max_expand_iters=3, element_diff_max=2)
+    params.update(kw)
+    return ScreenMatcher(FakeExtractor(), **params)
 
 
 def _jpeg(color, size=(40, 80)):
-    """Solid-colour JPEG bytes for the luminance prefilter (decoded via BytesIO)."""
+    """Solid-colour JPEG bytes for the luminance gate (decoded via BytesIO)."""
     buf = io.BytesIO()
     Image.new("RGB", size, color).save(buf, format="JPEG")
     return buf.getvalue()
 
 
-def _lum_matcher():
-    return ScreenMatcher(
-        FakeExtractor(), cluster_merge_tolerance=0.2, max_expand_iters=3,
+def _lum_matcher(**kw):
+    """Element-extraction matcher with the luminance prefilter ON."""
+    params = dict(
+        cluster_merge_tolerance=0.2, max_expand_iters=3, element_diff_max=2,
         luminance_prefilter=True, luminance_threshold=10,
         screenshot_diff_threshold=0.02, luminance_low_res_width=20,
     )
+    params.update(kw)
+    return ScreenMatcher(FakeExtractor(), **params)
+
+
+SHOT_A = _jpeg((10, 20, 30))
+SHOT_B = _jpeg((240, 230, 220))  # bright → very different luminance from SHOT_A
+
+
+# ── NEW / structural prefilter ──
 
 
 def test_new_page_on_empty_registry():
@@ -100,6 +122,8 @@ def test_new_page_on_empty_registry():
     # A brand-new page always starts at observation 0 (nothing to reuse yet).
     assert m.observation_num == 0
     assert m.is_new_observation
+    # The page's element-line document is registered in the BM25 corpus.
+    assert len(sm._bm25) == 1
 
 
 def test_structural_prefilter_short_circuits_revisit():
@@ -110,7 +134,6 @@ def test_structural_prefilter_short_circuits_revisit():
     assert not m.is_new_page and m.match_type == "STRUCTURAL_IDENTICAL"
     # revisit fills families from the cached page, re-grounded on this screen.
     assert {f.name for f in m.families} == {"open_add", "open_search"}
-    # indices are current-screen (anchor) indices, not empty.
     assert all(f.element_index and f.element_index == f.key_element_index for f in m.families)
     # no extra extractor call on an exact revisit (families come from the registry)
     assert sm._extractor.calls == calls_after_first
@@ -119,44 +142,101 @@ def test_structural_prefilter_short_circuits_revisit():
     assert m.observation_num == first.observation_num
 
 
-def test_superset_merges_into_existing_page():
+# ── BM25 merge vs new page (element criterion) ──
+
+
+def test_bm25_merges_into_existing_page():
     sm = _matcher()
     a = sm.match(RAW_A, _enc(RAW_A), "act.Main")
-    # B = A's two buttons + Filter → distinct fp, anchors of A present → SUPERSET.
+    # |A △ B| = 1 < 2 → B merges into A's page.
     b = sm.match(RAW_B, _enc(RAW_B), "act.Main")
     assert not b.is_new_page
-    assert b.match_type == "SUPERSET_MERGE"
-    assert b.page_key == a.page_key  # merged into the same page
-    # merge fills families: the matched page's elements re-grounded on the
-    # current screen (open_add, open_search) PLUS the expand-found open_filter.
-    assert {f.name for f in b.families} == {"open_add", "open_search", "open_filter"}
+    assert b.match_type == "BM25_MERGE"
+    assert b.page_key == a.page_key
+    # merge fills families: the matched page's elements re-grounded on the current
+    # screen (open_add, open_search) — NOT open_filter (no expand path anymore).
+    assert {f.name for f in b.families} == {"open_add", "open_search"}
     assert all(f.element_index for f in b.families)
-    # a visually/structurally distinct render with no luminance comparator
-    # (prefilter off on the plain _matcher()) always allocates a new observation.
+    # no luminance comparator (prefilter off) → always a new observation.
     assert b.is_new_observation
     assert b.observation_num != a.observation_num
 
 
-def test_disjoint_creates_new_page():
+def test_element_diff_over_threshold_creates_new_page():
     sm = _matcher()
     a = sm.match(RAW_A, _enc(RAW_A), "act.Main")
+    # |A △ C| = 3 ≮ 2 → C is a genuinely new page even though BM25 offered A.
     c = sm.match(RAW_C, _enc(RAW_C), "act.Main")
-    assert c.is_new_page and c.match_type == "DISJOINT"
+    assert c.is_new_page and c.match_type == "NEW"
+    assert c.page_key != a.page_key
+    assert len(sm._bm25) == 2
+
+
+def test_jaccard_criterion_merges_and_rejects():
+    sm = _matcher(element_criterion="jaccard", element_jaccard_min=0.5, element_diff_max=99)
+    a = sm.match(RAW_A, _enc(RAW_A), "act.Main")
+    b = sm.match(RAW_B, _enc(RAW_B), "act.Main")   # Jaccard(A,B)=0.667 > 0.5 → merge
+    assert b.match_type == "BM25_MERGE" and b.page_key == a.page_key
+    c = sm.match(RAW_C, _enc(RAW_C), "act.Main")   # Jaccard(A,C)=0.0 ≤ 0.5 → new
+    assert c.is_new_page and c.match_type == "NEW"
+
+
+def test_bm25_selects_correct_candidate_among_multiple():
+    sm = _matcher()
+    a = sm.match(RAW_A, _enc(RAW_A), "act.Main")
+    c = sm.match(RAW_C, _enc(RAW_C), "act.Main")  # new page (|A△C|=3)
+    assert a.page_key != c.page_key
+    # B shares 2 lines with A, 0 with C → BM25 ranks A first; |A△B|=1<2 → merge A.
+    b = sm.match(RAW_B, _enc(RAW_B), "act.Main")
+    assert b.match_type == "BM25_MERGE"
+    assert b.page_key == a.page_key
+
+
+# ── conjunctive pixel gate ──
+
+
+def test_pixel_gate_allows_merge_on_matching_screenshot():
+    sm = _lum_matcher()
+    a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    # element passes (|A△B|=1<2) AND pixel matches (same solid colour) → merge.
+    b = sm.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=SHOT_A)
+    assert b.match_type == "BM25_MERGE"
+    assert b.page_key == a.page_key
+
+
+def test_pixel_gate_blocks_merge_on_different_screenshot():
+    sm = _lum_matcher()
+    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    # element passes (|A△B|=1<2) but the screenshot is very different → pixel gate
+    # fails → NEW page (pixel is now a conjunctive requirement, not a shortcut).
+    b = sm.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=SHOT_B)
+    assert b.is_new_page and b.match_type == "NEW"
+
+
+def test_element_gate_blocks_merge_even_with_identical_screenshot():
+    sm = _lum_matcher()
+    a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    # identical screenshot, but |A△C|=3 ≮ 2 → element gate fails → NEW page.
+    # (Under the old standalone luminance prefilter this would have merged.)
+    c = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_A)
+    assert c.is_new_page and c.match_type == "NEW"
     assert c.page_key != a.page_key
 
 
-def test_expand_discovers_new_element_via_mask():
-    sm = _matcher()
-    sm.match(RAW_A, _enc(RAW_A), "act.Main")
-    # On B, step-1 supports add/search; expand must surface open_filter.
-    b = sm.match(RAW_B, _enc(RAW_B), "act.Main")
-    assert b.match_type == "SUPERSET_MERGE"  # add,search,filter ⊋ add,search
+def test_pixel_gate_abstains_without_screenshot():
+    sm = _lum_matcher()
+    a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    # No screenshot on the revisit → pixel gate abstains → element criterion alone
+    # decides → merge (|A△B|=1<2).
+    b = sm.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=None)
+    assert b.match_type == "BM25_MERGE"
+    assert b.page_key == a.page_key
+
+
+# ── pending guard ──
 
 
 def test_no_interactables_is_pending_not_registered():
-    # A loading/splash frame with no button/input must be declined (pending),
-    # not registered as an empty page — otherwise it becomes a blackhole that
-    # every later screen merges into. No extractor (LLM) call is made.
     sm = _matcher()
     raw_empty = _screen('<node class="android.widget.TextView" text="hi" bounds="[0,0][10,10]"/>')
     m = sm.match(raw_empty, _enc(raw_empty), "act.Main")
@@ -167,11 +247,10 @@ def test_no_interactables_is_pending_not_registered():
     assert len(sm._registry) == 0
     assert sm._counter == 0
     assert sm._extractor.calls == 0
+    assert len(sm._bm25) == 0
 
 
 def test_pending_loading_then_first_valid_screen_is_page_0():
-    # The first VALID screen after a declined loading frame must become page_0
-    # (the loading frame left the registry empty).
     sm = _matcher()
     raw_empty = _screen('<node class="android.widget.TextView" text="hi" bounds="[0,0][10,10]"/>')
     pending = sm.match(raw_empty, _enc(raw_empty), "act.Splash")
@@ -183,13 +262,17 @@ def test_pending_loading_then_first_valid_screen_is_page_0():
     assert {f.name for f in m.families} == {"open_add", "open_search"}
 
 
-def test_reset_clears_registry():
+# ── reset / family helpers ──
+
+
+def test_reset_clears_registry_and_bm25():
     sm = _matcher()
     sm.match(RAW_A, _enc(RAW_A), "act.Main")
-    assert len(sm._registry) == 1
+    assert len(sm._registry) == 1 and len(sm._bm25) == 1
     sm.reset()
     assert len(sm._registry) == 0
     assert sm._counter == 0
+    assert len(sm._bm25) == 0
 
 
 def test_families_from_elements_copies_verbatim():
@@ -216,12 +299,8 @@ def test_families_from_elements_copies_verbatim():
 
 def test_remap_families_regrounds_on_current_screen():
     sm = _matcher()
-    # Register page_0 from RAW_A (open_add, open_search anchored on this screen).
     sm.match(RAW_A, _enc(RAW_A), "act.Main")
     page = sm._registry.get("0")
-
-    # Re-ground on RAW_A's own tree: both elements present → current indices,
-    # element_index approximated to (== ) the anchor indices.
     tree = ET.fromstring(_enc(RAW_A))
     fams = sm._remap_families(tree, page)
     assert {f.name for f in fams} == {"open_add", "open_search"}
@@ -232,97 +311,20 @@ def test_remap_families_drops_unrendered_elements():
     sm = _matcher()
     sm.match(RAW_A, _enc(RAW_A), "act.Main")
     page = sm._registry.get("0")
-    # RAW_C (Play only) has none of page_0's anchors → every element dropped.
     tree_c = ET.fromstring(_enc(RAW_C))
     assert sm._remap_families(tree_c, page) == []
 
 
-# ── Stage-0 luminance prefilter ──
-
-SHOT_A = _jpeg((10, 20, 30))
-SHOT_B = _jpeg((240, 230, 220))  # bright → very different luminance from SHOT_A
-
-
-def test_luminance_prefilter_hit_reuses_page_no_llm():
-    sm = _lum_matcher()
-    a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
-    calls_after_first = sm._extractor.calls
-    # RAW_C would normally DISJOINT into a NEW page; the identical screenshot makes
-    # the luminance prefilter short-circuit it to page_0 with no extractor call.
-    m = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_A)
-    assert not m.is_new_page
-    assert m.match_type == "LUMINANCE_PREFILTER"
-    assert m.page_key == a.page_key
-    assert sm._extractor.calls == calls_after_first  # LLM/expand path skipped
-    # reuses the existing observation — no new write for the caller to persist.
-    assert not m.is_new_observation
-    assert m.observation_num == a.observation_num
-
-
-def test_luminance_prefilter_miss_falls_through():
-    sm = _lum_matcher()
-    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
-    # A very different screenshot → no luminance hit → normal element matching.
-    c = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_B)
-    assert c.is_new_page and c.match_type == "DISJOINT"
-
-
-def test_luminance_prefilter_off_is_noop():
-    sm = _matcher()  # luminance_prefilter defaults OFF
-    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
-    # Even with an identical screenshot, OFF routes RAW_B through element matching.
-    b = sm.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=SHOT_A)
-    assert b.match_type == "SUPERSET_MERGE"
-
-
-def test_luminance_prefilter_none_screenshot_degrades():
-    sm = _lum_matcher()
-    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
-    # Enabled but no screenshot bytes → no image work, normal element path.
-    c = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=None)
-    assert c.is_new_page and c.match_type == "DISJOINT"
-
-
-def test_luminance_observations_capped():
-    # An exact structural (_fp_to_key) repeat no longer appends anything (reuse
-    # means no new observation) — driving eviction now requires many distinct
-    # SUPERSET_MERGE visits, each visually distinct enough that the page-scoped
-    # luminance lookup misses and a new observation is allocated every time.
-    sm = _lum_matcher()
-    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
-    page = sm._registry.get("0")
-
-    n = ScreenMatcher._MAX_LUMINANCE_OBS + 5
-    for i in range(n):
-        # A uniquely-id'd extra button keeps the XML fingerprint distinct each
-        # time (bypassing the free structural short-circuit) while staying a
-        # superset of RAW_A's anchors (add/search), so classify() always merges
-        # into page_0 instead of forking a new page.
-        raw = _screen(
-            _btn("add", "Add", "[0,0][100,100]")
-            + _btn("search", "Search", "[0,100][100,200]")
-            + _btn(f"filter{i}", "Filter", "[0,200][100,300]")
-        )
-        # Solid grays spaced 15 luma levels apart, starting well clear of
-        # SHOT_A's luma (~18, from RGB (10,20,30)) so none of them accidentally
-        # luminance-match the very first stored observation via the GLOBAL
-        # Stage-0c lookup before classify() even runs.
-        shot = _jpeg((40 + i * 15, 40 + i * 15, 40 + i * 15))
-        m = sm.match(raw, _enc(raw), "act.Main", screenshot=shot)
-        assert m.match_type == "SUPERSET_MERGE"
-        assert m.is_new_observation
-
-    assert len(page.luminance_features) == ScreenMatcher._MAX_LUMINANCE_OBS
+# ── observation identity ──
 
 
 def test_structural_hit_returns_stored_observation_num():
     # A merge allocates a new observation (obs 1); an EXACT revisit of that same
-    # screen must resolve back to obs 1 via the free structural cache — not
-    # obs 0 (the page's first-sighting observation).
+    # screen must resolve back to obs 1 via the free structural cache — not obs 0.
     sm = _matcher()
     sm.match(RAW_A, _enc(RAW_A), "act.Main")
     merged = sm.match(RAW_B, _enc(RAW_B), "act.Main")
-    assert merged.match_type == "SUPERSET_MERGE"
+    assert merged.match_type == "BM25_MERGE"
     assert merged.observation_num != 0
 
     revisit = sm.match(RAW_B, _enc(RAW_B), "act.Main")
@@ -332,11 +334,9 @@ def test_structural_hit_returns_stored_observation_num():
 
 
 def test_luminance_disabled_merge_always_allocates_new_observation():
-    # With the prefilter off there is no pixel comparator to dedupe against, so
-    # every classify-merge with a distinct XML fingerprint must allocate a new
-    # observation — never silently reuse one (that would risk collapsing
-    # genuinely different render states with no visual evidence they match).
-    sm = _matcher()  # luminance_prefilter defaults OFF
+    # With the prefilter off there is no pixel comparator, so every BM25 merge
+    # with a distinct XML fingerprint allocates a new observation.
+    sm = _matcher()  # luminance OFF
     sm.match(RAW_A, _enc(RAW_A), "act.Main")
 
     seen_obs = set()
@@ -347,29 +347,52 @@ def test_luminance_disabled_merge_always_allocates_new_observation():
             + _btn(f"filter{i}", "Filter", "[0,200][100,300]")
         )
         m = sm.match(raw, _enc(raw), "act.Main")
-        assert m.match_type == "SUPERSET_MERGE"
+        assert m.match_type == "BM25_MERGE"
         assert m.is_new_observation
         assert m.observation_num not in seen_obs
         seen_obs.add(m.observation_num)
 
 
-# ── Prefilter-only mode (extractor is None: LLM used for input text only) ──
+def test_luminance_observations_capped():
+    # persist_filtered ON: every BM25 merge allocates AND appends its (identical)
+    # fingerprint, so the per-page luminance ring grows and is capped/evicted.
+    sm = _lum_matcher(persist_filtered=True)
+    sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    page = sm._registry.get("0")
+
+    n = ScreenMatcher._MAX_LUMINANCE_OBS + 5
+    for i in range(n):
+        # Distinct fp each time (unique id bypasses the structural short-circuit),
+        # identical element-lines {Add,Search,Filter} (|A△·|=1<2 → merge), and the
+        # SAME solid screenshot so the pixel gate passes and the append lands.
+        raw = _screen(
+            _btn("add", "Add", "[0,0][100,100]")
+            + _btn("search", "Search", "[0,100][100,200]")
+            + _btn(f"filter{i}", "Filter", "[0,200][100,300]")
+        )
+        m = sm.match(raw, _enc(raw), "act.Main", screenshot=SHOT_A)
+        assert m.match_type == "BM25_MERGE"
+        assert m.is_new_observation
+
+    assert len(page.luminance_features) == ScreenMatcher._MAX_LUMINANCE_OBS
 
 
-def _prefilter_only_matcher():
-    """A matcher with NO extractor — structural + luminance prefilters only."""
-    return ScreenMatcher(
-        None, cluster_merge_tolerance=0.2, max_expand_iters=3,
+# ── enrichment-off mode (extractor is None: LLM used for input text only) ──
+
+
+def _extractorless_matcher(**kw):
+    """A matcher with NO extractor — BM25 matching still runs, families empty."""
+    params = dict(
+        cluster_merge_tolerance=0.2, max_expand_iters=3, element_diff_max=2,
         luminance_prefilter=True, luminance_threshold=10,
         screenshot_diff_threshold=0.02, luminance_low_res_width=20,
     )
+    params.update(kw)
+    return ScreenMatcher(None, **params)
 
 
-def test_prefilter_only_distinct_screens_do_not_collapse():
-    # Without an extractor the element-set path (classify) is bypassed entirely;
-    # two structurally-distinct screens with distinct screenshots must register
-    # as two SEPARATE pages — never collapse into one via classify(∅, ∅).
-    sm = _prefilter_only_matcher()
+def test_extractorless_distinct_screens_do_not_collapse():
+    sm = _extractorless_matcher()
     a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     c = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_B)
     assert a.is_new_page and a.match_type == "NEW"
@@ -380,10 +403,22 @@ def test_prefilter_only_distinct_screens_do_not_collapse():
     assert a.families == [] and c.families == []
 
 
-def test_prefilter_only_structural_revisit_reuses_observation():
-    # An exact XML revisit resolves via the structural fingerprint cache — no
-    # extractor needed, and the first sighting's observation is reused.
-    sm = _prefilter_only_matcher()
+def test_extractorless_bm25_merge_reuses_page():
+    sm = _extractorless_matcher()
+    a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
+    # RAW_B merges into A by element-lines (|A△B|=1<2) + matching screenshot,
+    # with NO extractor. Observation identity reuses obs 0 (same solid frame).
+    m = sm.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=SHOT_A)
+    assert m.match_type == "BM25_MERGE"
+    assert m.page_key == a.page_key
+    assert not m.is_new_observation
+    assert m.observation_num == a.observation_num
+    assert m.families == []
+    assert len(sm._registry.all_page_keys()) == 1
+
+
+def test_extractorless_structural_revisit_reuses_observation():
+    sm = _extractorless_matcher()
     first = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     revisit = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     assert revisit.match_type == "STRUCTURAL_IDENTICAL"
@@ -392,48 +427,18 @@ def test_prefilter_only_structural_revisit_reuses_observation():
     assert revisit.observation_num == first.observation_num
 
 
-def test_prefilter_only_luminance_revisit_reuses_page():
-    # A different XML fingerprint but a near-identical screenshot resolves via
-    # the luminance prefilter to the same page/observation — still no extractor.
-    sm = _prefilter_only_matcher()
-    a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
-    m = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_A)
-    assert not m.is_new_page
-    assert m.match_type == "LUMINANCE_PREFILTER"
-    assert m.page_key == a.page_key
-    assert not m.is_new_observation
-    assert m.observation_num == a.observation_num
-    # Only one page ever registered — the luminance hit did not fork a new one.
-    assert len(sm._registry.all_page_keys()) == 1
-
-
 # ── persist_filtered ON: a deduped revisit is saved as its own observation ──
 
 
-def _persist_only_matcher():
-    """Prefilter-only matcher (no extractor) with persist_filtered ON."""
-    return ScreenMatcher(
-        None, cluster_merge_tolerance=0.2, max_expand_iters=3,
-        luminance_prefilter=True, luminance_threshold=10,
-        screenshot_diff_threshold=0.02, luminance_low_res_width=20,
-        persist_filtered=True,
-    )
+def _persist_extract_matcher(**kw):
+    return _lum_matcher(persist_filtered=True, **kw)
 
 
-def _persist_extract_matcher():
-    """Element-extraction + luminance matcher with persist_filtered ON."""
-    return ScreenMatcher(
-        FakeExtractor(), cluster_merge_tolerance=0.2, max_expand_iters=3,
-        luminance_prefilter=True, luminance_threshold=10,
-        screenshot_diff_threshold=0.02, luminance_low_res_width=20,
-        persist_filtered=True,
-    )
+def _persist_extractorless_matcher(**kw):
+    return _extractorless_matcher(persist_filtered=True, **kw)
 
 
 def test_persist_filtered_structural_revisit_allocates_new_observation():
-    # An exact XML revisit still resolves via the structural cache with NO LLM
-    # call, but persist_filtered makes it a FRESH observation (per-visit chain)
-    # instead of reusing the first sighting's.
     sm = _persist_extract_matcher()
     first = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     calls_after_first = sm._extractor.calls
@@ -442,41 +447,33 @@ def test_persist_filtered_structural_revisit_allocates_new_observation():
     assert revisit.page_key == first.page_key
     assert revisit.is_new_observation
     assert revisit.observation_num == first.observation_num + 1
-    # families still re-grounded from the cached page — and no extractor call.
     assert {f.name for f in revisit.families} == {"open_add", "open_search"}
     assert sm._extractor.calls == calls_after_first
-    # the structural cache re-points at the newest obs, so the chain continues.
     revisit2 = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     assert revisit2.match_type == "STRUCTURAL_IDENTICAL"
     assert revisit2.observation_num == first.observation_num + 2
     assert sm._extractor.calls == calls_after_first
 
 
-def test_persist_filtered_luminance_revisit_allocates_new_observation():
-    # A near-identical screenshot with a different XML fingerprint resolves via
-    # the luminance prefilter (no LLM); persist_filtered saves it as a fresh
-    # observation on the SAME page, and back-fills the structural cache to it.
+def test_persist_filtered_bm25_merge_allocates_new_observation():
     from monkey_collector.domain.page_graph import compute_xml_fingerprint
 
     sm = _persist_extract_matcher()
     a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     calls_after_first = sm._extractor.calls
-    m = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_A)
-    assert m.match_type == "LUMINANCE_PREFILTER"
+    m = sm.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=SHOT_A)
+    assert m.match_type == "BM25_MERGE"
     assert m.page_key == a.page_key
     assert m.is_new_observation
     assert m.observation_num == a.observation_num + 1
-    assert sm._extractor.calls == calls_after_first  # no LLM
-    fp_c = compute_xml_fingerprint(RAW_C)
-    assert sm._fp_to_key[("act.Main", fp_c)] == (a.page_key, m.observation_num)
-    # page identity is untouched — still one page.
+    assert sm._extractor.calls == calls_after_first  # matching never calls the LLM
+    fp_b = compute_xml_fingerprint(RAW_B)
+    assert sm._fp_to_key[("act.Main", fp_b)] == (a.page_key, m.observation_num)
     assert len(sm._registry.all_page_keys()) == 1
 
 
-def test_persist_filtered_prefilter_only_revisit_writes_new_observation():
-    # Prefilter-only mode (LLM used for input text only): an exact revisit is
-    # persisted as its own observation with empty families, on the same page.
-    sm = _persist_only_matcher()
+def test_persist_filtered_extractorless_revisit_writes_new_observation():
+    sm = _persist_extractorless_matcher()
     first = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     r1 = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     r2 = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
@@ -485,64 +482,46 @@ def test_persist_filtered_prefilter_only_revisit_writes_new_observation():
     assert r1.is_new_observation and r2.is_new_observation
     assert (r1.observation_num, r2.observation_num) == (1, 2)
     assert r1.families == [] and r2.families == []
-    # persistence changes observation numbering, NOT page identity.
     assert len(sm._registry.all_page_keys()) == 1
     assert sm._registry.get(first.page_key).next_observation_num == 3
 
 
-def test_persist_filtered_prefilter_hit_does_not_append_luminance():
-    # must-fix #1: a prefilter/luminance HIT allocates a fresh observation but
-    # does NOT re-append its (near-dup) fingerprint — the page's luminance ring
-    # must not churn and evict the first-sighting fingerprint.
-    sm = _persist_only_matcher()
+def test_persist_filtered_structural_hit_does_not_append_luminance():
+    # A structural revisit allocates a fresh observation but does NOT re-append
+    # its (near-dup) fingerprint — the page's luminance ring must not churn.
+    sm = _persist_extractorless_matcher()
     a = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     page = sm._registry.get(a.page_key)
     assert len(page.luminance_features) == 1  # first sighting appended once
     for _ in range(5):
-        sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)   # structural hits
-    for _ in range(5):
-        sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_A)   # luminance hits
-    # 10 persisted revisits, but the luminance ring never grew past the first.
+        sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)  # structural hits
     assert len(page.luminance_features) == 1
-    assert page.next_observation_num == 11  # obs 0 + 10 revisits
+    assert page.next_observation_num == 6  # obs 0 + 5 revisits
 
 
-def test_persist_filtered_merge_allocates_and_still_appends_luminance():
-    # In element-extraction mode a distinct-fingerprint SUPERSET_MERGE revisit
-    # still allocates a fresh observation under persist_filtered (the merge path
-    # keeps append_luma=True, unlike prefilter hits).
+def test_persist_filtered_bm25_merge_appends_luminance():
+    # A BM25 merge keeps append_luma=True (unlike a structural/prefilter hit).
     sm = _persist_extract_matcher()
     sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     page = sm._registry.get("0")
     before = len(page.luminance_features)
-    # Distinct fp (extra filter button) + a luma well clear of SHOT_A so neither
-    # the structural nor the global luminance prefilter short-circuits → classify
-    # merges into page_0, and _record_observation allocates a fresh observation.
-    raw = _screen(
-        _btn("add", "Add", "[0,0][100,100]")
-        + _btn("search", "Search", "[0,100][100,200]")
-        + _btn("filter0", "Filter", "[0,200][100,300]")
-    )
-    m = sm.match(raw, _enc(raw), "act.Main", screenshot=_jpeg((200, 200, 200)))
-    assert m.match_type == "SUPERSET_MERGE"
+    m = sm.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=SHOT_A)
+    assert m.match_type == "BM25_MERGE"
     assert m.is_new_observation
     assert m.observation_num != 0
-    assert len(page.luminance_features) == before + 1  # merge path DID append
+    assert len(page.luminance_features) == before + 1
 
 
 def test_persist_filtered_off_reuses_revisit_observation():
-    # Regression guard: with persist_filtered=False (default) the historical
-    # no-write-on-revisit behaviour is preserved byte-for-byte.
-    sm = ScreenMatcher(
-        None, cluster_merge_tolerance=0.2, max_expand_iters=3,
-        luminance_prefilter=True, luminance_threshold=10,
-        screenshot_diff_threshold=0.02, luminance_low_res_width=20,
-        persist_filtered=False,
-    )
+    # Regression guard: with persist_filtered=False (default) a structural revisit
+    # and a pixel-matching BM25 merge both REUSE the first sighting's observation.
+    sm = _lum_matcher(persist_filtered=False)
     first = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
     structural = sm.match(RAW_A, _enc(RAW_A), "act.Main", screenshot=SHOT_A)
-    luminance = sm.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=SHOT_A)
+    merge = sm.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=SHOT_A)
+    assert structural.match_type == "STRUCTURAL_IDENTICAL"
+    assert merge.match_type == "BM25_MERGE"
     assert not structural.is_new_observation
-    assert not luminance.is_new_observation
+    assert not merge.is_new_observation
     assert structural.observation_num == first.observation_num
-    assert luminance.observation_num == first.observation_num
+    assert merge.observation_num == first.observation_num

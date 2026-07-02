@@ -393,12 +393,12 @@ class TestSaveObservation:
         # elements=[].
         from tests.fixtures.xml_samples import SIMPLE_XML
 
-        match = _FakeMatch("page_0", "EQSET", False, families=[])
+        match = _FakeMatch("page_0", "BM25_MERGE", False, families=[])
         writer.save_observation("page_0", 0, None, SIMPLE_XML, match=match)
 
         obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
         data = json.loads((obs_dir / "elements.json").read_text())
-        assert data["match_type"] == "EQSET"
+        assert data["match_type"] == "BM25_MERGE"
         assert data["elements"] == []
 
 

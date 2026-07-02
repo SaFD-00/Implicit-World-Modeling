@@ -1,61 +1,60 @@
-"""Live element-set screen matcher (page identity via extracted elements).
+"""Live BM25 page matcher (Mobile3M "Unique Page" mechanism).
 
-Replaces the structural-fingerprint page identity with MobileGPT-V2's
-element-set cluster assignment, run live in the collection loop. Per screen:
+Replaces the LLM element-set cluster assignment with the Mobile3M unique-page
+mechanism, run live in the collection loop. Per screen:
 
   0. Pre-filter   — a structural fingerprint short-circuits exact XML revisits
-                    with NO LLM call; a screen with no interactable (button/input)
+                    with NO work; a screen with no interactable (button/input)
                     is declined outright (``pending``) so a loading/splash frame
                     never registers as a page — the first VALID screen becomes
-                    page_0. Then (Stage-0c) an optional luminance prefilter
-                    (MobileGPT-V2 port) short-circuits a near-pixel-identical
-                    screen to a stored page with NO LLM call, even when its XML
-                    fingerprint differs — gated on ``luminance_prefilter`` and the
-                    presence of a screenshot; disabled ⇒ zero image work.
-  1. Step-1 match — for each stored page, text-blind ALL-match its anchor
-                    fingerprints against the current screen → supported element
-                    names + remaining (unaccounted) interactable indices.
-  2. Expand       — mask the screen to the remaining UIs and re-extract until
-                    dry (or a cap), discovering elements new to the best page.
-  3. Classify     — set-assign A=(supported ∪ extracted) vs B=(stored names) →
-                    EQSET / *_MERGE / *_NEW / DISJOINT.
-  4. Dispatch     — MERGE reuses the stored page_key (frozen); NEW registers a
-                    fresh page_key whose anchors are fingerprinted on the
-                    current screen.
+                    page_0.
+  1. Serialize    — the encoded XML is flattened to a normalized element-line
+                    document (``element_lines.serialize_element_lines``): one
+                    line per leaf / scroll node, ``index``/``bounds`` dropped.
+  2. Retrieve     — BM25 (``bm25.Bm25Index``) over every stored page's
+                    element-line document returns the top-K candidates.
+  3. Verify       — each candidate, in score order, is confirmed by a
+                    CONJUNCTIVE gate: an element criterion (symmetric-difference
+                    count ``|A △ B| < element_diff_max``, or Jaccard
+                    ``> element_jaccard_min``) AND a pixel gate (luminance
+                    difference fraction ``< page_pixel_diff_threshold``, default
+                    0.3). The first candidate passing BOTH merges; if none pass,
+                    a fresh page is minted and added to the BM25 corpus.
 
-Beyond PAGE identity (above, unchanged), a MERGE also resolves a second-level
-OBSERVATION identity: given the page is already fixed, which of its stored
-visual states (if any) does this screenshot pixel-match? ``_record_observation``
-answers this via a page-SCOPED luminance lookup (``_page_luminance_lookup``,
-distinct from the page-identity-deciding global ``_luminance_lookup`` above) —
+This engine is LLM-FREE. LLM element extraction is now OPTIONAL enrichment: when
+an *extractor* is supplied (``llm.element_extraction`` on), a NEW page runs ONE
+extract to populate ``ScreenMatch.families`` for the explorer's same-function
+compression; without one (the default) families are empty and matching relies
+solely on the element-line document. Matching itself never calls the LLM.
+
+Beyond PAGE identity (above), a MERGE also resolves a second-level OBSERVATION
+identity: given the page is already fixed, which of its stored visual states (if
+any) does this screenshot pixel-match? ``_record_observation`` answers this via a
+page-SCOPED luminance lookup (``_page_luminance_lookup`` at the tighter
+``screenshot_diff_threshold``, distinct from the page-level pixel gate above) —
 a hit reuses that ``observation_num`` (no new write); a miss (or no comparator
-available: prefilter disabled / no screenshot) allocates a new one. This is
-what ``ScreenMatch.observation_num``/``is_new_observation`` carry to the caller,
-which persists a new observation's files only when ``is_new_observation`` is
-true.
+available: prefilter disabled / no screenshot) allocates a new one. This is what
+``ScreenMatch.observation_num``/``is_new_observation`` carry to the caller, which
+persists a new observation's files only when ``is_new_observation`` is true.
 
 The ``persist_filtered`` flag (config: ``screen_matching.persist_filtered``,
 default ON) inverts the reuse decision for STORAGE: when set, every deduped
-revisit — a structural-prefilter hit, a luminance-prefilter hit, or a
-classify-MERGE luminance dedup — allocates a FRESH ``observation_num`` under its
-(reused) ``page_key`` and reports ``is_new_observation=True``, so the caller
-persists it as its own observation (a per-visit chain ``0,1,2,...`` per page).
-Page identity is untouched (same ``page_key``, same page-graph node) and no LLM
-call is added (families still come from anchor re-grounding). A prefilter HIT
-allocates via ``_allocate_observation(..., append_luma=False)`` so the near-dup
-fingerprint is not re-appended to the capped luminance ring. With the flag off
-the historical no-write-on-reuse behaviour is preserved byte-for-byte.
+revisit — a structural-prefilter hit or a BM25 merge — allocates a FRESH
+``observation_num`` under its (reused) ``page_key`` and reports
+``is_new_observation=True``, so the caller persists it as its own observation (a
+per-visit chain ``0,1,2,...`` per page). Page identity is untouched. A structural
+prefilter HIT allocates via ``_allocate_observation(..., append_luma=False)`` so
+the near-dup fingerprint is not re-appended to the capped luminance ring. With
+the flag off the historical no-write-on-reuse behaviour is preserved.
 
 The emitted ``page_key`` drives BOTH the ``page_graph.json`` node identity and
 the exploration abstract page. On a NEW page ``families`` carries the
-freshly-extracted, current-index element families that feed the explorer's
-same-function compression. On a merge / prefilter revisit ``families`` is also
-populated — the matched page's stored elements re-grounded on the current
-screen (their anchors re-matched here, so ``{step}_elements.json`` records
-current-screen indices) — but the explorer ignores them (the page's groups were
-computed on first sighting); since only anchors are stored the merge-path
-``element_index`` approximates to the anchor indices and elements not rendered
-on the current screen are dropped.
+freshly-extracted, current-index element families (when an extractor is present)
+that feed the explorer's same-function compression. On a merge / structural
+revisit ``families`` is also populated — the matched page's stored elements
+re-grounded on the current screen (their anchors re-matched here) — but the
+explorer ignores them (the page's groups were computed on first sighting); it is
+empty when the page was minted without an extractor.
 """
 
 from __future__ import annotations
@@ -67,6 +66,12 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from monkey_collector.domain.page_graph import compute_xml_fingerprint
+from monkey_collector.pipeline.screen_matching.bm25 import Bm25Index
+from monkey_collector.pipeline.screen_matching.element_lines import (
+    element_diff_count,
+    element_jaccard,
+    serialize_element_lines,
+)
 from monkey_collector.pipeline.screen_matching.luminance import (
     extract_luminance_features,
     luminance_diff,
@@ -75,13 +80,11 @@ from monkey_collector.pipeline.screen_matching.page_knowledge import (
     KnowledgeRegistry,
     PageKnowledge,
 )
-from monkey_collector.pipeline.screen_matching.set_classifier import classify
 from monkey_collector.pipeline.screen_matching.ui_attributes import (
     UIAttributes,
     extract_interactable_indexes,
     find_matching_node,
     get_ui_key_attrib,
-    mask_xml_to_indexes,
     text_blind_requirements,
 )
 
@@ -112,23 +115,23 @@ class ElementFamily:
 class ScreenMatch:
     """Outcome of matching one screen: its page identity and its element families.
 
-    ``families`` is populated both on a new page (freshly-extracted, current-index
-    families) and on a merge / prefilter revisit (the matched page's stored
-    elements re-grounded on the current screen — see the module docstring). The
-    explorer consumes it only on the first sighting of a ``page_key``; on a
-    revisit it reaches ``{step}_elements.json`` but not same-function compression.
+    ``families`` is populated on a new page (freshly-extracted, current-index
+    families when an extractor is present, else empty) and on a merge / structural
+    revisit (the matched page's stored elements re-grounded on the current
+    screen). The explorer consumes it only on the first sighting of a
+    ``page_key``; on a revisit it reaches ``{step}_elements.json`` but not
+    same-function compression.
 
     ``pending`` flags a screen the matcher declined to register (a loading /
-    splash frame with no interactable, or an otherwise empty extract): it carries
-    no ``page_key`` and the collection loop must NOT create a page node or persist
-    elements for it — the first VALID screen of a session becomes ``page_0``.
+    splash frame with no interactable): it carries no ``page_key`` and the
+    collection loop must NOT create a page node or persist elements for it — the
+    first VALID screen of a session becomes ``page_0``.
 
-    ``observation_num``/``is_new_observation`` carry the second-level decision
-    (see module docstring): which of the page's stored visual states this
-    screenshot corresponds to, and whether the caller must persist a new
-    observation's files (true) or reuse an existing one (false, no new write).
-    Under ``persist_filtered`` a deduped revisit reports true with a fresh
-    ``observation_num`` so it is persisted rather than collapsed.
+    ``observation_num``/``is_new_observation`` carry the second-level decision:
+    which of the page's stored visual states this screenshot corresponds to, and
+    whether the caller must persist a new observation's files (true) or reuse an
+    existing one (false, no new write). Under ``persist_filtered`` a deduped
+    revisit reports true with a fresh ``observation_num`` so it is persisted.
     """
 
     page_key: str
@@ -146,9 +149,9 @@ def _families_from_elements(elements: list[ExtractedElement]) -> list[ElementFam
 
     ``name`` / ``description`` / ``parameters`` carry the LLM semantics; the
     indices are copied as-is. Use this ONLY for elements whose indices already
-    live in the CURRENT screen's index space (a fresh extract / the expand
-    output). A stored page's elements on a revisit carry first-sighting indices
-    and must be re-grounded via :meth:`ScreenMatcher._remap_families` instead.
+    live in the CURRENT screen's index space (a fresh extract). A stored page's
+    elements on a revisit carry first-sighting indices and must be re-grounded
+    via :meth:`ScreenMatcher._remap_families` instead.
     """
     return [
         ElementFamily(
@@ -163,18 +166,18 @@ def _families_from_elements(elements: list[ExtractedElement]) -> list[ElementFam
 
 
 class ScreenMatcher:
-    """Element-set page identifier with on-the-fly single-call extraction.
+    """BM25 page identifier with conjunctive element + pixel verification.
 
-    Runs in one of two modes depending on whether an *extractor* was supplied:
-    with one, full element-set matching (structural + luminance prefilters, then
-    step-1/expand/classify). Without one (``extractor is None``), a
-    **prefilter-only** mode that keeps the structural + luminance prefilters and
-    observation dedup but registers unmatched screens as new pages directly,
-    never touching the element-set path — used when LLM element extraction is off.
+    Page identity is decided WITHOUT the LLM: serialize the encoded XML to an
+    element-line document, retrieve BM25 top-K candidates, and confirm the first
+    candidate that passes both the element criterion and the pixel gate. When an
+    *extractor* is supplied (``llm.element_extraction`` on) a NEW page also runs
+    one element extraction to populate ``families`` for exploration; without one
+    (the default) families are empty and identity relies solely on element-lines.
     """
 
-    # Per-page luminance-fingerprint observation cap. Bounds the Stage-0 compare
-    # loop (O(pages × observations)) over a long session.
+    # Per-page luminance-fingerprint observation cap. Bounds the observation
+    # compare loop over a long session.
     _MAX_LUMINANCE_OBS = 10
 
     def __init__(
@@ -187,25 +190,33 @@ class ScreenMatcher:
         screenshot_diff_threshold: float = 0.02,
         luminance_low_res_width: int = 100,
         persist_filtered: bool = False,
+        bm25_top_k: int = 5,
+        element_criterion: str = "diff",
+        element_diff_max: int = 5,
+        element_jaccard_min: float = 0.5,
+        page_pixel_diff_threshold: float = 0.3,
     ):
         self._extractor = extractor
+        # cluster_merge_tolerance / max_expand_iters are retained for signature
+        # stability (config/CLI threading) but are unused by the BM25 match path.
         self._tolerance = cluster_merge_tolerance
         self._max_expand_iters = max_expand_iters
-        # Stage-0 luminance prefilter knobs. The function default is OFF (safe
-        # library default); production activation is decided by the config layer
-        # (builtin/run.yaml). All image work is skipped when disabled.
+        # Luminance knobs. ``screenshot_diff_threshold`` governs OBSERVATION
+        # identity (the tighter per-page dedup); the PAGE-level pixel gate uses
+        # ``page_pixel_diff_threshold``. All image work is skipped when
+        # ``luminance_prefilter`` is off (current_feat stays None).
         self._luma_enabled = luminance_prefilter
         self._luma_threshold = luminance_threshold
         self._luma_diff_threshold = screenshot_diff_threshold
         self._luma_width = luminance_low_res_width
-        # When True, a prefilter/dedup revisit is NOT collapsed onto its stored
-        # observation: it allocates a FRESH observation_num under the (reused)
-        # page_key and is reported as is_new_observation=True, so the collection
-        # loop persists its files (per-visit observation chain 0,1,2,...). The
-        # function default is OFF (safe library default: current no-write-on-
-        # reuse behaviour); the config layer turns it ON. Still zero LLM calls —
-        # only the persistence decision changes, never page identity.
         self._persist_filtered = persist_filtered
+        # BM25 / verification knobs (Mobile3M unique-page mechanism).
+        self._bm25_top_k = bm25_top_k
+        self._element_criterion = element_criterion
+        self._element_diff_max = element_diff_max
+        self._element_jaccard_min = element_jaccard_min
+        self._page_pixel_diff_threshold = page_pixel_diff_threshold
+        self._bm25 = Bm25Index()
         self._registry = KnowledgeRegistry()
         self._fp_to_key: dict[tuple[str, str], tuple[str, int]] = {}
         self._counter = 0
@@ -215,6 +226,7 @@ class ScreenMatcher:
         self._registry = KnowledgeRegistry()
         self._fp_to_key = {}
         self._counter = 0
+        self._bm25.clear()
 
     def rehydrate(
         self,
@@ -226,14 +238,18 @@ class ScreenMatcher:
 
         Call right after :meth:`reset`, before the collection loop resumes.
         *pages* becomes the registry's contents, *fp_to_key* the structural
-        exact-match cache, *counter* the next ``page_N`` index to allocate —
-        all rebuilt from the durable ``data/{package}/pages/`` tree by
-        ``pipeline.screen_matching.rehydrate.rehydrate_screen_matcher``.
+        exact-match cache, *counter* the next ``page_N`` index to allocate — all
+        rebuilt from the durable ``data/{package}/pages/`` tree by
+        ``pipeline.screen_matching.rehydrate.rehydrate_screen_matcher``. The BM25
+        corpus is rebuilt from each page's ``element_lines`` (in page-key order).
         """
         for page in pages.values():
             self._registry.add(page)
         self._fp_to_key = dict(fp_to_key)
         self._counter = counter
+        self._bm25.clear()
+        for page_key in sorted(pages, key=lambda k: int(k) if k.isdigit() else 0):
+            self._bm25.add_document(page_key, pages[page_key].element_lines)
 
     # -- public ---------------------------------------------------------------
 
@@ -253,27 +269,23 @@ class ScreenMatcher:
         fp_key = (activity or "", fp)
 
         # Luminance fingerprint of the current frame, computed once. Only when the
-        # prefilter is enabled AND a screenshot arrived — otherwise zero image work
-        # and the behaviour is identical to before this feature.
+        # prefilter is enabled AND a screenshot arrived — otherwise zero image work.
         current_feat = (
             extract_luminance_features(screenshot, self._luma_width)
             if (self._luma_enabled and screenshot)
             else None
         )
 
-        # 0. Structural pre-filter: exact revisit short-circuits, no LLM. When
+        # 0. Structural pre-filter: exact revisit short-circuits, no work. When
         # persist_filtered is off the cached (page_key, observation_num) IS the
         # reused observation (no new files); when on, this revisit is persisted
-        # as a fresh observation under the same page (see below). Either way,
-        # zero LLM calls.
+        # as a fresh observation under the same page.
         cached = self._fp_to_key.get(fp_key)
         if cached is not None:
             cached_key, cached_obs = cached
             logger.debug(
                 f"screen_match: structural prefilter hit page={cached_key} obs={cached_obs}"
             )
-            # Fill families from the cached page, re-grounded on the current
-            # screen (still no LLM call — anchors come from the registry).
             cached_page = self._registry.get(cached_key)
             try:
                 c_tree = ET.fromstring(encoded_xml)
@@ -285,12 +297,6 @@ class ScreenMatcher:
                 else []
             )
             if self._persist_filtered and cached_page is not None:
-                # Persist this revisit as its OWN fresh observation under the
-                # reused page. No luminance re-append (append_luma=False): the hit
-                # frame is already a near-dup of a stored fingerprint, so re-adding
-                # it would only churn the capped ring buffer. Re-point the
-                # structural cache at the newest obs so the next exact revisit
-                # still short-circuits the LLM and extends the per-visit chain.
                 new_obs = self._allocate_observation(cached_page, current_feat, append_luma=False)
                 self._fp_to_key[fp_key] = (cached_key, new_obs)
                 return ScreenMatch(
@@ -303,9 +309,8 @@ class ScreenMatcher:
             )
 
         # No interactable (button/input) on this screen → a loading/splash frame.
-        # Decline to register it (no LLM call, no page): the first VALID screen of
-        # the session must become page_0, not an empty blackhole that later
-        # screens merge into. The loop's empty-UI guard then waits / relaunches.
+        # Decline to register it (no page): the first VALID screen of the session
+        # must become page_0, not an empty blackhole that later screens merge into.
         if not extract_interactable_indexes(encoded_xml):
             logger.debug("screen_match: no interactable, declining (pending)")
             return ScreenMatch("", is_new_page=False, match_type="PENDING_EMPTY", pending=True)
@@ -315,147 +320,70 @@ class ScreenMatcher:
         except ET.ParseError:
             tree = None
 
-        # 0c. Luminance pre-filter (Stage-0 identical-page dedup, MobileGPT-V2
-        # port). A near-pixel-identical screen short-circuits to a stored page
-        # with NO LLM call, even when its XML fingerprint differs from any cached
-        # structural one. Runs AFTER the pending guard so a loading/splash frame
-        # is still declined; reuses an existing page_key only, so the page_graph
-        # node and explorer abstract page stay consistent.
-        if current_feat is not None and len(self._registry) > 0:
-            hit = self._luminance_lookup(current_feat)
-            if hit is not None:
-                hit_key, hit_obs = hit
-                logger.info(
-                    f"screen_match: luminance prefilter hit page={hit_key} obs={hit_obs}"
-                )
-                hit_page = self._registry.get(hit_key)
-                fams = (
-                    self._remap_families(tree, hit_page)
-                    if (tree is not None and hit_page is not None)
-                    else []
-                )
-                if self._persist_filtered and hit_page is not None:
-                    # Persist this near-dup revisit as its OWN fresh observation
-                    # (append_luma=False — it already matches a stored fingerprint,
-                    # so re-appending would only churn the capped ring buffer).
-                    # Re-point the structural cache at the newest obs.
-                    new_obs = self._allocate_observation(hit_page, current_feat, append_luma=False)
-                    self._fp_to_key[fp_key] = (hit_key, new_obs)
-                    return ScreenMatch(
-                        hit_key, is_new_page=False, match_type="LUMINANCE_PREFILTER", families=fams,
-                        observation_num=new_obs, is_new_observation=True,
-                    )
-                # Back-fill the structural cache so the next exact revisit of this
-                # XML resolves via the cheaper structural prefilter. The hit frame
-                # itself is NOT stored as an observation (it is already a near-dup).
-                self._fp_to_key[fp_key] = (hit_key, hit_obs)
-                return ScreenMatch(
-                    hit_key, is_new_page=False, match_type="LUMINANCE_PREFILTER", families=fams,
-                    observation_num=hit_obs, is_new_observation=False,
-                )
+        # 1. Serialize the encoded XML to the element-line document (BM25 doc).
+        lines = serialize_element_lines(encoded_xml)
 
-        # Prefilter-only mode (no extractor): page identity relies SOLELY on the
-        # Stage-0 structural fingerprint (checked at the top) and the Stage-0c
-        # luminance prefilter (checked just above) — both already MISSED here.
-        # Register a NEW page WITHOUT extracting elements, and NEVER fall through
-        # to step-1/expand/classify: those need element anchors (absent without
-        # an extractor) and classify(∅, ∅) would collapse every screen into one
-        # page. Re-identification on later visits then relies purely on the
-        # structural-fp exact match + luminance prefilter, neither of which needs
-        # anchors. Passing additional=[] makes _new_page skip the extractor.
-        if self._extractor is None:
-            return self._new_page(
-                fp_key, encoded_xml, tree, supported_names=[], best=None, additional=[],
-                current_feat=current_feat,
-            )
+        # An empty document must never merge (a size-0 query would let a tiny
+        # candidate spuriously pass the element criterion). First screen of a
+        # session (empty registry) is likewise a new page.
+        if not lines or len(self._registry) == 0:
+            return self._new_page(fp_key, encoded_xml, tree, lines, current_feat)
 
-        # No stored pages yet → straight to a new page (full extract).
-        if len(self._registry) == 0 or tree is None:
-            return self._new_page(
-                fp_key, encoded_xml, tree, supported_names=[], best=None, additional=None,
-                current_feat=current_feat,
-            )
-
-        # 1. Step-1 trigger match per stored page.
-        candidates = []
-        for page_key in self._registry.all_page_keys():
+        # 2-3. BM25 top-K retrieval → conjunctive (element AND pixel) verification.
+        cur_set = set(lines)
+        for page_key, _score in self._bm25.top_k(lines, self._bm25_top_k):
             page = self._registry.get(page_key)
             if page is None:
                 continue
-            supported, remaining = self._match_step1(tree, page)
-            candidates.append((page_key, page, supported, remaining))
-
-        # 2. Pick best (largest |supported|, ties → smaller stored page).
-        best_key, best, supported, remaining = max(
-            candidates, key=lambda c: (len(c[2]), -len(c[1].elements))
-        )
-
-        # 2b. Expand: re-extract on the leftover UIs until dry.
-        additional = self._expand(encoded_xml, best, remaining)
-
-        # 3. Classify A vs B.
-        a_names = set(supported) | {e.name for e in additional}
-        b_names = best.element_names
-        cls = classify(a_names, b_names, self._tolerance)
-        logger.info(
-            f"screen_match: type={cls.match_type} page={best_key if cls.is_merge else 'NEW'} "
-            f"|A|={len(a_names)} |B|={len(b_names)} |A∩B|={len(a_names & b_names)} "
-            f"tol={self._tolerance:.2f}"
-        )
-
-        if cls.is_merge:
-            # Page identity is resolved (best_key); now resolve OBSERVATION
-            # identity within that page — reuse a pixel-matching stored
-            # observation, or allocate a new one (see module docstring).
+            if not self._element_ok(cur_set, set(page.element_lines)):
+                continue
+            if not self._pixel_ok(page, current_feat):
+                continue
+            # MATCH → merge. Resolve OBSERVATION identity within the page.
             obs_num, is_new_obs = self._record_observation(
-                best_key, current_feat, allow_reuse=True,
+                page_key, current_feat, allow_reuse=True,
             )
-            self._fp_to_key[fp_key] = (best_key, obs_num)
-            # Fill families from the matched page, re-grounded on the current
-            # screen (stored indices are first-sighting; remap to this step).
-            # Then append any expand-discovered elements (e.g. SUPERSET
-            # scroll-reveal), which already carry current-screen indices.
-            fams = self._remap_families(tree, best) if tree is not None else []
-            seen = {f.name for f in fams}
-            fams += [f for f in _families_from_elements(additional) if f.name not in seen]
+            self._fp_to_key[fp_key] = (page_key, obs_num)
+            fams = self._remap_families(tree, page) if tree is not None else []
+            logger.info(
+                f"screen_match: BM25_MERGE page={page_key} "
+                f"|cur|={len(cur_set)} |cand|={len(page.element_lines)} "
+                f"crit={self._element_criterion}"
+            )
             return ScreenMatch(
-                best_key, is_new_page=False, match_type=cls.match_type, families=fams,
+                page_key, is_new_page=False, match_type="BM25_MERGE", families=fams,
                 observation_num=obs_num, is_new_observation=is_new_obs,
             )
 
-        return self._new_page(
-            fp_key, encoded_xml, tree, supported_names=list(supported), best=best,
-            additional=additional, match_type=cls.match_type, current_feat=current_feat,
-        )
+        # No candidate confirmed → a genuinely new page.
+        return self._new_page(fp_key, encoded_xml, tree, lines, current_feat)
 
-    # -- step 1 ---------------------------------------------------------------
+    # -- verification ---------------------------------------------------------
 
-    def _match_step1(self, tree: ET.Element, page: PageKnowledge) -> tuple[list[str], set[int]]:
-        """Text-blind ALL-match a stored page's anchors. Returns (supported, remaining)."""
-        remaining: set[int] = set()
-        for tag in ("button", "input"):
-            for node in tree.findall(f".//{tag}"):
-                idx = node.attrib.get("index")
-                if idx is not None:
-                    remaining.add(int(idx))
+    def _element_ok(self, cur: set[str], cand: set[str]) -> bool:
+        """Element criterion between the current and a candidate element-line set."""
+        if self._element_criterion == "jaccard":
+            return element_jaccard(cur, cand) > self._element_jaccard_min
+        return element_diff_count(cur, cand) < self._element_diff_max
 
-        supported: list[str] = []
-        for name, ui_list in page.key_elements.items():
-            found = 0
-            for ui in ui_list:
-                matched = self._matched_indexes(tree, ui)
-                for mi in matched:
-                    remaining.discard(mi)
-                found += len(matched)
-            # ALL-match: every stored anchor must be present.
-            if found >= len(ui_list) and ui_list:
-                supported.append(name)
+    def _pixel_ok(self, page: PageKnowledge, feat: PILImage | None) -> bool:
+        """Pixel gate: is *feat* within ``page_pixel_diff_threshold`` of *page*?
 
-        for ui in page.extra_uis:
-            for mi in self._matched_indexes(tree, ui):
-                remaining.discard(mi)
+        No comparator (no screenshot / luminance disabled) OR the candidate has
+        no stored fingerprint → the gate ABSTAINS (returns True) and the element
+        criterion alone decides. Otherwise the minimum luminance-difference
+        fraction across the page's stored fingerprints must be below the
+        PAGE-level threshold. A size mismatch makes ``luminance_diff`` return 1.0
+        → the gate fails = different page (Mobile3M dimension-mismatch=different).
+        """
+        if feat is None or not page.luminance_features:
+            return True
+        return min(
+            luminance_diff(feat, stored, self._luma_threshold)
+            for _, stored in page.luminance_features
+        ) < self._page_pixel_diff_threshold
 
-        return supported, remaining
+    # -- family regrounding ---------------------------------------------------
 
     @staticmethod
     def _matched_indexes(tree: ET.Element, ui: UIAttributes) -> list[int]:
@@ -477,9 +405,9 @@ class ScreenMatcher:
         encoded XML. Re-match each element's anchor fingerprints
         (``page.key_elements[name]``) against the current ``tree`` to recover
         current-screen indices. Only anchors are stored, so ``element_index`` is
-        approximated by the anchor indices (the full same-function family is not
-        recoverable); an element with no current match (not rendered on this
-        screen) is dropped.
+        approximated by the anchor indices; an element with no current match (not
+        rendered on this screen) is dropped. Returns ``[]`` for a page minted
+        without an extractor (no stored elements).
         """
         fams: list[ElementFamily] = []
         for e in page.elements:
@@ -498,34 +426,13 @@ class ScreenMatcher:
             )
         return fams
 
-    # -- stage-0 luminance prefilter ------------------------------------------
-
-    def _luminance_lookup(self, feat: PILImage) -> tuple[str, int] | None:
-        """First (page_key, observation_num) whose luminance fingerprint matches
-        *feat*, else None. This is the PAGE-IDENTITY decision (Stage-0c, scans
-        every page) — built from the page-scoped :meth:`_page_luminance_lookup`
-        applied across all pages, so the pixel-compare loop has one
-        implementation shared with the OBSERVATION-identity decision made after
-        a page is already resolved via classify (:meth:`_record_observation`).
-
-        Mirrors MobileGPT-V2 ``check_identical_page``: scan every (page,
-        observation) fingerprint and return the first match whose
-        differing-pixel fraction is below ``screenshot_diff_threshold``.
-        """
-        for page_key in self._registry.all_page_keys():
-            page = self._registry.get(page_key)
-            if page is None:
-                continue
-            obs_num = self._page_luminance_lookup(page, feat)
-            if obs_num is not None:
-                return page_key, obs_num
-        return None
+    # -- observation identity -------------------------------------------------
 
     def _page_luminance_lookup(self, page: PageKnowledge, feat: PILImage) -> int | None:
         """First observation_num of *page* whose luminance fingerprint matches
-        *feat*, else None. Scoped to one page's own observations — unlike the
-        global :meth:`_luminance_lookup` (decides PAGE identity), this decides
-        OBSERVATION identity given the page is already fixed.
+        *feat* (within ``screenshot_diff_threshold``), else None. Scoped to one
+        page's own observations — decides OBSERVATION identity given the page is
+        already fixed (distinct from the PAGE-level :meth:`_pixel_ok` gate).
         """
         for obs_num, stored in page.luminance_features:
             if luminance_diff(feat, stored, self._luma_threshold) < self._luma_diff_threshold:
@@ -539,12 +446,11 @@ class ScreenMatcher:
         place per-page observation numbers are minted.
 
         When *append_luma* and the luminance prefilter is on and a fingerprint
-        was computed, records ``(obs_num, feat)`` so future screens can
-        prefilter-hit this exact observation (capped at ``_MAX_LUMINANCE_OBS``,
-        oldest evicted). Callers persisting a prefilter/luminance HIT pass
-        ``append_luma=False``: that frame already matches a stored fingerprint,
-        so re-adding a near-dup would only churn the cap and risk evicting the
-        first-sighting fingerprint.
+        was computed, records ``(obs_num, feat)`` so future screens can dedup
+        against this exact observation (capped at ``_MAX_LUMINANCE_OBS``, oldest
+        evicted). Callers persisting a prefilter HIT pass ``append_luma=False``:
+        that frame already matches a stored fingerprint, so re-adding a near-dup
+        would only churn the cap.
         """
         obs_num = page.next_observation_num
         page.next_observation_num += 1
@@ -559,17 +465,12 @@ class ScreenMatcher:
     ) -> tuple[int, bool]:
         """Resolve (observation_num, is_new_observation) for *page_key*.
 
-        ``allow_reuse=False`` (a brand-new page): always allocates observation
-        0 — there is nothing yet to reuse. ``allow_reuse=True`` (classify-merge,
-        page identity already resolved): tries the page-scoped luminance lookup
-        first when the prefilter is enabled and a fingerprint was computed; a
-        hit reuses that observation (no new write, no luminance append — it's
-        already a near-dup). A miss — or no pixel comparator available at all
-        (prefilter disabled / no screenshot) — always allocates a new
-        observation: without a comparator there is no evidence two
-        structurally-different renders are visually identical, so allocating
-        avoids silently collapsing genuinely different scroll/render states of
-        a page into one.
+        ``allow_reuse=False`` (a brand-new page): always allocates observation 0.
+        ``allow_reuse=True`` (a BM25 merge, page identity already resolved): tries
+        the page-scoped luminance lookup first when the prefilter is enabled and a
+        fingerprint was computed; a hit reuses that observation (no new write). A
+        miss — or no pixel comparator available (prefilter disabled / no
+        screenshot) — always allocates a new observation.
 
         When ``persist_filtered`` is on the reuse short-circuit is skipped
         entirely: a merge revisit is persisted as its own fresh observation, so
@@ -578,8 +479,7 @@ class ScreenMatcher:
         page = self._registry.get(page_key)
         if page is None:
             # Caller already resolved the page identity, so this should not
-            # happen; fail safe to a fresh observation rather than raise
-            # mid-collection.
+            # happen; fail safe to a fresh observation rather than raise.
             return 0, True
 
         if (
@@ -594,39 +494,6 @@ class ScreenMatcher:
 
         return self._allocate_observation(page, feat, append_luma=True), True
 
-    # -- step 2 (expand) ------------------------------------------------------
-
-    def _expand(
-        self, encoded_xml: str, best: PageKnowledge, remaining: set[int]
-    ) -> list[ExtractedElement]:
-        """Re-extract on the leftover UIs until no new element / remaining dry / cap."""
-        additional: list[ExtractedElement] = []
-        if not remaining:
-            return additional
-        known: list[ExtractedElement] = list(best.elements)
-        known_names = {e.name for e in known}
-        current = set(remaining)
-        iters = 0
-        while current and iters < self._max_expand_iters:
-            iters += 1
-            masked = mask_xml_to_indexes(encoded_xml, current)
-            new = self._extractor.extract(masked, known_elements=known)
-            new = [e for e in new if e.name not in known_names]
-            if not new:
-                break
-            additional.extend(new)
-            for e in new:
-                known.append(e)
-                known_names.add(e.name)
-            claimed: set[int] = set()
-            for e in new:
-                claimed.update(e.element_index)
-            shrunk = current - claimed
-            if shrunk == current:
-                break  # no progress — avoid non-termination
-            current = shrunk
-        return additional
-
     # -- new page -------------------------------------------------------------
 
     def _new_page(
@@ -634,84 +501,62 @@ class ScreenMatcher:
         fp_key: tuple[str, str],
         encoded_xml: str,
         tree: ET.Element | None,
-        supported_names: list[str],
-        best: PageKnowledge | None,
-        additional: list[ExtractedElement] | None,
-        match_type: str = "NEW",
+        lines: list[str],
         current_feat: PILImage | None = None,
     ) -> ScreenMatch:
-        """Register a fresh page; fingerprint its anchors on the current screen."""
-        # Freshly-extracted elements (current-screen indices). For an empty
-        # registry this is a full extract; otherwise it is the expand output.
-        if additional is None:
-            additional = self._extractor.extract(encoded_xml, known_elements=[])
+        """Register a fresh page; add its element-line document to the BM25 corpus.
 
+        With an extractor (``llm.element_extraction`` on), run ONE extract to
+        populate the page's elements + anchor fingerprints and the returned
+        families (the explorer's same-function grouping). Without one (default),
+        the page carries no elements/anchors and families are empty — matching
+        re-identifies it via BM25 + element/pixel only, which needs neither.
+        """
         page_key = str(self._counter)
         self._counter += 1
 
+        elements: list[ExtractedElement] = []
         key_elements: dict[str, list[UIAttributes]] = {}
-        accounted: set[int] = set()
+        extra_uis: list[UIAttributes] = []
 
-        # Supported elements: reuse stored anchor fingerprints (they matched here),
-        # so the new page re-identifies on future visits the same way.
-        if best is not None and tree is not None:
-            supported_set = set(supported_names)
-            for name in supported_set:
-                ui_list = best.key_elements.get(name)
-                if not ui_list:
-                    continue
-                key_elements[name] = ui_list
-                for ui in ui_list:
-                    accounted.update(self._matched_indexes(tree, ui))
-
-        # Additional elements: fingerprint their anchors on the current screen.
-        for el in additional:
-            attrs = [
-                UIAttributes.from_attrib_dict(get_ui_key_attrib(i, encoded_xml))
-                for i in el.key_element_index
+        if self._extractor is not None:
+            elements = self._extractor.extract(encoded_xml, known_elements=[])
+            accounted: set[int] = set()
+            for el in elements:
+                attrs = [
+                    UIAttributes.from_attrib_dict(get_ui_key_attrib(i, encoded_xml))
+                    for i in el.key_element_index
+                ]
+                if attrs:
+                    key_elements[el.name] = attrs
+                accounted.update(el.key_element_index)
+            leftover = sorted(set(extract_interactable_indexes(encoded_xml)) - accounted)
+            extra_uis = [
+                UIAttributes.from_attrib_dict(get_ui_key_attrib(i, encoded_xml)) for i in leftover
             ]
-            if attrs:
-                key_elements[el.name] = attrs
-            accounted.update(el.key_element_index)
-
-        # Extras: leftover interactables not owned by any anchor.
-        all_inter = set(extract_interactable_indexes(encoded_xml))
-        leftover = sorted(all_inter - accounted)
-        extra_uis = [
-            UIAttributes.from_attrib_dict(get_ui_key_attrib(i, encoded_xml)) for i in leftover
-        ]
-
-        # Stored elements for the page = supported (from B) + additional.
-        supported_objs: list[ExtractedElement] = []
-        if best is not None:
-            supported_set = set(supported_names)
-            supported_objs = [e for e in best.elements if e.name in supported_set]
-        page_elements = supported_objs + list(additional)
 
         self._registry.add(
             PageKnowledge(
                 page_key=page_key,
-                elements=page_elements,
+                elements=elements,
                 key_elements=key_elements,
                 extra_uis=extra_uis,
+                element_lines=lines,
             )
         )
-        # Observation 0: a brand-new page has nothing to reuse. Also records
-        # the first-sighting luminance fingerprint so future screens can
-        # prefilter-hit this page (no-op when the prefilter is disabled).
+        self._bm25.add_document(page_key, lines)
+
+        # Observation 0: a brand-new page has nothing to reuse. Also records the
+        # first-sighting luminance fingerprint (no-op when the prefilter is off).
         obs_num, is_new_obs = self._record_observation(page_key, current_feat, allow_reuse=False)
         self._fp_to_key[fp_key] = (page_key, obs_num)
         logger.debug(
-            f"screen_match: new page={page_key} type={match_type} "
-            f"elements={[e.name for e in page_elements]} extras={len(extra_uis)}"
+            f"screen_match: new page={page_key} elements={[e.name for e in elements]} "
+            f"lines={len(lines)}"
         )
 
-        # Families for Memory: ONLY the freshly-extracted (current-index)
-        # elements. Supported-from-B elements anchor page identity but carry
-        # stored indices, so they are not handed to same-function compression.
-        # description/parameters ride along so they reach {step}_elements.json.
-        families = _families_from_elements(additional)
+        families = _families_from_elements(elements)
         return ScreenMatch(
-            page_key, is_new_page=True, match_type=match_type, families=families,
+            page_key, is_new_page=True, match_type="NEW", families=families,
             observation_num=obs_num, is_new_observation=is_new_obs,
         )

@@ -27,6 +27,11 @@ class PageKnowledge:
     key_elements: dict[str, list[UIAttributes]] = field(default_factory=dict)
     # leftover interactable fingerprints not owned by any element's anchors.
     extra_uis: list[UIAttributes] = field(default_factory=list)
+    # BM25 document for this page: the normalized element-line list serialized
+    # from the encoded XML at page creation (see element_lines.py). Frozen at
+    # first sighting — the page's identity for BM25 retrieval + element-diff /
+    # Jaccard verification. Serialized to page.json (additive/back-compat).
+    element_lines: list[str] = field(default_factory=list)
     # Stage-0 luminance prefilter observations: (observation_num, resized
     # BT.601 L-mode PIL image) pairs, one per sighting that became a new
     # observation (a reused observation is never appended again). The number
@@ -74,6 +79,7 @@ class PageKnowledge:
                 for name, ui_list in self.key_elements.items()
             },
             "extra_uis": [ui.to_dict() for ui in self.extra_uis],
+            "element_lines": list(self.element_lines),
         }
 
     @classmethod
@@ -90,6 +96,7 @@ class PageKnowledge:
                 for name, ui_list in d.get("key_elements", {}).items()
             },
             extra_uis=[UIAttributes.from_attrib_dict(u) for u in d.get("extra_uis", [])],
+            element_lines=list(d.get("element_lines", [])),
         )
 
 

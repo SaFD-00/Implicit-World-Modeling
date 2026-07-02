@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from PIL import Image
 
 from monkey_collector.llm.element_extractor import ExtractedElement
+from monkey_collector.pipeline.screen_matching.page_knowledge import PageKnowledge
 from monkey_collector.pipeline.screen_matching.rehydrate import (
     rehydrate_screen_matcher,
 )
@@ -39,7 +40,7 @@ RAW_C = _screen(_btn("play", "Play", "[0,0][100,100]"))
 
 
 class FakeExtractor:
-    """Returns one element per button (by aria-label) present in the masked XML."""
+    """Returns one element per button (by aria-label) present in the XML."""
 
     def extract(self, encoded_xml, known_elements=None, screenshot_path=None):
         root = ET.fromstring(encoded_xml)
@@ -95,12 +96,13 @@ def test_rehydrate_restores_registry_and_structural_cache(tmp_path):
     writer = _writer(tmp_path)
     matcher = ScreenMatcher(FakeExtractor())
     a = _drive_and_persist(matcher, writer, RAW_A)
-    b = _drive_and_persist(matcher, writer, RAW_B)  # SUPERSET_MERGE into a's page
+    b = _drive_and_persist(matcher, writer, RAW_B)  # BM25 merge into a's page
 
     fresh = ScreenMatcher(FakeExtractor())
     rehydrate_screen_matcher(fresh, writer)
 
     assert fresh._registry.all_page_keys() == [a.page_key]
+    assert len(fresh._bm25) == 1  # BM25 corpus rebuilt from element_lines
     page = fresh._registry.get(a.page_key)
     assert page is not None
     assert page.element_names == {"open_add", "open_search"}
@@ -111,8 +113,7 @@ def test_rehydrate_restores_registry_and_structural_cache(tmp_path):
     assert revisit.match_type == "STRUCTURAL_IDENTICAL"
     assert revisit.observation_num == b.observation_num
 
-    # _counter is past the highest rehydrated page index, so a genuinely new
-    # page can't collide with a's page_key.
+    # _counter is past the highest rehydrated page index.
     assert fresh._counter == int(a.page_key) + 1
 
 
@@ -123,10 +124,54 @@ def test_rehydrate_empty_tree_is_noop(tmp_path):
     rehydrate_screen_matcher(fresh, writer)
 
     assert len(fresh._registry) == 0
+    assert len(fresh._bm25) == 0
     assert fresh._counter == 0
 
 
-def test_rehydrate_with_luminance_enabled_restores_features(tmp_path):
+def test_rehydrate_rebuilds_bm25_corpus(tmp_path):
+    # Two genuinely distinct pages (element_diff_max=2 keeps RAW_C separate from
+    # RAW_A); after resume the BM25 corpus has both, and a merge picks the right
+    # candidate.
+    writer = _writer(tmp_path)
+    matcher = ScreenMatcher(FakeExtractor(), element_diff_max=2)
+    a = _drive_and_persist(matcher, writer, RAW_A)
+    _drive_and_persist(matcher, writer, RAW_C)
+    assert len(matcher._registry.all_page_keys()) == 2
+
+    fresh = ScreenMatcher(FakeExtractor(), element_diff_max=2)
+    rehydrate_screen_matcher(fresh, writer)
+    assert len(fresh._bm25) == 2
+    assert sorted(fresh._registry.all_page_keys()) == ["0", "1"]
+
+    # RAW_B shares two element-lines with A, none with C → BM25 ranks A first,
+    # |A△B|=1<2 → merges into A's page after the resume.
+    b = fresh.match(RAW_B, _enc(RAW_B), "act.Main")
+    assert b.match_type == "BM25_MERGE"
+    assert b.page_key == a.page_key
+
+
+def test_rehydrate_legacy_page_json_without_element_lines(tmp_path):
+    # A page.json written before element_lines existed loads with an empty list;
+    # rehydrate rebuilds the BM25 document from the first observation's raw.xml.
+    writer = _writer(tmp_path)
+    writer.save_page_knowledge("0", PageKnowledge(page_key="0"))  # element_lines=[]
+    writer.save_observation("0", 0, None, RAW_A, match=None, activity="act.Main")
+
+    fresh = ScreenMatcher(FakeExtractor(), element_diff_max=2)
+    rehydrate_screen_matcher(fresh, writer)
+
+    page = fresh._registry.get("0")
+    assert page is not None
+    assert page.element_lines  # rebuilt from raw.xml, not left empty
+    assert len(fresh._bm25) == 1
+
+    # A BM25 merge now resolves against the rebuilt document.
+    b = fresh.match(RAW_B, _enc(RAW_B), "act.Main")
+    assert b.match_type == "BM25_MERGE"
+    assert b.page_key == "0"
+
+
+def test_rehydrate_with_luminance_restores_features(tmp_path):
     writer = _writer(tmp_path)
     matcher = ScreenMatcher(
         FakeExtractor(), luminance_prefilter=True, luminance_threshold=10,
@@ -141,21 +186,23 @@ def test_rehydrate_with_luminance_enabled_restores_features(tmp_path):
     )
     rehydrate_screen_matcher(fresh, writer)
 
-    # A near-identical screenshot, under a completely different XML
-    # fingerprint, should luminance-hit the rehydrated observation.
-    hit = fresh.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=shot)
-    assert hit.match_type == "LUMINANCE_PREFILTER"
-    assert hit.page_key == a.page_key
-    assert hit.observation_num == a.observation_num
+    page = fresh._registry.get(a.page_key)
+    assert len(page.luminance_features) == 1  # re-derived from the saved screenshot
+    assert page.element_lines                 # restored from page.json
+
+    # Element-passing revisit (|A△B|=1<5) with the SAME screenshot merges; the
+    # restored fingerprint drives OBSERVATION dedup → reuses obs 0.
+    m = fresh.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=shot)
+    assert m.match_type == "BM25_MERGE"
+    assert m.page_key == a.page_key
+    assert not m.is_new_observation
+    assert m.observation_num == a.observation_num
 
 
 def test_rehydrate_skips_page_with_no_observations_gracefully(tmp_path):
     # A page.json with an empty pages/{page_key}/ directory (no observation
     # subdirs) must not crash rehydration — next_observation_num falls back to 0.
     writer = _writer(tmp_path)
-    from monkey_collector.pipeline.screen_matching.page_knowledge import (
-        PageKnowledge,
-    )
     writer.save_page_knowledge("0", PageKnowledge(page_key="0"))
 
     fresh = ScreenMatcher(FakeExtractor())
@@ -167,11 +214,9 @@ def test_rehydrate_skips_page_with_no_observations_gracefully(tmp_path):
     assert fresh._counter == 1
 
 
-def test_rehydrate_prefilter_only_restores_luminance(tmp_path):
-    # Resume in prefilter-only mode (extractor None: LLM for input text only).
-    # The matcher is present, so rehydrate re-derives luminance features from the
-    # persisted screenshot, and a near-identical revisit luminance-hits the same
-    # page/observation — page dedup survives a resume with no extractor.
+def test_rehydrate_extractorless_restores_and_matches(tmp_path):
+    # Resume in enrichment-off mode (extractor None: LLM for input text only).
+    # BM25 matching + luminance restore survive the resume with no extractor.
     writer = _writer(tmp_path)
     matcher = ScreenMatcher(
         None, luminance_prefilter=True, luminance_threshold=10,
@@ -187,10 +232,14 @@ def test_rehydrate_prefilter_only_restores_luminance(tmp_path):
     )
     rehydrate_screen_matcher(fresh, writer)
 
-    hit = fresh.match(RAW_C, _enc(RAW_C), "act.Main", screenshot=shot)
-    assert hit.match_type == "LUMINANCE_PREFILTER"
-    assert hit.page_key == a.page_key
-    assert hit.observation_num == a.observation_num
+    page = fresh._registry.get(a.page_key)
+    assert len(page.luminance_features) == 1
+    assert page.element_lines
+
+    m = fresh.match(RAW_B, _enc(RAW_B), "act.Main", screenshot=shot)
+    assert m.match_type == "BM25_MERGE"
+    assert m.page_key == a.page_key
+    assert m.families == []
 
 
 def _persist_lum_matcher():

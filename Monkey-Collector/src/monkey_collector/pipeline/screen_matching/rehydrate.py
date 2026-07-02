@@ -21,11 +21,13 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from monkey_collector.domain.page_graph import compute_xml_fingerprint
+from monkey_collector.pipeline.screen_matching.element_lines import serialize_element_lines
 from monkey_collector.pipeline.screen_matching.luminance import (
     extract_luminance_features,
 )
 from monkey_collector.pipeline.screen_matching.page_knowledge import PageKnowledge
 from monkey_collector.pipeline.screen_matching.screen_matcher import ScreenMatcher
+from monkey_collector.xml.structured_parser import encode_with_bounds
 
 if TYPE_CHECKING:
     from monkey_collector.storage import DataWriter
@@ -79,6 +81,16 @@ def rehydrate_screen_matcher(matcher: ScreenMatcher, writer: DataWriter) -> None
 
         if len(page.luminance_features) > ScreenMatcher._MAX_LUMINANCE_OBS:
             page.luminance_features = page.luminance_features[-ScreenMatcher._MAX_LUMINANCE_OBS:]
+
+        # Legacy fallback: a page.json written before element_lines existed has an
+        # empty list. Rebuild the BM25 document from the first observation's raw
+        # XML so resumed sessions still match by element-lines (new sessions have
+        # element_lines in page.json, so this is a no-op then).
+        if not page.element_lines and obs_nums:
+            with contextlib.suppress(Exception):
+                raw = writer.load_observation_raw_xml(page_key, min(obs_nums))
+                if raw:
+                    page.element_lines = serialize_element_lines(encode_with_bounds(raw)[0])
 
         pages[page_key] = page
         with contextlib.suppress(ValueError):
