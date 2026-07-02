@@ -3,6 +3,23 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-02 — Monkey-Collector: page matching을 Mobile3M Unique Page(BM25 + conjunctive diff)로 교체 — LLM-free matching
+
+사용자가 `.claude/references/mobilevlm` 을 참고해 Monkey-Collector 의 page 식별을 MobileGPT-V2 식 **LLM element-set matching** 에서 Mobile3M 의 "Unique Page" 메커니즘(**BM25 후보검색 + conjunctive element/pixel diff 검증**)으로 교체하고, 문서 갱신 후 나눠서 커밋·푸시하기를 원했다. matching 이 **LLM-free** 가 되어 화면당 LLM 호출 비용·복잡도가 사라졌고, `ScreenMatch`/`page_key` 출력 계약을 불변으로 유지해 하위 소비처(page_graph·exploration·storage)는 무변경이다.
+
+- 신규 모듈: `pipeline/screen_matching/bm25.py`(`Bm25Index`, Okapi BM25 k1=1.5/b=0.75, numpy 미사용) · `element_lines.py`(`serialize_element_lines` = encoded XML → element-line 문서, `element_diff_count`/`element_jaccard`).
+- `ScreenMatcher.match()` 재작성: 구조지문 prefilter → pending 가드 → element-line 직렬화 → BM25 top-K 후보 → conjunctive verify(element diff `<element_diff_max` **AND** pixel gate `luminance_diff<0.3`) → 첫 통과면 `BM25_MERGE`, 없으면 `NEW`. `match_type` = `NEW`/`STRUCTURAL_IDENTICAL`/`BM25_MERGE`/`PENDING_EMPTY`.
+- 참고 논문(top-5 + element diff<5) vs 참고 코드 `arm_graph_para_lock.py`(top-1 argmax + Jaccard>0.5)의 불일치를 발견 → **논문 스펙을 기본값**으로 채택하되 5종 config knob 으로 코드 스펙 전환 가능하게 노출.
+- LLM element 추출은 옵션 enrichment(`families`, 탐색 same-function grouping)로 분리 — matching 경로는 절대 LLM 을 호출하지 않는다.
+- config knob 5종(6-place 관통 + `MC_SCREEN_MATCHING_*` env + CLI flags): `bm25_top_k=5`, `element_criterion=diff|jaccard`, `element_diff_max=5`, `element_jaccard_min=0.5`, `page_pixel_diff_threshold=0.3`.
+- `PageKnowledge.element_lines` 필드 추가(page.json additive 직렬화) — `rehydrate` 가 세션 재개 시 BM25 코퍼스를 재구축하고, 필드 없는 legacy page.json 은 첫 observation 의 raw.xml 로 재계산.
+- 구 element-set 코드(`set_classifier.py`)·`cluster_merge_tolerance`/`max_expand_iters` 는 deprecated 로 존치하되 미참조.
+- 변경(diffstat, 마지막 4커밋): 21 files changed, 1164 insertions(+), 688 deletions(-).
+- 커밋(브랜치 `feat/bm25-page-matching`, origin 푸시 완료): `018208e` feat(screen-matching): add Bm25Index + element-line serializer · `3da2b47` feat(screen-matching): BM25 + conjunctive diff page matching · `d6ecddc` feat(config): screen-matching BM25/diff/pixel knobs · `979ef03` docs: describe BM25 unique-page matching.
+- 결과/검증: 유닛 **706 all green**(신규 `test_bm25`/`test_element_lines` + `test_screen_matcher`/`test_rehydrate`/`test_config`/`test_storage` 갱신). ruff/mypy clean(변경 파일). 스크립트 E2E PASS — A→NEW, A재방문→STRUCTURAL, B→BM25_MERGE(page0), C→NEW(page1), C→B 기존 노드 재연결 ⇒ page_graph 2노드/2엣지(방향그래프·중복노드 없음)로 Mobile3M unique-page 목표(탐색폭발 방지) 달성. **라이브 AVD(Pixel6-2) 수집 검증은 미실행(다음 세션)**.
+- 문서: 패키지 정본 `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md` 는 이번 구현에서 이미 갱신됨. 루트 `docs/{README,ARCHITECTURE}.md` 는 패키지 정본을 가리키므로 추가 수정 없음.
+- 카테고리: devlog
+
 ## 2026-07-02 — Monkey-Collector: 필터된 재방문도 저장 (`persist_filtered`, per-visit observation)
 
 사용자 질문("`data/com.flauschcode.broccoli/pages/` 에 observation 이 왜 페이지당 하나만 생기나")에서 출발했다. 원인은 prefilter-only 모드(`element_extraction=false`)에서 structural/luminance prefilter 로 dedup 된 재방문 화면이 파일을 전혀 안 쓰고, 재사용 못 하는 새 화면은 새 page 가 되어 "새 page = observation 0" 1:1 이 되기 때문이었다. 사용자가 "filtering 이 되더라도 저장되도록" 원해, 필터된 재방문을 그 page 아래 **자체 observation**(방문마다 `0,1,2,…` per-visit 체인)으로 저장하도록 신규 플래그 `screen_matching.persist_filtered`(기본 ON)를 추가했다. 설계는 3개 독립안(per-visit / frames-subdir / config-gated) 생성→심사→적대적 검증 워크플로로 도출했고, "매처 단독 변경(loop/storage/rehydrate 무변경)"이 최소 blast-radius·정합성 최고로 선정됐다. 코드 변경, 작업트리 미커밋.
