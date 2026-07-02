@@ -1,12 +1,12 @@
 # Missing APKs
 
-- Generated: 2026-06-30T01:22:43+00:00
+- Generated: 2026-07-01T16:59:54+00:00
 - Target ABI (F-Droid filter): `arm64-v8a`
 - PlayStore gplaydl arch: `arm64`
 - Total targets: 150
-- Downloaded: 126
-- Skipped (already present): 0
-- Failed: 24
+- Downloaded: 0
+- Skipped (already present): 127
+- Failed: 23
 - System (skipped, not downloadable): 2
 
 ## F-Droid (17)
@@ -28,8 +28,7 @@
 - `com.androidfromhome.unitconverter` — not in F-Droid index: com.androidfromhome.unitconverter
 - `org.pixeldroid` — not in F-Droid index: org.pixeldroid
 
-## PlayStore (7)
-- `com.kouzoh.mercari` — gplaydl rc=1: No download URL returned. The app may require purchase or is unavailable for  | this device.
+## PlayStore (6)
 - `me.notion.notionso` — gplaydl rc=1: App not found: me.notion.notionso
 - `com.google.android.apps.flights` — gplaydl rc=1: App not found: com.google.android.apps.flights
 - `com.yummly.android` — gplaydl rc=1: App not found: com.yummly.android

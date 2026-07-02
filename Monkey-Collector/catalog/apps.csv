@@ -27,7 +27,7 @@ Productivity,Tasks,TickTick,com.ticktick.task,PlayStore,Medium,Task manager + ca
 Productivity,Tasks,Tasks.org,org.tasks,F-Droid,Medium,Open-source task manager,true
 Productivity,Tasks,Todoist,com.todoist,PlayStore,Medium,Popular task manager,false
 Productivity,Calendar,Google Calendar,com.google.android.calendar,PlayStore,High,Calendar + event management,true
-Productivity,Calendar,Simple Calendar,com.simplemobiletools.calendar.pro,F-Droid,High,Open-source calendar,true
+Productivity,Calendar,Simple Calendar,com.simplemobiletools.calendar.pro,F-Droid,High,Open-source calendar,false
 Productivity,Email,Gmail,com.google.android.gm,PlayStore,High,Email client,true
 Productivity,Email,K-9 Mail,com.fsck.k9,F-Droid,High,Open-source email client,true
 Productivity,Email,Microsoft Outlook,com.microsoft.office.outlook,PlayStore,Medium,Email + calendar,false
@@ -56,7 +56,7 @@ Media,Reading,KOReader,org.koreader.launcher.fdroid,F-Droid,Medium,E-book reader
 Media,Drawing,Sketchbook,com.adsk.sketchbook,PlayStore,Medium,Digital drawing/sketching,false
 Media,Podcast,AntennaPod,de.danoeh.antennapod,F-Droid,Medium,Open-source podcast player,true
 Navigation,Maps,Google Maps,com.google.android.apps.maps,PlayStore,High,Maps/navigation/search,true
-Navigation,Maps,OsmAnd,net.osmand,F-Droid,High,Offline maps; open-source,true
+Navigation,Maps,OsmAnd,net.osmand,F-Droid,High,Offline maps; open-source,false
 Navigation,Maps,Organic Maps,app.organicmaps,F-Droid,Medium,Privacy-focused maps,true
 Navigation,Transit,Citymapper,com.citymapper.app.release,PlayStore,Medium,Multi-modal transit,false
 Navigation,Transit,Moovit,com.tranzmate,PlayStore,Medium,Public transit planner,false
