@@ -10,6 +10,8 @@
   "docs": {
     "path": "docs",
     "files": [
+      "PRD.md",
+      "AGENTS.md",
       "README.md",
       "ARCHITECTURE.md",
       "ROADMAP.md",
@@ -19,8 +21,8 @@
   },
   "memory": {
     "encoded": "-data-seungwoo-Implicit-World-Modeling",
-    "claude": "/home/seungwoo/.claude/projects/-data-seungwoo-Implicit-World-Modeling/memory",
-    "gemini": "~/.gemini/projects/-data-seungwoo-Implicit-World-Modeling/memory"
+    "claude": "/data/seungwoo/Implicit-World-Modeling/.claude/memory",
+    "gemini": "/data/seungwoo/Implicit-World-Modeling/.gemini/memory"
   },
   "obsidian": {
     "vault": "/Users/bsw/Library/CloudStorage/GoogleDrive-sw.baek.2000@gmail.com/내 드라이브/Baek/Obsidian/Obsidian Vault",
@@ -41,11 +43,6 @@
         "data_source": "1f99eee5-1472-4447-8bf5-3b68b91776e5",
         "category": "Task"
       },
-      "devlog": {
-        "page": "530ed3db-2f8f-4f40-877f-b532e9eb52c4",
-        "data_source": "98321dce-e5d6-4d46-b65a-f479158b8d2e",
-        "category": "Dev Log"
-      },
       "meeting": {
         "page": "46cd6504-1d66-409b-9f7f-bd5cd9123037",
         "data_source": "0306adba-faec-474a-bd32-f834f55e4959",
@@ -63,5 +60,5 @@
       }
     }
   },
-  "last_sync": "2026-07-01T12:46:49+09:00"
+  "last_sync": "2026-07-02T20:56:12+09:00"
 }
