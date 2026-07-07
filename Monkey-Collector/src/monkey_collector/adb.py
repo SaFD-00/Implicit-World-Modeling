@@ -184,8 +184,12 @@ class AdbClient:
 
     def get_current_package(self) -> str:
         """Return the package name of the current foreground app."""
+        # Field name varies by Android version: "mResumedActivity" (older) vs.
+        # "topResumedActivity"/"ResumedActivity" (API 33+, e.g. Pixel6-2's
+        # google_apis image). Grepping the "ResumedActivity" substring matches
+        # all of them.
         output = self.shell(
-            "dumpsys activity activities | grep mResumedActivity"
+            "dumpsys activity activities | grep ResumedActivity"
         )
         match = re.search(r'(\S+/\S+)', output)
         if match:
@@ -202,7 +206,7 @@ class AdbClient:
         on failure.
         """
         output = self.shell(
-            "dumpsys activity activities | grep mResumedActivity"
+            "dumpsys activity activities | grep ResumedActivity"
         )
         match = re.search(r'(\S+/\S+)', output)
         if match:
