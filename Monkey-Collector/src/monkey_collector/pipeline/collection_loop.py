@@ -20,8 +20,8 @@ from monkey_collector.pipeline.recovery import (
     MAX_TIMEOUT_REINITS,
     describe_action_element,
     nudge_static_screen,
+    relaunch_app_fallback,
     safe_press_back,
-    tap_random_fallback,
 )
 from monkey_collector.pipeline.screen_guard import (
     find_dialog_button,
@@ -219,9 +219,9 @@ def _handle_no_change(
         if state.is_first_screen or _is_root_screen(state):
             logger.warning(
                 f"Step {state.step}: {MAX_NO_CHANGE_RETRIES} "
-                f"no-change retries, on first/root screen — tap instead of back"
+                f"no-change retries, on first/root screen — relaunching instead of back"
             )
-            tap_random_fallback(collector.adb)
+            relaunch_app_fallback(collector.adb, package)
         else:
             logger.warning(
                 f"Step {state.step}: {MAX_NO_CHANGE_RETRIES} "
@@ -260,9 +260,9 @@ def _handle_no_change(
     else:
         if state.is_first_screen or _is_root_screen(state):
             logger.info(
-                f"Step {state.step}: no UI tree, on first/root screen — tap instead of back"
+                f"Step {state.step}: no UI tree, on first/root screen — relaunching instead of back"
             )
-            tap_random_fallback(collector.adb)
+            relaunch_app_fallback(collector.adb, package)
         else:
             safe_press_back(collector.adb, collector.explorer, package)
         state.no_change_retries = 0
@@ -609,7 +609,7 @@ def _process_xml_signal(
                 f"for {state.same_page_count} steps, forcing back"
             )
             if state.is_first_screen or _is_root_screen(state):
-                tap_random_fallback(collector.adb)
+                relaunch_app_fallback(collector.adb, package)
             else:
                 safe_press_back(collector.adb, collector.explorer, package)
             collector.server.clear_signal_queue()
@@ -671,9 +671,9 @@ def _process_xml_signal(
         state.empty_ui_retries = 0
         if state.is_first_screen or _is_root_screen(state):
             logger.warning(
-                f"Step {state.step}: no UI elements, on first/root screen — tap instead of back"
+                f"Step {state.step}: no UI elements, on first/root screen — relaunching instead of back"
             )
-            tap_random_fallback(collector.adb)
+            relaunch_app_fallback(collector.adb, package)
         else:
             logger.warning(
                 f"Step {state.step}: no UI elements, pressing back"

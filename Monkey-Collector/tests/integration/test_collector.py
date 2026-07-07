@@ -415,21 +415,21 @@ class TestServerDrivenHandshake:
 @pytest.mark.integration
 class TestNoChangeExhaustion:
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
-    def test_first_screen_tap_fallback(self, mock_sleep, mock_adb):
-        """3 no-change on first screen → tap (not back)."""
+    def test_first_screen_relaunch_fallback(self, mock_sleep, mock_adb):
+        """3 no-change on first screen → relaunch (not back)."""
         signals = [
             _make_xml_signal(is_first=True),  # sets is_first_screen=True
             ("no_change", None, None),
             ("no_change", None, None),
-            ("no_change", None, None),  # retries=3 → tap fallback
+            ("no_change", None, None),  # retries=3 → relaunch fallback
             ("finish", None, None),
         ]
         collector, explorer, server, writer = _make_collector(mock_adb, signals)
 
         collector.run(package="com.test.app")
-        # tap_random_fallback calls get_device_resolution + tap
-        mock_adb.get_device_resolution.assert_called()
-        mock_adb.tap.assert_called()
+        # relaunch_app_fallback calls force_stop + launch_app
+        mock_adb.force_stop.assert_called_with("com.test.app")
+        mock_adb.launch_app.assert_called_with("com.test.app")
         # press_back should NOT be called during no-change exhaustion on first screen
         # (it may be called from explorer.execute_action for PressBack actions, but
         # we verify it's not called for the exhaustion path by checking adb directly)
@@ -494,8 +494,8 @@ class TestNoChangeNoUITree:
         mock_adb.press_back.assert_called()
 
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
-    def test_no_tree_first_screen_tap(self, mock_sleep, mock_adb):
-        """no-change with no UI tree + first screen → tap fallback."""
+    def test_no_tree_first_screen_relaunch(self, mock_sleep, mock_adb):
+        """no-change with no UI tree + first screen → relaunch fallback."""
         signals = [
             ("xml", MINIMAL_XML, {"top_package": "com.test.app", "activity_name": "com.test.app/.MainActivity", "target_package": "com.test.app", "is_first_screen": True}),
             ("no_change", None, None),
@@ -504,8 +504,9 @@ class TestNoChangeNoUITree:
         collector, explorer, server, writer = _make_collector(mock_adb, signals)
 
         collector.run(package="com.test.app")
-        # tap_random_fallback should be called
-        mock_adb.get_device_resolution.assert_called()
+        # relaunch_app_fallback should be called
+        mock_adb.force_stop.assert_called_with("com.test.app")
+        mock_adb.launch_app.assert_called_with("com.test.app")
 
 
 @pytest.mark.integration
@@ -582,6 +583,26 @@ class TestXmlEdgeCases:
         mock_adb.press_back.assert_called()
         explorer.return_to_app.assert_called_with("com.test.app")
 
+    @patch("monkey_collector.pipeline.collection_loop.time.sleep")
+    def test_empty_tree_first_screen_relaunches(self, mock_sleep, mock_adb):
+        """Empty/non-interactable UI tree stuck on the first screen → relaunch,
+        not a blind center tap (e.g. an unexpected GMS overlay with no
+        interactable elements would otherwise loop forever on a dead tap
+        coordinate)."""
+        first_meta = {"top_package": "com.test.app", "activity_name": "com.test.app/.MainActivity", "target_package": "com.test.app", "is_first_screen": True}
+        signals = [
+            ("xml", MINIMAL_XML, first_meta),
+            ("xml", MINIMAL_XML, first_meta),
+            ("xml", MINIMAL_XML, first_meta),  # exceeds MAX_EMPTY_UI_RETRIES → relaunch
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(mock_adb, signals)
+
+        collector.run(package="com.test.app")
+        mock_adb.force_stop.assert_called_with("com.test.app")
+        mock_adb.launch_app.assert_called_with("com.test.app")
+        mock_adb.tap.assert_not_called()
+
 
 @pytest.mark.integration
 class TestScreenshotSaving:
@@ -626,6 +647,24 @@ class TestTapRandomFallback:
 
         mock_adb.get_device_resolution.side_effect = Exception("no device")
         tap_random_fallback(mock_adb)  # should not raise
+
+
+@pytest.mark.integration
+class TestRelaunchAppFallback:
+    def test_success(self, mock_adb):
+        """relaunch_app_fallback force-stops then relaunches the package."""
+        from monkey_collector.pipeline.recovery import relaunch_app_fallback
+
+        relaunch_app_fallback(mock_adb, "com.test.app")
+        mock_adb.force_stop.assert_called_once_with("com.test.app")
+        mock_adb.launch_app.assert_called_once_with("com.test.app")
+
+    def test_exception_caught(self, mock_adb):
+        """Exception in relaunch_app_fallback is caught."""
+        from monkey_collector.pipeline.recovery import relaunch_app_fallback
+
+        mock_adb.force_stop.side_effect = Exception("no device")
+        relaunch_app_fallback(mock_adb, "com.test.app")  # should not raise
 
 
 @pytest.mark.integration

@@ -35,6 +35,22 @@ def tap_random_fallback(adb: AdbClient) -> None:
         pass
 
 
+def relaunch_app_fallback(adb: AdbClient, package: str) -> None:
+    """Force-stop and relaunch the app as a fallback when back is suppressed.
+
+    A blind center tap (the previous fallback) can land on a dead zone of an
+    unexpected overlay — e.g. a GMS account-switcher sheet opened by a stray
+    tap on a toolbar avatar — and loop forever without ever changing the
+    screen, since the same coordinate is retried every time. Relaunching
+    deterministically returns to the app's launcher activity instead.
+    """
+    try:
+        adb.force_stop(package)
+        adb.launch_app(package)
+    except Exception:
+        pass
+
+
 def nudge_static_screen(adb: AdbClient, ui_tree: UITree | None, attempt: int = 0) -> None:
     """Provoke an accessibility event on a static, still-in-app screen.
 
