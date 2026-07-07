@@ -3,6 +3,9 @@
 import json
 
 from monkey_collector.llm.element_extractor import (
+    _EXTRACT_MAX_RETRIES,
+    _EXTRACT_MAX_TOKENS,
+    _EXTRACT_TIMEOUT,
     ElementExtractor,
     ExtractedElement,
     _coerce_index_list,
@@ -112,6 +115,26 @@ def test_chat_exception_returns_empty():
             raise RuntimeError("boom")
 
     assert ElementExtractor(Boom()).extract(SCREEN) == []
+
+
+def test_in_loop_call_is_bounded():
+    """The in-loop extract call caps runaway generation and bounds a hung call."""
+    resp = json.dumps({"elements": []})
+    client = FakeClient(resp)
+    ElementExtractor(client).extract(SCREEN)
+    assert client.last_kwargs["max_tokens"] == _EXTRACT_MAX_TOKENS == 6000
+    assert client.last_kwargs["timeout"] == _EXTRACT_TIMEOUT == 60.0
+    assert client.last_kwargs["max_retries"] == _EXTRACT_MAX_RETRIES == 1
+
+
+def test_timeout_exception_returns_empty():
+    """A per-call timeout (or any error) degrades gracefully to []."""
+
+    class Timeout:
+        def chat(self, *a, **k):
+            raise TimeoutError("read timed out")
+
+    assert ElementExtractor(Timeout()).extract(SCREEN) == []
 
 
 def test_empty_encoded_xml_returns_empty():

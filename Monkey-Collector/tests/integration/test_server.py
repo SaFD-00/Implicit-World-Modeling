@@ -73,6 +73,53 @@ class TestSignalQueue:
         result = srv.get_latest_signal(timeout=0.1)
         assert result is None
 
+    def test_control_signal_after_stale_xml_returned(self, srv):
+        # [xml, xml, external_app] → the control signal must not be dropped.
+        srv._signal_queue.put(("xml", "stale1", {}))
+        srv._signal_queue.put(("xml", "stale2", {}))
+        srv._signal_queue.put(("external_app", None, {"pkg": "com.other"}))
+        result = srv.get_latest_signal(timeout=1.0)
+        assert result[0] == "external_app"
+        assert result[2] == {"pkg": "com.other"}
+
+    def test_leading_control_signal_preserves_trailing_xml(self, srv):
+        # [external_app, xml, xml] → return external_app immediately and LEAVE
+        # the two xml frames in the queue for the next call. This is the exact
+        # property the fix guarantees: control signals are never overwritten.
+        srv._signal_queue.put(("external_app", None, {"pkg": "com.other"}))
+        srv._signal_queue.put(("xml", "later1", {}))
+        srv._signal_queue.put(("xml", "later2", {}))
+        result = srv.get_latest_signal(timeout=1.0)
+        assert result[0] == "external_app"
+        assert not srv._signal_queue.empty()
+        # Next call collapses the two trailing xml to the latest.
+        nxt = srv.get_latest_signal(timeout=1.0)
+        assert nxt[0] == "xml"
+        assert nxt[1] == "later2"
+
+    def test_lone_finish_never_dropped(self, srv):
+        srv._signal_queue.put(("finish", None, None))
+        result = srv.get_latest_signal(timeout=1.0)
+        assert result[0] == "finish"
+
+    def test_no_change_stops_drain_and_preserves_trailing(self, srv):
+        # [xml, no_change, xml] → stop at no_change, leave the trailing xml.
+        srv._signal_queue.put(("xml", "stale", {}))
+        srv._signal_queue.put(("no_change", None, None))
+        srv._signal_queue.put(("xml", "after", {}))
+        result = srv.get_latest_signal(timeout=1.0)
+        assert result[0] == "no_change"
+        assert not srv._signal_queue.empty()
+
+    def test_all_xml_collapses_to_latest(self, srv):
+        # [xml, xml, xml] → the last xml (pure stale-frame collapse path).
+        srv._signal_queue.put(("xml", "a", {}))
+        srv._signal_queue.put(("xml", "b", {}))
+        srv._signal_queue.put(("xml", "c", {}))
+        result = srv.get_latest_signal(timeout=1.0)
+        assert result[0] == "xml"
+        assert result[1] == "c"
+
 
 class TestWaitForChangeSignal:
     def test_xml(self, srv):

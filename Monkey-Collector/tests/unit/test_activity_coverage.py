@@ -211,6 +211,33 @@ class TestStaticGroundTruth:
         assert tracker2.get_visited_count() == 1
 
 
+class TestIsDeclared:
+    def test_declared_full_form(self, tmp_path):
+        tracker = ActivityCoverageTracker()
+        tracker.initialize(str(tmp_path), ["com.test/.A", "com.test/.B"])
+        assert tracker.is_declared("com.test/com.test.A") is True
+
+    def test_declared_shorthand_matches(self, tmp_path):
+        tracker = ActivityCoverageTracker()
+        tracker.initialize(str(tmp_path), ["com.test/.A"])
+        # Shorthand catalog entry, full-form query — normalization merges them.
+        assert tracker.is_declared("com.test/com.test.A") is True
+
+    def test_generic_view_class_not_declared(self, tmp_path):
+        tracker = ActivityCoverageTracker()
+        tracker.initialize(
+            str(tmp_path), ["com.google.android.contacts/.activities.PeopleActivity"]
+        )
+        assert tracker.is_declared(
+            "com.google.android.contacts/android.view.ViewGroup"
+        ) is False
+
+    def test_empty_not_declared(self, tmp_path):
+        tracker = ActivityCoverageTracker()
+        tracker.initialize(str(tmp_path), ["com.test/.A"])
+        assert tracker.is_declared("") is False
+
+
 class TestNormalize:
     def test_shorthand_to_full(self):
         assert _normalize_activity_name("com.test.app/.MainActivity") == \

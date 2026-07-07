@@ -157,20 +157,34 @@ class CollectionServer:
     def get_latest_signal(
         self, timeout: float = 25.0
     ) -> tuple[str, str | None, dict | None] | None:
-        """Drain stale signals and return the latest one.
+        """Collapse consecutive stale ``xml`` signals, but never drop control.
 
-        If multiple signals are queued, skips all but the last.
-        If the queue is empty, blocks up to `timeout` for a new signal.
+        Draining collapses only consecutive ``xml`` frames to the latest one
+        (an intermediate screen the loop would have skipped anyway). Control
+        signals (``external_app`` / ``finish`` / ``no_change``) carry loop
+        semantics the collector must act on, so a control signal stops the
+        drain and is returned immediately; anything queued behind it is left in
+        place for the next call. If the queue is empty, blocks up to `timeout`
+        for a new signal.
+
+        Thread-safe: the receiver thread concurrently ``put``s onto the same
+        ``Queue``; ``get_nowait`` / ``get`` are the only reads.
         """
-        latest = None
+        latest_xml = None
         while True:
             try:
-                latest = self._signal_queue.get_nowait()
+                signal = self._signal_queue.get_nowait()
             except Empty:
                 break
+            if signal[0] == "xml":
+                latest_xml = signal  # collapse consecutive stale frames
+                continue
+            # Control signal — never silently dropped. Return it now and leave
+            # any signals queued behind it for the next drain.
+            return signal
 
-        if latest is not None:
-            return latest
+        if latest_xml is not None:
+            return latest_xml
 
         try:
             return self._signal_queue.get(timeout=timeout)

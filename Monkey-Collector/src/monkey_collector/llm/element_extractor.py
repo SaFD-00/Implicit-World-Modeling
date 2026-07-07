@@ -25,6 +25,18 @@ if TYPE_CHECKING:
 
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
+# In-loop element extraction runs on the matcher's hot path, so it is bounded
+# to keep a runaway/hung LLM call from stalling the whole collection loop.
+# Normal screens emit ~1000-4600 output tokens; a step-30 field incident spiked
+# to 13151 tokens and blocked the main loop for ~4 minutes. 6000 caps runaway
+# generation without truncating a normal screen; the timeout bounds a hung
+# provider connection; max_retries=1 keeps a tight timeout from tripling the
+# wall-clock across the SDK's default retries. Truncation/timeout degrade
+# gracefully — `extract()` catches everything and returns [].
+_EXTRACT_MAX_TOKENS = 6000
+_EXTRACT_TIMEOUT = 60.0
+_EXTRACT_MAX_RETRIES = 1
+
 
 @dataclass(frozen=True)
 class ExtractedElement:
@@ -115,6 +127,9 @@ class ElementExtractor:
                 temperature=0.2,
                 response_format={"type": "json_object"},
                 agent="element_extractor",
+                max_tokens=_EXTRACT_MAX_TOKENS,
+                timeout=_EXTRACT_TIMEOUT,
+                max_retries=_EXTRACT_MAX_RETRIES,
             )
         except Exception as e:  # noqa: BLE001 — never fail the matcher
             logger.warning(f"element_extractor: query failed, returning []: {e}")

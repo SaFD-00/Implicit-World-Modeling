@@ -204,9 +204,14 @@ class AdbClient:
 
         Returns a string like ``com.test.app/.MainActivity`` or empty string
         on failure.
+
+        Bounded timeout: this now runs on the per-frame coverage hot path
+        (resolving the real foreground activity when the a11y report is a
+        generic View class), so a wedged ``adb shell`` must not become a new
+        stall vector.
         """
         output = self.shell(
-            "dumpsys activity activities | grep ResumedActivity"
+            "dumpsys activity activities | grep ResumedActivity", timeout=5
         )
         match = re.search(r'(\S+/\S+)', output)
         if match:

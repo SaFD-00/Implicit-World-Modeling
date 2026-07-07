@@ -189,6 +189,19 @@ class ActivityCoverageTracker:
             f"{len(total_activities)} total activities"
         )
 
+    def is_declared(self, activity_name: str) -> bool:
+        """Return whether *activity_name* is a known declared activity.
+
+        Read-only membership check against the normalized denominator set. Used
+        by the collection loop to decide whether an AccessibilityService
+        ``activity_name`` can be trusted for coverage, or whether it is a
+        generic View class (e.g. ``.../android.view.ViewGroup``) that must be
+        resolved to the real foreground activity via adb.
+        """
+        if not activity_name:
+            return False
+        return _normalize_activity_name(activity_name) in self._total_set
+
     def get_coverage(self) -> float:
         """Current coverage ratio (clamped to [0, 1])."""
         total = max(len(self.total_activities), 1)

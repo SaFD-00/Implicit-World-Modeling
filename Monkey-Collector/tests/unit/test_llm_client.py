@@ -69,6 +69,26 @@ class TestChat:
         assert "temperature" not in kwargs
         assert "response_format" not in kwargs
 
+    def test_default_timeout_when_unset(self):
+        # No per-call timeout → the shared client default flows through.
+        client, oai = _client_with(_completion(), timeout=17.0)
+        client.chat("hi")
+        assert oai.chat.completions.create.call_args.kwargs["timeout"] == 17.0
+        # No per-call max_retries → the SDK default path (no with_options).
+        oai.with_options.assert_not_called()
+
+    def test_per_call_timeout_overrides_default(self):
+        # Route both the direct and with_options paths to the same create mock.
+        client, oai = _client_with(_completion(), timeout=30.0)
+        oai.with_options.return_value = oai
+        client.chat("hi", timeout=60.0, max_retries=1)
+        # Per-call timeout goes into the create() kwargs; the shared default
+        # (30.0) is not mutated.
+        assert oai.chat.completions.create.call_args.kwargs["timeout"] == 60.0
+        assert client._timeout == 30.0
+        # max_retries is applied via with_options (create() does not accept it).
+        assert oai.with_options.call_args.kwargs["max_retries"] == 1
+
     def test_empty_choices_returns_empty_string(self):
         completion = _completion()
         completion.choices = []

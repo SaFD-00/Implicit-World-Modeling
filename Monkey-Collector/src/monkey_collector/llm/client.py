@@ -74,6 +74,8 @@ class LLMClient:
         temperature: float | None = None,
         response_format: dict | None = None,
         agent: str = "llm",
+        timeout: float | None = None,
+        max_retries: int | None = None,
     ) -> str:
         """Run a single chat completion and return the message content.
 
@@ -87,6 +89,14 @@ class LLMClient:
                 that don't support it).
             agent: Cost-attribution label (e.g. ``"text_generator"``,
                 ``"screen_grouper"``).
+            timeout: Optional per-call override of the shared client's default
+                ``self._timeout``. Bounds a hung/slow provider connection for
+                this call only — the shared default is untouched so other
+                consumers (text generation, screen grouping) are unaffected.
+            max_retries: Optional per-call override of the SDK's default retry
+                count. Passed via ``with_options`` (the ``.create`` call does
+                not accept ``max_retries``); tighten it to keep a tight
+                ``timeout`` from multiplying wall-clock across retries.
 
         Raises:
             Any exception from the underlying SDK call — callers are expected
@@ -99,7 +109,7 @@ class LLMClient:
         kwargs: dict = {
             "model": self.model,
             "messages": messages,
-            "timeout": self._timeout,
+            "timeout": timeout if timeout is not None else self._timeout,
         }
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
@@ -109,6 +119,8 @@ class LLMClient:
             kwargs["response_format"] = response_format
 
         client = self._get_client()
+        if max_retries is not None:
+            client = client.with_options(max_retries=max_retries)
         completion = client.chat.completions.create(**kwargs)
 
         self._record_cost(completion, agent)

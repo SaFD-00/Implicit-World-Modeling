@@ -457,6 +457,26 @@ def _try_grant_permission_via_adb(
     return True
 
 
+def _resolve_coverage_activity(collector: Collector, activity_name: str) -> str:
+    """Resolve the activity name to record for coverage.
+
+    The AccessibilityService reports ``activity_name`` as a generic View class
+    (e.g. ``.../android.view.ViewGroup``) on many frames, which never matches a
+    declared activity and freezes coverage. Discriminator: if the a11y value is
+    already a declared activity, trust it (no adb call — avoids adding
+    topResumedActivity race noise on frames a11y already got right); otherwise
+    resolve the real foreground activity via adb.
+
+    This value is used ONLY for the coverage tracker. The a11y ``activity_name``
+    still keys the matcher / page_graph / save_observation / event, so
+    structural dedup is untouched.
+    """
+    tracker = collector._activity_tracker
+    if tracker is not None and tracker.is_declared(activity_name):
+        return activity_name
+    return collector.adb.get_current_activity()
+
+
 def _process_xml_signal(
     collector: Collector,
     state: CollectionState,
@@ -510,13 +530,17 @@ def _process_xml_signal(
         activity_name = collector.adb.get_current_activity()
 
     if collector._activity_tracker is not None:
+        # Coverage records the REAL foreground activity: a11y often reports a
+        # generic View class (ViewGroup) that never matches a declared activity.
+        # Matcher/page_graph/save/event keep the a11y `activity_name` above.
+        coverage_activity = _resolve_coverage_activity(collector, activity_name)
         # Key coverage rows by the frame_index this screen will be allocated
         # below (next_frame_index() reads/advances the same step_count value),
         # so the offline page-graph rebuild's CSV fallback joins on the same
         # index events use. `step` is a loop counter and no longer matches
         # frame indices.
         entry = collector._activity_tracker.record(
-            activity_name, collector.writer.step_count
+            coverage_activity, collector.writer.step_count
         )
         logger.debug(
             f"Activity coverage: {entry['coverage']:.2%} "
