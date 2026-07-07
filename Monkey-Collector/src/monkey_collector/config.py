@@ -34,6 +34,8 @@ _BUILTIN_DEFAULTS: dict = {
         "port": 12345,
         "data_dir": "data",
         "runtime_dir": "runtime",
+        "budget_mode": "time",
+        "max_duration": "2h",
     },
     "llm": {
         "input_mode": "api",
@@ -79,6 +81,10 @@ class CollectionConfig:
     port: int = 12345
     data_dir: str = "data"
     runtime_dir: str = "runtime"
+    # Session end condition. "time": run until max_duration_sec elapses
+    # (product default). "steps": run until max_steps actions (legacy).
+    budget_mode: str = "time"
+    max_duration_sec: int = 7200
 
 
 @dataclass
@@ -177,6 +183,59 @@ def _normalize_criterion(value: object, *, source: str) -> str:
     return s
 
 
+VALID_BUDGET_MODES: frozenset[str] = frozenset({"time", "steps"})
+
+
+def _normalize_budget_mode(value: object, *, source: str) -> str:
+    """Lower + validate a budget mode; fall back to "time" if invalid."""
+    s = str(value).strip().lower()
+    if s not in VALID_BUDGET_MODES:
+        logger.warning(
+            "Unknown budget_mode %r (from %s) — falling back to 'time'. "
+            "Valid options: %s",
+            value,
+            source,
+            ", ".join(sorted(VALID_BUDGET_MODES)),
+        )
+        return "time"
+    return s
+
+
+def parse_duration(value: object) -> int:
+    """Parse a wall-clock duration into whole seconds.
+
+    Accepts an int/float (already seconds), or a string with an optional
+    h/m/s suffix (case-insensitive): "2h" -> 7200, "120m" -> 7200,
+    "7200s"/"7200" -> 7200. A non-positive or unparsable value falls back to
+    7200 (2h) with a warning.
+    """
+    fallback = 7200
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        seconds = int(value)
+    else:
+        s = str(value).strip().lower()
+        multiplier = 1
+        if s.endswith("h"):
+            multiplier, s = 3600, s[:-1]
+        elif s.endswith("m"):
+            multiplier, s = 60, s[:-1]
+        elif s.endswith("s"):
+            multiplier, s = 1, s[:-1]
+        try:
+            seconds = int(float(s) * multiplier)
+        except ValueError:
+            logger.warning(
+                "Unparsable duration %r — falling back to %ds", value, fallback
+            )
+            return fallback
+    if seconds <= 0:
+        logger.warning(
+            "Non-positive duration %r — falling back to %ds", value, fallback
+        )
+        return fallback
+    return seconds
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     """Recursively merge override onto base (non-destructive)."""
     result = dict(base)
@@ -199,6 +258,8 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_COLLECTION_PORT",                       "collection",      "port",                      "int"),
         ("MC_COLLECTION_DATA_DIR",                   "collection",      "data_dir",                  "str"),
         ("MC_COLLECTION_RUNTIME_DIR",                "collection",      "runtime_dir",               "str"),
+        ("MC_COLLECTION_BUDGET_MODE",                "collection",      "budget_mode",               "str"),
+        ("MC_COLLECTION_MAX_DURATION",               "collection",      "max_duration",              "str"),
         ("MC_LLM_INPUT_MODE",                        "llm",             "input_mode",                "str"),
         ("MC_LLM_ELEMENT_EXTRACTION",                "llm",             "element_extraction",        "bool"),
         ("MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE", "screen_matching", "cluster_merge_tolerance", "float"),
@@ -252,6 +313,8 @@ def _from_raw(raw: dict) -> RunConfig:
             port=int(coll.get("port", 12345)),
             data_dir=str(coll.get("data_dir", "data")),
             runtime_dir=str(coll.get("runtime_dir", "runtime")),
+            budget_mode=_normalize_budget_mode(coll.get("budget_mode", "time"), source="config"),
+            max_duration_sec=parse_duration(coll.get("max_duration", "2h")),
         ),
         llm=LlmConfig(
             input_mode=str(llm.get("input_mode", "api")),
@@ -325,6 +388,8 @@ def merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfi
 
     # collection
     steps = getattr(args, "steps", None)
+    duration = getattr(args, "duration", None)
+    budget_mode_arg = getattr(args, "budget_mode", None)
     seed = getattr(args, "seed", None)
     delay = getattr(args, "delay", None)
     port = getattr(args, "port", None)
@@ -332,6 +397,25 @@ def merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfi
     runtime_dir = getattr(args, "runtime_dir", None)
     if steps is not None:
         coll = replace(coll, max_steps=steps)
+    if duration is not None:
+        coll = replace(coll, max_duration_sec=parse_duration(duration))
+    # Mode resolution (value updates above are independent of mode): explicit
+    # --budget-mode always wins; else infer from which single value flag was
+    # given; both without an explicit mode keeps the config default + warns.
+    if budget_mode_arg is not None:
+        coll = replace(
+            coll, budget_mode=_normalize_budget_mode(budget_mode_arg, source="--budget-mode")
+        )
+    elif steps is not None and duration is None:
+        coll = replace(coll, budget_mode="steps")
+    elif duration is not None and steps is None:
+        coll = replace(coll, budget_mode="time")
+    elif steps is not None and duration is not None:
+        logger.warning(
+            "both --steps and --duration given without --budget-mode; "
+            "using config budget_mode=%s; pass --budget-mode to disambiguate",
+            coll.budget_mode,
+        )
     if seed is not None:
         coll = replace(coll, seed=seed)
     if delay is not None:

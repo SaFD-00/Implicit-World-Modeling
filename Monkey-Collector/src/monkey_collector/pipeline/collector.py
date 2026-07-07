@@ -51,6 +51,8 @@ class Collector:
         max_steps: int = 1500,
         action_delay: float = 1.0,
         xml_timeout: float = 25.0,
+        budget_mode: str = "steps",
+        max_duration_sec: int = 0,
         activity_coverage_tracker: ActivityCoverageTracker | None = None,
         cost_tracker: CostTracker | None = None,
         text_generator: TextGenerator | None = None,
@@ -67,6 +69,8 @@ class Collector:
         self.max_steps = max_steps
         self.action_delay = action_delay
         self.xml_timeout = xml_timeout
+        self.budget_mode = budget_mode
+        self.max_duration_sec = max_duration_sec
         self._latest_screenshot: bytes | None = None
         self._activity_tracker = activity_coverage_tracker
         self._cost_tracker = cost_tracker
@@ -185,6 +189,8 @@ class Collector:
         state = CollectionState(
             step=resume_step,
             max_step=resume_step + self.max_steps,
+            budget_mode=self.budget_mode,
+            max_duration_sec=self.max_duration_sec,
         )
 
         # Each app session explores in isolation — drop the previous session's

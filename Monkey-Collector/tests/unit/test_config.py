@@ -7,6 +7,7 @@ from monkey_collector.config import (
     VALID_STRATEGIES,
     load_run_config,
     merge_with_cli_args,
+    parse_duration,
 )
 
 NONEXISTENT = Path("/nonexistent/run.yaml")
@@ -23,6 +24,8 @@ def _full_args(**overrides) -> argparse.Namespace:
     base = dict(
         strategy=None,
         steps=None,
+        duration=None,
+        budget_mode=None,
         seed=None,
         delay=None,
         port=None,
@@ -60,6 +63,8 @@ def test_builtin_defaults_no_yaml():
     assert cfg.collection.port == 12345
     assert cfg.collection.data_dir == "data"
     assert cfg.collection.runtime_dir == "runtime"
+    assert cfg.collection.budget_mode == "time"
+    assert cfg.collection.max_duration_sec == 7200
     assert cfg.llm.input_mode == "api"
     assert cfg.llm.element_extraction is False
     assert cfg.screen_matching.cluster_merge_tolerance == 0.2
@@ -332,3 +337,115 @@ def test_cli_persist_filtered_on_off():
     assert off.screen_matching.persist_filtered is False
     on = merge_with_cli_args(cfg, _full_args(persist_filtered="on"))
     assert on.screen_matching.persist_filtered is True
+
+
+# ── parse_duration ──
+
+def test_parse_duration_hour_suffix():
+    assert parse_duration("2h") == 7200
+
+
+def test_parse_duration_minute_suffix():
+    assert parse_duration("120m") == 7200
+
+
+def test_parse_duration_second_suffix():
+    assert parse_duration("7200s") == 7200
+
+
+def test_parse_duration_bare_number_string():
+    assert parse_duration("7200") == 7200
+
+
+def test_parse_duration_int():
+    assert parse_duration(7200) == 7200
+
+
+def test_parse_duration_case_insensitive():
+    assert parse_duration("2H") == 7200
+
+
+def test_parse_duration_invalid_falls_back_to_7200():
+    assert parse_duration("not-a-duration") == 7200
+
+
+def test_parse_duration_non_positive_falls_back_to_7200():
+    assert parse_duration("-5m") == 7200
+    assert parse_duration(0) == 7200
+
+
+# ── budget_mode / max_duration (YAML + env) ──
+
+def test_yaml_max_duration_overrides_builtin(tmp_path):
+    path = _write_yaml(tmp_path, "collection:\n  max_duration: 90m\n")
+    cfg = load_run_config(path=path)
+    assert cfg.collection.max_duration_sec == 5400
+    assert cfg.collection.budget_mode == "time"  # builtin default retained
+
+
+def test_yaml_budget_mode_steps(tmp_path):
+    path = _write_yaml(tmp_path, "collection:\n  budget_mode: steps\n")
+    cfg = load_run_config(path=path)
+    assert cfg.collection.budget_mode == "steps"
+
+
+def test_env_max_duration_coercion(monkeypatch):
+    monkeypatch.setenv("MC_COLLECTION_MAX_DURATION", "45m")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.collection.max_duration_sec == 2700
+
+
+def test_env_budget_mode_coercion(monkeypatch):
+    monkeypatch.setenv("MC_COLLECTION_BUDGET_MODE", "steps")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.collection.budget_mode == "steps"
+
+
+def test_invalid_budget_mode_falls_back_to_time(monkeypatch):
+    monkeypatch.setenv("MC_COLLECTION_BUDGET_MODE", "bogus")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.collection.budget_mode == "time"
+
+
+# ── CLI: budget-mode / duration resolution (D2) ──
+
+def test_cli_duration_only_infers_time_mode():
+    cfg = load_run_config(path=NONEXISTENT)
+    cfg = merge_with_cli_args(cfg, _full_args(duration="90m"))
+    assert cfg.collection.budget_mode == "time"
+    assert cfg.collection.max_duration_sec == 5400
+
+
+def test_cli_steps_only_infers_steps_mode():
+    cfg = load_run_config(path=NONEXISTENT)
+    cfg = merge_with_cli_args(cfg, _full_args(steps=50))
+    assert cfg.collection.budget_mode == "steps"
+    assert cfg.collection.max_steps == 50
+
+
+def test_cli_explicit_budget_mode_wins_over_inference():
+    """--budget-mode steps + --duration 90m: the explicit mode wins (steps),
+    though --duration still updates the (unused) max_duration_sec value."""
+    cfg = load_run_config(path=NONEXISTENT)
+    cfg = merge_with_cli_args(
+        cfg, _full_args(budget_mode="steps", duration="90m")
+    )
+    assert cfg.collection.budget_mode == "steps"
+    assert cfg.collection.max_duration_sec == 5400
+
+
+def test_cli_both_steps_and_duration_without_mode_keeps_config_and_warns(caplog):
+    cfg = load_run_config(path=NONEXISTENT)  # builtin budget_mode == "time"
+    with caplog.at_level("WARNING"):
+        merged = merge_with_cli_args(cfg, _full_args(steps=50, duration="90m"))
+    assert merged.collection.budget_mode == "time"
+    assert merged.collection.max_steps == 50
+    assert merged.collection.max_duration_sec == 5400
+    assert any("budget_mode" in r.message for r in caplog.records)
+
+
+def test_cli_neither_steps_nor_duration_keeps_config():
+    cfg = load_run_config(path=NONEXISTENT)
+    merged = merge_with_cli_args(cfg, _full_args())
+    assert merged.collection.budget_mode == cfg.collection.budget_mode
+    assert merged.collection.max_duration_sec == cfg.collection.max_duration_sec

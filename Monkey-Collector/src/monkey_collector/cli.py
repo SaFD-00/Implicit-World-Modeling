@@ -39,6 +39,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     cfg = merge_with_cli_args(cfg, args)
     logger.info(
         f"Config: strategy={cfg.exploration.strategy}, "
+        f"budget_mode={cfg.collection.budget_mode}, "
+        f"max_duration_sec={cfg.collection.max_duration_sec}, "
         f"max_steps={cfg.collection.max_steps}, seed={cfg.collection.seed}, "
         f"delay_ms={cfg.collection.action_delay_ms}, port={cfg.collection.port}, "
         f"input_mode={cfg.llm.input_mode}, "
@@ -116,6 +118,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         writer=writer,
         max_steps=cfg.collection.max_steps,
         action_delay=cfg.collection.action_delay_ms / 1000.0,
+        budget_mode=cfg.collection.budget_mode,
+        max_duration_sec=cfg.collection.max_duration_sec,
         activity_coverage_tracker=activity_tracker,
         cost_tracker=cost_tracker,
         text_generator=text_gen,
@@ -496,6 +500,22 @@ def main() -> None:
         help="Exploration strategy (DFS | BFS | GREEDY; default from config/run.yaml)",
     )
     p.add_argument("--steps", type=int, default=None, help="Max steps per session")
+    p.add_argument(
+        "--duration",
+        default=None,
+        metavar="DURATION",
+        help="Max wall-clock time per session, e.g. 2h/120m/7200s/7200 (default from config/run.yaml)",
+    )
+    p.add_argument(
+        "--budget-mode",
+        choices=["time", "steps"],
+        default=None,
+        help=(
+            "Session end condition: 'time' (--duration) or 'steps' (--steps). "
+            "Inferred from whichever of --steps/--duration is given when omitted; "
+            "default from config/run.yaml."
+        ),
+    )
     p.add_argument("--seed", type=int, default=None, help="Random seed")
     p.add_argument("--delay", type=int, default=None, help="Action delay in ms")
     p.add_argument("--port", type=int, default=None, help="TCP server port")

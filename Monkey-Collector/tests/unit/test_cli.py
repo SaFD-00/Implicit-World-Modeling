@@ -32,6 +32,8 @@ class TestRunArgsParsing:
             assert args.luminance_threshold is None
             assert args.screenshot_diff_threshold is None
             assert args.luminance_low_res_width is None
+            assert args.duration is None
+            assert args.budget_mode is None
 
     def test_apps_required(self):
         from monkey_collector.cli import main
@@ -99,6 +101,27 @@ class TestRunArgsParsing:
             main()
             args = mock_cmd.call_args[0][0]
             assert args.config == "/tmp/x.yaml"
+
+    def test_duration_and_budget_mode_flags(self):
+        from monkey_collector.cli import main
+
+        with patch("sys.argv", [
+            "monkey-collect", "run", "--apps", "all",
+            "--duration", "90m",
+            "--budget-mode", "time",
+        ]), patch("monkey_collector.cli.cmd_run") as mock_cmd:
+            main()
+            args = mock_cmd.call_args[0][0]
+            assert args.duration == "90m"
+            assert args.budget_mode == "time"
+
+    def test_budget_mode_rejects_invalid_choice(self):
+        from monkey_collector.cli import main
+
+        with patch("sys.argv", [
+            "monkey-collect", "run", "--apps", "all", "--budget-mode", "bogus",
+        ]), pytest.raises(SystemExit):
+            main()
 
 class TestConvertArgsParsing:
     def test_required_args(self):

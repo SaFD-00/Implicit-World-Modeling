@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from loguru import logger
 
@@ -43,6 +43,14 @@ class CollectionState:
 
     step: int = 0
     max_step: int = 0
+    # Session end condition. "steps" (default here — see D1 in the budget
+    # brief): the loop while-condition uses step < max_step. "time": the loop
+    # runs until max_duration_sec elapses (wall clock), regardless of step
+    # count. cli.py's cmd_run passes the config-resolved values explicitly;
+    # constructing CollectionState directly (as existing tests do) keeps the
+    # step-based default.
+    budget_mode: str = "steps"
+    max_duration_sec: float = 0.0
     total_actions: int = 0
     timeout_count: int = 0
     no_change_retries: int = 0
@@ -86,13 +94,28 @@ def _is_root_screen(state: CollectionState) -> bool:
     )
 
 
+def _has_budget(
+    state: CollectionState, clock: Callable[[], float], deadline: float | None
+) -> bool:
+    """True while the session's end condition (time or steps) is not yet met."""
+    if deadline is not None:
+        return clock() < deadline
+    return state.step < state.max_step
+
+
 def run_collection_loop(
     collector: Collector,
     state: CollectionState,
     package: str,
+    *,
+    now=None,
 ) -> None:
     """Run the main collection while-loop, mutating state until session ends."""
     max_timeouts = 5
+    # `now` is a sentinel (not `time.monotonic` as a default arg) so tests can
+    # inject a fake clock at call time; a real default arg would bind
+    # `time.monotonic` at function-definition time and ignore monkeypatching.
+    clock = now if now is not None else time.monotonic
 
     # Discard signals left over from the previous session. The sequential
     # run_queue reuses one server/client connection, so a trailing "finish"
@@ -102,12 +125,20 @@ def run_collection_loop(
     # at step 0 — and it cascades to every later app in the queue.
     collector.server.clear_signal_queue()
 
+    # Time-budgeted sessions (budget_mode="time") end when the wall clock
+    # crosses this deadline, recomputed fresh on every run_collection_loop
+    # entry (resume = per-run wall-clock budget, not cumulative). Step-budgeted
+    # sessions (default) leave deadline None and fall back to step < max_step.
+    deadline = (
+        clock() + state.max_duration_sec if state.budget_mode == "time" else None
+    )
+
     # `step` only advances on a real action now, so a session that can never act
     # (e.g. a system screen that emits signals but no actionable frame) would
     # never reach max_step. idle_iterations is the absolute backstop.
     max_idle = max(state.max_step * 4, 20)
 
-    while state.step < state.max_step and state.idle_iterations < max_idle:
+    while _has_budget(state, clock, deadline) and state.idle_iterations < max_idle:
         state.idle_iterations += 1
         try:
             result = collector.server.get_latest_signal(timeout=collector.xml_timeout)
