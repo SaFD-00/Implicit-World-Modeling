@@ -151,9 +151,9 @@ monkey-collect run --apps all --input-mode random
 - `exploration.strategy`: `DFS` | `BFS` | `GREEDY` (canonical 기본 `BFS`)
 - `collection.{budget_mode, max_duration, max_steps, seed, action_delay_ms, port, output_dir}` (`budget_mode` 기본 `time`, `max_duration` 기본 `2h`)
 - `llm.{input_mode, element_extraction}`
-- `screen_matching.{cluster_merge_tolerance, max_expand_iters, luminance_prefilter, luminance_threshold, screenshot_diff_threshold, luminance_low_res_width, persist_filtered, bm25_top_k, element_criterion, element_diff_max, element_jaccard_min, page_pixel_diff_threshold}` (`cluster_merge_tolerance`/`max_expand_iters` 는 deprecated no-op)
+- `screen_matching.{luminance_prefilter, luminance_threshold, screenshot_diff_threshold, luminance_low_res_width, persist_filtered, bm25_top_k, element_criterion, element_diff_max, element_jaccard_min, page_pixel_diff_threshold}`
 
-대응 환경변수: `MC_EXPLORATION_STRATEGY`, `MC_COLLECTION_BUDGET_MODE`, `MC_COLLECTION_MAX_DURATION`, `MC_COLLECTION_MAX_STEPS`, `MC_COLLECTION_SEED`, `MC_COLLECTION_ACTION_DELAY_MS`, `MC_COLLECTION_PORT`, `MC_COLLECTION_OUTPUT_DIR`, `MC_LLM_INPUT_MODE`, `MC_LLM_ELEMENT_EXTRACTION`, `MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE`, `MC_SCREEN_MATCHING_MAX_EXPAND_ITERS`, `MC_SCREEN_MATCHING_LUMINANCE_PREFILTER`, `MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD`, `MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD`, `MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH`, `MC_SCREEN_MATCHING_PERSIST_FILTERED`, `MC_SCREEN_MATCHING_BM25_TOP_K`, `MC_SCREEN_MATCHING_ELEMENT_CRITERION`, `MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX`, `MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN`, `MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD`, 그리고 대체 yaml 을 가리키는 `MC_CONFIG_PATH`.
+대응 환경변수: `MC_EXPLORATION_STRATEGY`, `MC_COLLECTION_BUDGET_MODE`, `MC_COLLECTION_MAX_DURATION`, `MC_COLLECTION_MAX_STEPS`, `MC_COLLECTION_SEED`, `MC_COLLECTION_ACTION_DELAY_MS`, `MC_COLLECTION_PORT`, `MC_COLLECTION_OUTPUT_DIR`, `MC_LLM_INPUT_MODE`, `MC_LLM_ELEMENT_EXTRACTION`, `MC_SCREEN_MATCHING_LUMINANCE_PREFILTER`, `MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD`, `MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD`, `MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH`, `MC_SCREEN_MATCHING_PERSIST_FILTERED`, `MC_SCREEN_MATCHING_BM25_TOP_K`, `MC_SCREEN_MATCHING_ELEMENT_CRITERION`, `MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX`, `MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN`, `MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD`, 그리고 대체 yaml 을 가리키는 `MC_CONFIG_PATH`.
 
 ### 탐색 전략 (DFS / BFS / GREEDY)
 
@@ -203,7 +203,6 @@ monkey-collect run --apps com.google.android.deskclock --budget-mode steps --ste
 - `--runtime-dir`: 휘발성 런타임 루트 — metadata, events, cost/coverage (기본 `runtime`)
 - `--input-mode`: 입력 텍스트 생성 모드 `api` (LLM, 현재 앱 설명을 프롬프트에 포함) 또는 `random` (hardcoded). 기본 `api`
 - `--element-extraction`: element 추출(탐색 families enrichment) `on` / `off`. 기본 `off` — page 식별(BM25)은 LLM 없이 동작하고, `on` 이면 화면마다 element(family + anchor)를 추출해 `xml/{step}_elements.json` 으로 저장(`on` 이어도 LLM 클라이언트 없으면 families 빈 값). (`--screen-grouping` 은 deprecated alias)
-- `--cluster-merge-tolerance` / `--max-expand-iters`: **deprecated no-op** (구 element-set matcher 잔재)
 - `--luminance-prefilter`: luminance `on` / `off`. 기본 `on` — OBSERVATION dedup + PAGE pixel 게이트 지문 공급(off 면 pixel 게이트 abstain → element 기준 단독)
 - `--luminance-threshold`: 픽셀 밝기 차이 `|ΔY|` 임계값 0–255 (기본 10)
 - `--screenshot-diff-threshold`: 같은 **observation** 으로 볼 차이 픽셀 비율 (기본 0.02)
