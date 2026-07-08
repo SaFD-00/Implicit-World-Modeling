@@ -80,7 +80,7 @@ def _enc(raw):
 
 def _matcher(**kw):
     """Element-extraction matcher, luminance OFF, element_diff_max=2."""
-    params = dict(cluster_merge_tolerance=0.2, max_expand_iters=3, element_diff_max=2)
+    params = dict(element_diff_max=2)
     params.update(kw)
     return ScreenMatcher(FakeExtractor(), **params)
 
@@ -95,7 +95,7 @@ def _jpeg(color, size=(40, 80)):
 def _lum_matcher(**kw):
     """Element-extraction matcher with the luminance prefilter ON."""
     params = dict(
-        cluster_merge_tolerance=0.2, max_expand_iters=3, element_diff_max=2,
+        element_diff_max=2,
         luminance_prefilter=True, luminance_threshold=10,
         screenshot_diff_threshold=0.02, luminance_low_res_width=20,
     )
@@ -383,7 +383,7 @@ def test_luminance_observations_capped():
 def _extractorless_matcher(**kw):
     """A matcher with NO extractor — BM25 matching still runs, families empty."""
     params = dict(
-        cluster_merge_tolerance=0.2, max_expand_iters=3, element_diff_max=2,
+        element_diff_max=2,
         luminance_prefilter=True, luminance_threshold=10,
         screenshot_diff_threshold=0.02, luminance_low_res_width=20,
     )

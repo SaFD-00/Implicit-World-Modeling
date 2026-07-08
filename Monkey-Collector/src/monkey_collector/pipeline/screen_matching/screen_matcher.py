@@ -183,8 +183,6 @@ class ScreenMatcher:
     def __init__(
         self,
         extractor: ElementExtractor | None,
-        cluster_merge_tolerance: float = 0.2,
-        max_expand_iters: int = 3,
         luminance_prefilter: bool = False,
         luminance_threshold: int = 10,
         screenshot_diff_threshold: float = 0.02,
@@ -197,10 +195,6 @@ class ScreenMatcher:
         page_pixel_diff_threshold: float = 0.3,
     ):
         self._extractor = extractor
-        # cluster_merge_tolerance / max_expand_iters are retained for signature
-        # stability (config/CLI threading) but are unused by the BM25 match path.
-        self._tolerance = cluster_merge_tolerance
-        self._max_expand_iters = max_expand_iters
         # Luminance knobs. ``screenshot_diff_threshold`` governs OBSERVATION
         # identity (the tighter per-page dedup); the PAGE-level pixel gate uses
         # ``page_pixel_diff_threshold``. All image work is skipped when

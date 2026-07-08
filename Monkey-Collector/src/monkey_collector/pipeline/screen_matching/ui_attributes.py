@@ -75,26 +75,6 @@ class UIAttributes:
             children=d.get("children", []),
         )
 
-
-@dataclass
-class MatchResult:
-    """Result of classifying a screen against a stored page (set-assignment).
-
-    ``match_type`` ∈ {EQSET, SUPERSET_MERGE, SUBSET_MERGE, OVERLAP_MERGE,
-    OVERLAP_NEW, DISJOINT, NEW}. See
-    :mod:`monkey_collector.pipeline.screen_matching.set_classifier`.
-    """
-
-    candidate_page_key: str = ""
-    match_type: str = "NEW"
-    supported: list = field(default_factory=list)
-    additional: list = field(default_factory=list)
-    remaining_ui_indexes: list = field(default_factory=list)
-
-    def is_merge(self) -> bool:
-        return self.match_type in {"EQSET", "SUPERSET_MERGE", "SUBSET_MERGE", "OVERLAP_MERGE"}
-
-
 # ---------------------------------------------------------------------------
 # Tree traversal helpers
 # ---------------------------------------------------------------------------
@@ -334,24 +314,3 @@ def extract_interactable_indexes(encoded_xml: str) -> list[int]:
                 indexes.append(int(index))
     return sorted(set(indexes))
 
-
-def mask_xml_to_indexes(encoded_xml: str, keep_indexes) -> str:
-    """Drop interactable leaves (``button``/``input``) whose index ∉ *keep_indexes*.
-
-    Container nodes are preserved so structural context survives. Feeds the
-    step-2 always-on extract only the leftover UIs after trigger matching, so
-    the extractor focuses on genuinely new elements.
-    """
-    keep = {int(i) for i in keep_indexes}
-    tree = ET.fromstring(encoded_xml)
-
-    def _drop(parent: ET.Element) -> None:
-        for child in list(parent):
-            _drop(child)
-            if child.tag in INTERACTABLE_TAGS:
-                idx = child.attrib.get("index")
-                if idx is not None and int(idx) not in keep:
-                    parent.remove(child)
-
-    _drop(tree)
-    return ET.tostring(tree, encoding="unicode")

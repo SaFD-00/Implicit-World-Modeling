@@ -7,7 +7,6 @@ from monkey_collector.pipeline.screen_matching.ui_attributes import (
     extract_interactable_indexes,
     find_matching_node,
     get_ui_key_attrib,
-    mask_xml_to_indexes,
     text_blind_requirements,
 )
 
@@ -80,10 +79,3 @@ def test_all_match_requires_every_anchor():
     found_add = find_matching_node(tree, text_blind_requirements(add.to_dict()))
     found_search = find_matching_node(tree, text_blind_requirements(search.to_dict()))
     assert found_add and not found_search  # only one of two anchors present
-
-
-def test_mask_xml_keeps_only_listed_interactables():
-    masked = mask_xml_to_indexes(SCREEN, [1, 4])
-    indexes = extract_interactable_indexes(masked)
-    assert indexes == [1, 4]  # buttons/inputs 3,5 dropped; containers kept
-    assert "<p" in masked  # non-interactable nodes preserved

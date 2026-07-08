@@ -21,9 +21,6 @@ MAX_EMPTY_UI_RETRIES = 2
 # below is exhausted the session ends as before.
 MAX_TIMEOUT_REINITS = 3
 MAX_EXTERNAL_REINITS = 3
-# Suppress press_back for the first N steps of a session so an early back does
-# not exit the app before any data is collected (the cause of 1-2 step sessions).
-FIRST_STEPS_NO_BACK = 3
 
 
 def tap_random_fallback(adb: AdbClient) -> None:

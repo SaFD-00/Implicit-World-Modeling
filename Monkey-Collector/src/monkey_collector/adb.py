@@ -4,7 +4,6 @@ import os
 import re
 import shutil
 import subprocess
-import time
 
 from loguru import logger
 
@@ -176,12 +175,6 @@ class AdbClient:
         """Long-press at (x, y) via a zero-movement swipe."""
         return self.swipe(x, y, x, y, duration_ms)
 
-    def install(self, apk_path: str) -> str:
-        """Install an APK."""
-        cmd = self._cmd_prefix() + ["install", "-r", apk_path]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        return result.stdout.strip()
-
     def get_current_package(self) -> str:
         """Return the package name of the current foreground app."""
         # Field name varies by Android version: "mResumedActivity" (older) vs.
@@ -319,7 +312,3 @@ class AdbClient:
                     activities.add(match.group(1))
 
         return activities
-
-    def wait_for_idle(self, timeout: float = 2.0) -> None:
-        """Wait for the UI to settle after an action."""
-        time.sleep(min(timeout, 1.0))

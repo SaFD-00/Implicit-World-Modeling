@@ -23,7 +23,7 @@ from monkey_collector.pipeline.screen_matching.screen_matcher import (
     ScreenMatch,
     ScreenMatcher,
 )
-from monkey_collector.pipeline.screen_matching.ui_attributes import MatchResult, UIAttributes
+from monkey_collector.pipeline.screen_matching.ui_attributes import UIAttributes
 
 if TYPE_CHECKING:
     from monkey_collector.llm.element_extractor import ElementExtractor
@@ -35,7 +35,6 @@ __all__ = [
     "PageKnowledge",
     "KnowledgeRegistry",
     "UIAttributes",
-    "MatchResult",
     "create_screen_matcher",
     "rehydrate_screen_matcher",
 ]
@@ -43,8 +42,6 @@ __all__ = [
 
 def create_screen_matcher(
     extractor: ElementExtractor | None,
-    cluster_merge_tolerance: float = 0.2,
-    max_expand_iters: int = 3,
     luminance_prefilter: bool = False,
     luminance_threshold: int = 10,
     screenshot_diff_threshold: float = 0.02,
@@ -69,8 +66,6 @@ def create_screen_matcher(
         return None
     return ScreenMatcher(
         extractor,
-        cluster_merge_tolerance=cluster_merge_tolerance,
-        max_expand_iters=max_expand_iters,
         luminance_prefilter=luminance_prefilter,
         luminance_threshold=luminance_threshold,
         screenshot_diff_threshold=screenshot_diff_threshold,

@@ -59,10 +59,6 @@ llm:
   element_extraction: false
 
 screen_matching:
-  # DEPRECATED no-ops (retained for config/CLI stability; unused by BM25 matching).
-  # Env: MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE / _MAX_EXPAND_ITERS
-  cluster_merge_tolerance: 0.2
-  max_expand_iters: 3
   # Luminance prefilter (MobileGPT-V2 port). Governs the tighter OBSERVATION
   # dedup AND supplies the fingerprints for the PAGE-level pixel gate. Off ⇒ the
   # pixel gate abstains and the element criterion alone decides a merge. Default ON.

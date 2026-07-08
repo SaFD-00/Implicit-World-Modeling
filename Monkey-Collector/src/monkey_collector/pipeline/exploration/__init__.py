@@ -1,7 +1,7 @@
 """LLM-guided exploration engine.
 
-Replaces the legacy weighted-random ``SmartExplorer`` with an engine ported from
-the reference ``LLM-Explorer``: coverage-driven unexplored-first selection,
+Replaced a legacy weighted-random explorer with an engine ported from the
+reference ``LLM-Explorer``: coverage-driven unexplored-first selection,
 LLM-derived same-function element compression, and shortest-path navigation to
 unexplored screens over a UI transition graph.
 

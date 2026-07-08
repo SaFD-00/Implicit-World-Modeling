@@ -437,10 +437,8 @@ class StructuredXmlParser(Parser):
             logger.error(f"XML parse error in _renumber: {exc}")
             return xml_string
 
-        idx = 0
-        for element in root.iter():
+        for idx, element in enumerate(root.iter()):
             element.attrib["index"] = str(idx)
-            idx += 1
         return ET.tostring(root, encoding="unicode")
 
     # ------------------------------------------------------------------
@@ -491,43 +489,6 @@ class StructuredXmlParser(Parser):
             if element.get("index") == str(index):
                 return element
         return None
-
-    def find_element_by_bounds(self, bounds: str) -> ET.Element | None:
-        if self.views is None or bounds is None:
-            return None
-
-        try:
-            coords = bounds.replace("][", ",").strip("[]").split(",")
-            tx1, ty1, tx2, ty2 = map(int, coords)
-        except (ValueError, IndexError):
-            return None
-
-        # Exact match in cache
-        for idx, cached_bounds in self.bounds_cache.items():
-            if cached_bounds == bounds:
-                return self.find_element_by_index(idx)
-
-        # Smallest containing element
-        matching: list[ET.Element] = []
-        for idx, elem_bounds in self.bounds_cache.items():
-            try:
-                c = elem_bounds.replace("][", ",").strip("[]").split(",")
-                x1, y1, x2, y2 = map(int, c)
-                if x1 <= tx1 and y1 <= ty1 and x2 >= tx2 and y2 >= ty2:
-                    el = self.find_element_by_index(idx)
-                    if el is not None:
-                        matching.append(el)
-            except (ValueError, IndexError):
-                continue
-
-        if not matching:
-            return None
-        return min(
-            matching,
-            key=lambda e: self._get_area(
-                self.bounds_cache.get(int(e.get("index", -1)), "")
-            ),
-        )
 
     def get_bounds(self, index: int) -> str | None:
         return self.bounds_cache.get(index)

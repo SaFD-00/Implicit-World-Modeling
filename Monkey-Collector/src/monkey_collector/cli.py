@@ -85,8 +85,6 @@ def cmd_run(args: argparse.Namespace) -> None:
     extractor = create_element_extractor(llm_client) if element_extraction_on else None
     screen_matcher = create_screen_matcher(
         extractor,
-        cluster_merge_tolerance=cfg.screen_matching.cluster_merge_tolerance,
-        max_expand_iters=cfg.screen_matching.max_expand_iters,
         luminance_prefilter=cfg.screen_matching.luminance_prefilter,
         luminance_threshold=cfg.screen_matching.luminance_threshold,
         screenshot_diff_threshold=cfg.screen_matching.screenshot_diff_threshold,
@@ -545,18 +543,6 @@ def main() -> None:
         choices=["on", "off"],
         default=None,
         help="Deprecated alias for --element-extraction (off disables it).",
-    )
-    p.add_argument(
-        "--cluster-merge-tolerance",
-        type=float,
-        default=None,
-        help="Two-sided tolerance band for OVERLAP element-set merges (default 0.2)",
-    )
-    p.add_argument(
-        "--max-expand-iters",
-        type=int,
-        default=None,
-        help="Max expand (re-extract on leftover UI) iterations per screen (default 3)",
     )
     p.add_argument(
         "--luminance-prefilter",

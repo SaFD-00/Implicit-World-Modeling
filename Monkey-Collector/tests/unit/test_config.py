@@ -34,8 +34,6 @@ def _full_args(**overrides) -> argparse.Namespace:
         input_mode=None,
         element_extraction=None,
         screen_grouping=None,
-        cluster_merge_tolerance=None,
-        max_expand_iters=None,
         luminance_prefilter=None,
         luminance_threshold=None,
         screenshot_diff_threshold=None,
@@ -67,8 +65,6 @@ def test_builtin_defaults_no_yaml():
     assert cfg.collection.max_duration_sec == 7200
     assert cfg.llm.input_mode == "api"
     assert cfg.llm.element_extraction is False
-    assert cfg.screen_matching.cluster_merge_tolerance == 0.2
-    assert cfg.screen_matching.max_expand_iters == 3
     assert cfg.screen_matching.luminance_prefilter is True
     assert cfg.screen_matching.luminance_threshold == 10
     assert cfg.screen_matching.screenshot_diff_threshold == 0.02
@@ -124,12 +120,6 @@ def test_env_int_coercion(monkeypatch):
     cfg = load_run_config(path=NONEXISTENT)
     assert cfg.collection.max_steps == 321
     assert cfg.collection.port == 55555
-
-
-def test_env_float_coercion(monkeypatch):
-    monkeypatch.setenv("MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE", "0.45")
-    cfg = load_run_config(path=NONEXISTENT)
-    assert cfg.screen_matching.cluster_merge_tolerance == 0.45
 
 
 def test_env_luminance_coercion(monkeypatch):
@@ -279,8 +269,6 @@ def test_cli_full_override():
             data_dir="/tmp/out",
             runtime_dir="/tmp/rt",
             input_mode="random",
-            cluster_merge_tolerance=0.9,
-            max_expand_iters=5,
             luminance_prefilter="off",
             luminance_threshold=30,
             screenshot_diff_threshold=0.05,
@@ -301,8 +289,6 @@ def test_cli_full_override():
     assert cfg.collection.data_dir == "/tmp/out"
     assert cfg.collection.runtime_dir == "/tmp/rt"
     assert cfg.llm.input_mode == "random"
-    assert cfg.screen_matching.cluster_merge_tolerance == 0.9
-    assert cfg.screen_matching.max_expand_iters == 5
     assert cfg.screen_matching.luminance_prefilter is False
     assert cfg.screen_matching.luminance_threshold == 30
     assert cfg.screen_matching.screenshot_diff_threshold == 0.05
@@ -337,6 +323,27 @@ def test_cli_persist_filtered_on_off():
     assert off.screen_matching.persist_filtered is False
     on = merge_with_cli_args(cfg, _full_args(persist_filtered="on"))
     assert on.screen_matching.persist_filtered is True
+
+
+def test_legacy_screen_matching_keys_are_ignored(tmp_path, monkeypatch):
+    legacy_cluster = "_".join(("cluster", "merge", "tolerance"))
+    legacy_expand = "_".join(("max", "expand", "iters"))
+    path = _write_yaml(
+        tmp_path,
+        (
+            "screen_matching:\n"
+            f"  {legacy_cluster}: 0.9\n"
+            f"  {legacy_expand}: 7\n"
+            "  luminance_prefilter: false\n"
+        ),
+    )
+    monkeypatch.setenv("MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE", "0.45")
+
+    cfg = load_run_config(path=path)
+
+    assert cfg.screen_matching.luminance_prefilter is False
+    assert not hasattr(cfg.screen_matching, legacy_cluster)
+    assert not hasattr(cfg.screen_matching, legacy_expand)
 
 
 # ── parse_duration ──

@@ -1,8 +1,8 @@
 """LLM-guided exploration engine and the Explorer contract it fulfils.
 
-``LLMGuidedExplorer`` replaces the legacy weighted-random ``SmartExplorer`` while
-keeping the same public surface (the :class:`Explorer` Protocol) so the
-collection loop, recovery helpers, and tests are unaffected.
+``LLMGuidedExplorer`` replaced a legacy weighted-random explorer while keeping
+the same public surface (the :class:`Explorer` Protocol) so the collection
+loop, recovery helpers, and tests are unaffected.
 
 Per step, :meth:`select_action` orchestrates:
   1. continue an in-progress navigation plan (one queued step), else
@@ -283,7 +283,7 @@ class LLMGuidedExplorer:
             return False
         return bool(self._memory.unexplored_actions([self._current_state]))
 
-    # -- execution & recovery (carried over from SmartExplorer) ---------------
+    # -- execution & recovery (carried over from the legacy explorer) ---------
 
     def execute_action(self, action: Action) -> None:
         """Execute an action on the device via ADB."""
