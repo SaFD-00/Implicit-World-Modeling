@@ -104,10 +104,17 @@ python -m catalog.extract_activities      # .venv 활성화 상태에서
 
 ```bash
 # catalog/apps.csv 의 installed=true 인 앱 전부 순차 수집 (이미 완료된 앱은 자동 skip)
-monkey-collect run --apps all --steps 1500
+# 기본 종료 조건은 시간 예산 — 앱당 2h (config/run.yaml 의 budget_mode=time, max_duration=2h)
+monkey-collect run --apps all
+
+# 시간 예산 명시 (앱당 벽시계 예산; 형식 2h/120m/7200s)
+monkey-collect run --apps all --budget-mode time --duration 2h
+
+# 스텝 예산으로 전환 (앱당 최대 step 수까지)
+monkey-collect run --apps all --budget-mode steps --steps 1500
 
 # 원하는 앱만 지정 (완료 여부는 동일하게 체크)
-monkey-collect run --apps com.google.android.deskclock com.google.android.calculator --steps 1500
+monkey-collect run --apps com.google.android.deskclock com.google.android.calculator
 
 # 완료된 앱도 다시 수집
 monkey-collect run --apps all --force
@@ -123,6 +130,7 @@ monkey-collect run --apps all --input-mode random
 
 - 서버가 각 앱마다 `adb shell am start` 로 앱을 실행하고, TCP 로 `{"type": "START", "package": "com.X"}` 를 보낸다. Android 앱은 standby 연결을 유지하다가 START 를 받아 자동으로 수집을 시작한다.
 - 한 세션이 끝나면 서버가 `SESSION_END` 를 보내 클라이언트를 정리하고, Android 는 `F` 회신 후 새 소켓으로 자동 재접속한다. 서버는 이 fresh 소켓을 그대로 유지하고 다음 앱으로 `START` 를 송신한다. 이때 이전 세션의 `F`(finish) 회신이 신호 큐에 남을 수 있어, `run_collection_loop` 는 시작 시 큐를 비운다 — 비우지 않으면 새 세션이 stale finish 를 읽고 0-step 으로 끝나며 큐의 다음 앱들까지 연쇄로 0-step 된다. 큐 소비(`get_latest_signal`)는 연속된 `xml` 프레임만 latest 로 collapse 하고 `external_app`/`finish`/`no_change` 제어 신호는 드롭하지 않으므로(뒤이은 `xml` 에 덮이지 않음), 세션 내 external app 복구·정상 종료 신호가 유실되지 않는다.
+- **세션 종료 조건**은 `budget_mode`(기본 `time`)로 정한다 — `time` 이면 앱당 벽시계 `max_duration`(기본 `2h`) 경과까지, `steps` 면 `max_steps`(기본 1500) action 까지 탐색한다. CLI `--budget-mode`, 또는 `--steps`/`--duration` 중 준 쪽으로 모드를 추론한다(`--duration` 형식: `2h`/`120m`/`7200s`/맨숫자=초). 어느 예산이든 만료 시 루프가 **정상 종료**해 `finalize_session` 이 `completed_at` 을 채운다(프로세스를 kill 하지 않으므로 데이터 유실 없음 — 과거 `completed_at:null` 은 kill 증상이었다). resume 는 매 실행 fresh full 예산(누적 경과시간은 저장하지 않음).
 - 큐 구성 시 `runtime/{pkg}/metadata.json` 의 `completed_at` 이 채워진 앱은 **완료로 판정되어 스킵**. `--force` 로 우회하거나, 중단된(미완료) 세션은 `completed_at` 이 `null` 이라 자동으로 resume 된다(재개 시 `data/{pkg}/pages/` 로부터 page 지식도 함께 복원).
 - **재초기화(reinit)**: signal timeout 5연속 또는 external app 10회 도달 시 세션을 종료하는 대신, target app 을 force-stop + relaunch 하고 카운터를 초기화해 탐색을 재개한다. 재초기화는 각각 최대 3회까지 허용되며, 초과 시 세션이 종료된다.
 - **open_app 기록**: external app 복구가 타깃 앱을 실제로 재실행하면 그 재실행을 `open_app` 액션으로 `events.jsonl` 에 **이탈(excursion) 당 1회** 기록한다(`{"action_type":"open_app", "package", "app_name", "transition":false, "trigger":"external_recovery", "from_package"}`). 이 open_app 은 복구 동작이지 의도된 화면 전이가 아니므로 page graph·탐색 전이·world-modeling 변환 어디에도 navigation 으로 쓰이지 않는다(`transition:false`).
@@ -141,11 +149,11 @@ monkey-collect run --apps all --input-mode random
 `config/run.yaml` 섹션:
 
 - `exploration.strategy`: `DFS` | `BFS` | `GREEDY` (canonical 기본 `BFS`)
-- `collection.{max_steps, seed, action_delay_ms, port, output_dir}`
+- `collection.{budget_mode, max_duration, max_steps, seed, action_delay_ms, port, output_dir}` (`budget_mode` 기본 `time`, `max_duration` 기본 `2h`)
 - `llm.{input_mode, element_extraction}`
 - `screen_matching.{cluster_merge_tolerance, max_expand_iters, luminance_prefilter, luminance_threshold, screenshot_diff_threshold, luminance_low_res_width, persist_filtered, bm25_top_k, element_criterion, element_diff_max, element_jaccard_min, page_pixel_diff_threshold}` (`cluster_merge_tolerance`/`max_expand_iters` 는 deprecated no-op)
 
-대응 환경변수: `MC_EXPLORATION_STRATEGY`, `MC_COLLECTION_MAX_STEPS`, `MC_COLLECTION_SEED`, `MC_COLLECTION_ACTION_DELAY_MS`, `MC_COLLECTION_PORT`, `MC_COLLECTION_OUTPUT_DIR`, `MC_LLM_INPUT_MODE`, `MC_LLM_ELEMENT_EXTRACTION`, `MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE`, `MC_SCREEN_MATCHING_MAX_EXPAND_ITERS`, `MC_SCREEN_MATCHING_LUMINANCE_PREFILTER`, `MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD`, `MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD`, `MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH`, `MC_SCREEN_MATCHING_PERSIST_FILTERED`, `MC_SCREEN_MATCHING_BM25_TOP_K`, `MC_SCREEN_MATCHING_ELEMENT_CRITERION`, `MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX`, `MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN`, `MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD`, 그리고 대체 yaml 을 가리키는 `MC_CONFIG_PATH`.
+대응 환경변수: `MC_EXPLORATION_STRATEGY`, `MC_COLLECTION_BUDGET_MODE`, `MC_COLLECTION_MAX_DURATION`, `MC_COLLECTION_MAX_STEPS`, `MC_COLLECTION_SEED`, `MC_COLLECTION_ACTION_DELAY_MS`, `MC_COLLECTION_PORT`, `MC_COLLECTION_OUTPUT_DIR`, `MC_LLM_INPUT_MODE`, `MC_LLM_ELEMENT_EXTRACTION`, `MC_SCREEN_MATCHING_CLUSTER_MERGE_TOLERANCE`, `MC_SCREEN_MATCHING_MAX_EXPAND_ITERS`, `MC_SCREEN_MATCHING_LUMINANCE_PREFILTER`, `MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD`, `MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD`, `MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH`, `MC_SCREEN_MATCHING_PERSIST_FILTERED`, `MC_SCREEN_MATCHING_BM25_TOP_K`, `MC_SCREEN_MATCHING_ELEMENT_CRITERION`, `MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX`, `MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN`, `MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD`, 그리고 대체 yaml 을 가리키는 `MC_CONFIG_PATH`.
 
 ### 탐색 전략 (DFS / BFS / GREEDY)
 
@@ -175,8 +183,9 @@ monkey-collect run --apps all --config config/run.yaml
 서버 드리븐 수집. `catalog/apps.csv` 의 `installed=true` 앱 전부 또는 지정한 패키지 목록을 순차 수집한다.
 
 ```bash
-monkey-collect run --apps all --steps 1500
-monkey-collect run --apps com.google.android.deskclock --steps 1500
+monkey-collect run --apps all                                   # 기본: 시간 예산 앱당 2h
+monkey-collect run --apps all --budget-mode time --duration 2h  # 시간 예산 명시
+monkey-collect run --apps com.google.android.deskclock --budget-mode steps --steps 1500
 ```
 
 주요 옵션:
@@ -184,7 +193,9 @@ monkey-collect run --apps com.google.android.deskclock --steps 1500
 - `--apps` (필수): `all` 이면 `catalog/apps.csv` 의 `installed=true` 전부. 아니면 하나 이상의 package_id.
 - `--strategy`: 탐색 전략 `DFS` / `BFS` / `GREEDY` 선택 (canonical 기본 `BFS`). 미지정 시 `config/run.yaml` 의 `exploration.strategy` 를 따른다 (의미는 「설정」 섹션 참조).
 - `--config`: 사용할 config YAML 경로 (기본 `config/run.yaml`).
-- `--steps`: 세션당 최대 step 수 (기본 1500)
+- `--budget-mode {time,steps}`: 세션 종료 조건. `time` = `--duration` 벽시계 예산, `steps` = `--steps` action 수. 미지정 시 `--steps`/`--duration` 중 준 쪽으로 추론(둘 다 있고 모드 미지정이면 config 값 유지 + 경고). 기본 `config/run.yaml` 의 `budget_mode`(제품 기본 `time`)
+- `--duration`: `budget_mode=time` 일 때 앱 세션당 벽시계 예산. 형식 `2h`/`120m`/`7200s`/`7200`(맨숫자=초). 기본 `config` 의 `max_duration`(`2h`)
+- `--steps`: `budget_mode=steps` 일 때 세션당 최대 step 수 (기본 1500)
 - `--seed`: explorer 랜덤 시드 (기본 42)
 - `--delay`: action 사이 대기 시간(ms, 기본 1500)
 - `--port`: TCP server port (기본 12345)
