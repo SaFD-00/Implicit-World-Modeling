@@ -7,6 +7,7 @@ CSV format:
     timestamp_sec,step,agent,model,input_tokens,output_tokens,cost_usd,total
 """
 
+import contextlib
 import csv
 import os
 import time
@@ -107,10 +108,8 @@ class CostTracker:
             with open(self.csv_path, encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    try:
+                    with contextlib.suppress(ValueError):
                         self._total = float(row.get("total", 0))
-                    except ValueError:
-                        pass
 
         self._initialized = True
         logger.info(

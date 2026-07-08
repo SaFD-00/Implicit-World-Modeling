@@ -4,6 +4,7 @@ import json
 import socket
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from queue import Empty, Queue
 
 from loguru import logger
@@ -65,15 +66,11 @@ class CollectionServer:
         """Stop the server."""
         self._running = False
         if self._client:
-            try:
+            with suppress(OSError):
                 self._client.close()
-            except OSError:
-                pass
         if self._server_socket:
-            try:
+            with suppress(OSError):
                 self._server_socket.close()
-            except OSError:
-                pass
         if self._thread:
             self._thread.join(timeout=5)
         logger.info("Collection server stopped")

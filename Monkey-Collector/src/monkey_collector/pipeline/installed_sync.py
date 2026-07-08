@@ -9,6 +9,7 @@ backend for ``python -m monkey_collector sync-installed``: it queries the device
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import os
 import tempfile
@@ -107,10 +108,8 @@ def sync_installed_column(
             writer.writerows(rows)
         os.replace(tmp_path, path)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
     return total, installed_count, changed
