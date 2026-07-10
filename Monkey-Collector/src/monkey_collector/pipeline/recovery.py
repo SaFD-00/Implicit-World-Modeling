@@ -19,8 +19,32 @@ MAX_EMPTY_UI_RETRIES = 2
 # A reinit triggers when MAX_EXTERNAL_APP_RETRIES / max_timeouts is hit; each
 # reinit resets that counter and force-relaunches the target app. If the limit
 # below is exhausted the session ends as before.
-MAX_TIMEOUT_REINITS = 3
-MAX_EXTERNAL_REINITS = 3
+#
+# The reinit count itself is forgiven (reset to 0) once the session has made
+# REINIT_FORGIVE_STEPS of genuine forward progress since the last reinit of its
+# kind, so a session that recovered cleanly and ran fine for a while isn't
+# killed by a later unrelated blip.
+#
+# Forgiveness alone is not enough for every app: some screens (observed on
+# Calendar's back-navigation from certain views, and a Music Player permission
+# dialog) put the target app into a stuck "loading" state — near-empty XML,
+# no further accessibility events — that only recovers via the full
+# 5-timeout/~2min force-relaunch cycle, and does so reliably every time. But
+# it can recur every 10-25 steps, well inside REINIT_FORGIVE_STEPS, so the old
+# MAX_TIMEOUT_REINITS=3 budget was exhausted (and the session killed) after
+# only 2-4 minutes even though every single relaunch was in fact working. The
+# real backstop for a session that is truly, permanently stuck (relaunch never
+# helps) is `idle_iterations` in collection_loop.py — it increments on every
+# loop pass and is reset only by a genuine step, so it fires regardless of
+# this budget. That leaves this counter free to be generous: it exists to cap
+# wasted wall-clock on a dead session, not to police apps that are merely slow
+# to recover.
+MAX_TIMEOUT_REINITS = 20
+MAX_EXTERNAL_REINITS = 10
+REINIT_FORGIVE_STEPS = 15
+# Suppress press_back for the first N steps of a session so an early back does
+# not exit the app before any data is collected (the cause of 1-2 step sessions).
+FIRST_STEPS_NO_BACK = 3
 
 
 def tap_random_fallback(adb: AdbClient) -> None:

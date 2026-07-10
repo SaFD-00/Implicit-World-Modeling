@@ -19,6 +19,7 @@ from monkey_collector.pipeline.recovery import (
     MAX_NO_CHANGE_RETRIES,
     MAX_SAME_PAGE_STEPS,
     MAX_TIMEOUT_REINITS,
+    REINIT_FORGIVE_STEPS,
     describe_action_element,
     nudge_static_screen,
     relaunch_app_fallback,
@@ -59,6 +60,11 @@ class CollectionState:
     empty_ui_retries: int = 0
     reinit_timeout_count: int = 0
     reinit_external_count: int = 0
+    # `step` at the time of the most recent reinit of each kind, so a later
+    # reinit can tell whether the session has made sustained progress since
+    # (see REINIT_FORGIVE_STEPS) rather than just tallying a lifetime count.
+    last_timeout_reinit_step: int = -REINIT_FORGIVE_STEPS
+    last_external_reinit_step: int = -REINIT_FORGIVE_STEPS
     # True once an open_app has been logged for the current external excursion;
     # reset to False on the next valid in-app frame so each excursion records
     # exactly one open_app (dedup).
@@ -151,7 +157,10 @@ def run_collection_loop(
                     f"({state.timeout_count}/{max_timeouts})"
                 )
                 if state.timeout_count >= max_timeouts:
+                    if state.step - state.last_timeout_reinit_step >= REINIT_FORGIVE_STEPS:
+                        state.reinit_timeout_count = 0
                     state.reinit_timeout_count += 1
+                    state.last_timeout_reinit_step = state.step
                     if state.reinit_timeout_count > MAX_TIMEOUT_REINITS:
                         logger.error(
                             f"Timeout reinit exhausted "
@@ -325,7 +334,10 @@ def _handle_external_app(
         f"({state.external_app_count}/{MAX_EXTERNAL_APP_RETRIES})"
     )
     if state.external_app_count >= MAX_EXTERNAL_APP_RETRIES:
+        if state.step - state.last_external_reinit_step >= REINIT_FORGIVE_STEPS:
+            state.reinit_external_count = 0
         state.reinit_external_count += 1
+        state.last_external_reinit_step = state.step
         if state.reinit_external_count > MAX_EXTERNAL_REINITS:
             logger.error(
                 f"External app reinit exhausted "
