@@ -22,6 +22,10 @@
       "app.organicmaps/app.organicmaps.widget.placepage.WikiArticleActivity",
       "app.organicmaps/com.google.android.gms.common.api.GoogleApiActivity"
     ],
+    "aliases": {
+      "app.organicmaps/app.organicmaps.DownloadResourcesActivity": "app.organicmaps/app.organicmaps.SplashActivity",
+      "app.organicmaps/app.organicmaps.ManageSpaceActivity": "app.organicmaps/app.organicmaps.SplashActivity"
+    },
     "app_name": "Organic Maps",
     "category": "Navigation",
     "source": "F-Droid",
@@ -60,6 +64,27 @@
       "au.com.shiftyjelly.pocketcasts/com.google.android.gms.common.api.GoogleApiActivity",
       "au.com.shiftyjelly.pocketcasts/com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
     ],
+    "aliases": {
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_0": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_1": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_10": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_11": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_12": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_13": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_14": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_15": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_16": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_17": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_18": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_2": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_3": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_4": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_5": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_6": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_7": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_8": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity",
+      "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity_9": "au.com.shiftyjelly.pocketcasts/au.com.shiftyjelly.pocketcasts.ui.MainActivity"
+    },
     "app_name": "Pocket Casts",
     "category": "Podcast",
     "source": "PlayStore",
@@ -105,6 +130,7 @@
       "bbc.mobile.news.ww/uk.co.bbc.iDAuth.v5.DeepLinkReceiver",
       "bbc.mobile.news.ww/uk.co.bbc.smpan.ui.fullscreen.FullScreenPlayoutActivity"
     ],
+    "aliases": {},
     "app_name": "BBC",
     "category": "News",
     "source": "PlayStore",
@@ -188,6 +214,14 @@
       "ch.protonvpn.android/me.proton.core.usersettings.presentation.ui.TwoFaInputActivity",
       "ch.protonvpn.android/me.proton.core.usersettings.presentation.ui.UpdateRecoveryEmailActivity"
     ],
+    "aliases": {
+      "ch.protonvpn.android/ch.protonvpn.android.RoutingActivity": "ch.protonvpn.android/com.protonvpn.android.redesign.app.ui.MainActivity",
+      "ch.protonvpn.android/ch.protonvpn.android.RoutingCalculator": "ch.protonvpn.android/com.protonvpn.android.redesign.app.ui.MainActivity",
+      "ch.protonvpn.android/ch.protonvpn.android.RoutingDark": "ch.protonvpn.android/com.protonvpn.android.redesign.app.ui.MainActivity",
+      "ch.protonvpn.android/ch.protonvpn.android.RoutingNotes": "ch.protonvpn.android/com.protonvpn.android.redesign.app.ui.MainActivity",
+      "ch.protonvpn.android/ch.protonvpn.android.RoutingRetro": "ch.protonvpn.android/com.protonvpn.android.redesign.app.ui.MainActivity",
+      "ch.protonvpn.android/ch.protonvpn.android.RoutingWeather": "ch.protonvpn.android/com.protonvpn.android.redesign.app.ui.MainActivity"
+    },
     "app_name": "Proton VPN",
     "category": "Tools",
     "source": "PlayStore",
@@ -941,6 +975,23 @@
       "cn.wps.moffice_eng/com.zeus.gmc.sdk.mobileads.msa.adjump.AdJumperLoadingActivity",
       "cn.wps.moffice_eng/io.flutter.plugins.urllauncher.WebViewActivity"
     ],
+    "aliases": {
+      "cn.wps.moffice_eng/cn.wps.doc_ai_spellcheck_activity": "cn.wps.moffice_eng/cn.wps.moffice.main.thirdparty.ui.ThirdpartyDispatcherActivity",
+      "cn.wps.moffice_eng/cn.wps.img2pdf_activity": "cn.wps.moffice_eng/cn.wps.moffice.entrance.pictodoc.PicToDocEntranceActivity",
+      "cn.wps.moffice_eng/cn.wps.img2ppt_activity": "cn.wps.moffice_eng/cn.wps.moffice.entrance.pictodoc.PicToDocEntranceActivity",
+      "cn.wps.moffice_eng/cn.wps.img2scan_activity": "cn.wps.moffice_eng/cn.wps.moffice.entrance.pictodoc.PicToDocEntranceActivity",
+      "cn.wps.moffice_eng/cn.wps.img2word_activity": "cn.wps.moffice_eng/cn.wps.moffice.entrance.pictodoc.PicToDocEntranceActivity",
+      "cn.wps.moffice_eng/cn.wps.img_extract_text_activity": "cn.wps.moffice_eng/cn.wps.moffice.entrance.pictodoc.PicToDocEntranceActivity",
+      "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.ab.proxy.a": "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.PreStartActivity",
+      "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.ab.proxy.b": "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.PreStartActivity",
+      "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.ab.proxy.c": "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.PreStartActivity",
+      "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.ab.proxy.d": "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.PreStartActivity",
+      "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.ab.proxy.e": "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.PreStartActivity",
+      "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.ab.proxy.main": "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.PreStartActivity",
+      "cn.wps.moffice_eng/cn.wps.moffice.entrance.sendAllEntrance": "cn.wps.moffice_eng/cn.wps.moffice.documentmanager.PreStartActivity2",
+      "cn.wps.moffice_eng/cn.wps.pdf_downsizing_activity": "cn.wps.moffice_eng/cn.wps.moffice.a.thirdparty.ui.ThirdpartyDispatcherActivity",
+      "cn.wps.moffice_eng/cn.wps.share_by_link_activity": "cn.wps.moffice_eng/cn.wps.moffice.main.thirdparty.ui.ThirdpartyDispatcherActivity"
+    },
     "app_name": "WPS Office",
     "category": "Productivity",
     "source": "PlayStore",
@@ -964,6 +1015,7 @@
       "code.name.monkey.retromusic/code.name.monkey.retromusic.appshortcuts.AppShortcutLauncherActivity",
       "code.name.monkey.retromusic/code.name.monkey.retromusic.fragments.backup.RestoreActivity"
     ],
+    "aliases": {},
     "app_name": "Retro Music",
     "category": "Media",
     "source": "F-Droid",
@@ -1122,6 +1174,9 @@
       "com.Slack/slack.streaming.message.playground.MessageStreamingPlaygroundActivity",
       "com.Slack/slack.user.education.playground.UserEducationPlaygroundActivity"
     ],
+    "aliases": {
+      "com.Slack/slack.app.HomeActivity": "com.Slack/slack.app.ui.TrampolineActivity"
+    },
     "app_name": "Slack",
     "category": "Communication",
     "source": "PlayStore",
@@ -1155,6 +1210,7 @@
       "com.accuweather.android/com.urbanairship.permission.PermissionsActivity",
       "com.accuweather.android/com.urbanairship.push.NotificationProxyActivity"
     ],
+    "aliases": {},
     "app_name": "AccuWeather",
     "category": "Weather",
     "source": "PlayStore",
@@ -1181,6 +1237,7 @@
       "com.adsk.sketchbook/com.google.android.gms.common.api.GoogleApiActivity",
       "com.adsk.sketchbook/com.google.mlkit.vision.documentscanner.internal.GmsDocumentScanningDelegateActivity"
     ],
+    "aliases": {},
     "app_name": "Sketchbook",
     "category": "Media",
     "source": "PlayStore",
@@ -1311,6 +1368,12 @@
       "com.agoda.mobile.consumer/com.naver.maps.map.app.LegendActivity",
       "com.agoda.mobile.consumer/com.naver.maps.map.app.OpenSourceLicenseActivity"
     ],
+    "aliases": {
+      "com.agoda.mobile.consumer/com.agoda.mobile.consumer.screens.splash.AppLauncherActivity": "com.agoda.mobile.consumer/com.agoda.mobile.consumer.screens.splash.AppLauncherActivity",
+      "com.agoda.mobile.consumer/com.agoda.mobile.consumer.screens.splash.alias.DirectDeeplinkAlias": "com.agoda.mobile.consumer/com.agoda.mobile.consumer.screens.splash.AppLauncherActivity",
+      "com.agoda.mobile.consumer/com.agoda.mobile.consumer.screens.splash.alias.IconEventAppLauncherActivityAlias": "com.agoda.mobile.consumer/com.agoda.mobile.consumer.screens.splash.AppLauncherActivity",
+      "com.agoda.mobile.consumer/com.agoda.mobile.consumer.screens.splash.alias.JapanEventAppLauncherActivityAlias": "com.agoda.mobile.consumer/com.agoda.mobile.consumer.screens.splash.AppLauncherActivity"
+    },
     "app_name": "Agoda",
     "category": "Travel",
     "source": "PlayStore",
@@ -1460,6 +1523,9 @@
       "com.airbnb.android/net.openid.appauth.AuthorizationManagementActivity",
       "com.airbnb.android/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {
+      "com.airbnb.android/com.airbnb.android.activities.MainActivity": "com.airbnb.android/com.airbnb.android.feat.splashscreen.SplashScreenActivity"
+    },
     "app_name": "Airbnb",
     "category": "Travel",
     "source": "PlayStore",
@@ -1493,6 +1559,7 @@
       "com.ajnsnewmedia.kitchenstories/com.yalantis.ucrop.UCropActivity",
       "com.ajnsnewmedia.kitchenstories/io.flutter.plugins.urllauncher.WebViewActivity"
     ],
+    "aliases": {},
     "app_name": "Kitchen Stories",
     "category": "Food",
     "source": "PlayStore",
@@ -1814,6 +1881,7 @@
       "com.alibaba.aliexpresshd/net.openid.appauth.AuthorizationManagementActivity",
       "com.alibaba.aliexpresshd/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {},
     "app_name": "AliExpress",
     "category": "Shopping",
     "source": "PlayStore",
@@ -1911,6 +1979,24 @@
       "com.amazon.mShop.android.shopping/com.imagepicker.ImagePickerProxyActivity",
       "com.amazon.mShop.android.shopping/com.reactnativedocumentpicker.ProxyDocumentPickerActivity"
     ],
+    "aliases": {
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.aiv.AIVGatewayStartupActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.splashscreen.StartupActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.amazonbazaar.AmazonBazaarHomeActivityAlias": "com.amazon.mShop.android.shopping/com.amazon.mShop.amazonbazaar.AmazonBazaarHomeActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.amazonnow.AmazonNowHomeActivityAlias": "com.amazon.mShop.android.shopping/com.amazon.mShop.amazonnow.AmazonNowHomeActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.amazonpay.AmazonPayHomeActivityAlias": "com.amazon.mShop.android.shopping/com.amazon.mShop.amazonpay.AmazonPayHomeActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.amazonpay.AmazonPayHomeActivityAliasWoShortcuts": "com.amazon.mShop.android.shopping/com.amazon.mShop.amazonpay.AmazonPayHomeActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.android.home.HomeActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.splashscreen.StartupActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.android.home.PublicUrlActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.splashscreen.StartupActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.home.HomeActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.splashscreen.StartupActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.httpUrlDeepLink.PublicUrlActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.httpUrlDeepLink.DeepLinkingProxyActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.permission.ViewPermissionUsageActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.permission.v2.health.HealthPermissionRationaleActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.share.ingress.ImageAndTextShareActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.share.ingress.ShareActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.share.ingress.TextOnlyShareActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.share.ingress.ShareActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.mShop.storefront.StorefrontActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.splashscreen.StartupActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.vsearch.galleryshare.SharingSearchPhotoGalleryShareActivity": "com.amazon.mShop.android.shopping/com.amazon.vsearch.galleryshare.SearchPhotoGalleryShareActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.vsearch.galleryshare.SharingStyleSnapGalleryShareActivity": "com.amazon.mShop.android.shopping/com.amazon.vsearch.galleryshare.StyleSnapGalleryShareActivity",
+      "com.amazon.mShop.android.shopping/com.amazon.windowshop.home.HomeLauncherActivity": "com.amazon.mShop.android.shopping/com.amazon.mShop.splashscreen.StartupActivity"
+    },
     "app_name": "Amazon Shopping",
     "category": "Shopping",
     "source": "PlayStore",
@@ -2213,6 +2299,13 @@
       "com.booking/net.openid.appauth.AuthorizationManagementActivity",
       "com.booking/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {
+      "com.booking/com.booking.deeplink.decoder.FlightsDeeplinkActivityDecoderAPI35": "com.booking/com.booking.flightsdeeplinkpresentation.FlightsDeeplinkActivityDecoder",
+      "com.booking/com.booking.dev.wxapi.WXEntryActivity": "com.booking/com.booking.login.WXEntryActivity",
+      "com.booking/com.booking.dev.wxapi.WXPayEntryActivity": "com.booking/com.booking.login.WXEntryActivity",
+      "com.booking/com.booking.wxapi.WXEntryActivity": "com.booking/com.booking.login.WXEntryActivity",
+      "com.booking/com.booking.wxapi.WXPayEntryActivity": "com.booking/com.booking.login.WXEntryActivity"
+    },
     "app_name": "Booking.com",
     "category": "Travel",
     "source": "PlayStore",
@@ -2225,6 +2318,7 @@
       "com.brave.browser/com.google.android.gms.common.api.GoogleApiActivity",
       "com.brave.browser/com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
     ],
+    "aliases": {},
     "app_name": "Brave",
     "category": "System",
     "source": "PlayStore",
@@ -2399,6 +2493,7 @@
       "com.chess/io.intercom.android.sdk.ui.preview.ui.IntercomPreviewActivity",
       "com.chess/org.prebid.mobile.rendering.views.browser.AdBrowserActivity"
     ],
+    "aliases": {},
     "app_name": "Chess",
     "category": "Entertainment",
     "source": "PlayStore",
@@ -2539,6 +2634,32 @@
       "com.citymapper.app.release/io.didomi.sdk.notice.ctv.TVNoticeDialogActivity",
       "com.citymapper.app.release/io.didomi.sdk.preferences.ctv.TVPreferencesDialogActivity"
     ],
+    "aliases": {
+      "com.citymapper.app.release/com.citymapper.app.MainActivity": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Bear": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Bling": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Busmapper": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_CM2": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Club": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_ClubPlus": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Dude": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Dudette": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_EarlyBird": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Gobot": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Goth": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Jetpack": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_NotGreen": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_NotGreen2": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_NotGreen3": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Rainbow": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Retro": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_RoseBling": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Smile": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_SuperDuper": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Sustainable": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_Unbreakable": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2",
+      "com.citymapper.app.release/com.citymapper.app.MainActivity_White": "com.citymapper.app.release/com.citymapper.app.home.HomeActivity2"
+    },
     "app_name": "Citymapper",
     "category": "Navigation",
     "source": "PlayStore",
@@ -2561,6 +2682,42 @@
       "com.clue.android/net.openid.appauth.AuthorizationManagementActivity",
       "com.clue.android/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {
+      "com.clue.android/com.helloclue.AppIconAutumnLeaves": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconAutumnPumpkins": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconBlue": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconBlueSwirl": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconChristmasGingerbread": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconChristmasSanta": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconChristmasSnowman": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconClassic": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconCluePlus": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconDefault": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconHalloween": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconHalloweenBat": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconMauve": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconMenstrualCup": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconPatternBlobs": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconPeaceLovePMS": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconPink": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconPinkSwirl": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconPride": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconPurple": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconRed": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconSpringBirdsAndBees": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconSpringFlowerBorder": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconSpringFlowers": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconSummerConfetti": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconSummerIcecream": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconTampon": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconTeal": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconValentines": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconValentinesCandyHearts": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconWinterFoliage": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.AppIconWinterSweater": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.ViewPermissionUsageActivity": "com.clue.android/com.helloclue.ui.MainActivity",
+      "com.clue.android/com.helloclue.ViewPermissionUsageActivityApi34": "com.clue.android/com.helloclue.ui.MainActivity"
+    },
     "app_name": "Clue",
     "category": "Health",
     "source": "PlayStore",
@@ -2607,6 +2764,16 @@
       "com.coingecko.coingeckoapp/com.proyecto26.inappbrowser.ChromeTabsManagerActivity",
       "com.coingecko.coingeckoapp/org.prebid.mobile.rendering.views.browser.AdBrowserActivity"
     ],
+    "aliases": {
+      "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivityBtclover": "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivity",
+      "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivityDawnIcon": "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivity",
+      "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivityDefault": "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivity",
+      "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivityDusk": "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivity",
+      "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivityMoonbird": "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivity",
+      "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivityPixel": "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivity",
+      "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivityPremium24k": "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivity",
+      "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivitySoft": "com.coingecko.coingeckoapp/com.coingecko.coingeckoapp.MainActivity"
+    },
     "app_name": "CoinGecko",
     "category": "Finance",
     "source": "PlayStore",
@@ -2764,6 +2931,12 @@
       "com.contextlogic.wish/com.stripe.android.view.Stripe3ds2CompletionActivity",
       "com.contextlogic.wish/com.wish.compose.faq.FaqActivity"
     ],
+    "aliases": {
+      "com.contextlogic.wish/com.contextlogic.wish.LauncherDefault": "com.contextlogic.wish/com.contextlogic.wish.activity.browse.BrowseActivity",
+      "com.contextlogic.wish/com.contextlogic.wish.LauncherDropWeek": "com.contextlogic.wish/com.contextlogic.wish.activity.browse.BrowseActivity",
+      "com.contextlogic.wish/com.contextlogic.wish.LauncherMegaSale": "com.contextlogic.wish/com.contextlogic.wish.activity.browse.BrowseActivity",
+      "com.contextlogic.wish/com.contextlogic.wish.LauncherWishmas": "com.contextlogic.wish/com.contextlogic.wish.activity.browse.BrowseActivity"
+    },
     "app_name": "Wish",
     "category": "Shopping",
     "source": "PlayStore",
@@ -3016,6 +3189,7 @@
       "com.dd.doordash/dd.common.libraries.pulse.core.debug.ui.PulseDebuggerActivity",
       "com.dd.doordash/lf1590ac64bf1495847993c7f.l458345c05cc44bc4623c5662"
     ],
+    "aliases": {},
     "app_name": "DoorDash",
     "category": "Food",
     "source": "PlayStore",
@@ -3031,6 +3205,7 @@
       "com.deepl.mobiletranslator/net.openid.appauth.AuthorizationManagementActivity",
       "com.deepl.mobiletranslator/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {},
     "app_name": "DeepL",
     "category": "Tools",
     "source": "PlayStore",
@@ -3052,6 +3227,39 @@
       "com.discord/com.jakewharton.processphoenix.ProcessPhoenix",
       "com.discord/com.yalantis.ucrop.UCropActivity"
     ],
+    "aliases": {
+      "com.discord/com.discord.main.MainAngry": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainBeanie": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainBlurpleTwilight": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainBlush": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainBrandDark": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainBrandInverted": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainCamo": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainCherryBlossom": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainCircuit": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainClydeStein": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainColorWave": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainController": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainDefault": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainDrip": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainGalaxy": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainGaming": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainHoloWaves": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainInRainbows": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainManga": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainMatteDark": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainMatteLight": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainMidnightPrism": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainMushroom": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainPastel": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainPirate": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainSlimy": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainSunset": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainTreat": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainTrick": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainY2K": "com.discord/com.discord.main.MainActivity",
+      "com.discord/com.discord.main.MainZombie": "com.discord/com.discord.main.MainActivity"
+    },
     "app_name": "Discord",
     "category": "Communication",
     "source": "PlayStore",
@@ -3239,6 +3447,7 @@
       "com.droid4you.application.wallet/com.moengage.sdk.debugger.MoEDebuggerActivity",
       "com.droid4you.application.wallet/com.yalantis.ucrop.UCropActivity"
     ],
+    "aliases": {},
     "app_name": "Wallet",
     "category": "Finance",
     "source": "PlayStore",
@@ -3418,6 +3627,10 @@
       "com.dropbox.android/com.google.android.play.core.common.PlayCoreDialogWrapperActivity",
       "com.dropbox.android/com.pspdfkit.document.printing.PrintActivity"
     ],
+    "aliases": {
+      "com.dropbox.android/com.dropbox.android.activity.auth.DropboxAuth": "com.dropbox.android/com.dropbox.android.dauth.DelegatedAuthActivity",
+      "com.dropbox.android/com.dropbox.preview.v3.ExternalImagePreviewActivity": "com.dropbox.android/com.dropbox.preview.v3.ExternalPdfPreviewActivity"
+    },
     "app_name": "Dropbox",
     "category": "Productivity",
     "source": "PlayStore",
@@ -3685,6 +3898,212 @@
       "com.duolingo/zendesk.support.request.RequestActivity",
       "com.duolingo/zendesk.support.requestlist.RequestListActivity"
     ],
+    "aliases": {
+      "com.duolingo/com.duolingo.app.BackgroundedLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.BackgroundedLauncherBrokenHeart": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.ExtendedLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.FixedRetentionChallengeLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveBlackAndWhiteLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveBlackAndWhiteLauncherEyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveBoneLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveBoneLauncherBone": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveChickenLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveChickenLauncherChicken": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveDarkLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveDarkLauncherLightBulb": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveScreamLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.InactiveScreamLauncherScream": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.LoginActivity": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.PreStreakSaver1Launcher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.PreStreakSaver2Launcher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.PreStreakSaver3Launcher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.PreStreakSaver4Launcher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.PreStreakSaver5Launcher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.PreStreakSaver6Launcher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.PreStreakSaver7Launcher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.PreStreakSaver8Launcher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.PreStreakSaver9Launcher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.SeasonalLauncher1": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.SeasonalLauncher2": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.SeasonalLauncher3": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.SeasonalLauncher4": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.SeasonalLauncher5": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher1": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher1EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher1ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher1FrozenFace": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher1IceCube": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher1Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher1Snowflake": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher2": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher2EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher2ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher2FrozenFace": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher2IceCube": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher2Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher2Snowflake": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher3": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher3EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher3ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher3FrozenFace": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher3IceCube": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher3Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher3Snowflake": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher4": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher4EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher4ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher4FrozenFace": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher4IceCube": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher4Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher4Snowflake": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher5": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher5EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher5ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher5FrozenFace": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher5IceCube": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher5Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher5Snowflake": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher6": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher6EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher6ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher6FrozenFace": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher6IceCube": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher6Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakFrozenLauncher6Snowflake": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakRepairLauncher1": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakRepairLauncher2": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakRepairLauncher3": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2AlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2AlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2ExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2Eyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2Hourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2Interrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher2SirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3AlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3AlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3ExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3Eyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3Hourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3Interrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher3SirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4AlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4AlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4ExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4Eyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLighting": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingAlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingAlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingEmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingEyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingHourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingInterrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingSiren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4FixedLightingSirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4Hourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4Interrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher4SirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5AlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5AlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5ExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5Eyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLighting": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingAlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingAlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingEmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingEyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingHourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingInterrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingSiren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5FixedLightingSirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5Hourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5Interrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher5SirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6AlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6AlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6ExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6Eyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLighting": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingAlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingAlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingEmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingEyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingHourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingInterrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingSiren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6FixedLightingSirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6Hourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6Interrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher6SirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7AlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7AlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7EmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7ExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7ExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7Eyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLighting": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingAlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingAlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingEmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingEyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingHourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingInterrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingSiren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7FixedLightingSirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7Hourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7Interrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7Siren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncher7SirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherAlarmClock": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherAlarmClockPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherEmojiQuestionMark": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherExclamationMarks": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherExclamationMarksPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherEyes": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherHourglass": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherInterrobang": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherSiren": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSaverLauncherSirenPrefix": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.StreakSocietyLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.UnhingedCryLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.UnhingedCryLauncherBrokenHeart": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.UnhingedSickLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.UnhingedSickLauncherThermometer": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.UnhingedStuffLauncher": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.app.UnhingedStuffLauncherDroplet": "com.duolingo/com.duolingo.splash.LaunchActivity",
+      "com.duolingo/com.duolingo.wxapi.WXEntryActivity": "com.duolingo/com.duolingo.wechat.WeChatReceiverActivity",
+      "com.duolingo/com.duolingo.wxapi.WXPayEntryActivity": "com.duolingo/com.duolingo.wechat.WeChatReceiverActivity"
+    },
     "app_name": "Duolingo",
     "category": "Education",
     "source": "PlayStore",
@@ -4015,6 +4434,7 @@
       "com.ebay.mobile/com.google.android.play.core.common.PlayCoreDialogWrapperActivity",
       "com.ebay.mobile/com.veriff.sdk.views.base.verification.VeriffActivity"
     ],
+    "aliases": {},
     "app_name": "eBay",
     "category": "Shopping",
     "source": "PlayStore",
@@ -4096,6 +4516,7 @@
       "com.espn.score_center/com.google.android.gms.common.api.GoogleApiActivity",
       "com.espn.score_center/com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
     ],
+    "aliases": {},
     "app_name": "ESPN",
     "category": "Sports",
     "source": "PlayStore",
@@ -4128,6 +4549,7 @@
       "com.eventbrite.attendee/com.qualtrics.digital.QualtricsSurveyActivity",
       "com.eventbrite.attendee/im.dino.dbinspector.activities.DbInspectorActivity"
     ],
+    "aliases": {},
     "app_name": "Eventbrite",
     "category": "Entertainment",
     "source": "PlayStore",
@@ -4141,6 +4563,7 @@
       "com.flauschcode.broccoli/com.flauschcode.broccoli.recipe.details.RecipeDetailsActivity",
       "com.flauschcode.broccoli/com.mikepenz.aboutlibraries.ui.LibsActivity"
     ],
+    "aliases": {},
     "app_name": "Broccoli",
     "category": "Food",
     "source": "F-Droid",
@@ -4180,6 +4603,7 @@
       "com.fsck.k9/net.openid.appauth.RedirectUriReceiverActivity",
       "com.fsck.k9/net.thunderbird.app.common.MainActivity"
     ],
+    "aliases": {},
     "app_name": "K-9 Mail",
     "category": "Productivity",
     "source": "F-Droid",
@@ -4222,6 +4646,10 @@
       "com.google.android.apps.books/com.google.android.libraries.surveys.internal.view.SurveyActivity",
       "com.google.android.apps.books/com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
     ],
+    "aliases": {
+      "com.google.android.apps.books/com.google.android.apps.books.app.BooksActivity": "com.google.android.apps.books/com.google.android.apps.play.books.app.BooksActivity",
+      "com.google.android.apps.books/com.google.android.apps.books.app.HomeActivity": "com.google.android.apps.books/com.google.android.apps.play.books.home.HomeActivity"
+    },
     "app_name": "Google Play Books",
     "category": "Media",
     "source": "PlayStore",
@@ -4317,6 +4745,33 @@
       "com.google.android.apps.docs/net.openid.appauth.AuthorizationManagementActivity",
       "com.google.android.apps.docs/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {
+      "com.google.android.apps.docs/com.google.android.apps.docs.GlobalSearch": "com.google.android.apps.docs/com.google.android.apps.docs.common.opener.DocumentOpenerActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.androidshortcuts.CreateDocumentScanShortcutActivity": "com.google.android.apps.docs/com.google.android.apps.docs.common.androidshortcuts.CreateDocumentScanShortcutActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.androidshortcuts.CreateShortcutActivity": "com.google.android.apps.docs/com.google.android.apps.docs.common.androidshortcuts.CreateShortcutActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.androidshortcuts.ScanToDriveActivity": "com.google.android.apps.docs/com.google.android.apps.docs.common.androidshortcuts.ScanToDriveActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.app.DesktopMainProxyActivity": "com.google.android.apps.docs/com.google.android.apps.docs.drive.startup.StartupActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.app.DocumentOpenerActivityProxy": "com.google.android.apps.docs/com.google.android.apps.docs.drive.documentopener.DocumentOpenerActivityProxy",
+      "com.google.android.apps.docs/com.google.android.apps.docs.app.GetContentActivity": "com.google.android.apps.docs/com.google.android.apps.docs.drive.filepicker.GetContentActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.app.NewMainProxyActivity": "com.google.android.apps.docs/com.google.android.apps.docs.drive.startup.StartupActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.app.OpenSafUrlActivity": "com.google.android.apps.docs/com.google.android.apps.docs.drive.documentopener.OpenSafUrlActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.app.PaymentsActivity": "com.google.android.apps.docs/com.google.android.apps.docs.common.billing.PaymentsActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.app.PickActivity": "com.google.android.apps.docs/com.google.android.apps.docs.drive.filepicker.PickActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.common.openurl.DriveOpenUrlActivityAlias": "com.google.android.apps.docs/com.google.android.apps.docs.drive.openurl.OpenUrlActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.common.openurl.GoogleOneDeeplinkActivityAlias": "com.google.android.apps.docs/com.google.android.apps.docs.common.billing.googleone.GoogleOneDeeplinkActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.common.openurl.KixOpenUrlActivityAlias": "com.google.android.apps.docs/com.google.android.apps.docs.drive.openurl.OpenUrlActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.common.openurl.OpenUrlActivity": "com.google.android.apps.docs/com.google.android.apps.docs.drive.openurl.OpenUrlActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.common.openurl.PunchOpenUrlActivityAlias": "com.google.android.apps.docs/com.google.android.apps.docs.drive.openurl.OpenUrlActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.common.openurl.TrixOpenUrlActivityAlias": "com.google.android.apps.docs/com.google.android.apps.docs.drive.openurl.OpenUrlActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.common.shareitem.UploadMenuActivity": "com.google.android.apps.docs/com.google.android.apps.docs.common.shareitem.legacy.UploadMenuActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.doclist.documentopener.DocumentOpenerActivity": "com.google.android.apps.docs/com.google.android.apps.docs.common.opener.DocumentOpenerActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.drive.androiddesktop.DesktopOpenDocsSafUriActivity": "com.google.android.apps.docs/com.google.android.apps.docs.drive.androiddesktop.DesktopOpenSafUriActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.drive.androiddesktop.DesktopOpenSheetsSafUriActivity": "com.google.android.apps.docs/com.google.android.apps.docs.drive.androiddesktop.DesktopOpenSafUriActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.drive.androiddesktop.DesktopOpenSlidesSafUriActivity": "com.google.android.apps.docs/com.google.android.apps.docs.drive.androiddesktop.DesktopOpenSafUriActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.drive.twa.ApplicationPreferencesAlias": "com.google.android.apps.docs/com.google.android.libraries.social.licenses.LicenseMenuActivity",
+      "com.google.android.apps.docs/com.google.android.apps.docs.shortcut.ScanToDriveActivity": "com.google.android.apps.docs/com.google.android.apps.docs.common.androidshortcuts.ScanToDriveActivity",
+      "com.google.android.apps.docs/com.google.androidbrowserhelper.trusted.LauncherActivityAlias": "com.google.android.apps.docs/com.google.androidbrowserhelper.trusted.LauncherActivity"
+    },
     "app_name": "Drive",
     "category": "Productivity",
     "source": "PlayStore",
@@ -4401,6 +4856,19 @@
       "com.google.android.apps.docs.editors.docs/com.google.apps.maestro.android.lib.impl.ManageAddOnsActivity",
       "com.google.android.apps.docs.editors.docs/net.openid.appauth.AuthorizationManagementActivity"
     ],
+    "aliases": {
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.app.DocumentOpenerActivityProxy": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.shared.documentopener.EditorDocumentOpenerActivityProxy",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.app.NewMainProxyActivity": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.homescreen.ProxyLaunchActivity",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.common.openurl.KixOpenUrlActivityAlias": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.shared.openurl.EditorOpenUrlActivity",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.common.openurl.OpenUrlActivity": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.shared.openurl.EditorOpenUrlActivity",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.changeling.kix.ChangelingKixImportActivityAlias": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.shared.documentopener.EditorDocumentOpenerActivityProxy",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.kix.DocumentCreatorActivityProxyAlias": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.shared.documentcreation.ExternalDocumentCreatorActivity",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.kix.DocumentOpenerActivityProxyAlias": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.shared.documentopener.EditorDocumentOpenerActivityProxy",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.kix.KixDocumentCreatorActivity": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.shared.documentcreation.ExternalDocumentCreatorActivity",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.kix.conversion.KixOnlineImportActivity": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.ocm.conversion.ExternalOnlineImportActivity",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.kix.quickword.QuickWordDocumentOpenerActivityAlias": "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.kix.KixEditorActivity",
+      "com.google.android.apps.docs.editors.docs/com.google.android.apps.docs.editors.shared.twa.ApplicationPreferencesAlias": "com.google.android.apps.docs.editors.docs/com.google.android.libraries.social.licenses.LicenseMenuActivity"
+    },
     "app_name": "Docs",
     "category": "Productivity",
     "source": "PlayStore",
@@ -4487,6 +4955,19 @@
       "com.google.android.apps.docs.editors.sheets/com.google.apps.maestro.android.lib.impl.ManageAddOnsActivity",
       "com.google.android.apps.docs.editors.sheets/net.openid.appauth.AuthorizationManagementActivity"
     ],
+    "aliases": {
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.app.DocumentOpenerActivityProxy": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.shared.documentopener.EditorDocumentOpenerActivityProxy",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.app.NewMainProxyActivity": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.homescreen.ProxyLaunchActivity",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.common.openurl.OpenUrlActivity": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.shared.openurl.EditorOpenUrlActivity",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.common.openurl.TrixOpenUrlActivityAlias": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.shared.openurl.EditorOpenUrlActivity",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.changeling.ritz.ChangelingOpenActivityAlias": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.shared.documentopener.EditorDocumentOpenerActivityProxy",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.ritz.conversion.RitzOnlineImportActivity": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.ocm.conversion.ExternalOnlineImportActivity",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.shared.twa.ApplicationPreferencesAlias": "com.google.android.apps.docs.editors.sheets/com.google.android.libraries.social.licenses.LicenseMenuActivity",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.trix.RitzDocumentCreatorActivity": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.shared.documentcreation.ExternalDocumentCreatorActivity",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.trix.SheetsCreatorActivityProxyAlias": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.shared.documentcreation.ExternalDocumentCreatorActivity",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.trix.SheetsOpenerActivityProxyAlias": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.shared.documentopener.EditorDocumentOpenerActivityProxy",
+      "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.trix.quicksheet.QuickSheetDocumentOpenerActivityAlias": "com.google.android.apps.docs.editors.sheets/com.google.android.apps.docs.editors.changeling.common.ChangelingDispatcher"
+    },
     "app_name": "Sheets",
     "category": "Productivity",
     "source": "PlayStore",
@@ -4584,6 +5065,19 @@
       "com.google.android.apps.docs.editors.slides/com.google.apps.maestro.android.lib.impl.ManageAddOnsActivity",
       "com.google.android.apps.docs.editors.slides/net.openid.appauth.AuthorizationManagementActivity"
     ],
+    "aliases": {
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.app.DocumentOpenerActivityProxy": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.shared.documentopener.EditorDocumentOpenerActivityProxy",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.app.NewMainProxyActivity": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.homescreen.ProxyLaunchActivity",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.common.openurl.OpenUrlActivity": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.shared.openurl.EditorOpenUrlActivity",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.common.openurl.PunchOpenUrlActivityAlias": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.shared.openurl.EditorOpenUrlActivity",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.changeling.punch.ChangelingPunchImportActivityAlias": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.shared.documentopener.EditorDocumentOpenerActivityProxy",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.kix.quickword.QuickWordDocumentOpenerActivityAlias": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.punch.PunchActivity",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.punch.DocumentCreatorActivityProxyAlias": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.shared.documentcreation.ExternalDocumentCreatorActivity",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.punch.DocumentOpenerActivityProxyAlias": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.shared.documentopener.EditorDocumentOpenerActivityProxy",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.punch.PunchDocumentCreatorActivity": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.shared.documentcreation.ExternalDocumentCreatorActivity",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.punch.conversion.PunchOnlineImportActivity": "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.ocm.conversion.ExternalOnlineImportActivity",
+      "com.google.android.apps.docs.editors.slides/com.google.android.apps.docs.editors.shared.twa.ApplicationPreferencesAlias": "com.google.android.apps.docs.editors.slides/com.google.android.libraries.social.licenses.LicenseMenuActivity"
+    },
     "app_name": "Slides",
     "category": "Productivity",
     "source": "PlayStore",
@@ -4613,6 +5107,13 @@
       "com.google.android.apps.fitness/com.google.apps.tiktok.nav.gateway.AnimatedGatewayActivity",
       "com.google.android.apps.fitness/com.google.apps.tiktok.nav.gateway.GatewayActivity"
     ],
+    "aliases": {
+      "com.google.android.apps.fitness/com.google.android.apps.fitness.ahp.ui.AhpConnectActivityPlatform": "com.google.android.apps.fitness/com.google.android.apps.fitness.ahp.ui.AhpConnectActivity",
+      "com.google.android.apps.fitness/com.google.android.apps.fitness.ahp.ui.ViewPermissionUsageActivity": "com.google.android.apps.fitness/com.google.android.apps.fitness.ahp.ui.PermissionsRationaleActivity",
+      "com.google.android.apps.fitness/com.google.android.apps.fitness.shared.gateway.FitGateway": "com.google.android.apps.fitness/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.fitness/com.google.android.apps.fitness.shared.gateway.FitPermissionIntentGateway": "com.google.android.apps.fitness/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.fitness/com.google.android.apps.fitness.welcome.WelcomeActivity": "com.google.android.apps.fitness/com.google.android.apps.fitness.shared.container.MainActivity"
+    },
     "app_name": "Fit",
     "category": "Health",
     "source": "PlayStore",
@@ -4658,6 +5159,7 @@
       "com.google.android.apps.magazines/com.google.apps.dots.android.newsstand.search.SearchActivity",
       "com.google.android.apps.magazines/com.google.apps.dots.android.newsstand.search.SuggestAllActivity"
     ],
+    "aliases": {},
     "app_name": "Google News",
     "category": "News",
     "source": "PlayStore",
@@ -4708,6 +5210,65 @@
       "com.google.android.apps.maps/com.spotify.sdk.android.authentication.AuthCallbackActivity",
       "com.google.android.apps.maps/com.spotify.sdk.android.authentication.LoginActivity"
     ],
+    "aliases": {
+      "com.google.android.apps.maps/com.google.android.apps.gmm.car.firstrun.GmmProjectedFirstRunActivity": "com.google.android.apps.maps/com.google.android.apps.gmm.car.projected.firstrun.GmmProjectedFirstRunActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.AtAPlaceMenu": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ChallengeCommunityMilestoneNotificationActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.CommuteBoardActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.CommuteSettingsActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.DidntGoHereActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.EditAliasActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.EditPublishedActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.EventNotificationActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ExploreActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.FactualModerationActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.FollowerListActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.GmbPromotionActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.InAppUpdateActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.IncognitoActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.InferredDirectionsActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LanguagePickerPromoActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LauncherShortcutActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LiveTripsActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LiveTripsQuestionsActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LocalStreamContinuationActionActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LocalStreamFocusItemActionActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LocationShareBurstingActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LocationShareFixConfigIntentActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LocationShareReceivedIntentActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LocationShareShortcutActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.LocationSharesForPersonalSafetyShortcutActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.MessagingActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.MissionsActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.OpenSearchActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ParkingLocationActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ParkingPaymentActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.PhotoUpdatesNotificationActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.PlaceQaActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.PlacesheetTabActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.PostTripQuestionsActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.RequestLocationIntentActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ReviewActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.RiddlerUgcActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ServiceAreaBusinessActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ShareKitActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ShowLocationSharingAlertsListActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ShowLocationSharingSettingsActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ShowSearchAlongRouteActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.ShowSharedLocationsScreenActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.StartCommuteSetupActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.TimelineNotificationActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.TodoPhotoActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.TrafficHubActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.TrafficWidgetActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.TransitGuidanceQuestionsActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.TransitLineTrackerActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.TransitStationActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.apps.maps.WidgetSearchActionActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.maps.PlacesActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.maps.driveabout.app.DestinationActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+      "com.google.android.apps.maps/com.google.android.maps.driveabout.app.NavigationActivity": "com.google.android.apps.maps/com.google.android.maps.MapsActivity"
+    },
     "app_name": "Maps",
     "category": "Navigation",
     "source": "PlayStore",
@@ -4750,6 +5311,19 @@
       "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
       "com.google.android.apps.nbu.files/com.google.mlkit.vision.documentscanner.internal.GmsDocumentScanningDelegateActivity"
     ],
+    "aliases": {
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.browse.BrowseGatewayHandler": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.deeplink.FilesGoDeepLink": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.downloads.DownloadsActivity": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.pdf.PdfPreviewIntentGatewayHandler": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.preview.PreviewActivity": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.savetodownloads.SaveToDownloadsActivity": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.search.SearchGatewayHandler": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.storagebreakdown.StorageBreakdownActivity": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.storagevolume.StorageVolumeActivity": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.txt.TextPreviewGatewayHandler": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.gateway.zip.ZipPreviewGatewayHandler": "com.google.android.apps.nbu.files/com.google.apps.tiktok.nav.gateway.GatewayActivity"
+    },
     "app_name": "Files by Google",
     "category": "System",
     "source": "PlayStore",
@@ -4757,6 +5331,7 @@
   },
   "com.google.android.apps.photos": {
     "activities": [],
+    "aliases": {},
     "app_name": "com.google.android.apps.photos",
     "category": "Media",
     "source": "PlayStore",
@@ -4787,6 +5362,9 @@
       "com.google.android.apps.youtube.music/com.google.cardboard.sdk.HeadsetDetectionActivity",
       "com.google.android.apps.youtube.music/com.google.cardboard.sdk.QrCodeCaptureActivity"
     ],
+    "aliases": {
+      "com.google.android.apps.youtube.music/com.google.android.apps.youtube.music.activities.InternalMusicActivity": "com.google.android.apps.youtube.music/com.google.android.apps.youtube.music.activities.MusicActivity"
+    },
     "app_name": "YouTube Music",
     "category": "Media",
     "source": "PlayStore",
@@ -4799,6 +5377,9 @@
       "com.google.android.calculator/com.google.android.libraries.social.licenses.LicenseActivity",
       "com.google.android.calculator/com.google.android.libraries.social.licenses.LicenseMenuActivity"
     ],
+    "aliases": {
+      "com.google.android.calculator/com.android.calculator2.CalculatorGoogle": "com.google.android.calculator/com.android.calculator2.Calculator"
+    },
     "app_name": "Calculator",
     "category": "System",
     "source": "PlayStore",
@@ -4846,6 +5427,13 @@
       "com.google.android.calendar/com.google.apps.security.cse.xplat.identity.oidc.appauth.android.CseAuthorizationManagementActivity",
       "com.google.android.calendar/com.google.apps.security.cse.xplat.identity.oidc.appauth.android.CseRedirectUriReceiverActivity"
     ],
+    "aliases": {
+      "com.google.android.calendar/com.android.calendar.AllInOneActivity": "com.google.android.calendar/com.android.calendar.event.LaunchInfoActivity",
+      "com.google.android.calendar/com.android.calendar.LaunchActivity": "com.google.android.calendar/com.android.calendar.event.LaunchInfoActivity",
+      "com.google.android.calendar/com.google.android.calendar.AllInOneCalendarActivity": "com.google.android.calendar/com.google.android.calendar.allinone.AllInOneCalendarActivity",
+      "com.google.android.calendar/com.google.android.calendar.ICalLauncher": "com.google.android.calendar/com.android.calendar.event.LaunchInfoActivity",
+      "com.google.android.calendar/com.google.android.calendar.timely.settings.CalendarPublicPreferenceActivity": "com.google.android.calendar/com.android.calendar.event.LaunchInfoActivity"
+    },
     "app_name": "Calendar",
     "category": "Productivity",
     "source": "PlayStore",
@@ -4934,6 +5522,22 @@
       "com.google.android.contacts/com.google.android.libraries.user.profile.photopicker.picker.intentonly.webview.PhotoPickerWebViewIntentActivity",
       "com.google.android.contacts/com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
     ],
+    "aliases": {
+      "com.google.android.contacts/alias.DialShortcut": "com.google.android.contacts/com.google.android.apps.contacts.activities.leaf.ui.picker.ContactPickerActivity",
+      "com.google.android.contacts/alias.DialShortcutCli": "com.google.android.contacts/com.google.android.apps.contacts.activities.leaf.ui.picker.ContactPickerActivity",
+      "com.google.android.contacts/alias.MessageShortcut": "com.google.android.contacts/com.google.android.apps.contacts.activities.leaf.ui.picker.ContactPickerActivity",
+      "com.google.android.contacts/alias.MessageShortcutCli": "com.google.android.contacts/com.google.android.apps.contacts.activities.leaf.ui.picker.ContactPickerActivity",
+      "com.google.android.contacts/com.android.contacts.ContactShortcut": "com.google.android.contacts/com.google.android.apps.contacts.activities.leaf.ui.picker.ContactPickerActivity",
+      "com.google.android.contacts/com.android.contacts.ContactsListActivity": "com.google.android.contacts/com.google.android.apps.contacts.activities.PeopleActivity",
+      "com.google.android.contacts/com.android.contacts.DialtactsContactsEntryActivity": "com.google.android.contacts/com.google.android.apps.contacts.activities.PeopleActivity",
+      "com.google.android.contacts/com.android.contacts.activities.CompactContactEditorActivity": "com.google.android.contacts/com.google.android.apps.contacts.editorlite.InsertOrEditActivity",
+      "com.google.android.contacts/com.android.contacts.activities.ContactsFrontDoor": "com.google.android.contacts/com.google.android.apps.contacts.activities.PeopleActivity",
+      "com.google.android.contacts/com.android.contacts.activities.PeopleActivity": "com.google.android.contacts/com.google.android.apps.contacts.activities.PeopleActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.editorlite.ContactsEditorlite": "com.google.android.contacts/com.google.android.apps.contacts.editorlite.InsertOrEditActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.preference.ExportedSetDefaultAccountActivity": "com.google.android.contacts/com.google.android.apps.contacts.preference.SetDefaultAccountActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesWidgetDialerMarqueeEntryPointActivity": "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesWidgetClientEntrypointActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesWidgetMyPixelEntrypointActivity": "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesWidgetClientEntrypointActivity"
+    },
     "app_name": "Contacts",
     "category": "Communication",
     "source": "PlayStore",
@@ -4979,6 +5583,7 @@
       "com.google.android.deskclock/com.google.android.libraries.social.licenses.LicenseActivity",
       "com.google.android.deskclock/com.google.android.libraries.social.licenses.LicenseMenuActivity"
     ],
+    "aliases": {},
     "app_name": "Clock",
     "category": "System",
     "source": "PlayStore",
@@ -5147,6 +5752,32 @@
       "com.google.android.gm/com.google.ccc.hosted.growth.android.ws.lib.upgrade.WsUpgradeActivity",
       "com.google.android.gm/net.openid.appauth.AuthorizationManagementActivity"
     ],
+    "aliases": {
+      "com.google.android.gm/com.android.mail.ui.MailboxSelectionActivity": "com.google.android.gm/com.google.android.gm.ui.MailboxSelectionActivityGmail",
+      "com.google.android.gm/com.google.android.apps.dynamite.DynamiteDeepLinkMultiple": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.apps.dynamite.DynamiteGatewayActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.gm.ComposeActivityGmail": "com.google.android.gm/com.google.android.gm.compose.ComposeActivityGmail",
+      "com.google.android.gm/com.google.android.gm.ComposeActivityGmailExternal": "com.google.android.gm/com.google.android.gm.compose.ComposeActivityGmailExternal",
+      "com.google.android.gm/com.google.android.gm.ConversationListActivityGmail": "com.google.android.gm/com.google.android.gm.ui.MailActivityGmail",
+      "com.google.android.gm/com.google.android.gm.ConversationListActivityGoogleMail": "com.google.android.gm/com.google.android.gm.ui.MailActivityGmail",
+      "com.google.android.gm/com.google.android.gm.CreateShortcutActivityGoogleMail": "com.google.android.gm/com.google.android.gm.CreateShortcutActivityGmail",
+      "com.google.android.gm/com.google.android.gm.Gmail2PreferenceActivity": "com.google.android.gm/com.google.android.gm.preference.GmailPreferenceActivity",
+      "com.google.android.gm/com.google.android.gm.GmailActivity": "com.google.android.gm/com.google.android.gm.ui.MailActivityGmail",
+      "com.google.android.gm/com.google.android.gm.PublicGmailActivity": "com.google.android.gm/com.google.android.gm.ui.MailActivityGmail",
+      "com.google.android.gm/com.google.android.gm.browse.PublicLabelDeepLinkV2": "com.google.android.gm/com.google.android.gm.browse.TrampolineActivity",
+      "com.google.android.gm/com.google.android.gm.browse.SearchDeepLinkTrampolineActivity": "com.google.android.gm/com.google.android.gm.browse.TrampolineActivity",
+      "com.google.android.gm/com.google.android.gm.setup.AccountSetupFinalGmailSuggestions": "com.google.android.gm/com.google.android.gm.setup.AccountSetupFinalGmail",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.AssistantNewUrlHandlerActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.ChitChatGatewayActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.ConferenceGatewayActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.ConferenceUrlHandlerActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.LivestreamHandlerActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.MeetNotificationGatewayActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.PinnedShortcutGatewayActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.PstnHandoverGatewayActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.SynchronicityGatewayActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity",
+      "com.google.android.gm/com.google.android.libraries.communications.conference.ui.intents.TransferCallHandlerActivity": "com.google.android.gm/com.google.apps.tiktok.nav.gateway.GatewayActivity"
+    },
     "app_name": "Gmail",
     "category": "Productivity",
     "source": "PlayStore",
@@ -5197,6 +5828,17 @@
       "com.google.android.keep/com.google.android.libraries.surveys.internal.view.SurveyActivity",
       "com.google.android.keep/com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
     ],
+    "aliases": {
+      "com.google.android.keep/com.google.android.keep.activities.BrowseActivity": "com.google.android.keep/com.google.android.apps.keep.ui.activities.BrowseActivity",
+      "com.google.android.keep/com.google.android.keep.activities.ShareReceiverActivity": "com.google.android.keep/com.google.android.apps.keep.ui.activities.ShareReceiverActivity",
+      "com.google.android.keep/com.google.android.keep.activities.ShortcutResolverActivity": "com.google.android.keep/com.google.android.apps.keep.ui.activities.ShortcutResolverActivity",
+      "com.google.android.keep/com.google.android.keep.activities.VoiceActionActivity": "com.google.android.keep/com.google.android.apps.keep.ui.activities.VoiceActionActivity",
+      "com.google.android.keep/com.google.android.keep.activities.WebUrlResolverActivity": "com.google.android.keep/com.google.android.apps.keep.ui.activities.WebUrlResolverActivity",
+      "com.google.android.keep/com.google.android.keep.activities.WebUrlResolverWithMimeTypeActivity": "com.google.android.keep/com.google.android.apps.keep.ui.activities.WebUrlResolverWithMimeTypeActivity",
+      "com.google.android.keep/com.google.android.keep.homescreenwidget.WidgetConfigureActivity": "com.google.android.keep/com.google.android.apps.keep.ui.widgets.shared.WidgetConfigureActivity",
+      "com.google.android.keep/com.google.android.keep.homescreenwidget.WidgetIntentResolverActivity": "com.google.android.keep/com.google.android.apps.keep.ui.widgets.shared.WidgetIntentResolverActivity",
+      "com.google.android.keep/com.google.android.keep.quickaddwidget.QuickWidgetConfigureActivity": "com.google.android.keep/com.google.android.apps.keep.ui.widgets.quickadd.QuickWidgetConfigureActivity"
+    },
     "app_name": "Keep Notes",
     "category": "Productivity",
     "source": "PlayStore",
@@ -5204,6 +5846,7 @@
   },
   "com.google.android.youtube": {
     "activities": [],
+    "aliases": {},
     "app_name": "com.google.android.youtube",
     "category": "Media",
     "source": "PlayStore",
@@ -5369,6 +6012,7 @@
       "com.grubhub.android/zendesk.messaging.android.internal.conversationslistscreen.ConversationsListActivity",
       "com.grubhub.android/zendesk.messaging.android.internal.conversationslistscreen.ConversationsListComposeActivity"
     ],
+    "aliases": {},
     "app_name": "Grubhub",
     "category": "Food",
     "source": "PlayStore",
@@ -5455,6 +6099,11 @@
       "com.hm.goe/com.razorpay.DeeplinkActivity",
       "com.hm.goe/com.razorpay.MagicXActivity"
     ],
+    "aliases": {
+      "com.hm.goe/com.hm.goe.MainBlackFridayAlias": "com.hm.goe/com.hm.goe.app.home.NsMainActivity",
+      "com.hm.goe/com.hm.goe.MainCharlieXcxAlias": "com.hm.goe/com.hm.goe.app.home.NsMainActivity",
+      "com.hm.goe/com.hm.goe.MainDefaultAlias": "com.hm.goe/com.hm.goe.app.home.NsMainActivity"
+    },
     "app_name": "H&M",
     "category": "Shopping",
     "source": "PlayStore",
@@ -5565,6 +6214,11 @@
       "com.hyperionics.avar/com.vungle.ads.internal.ui.VungleActivity",
       "com.hyperionics.avar/pub.devrel.easypermissions.AppSettingsDialogHolderActivity"
     ],
+    "aliases": {
+      "com.hyperionics.avar/com.hyperionics.avar.SaveOnlyActivityAlias": "com.hyperionics.avar/com.hyperionics.avar.SaveOnlyActivity",
+      "com.hyperionics.avar/com.hyperionics.avar.StartupActivityAlias": "com.hyperionics.avar/com.hyperionics.avar.StartupActivity",
+      "com.hyperionics.avar/com.hyperionics.avar.StartupActivityShareAlias": "com.hyperionics.avar/com.hyperionics.avar.StartupActivity"
+    },
     "app_name": "@Voice Aloud Reader",
     "category": "Accessibility",
     "source": "PlayStore",
@@ -5604,6 +6258,11 @@
       "com.ichi2.anki/leakcanary.internal.activity.LeakActivity",
       "com.ichi2.anki/org.acra.dialog.CrashReportDialog"
     ],
+    "aliases": {
+      "com.ichi2.anki/com.ichi2.anki.AnkiCardContextMenuAction": "com.ichi2.anki/com.ichi2.anki.IntentHandler2",
+      "com.ichi2.anki/com.ichi2.anki.CardBrowserContextMenuAction": "com.ichi2.anki/com.ichi2.anki.CardBrowser",
+      "com.ichi2.anki/leakcanary.internal.activity.LeakLauncherActivity": "com.ichi2.anki/leakcanary.internal.activity.LeakActivity"
+    },
     "app_name": "AnkiDroid",
     "category": "Education",
     "source": "F-Droid",
@@ -5795,6 +6454,11 @@
       "com.inditex.zara/com.pushio.manager.PIOPermissionsActivity",
       "com.inditex.zara/com.pushio.manager.PushIOActivityLauncher"
     ],
+    "aliases": {
+      "com.inditex.zara/com.inditex.zara.MainActivityDefaultIcon": "com.inditex.zara/com.inditex.zara.MainActivity",
+      "com.inditex.zara/com.inditex.zara.MainActivityJapanIcon": "com.inditex.zara/com.inditex.zara.MainActivity",
+      "com.inditex.zara/com.inditex.zara.MainActivityShwrmIcon": "com.inditex.zara/com.inditex.zara.MainActivity"
+    },
     "app_name": "ZARA",
     "category": "Shopping",
     "source": "PlayStore",
@@ -5866,6 +6530,7 @@
       "com.ingka.ikea.app/com.yubico.yubikit.android.ui.OtpActivity",
       "com.ingka.ikea.app/com.yubico.yubikit.android.ui.YubiKeyPromptActivity"
     ],
+    "aliases": {},
     "app_name": "IKEA",
     "category": "Shopping",
     "source": "PlayStore",
@@ -5944,6 +6609,9 @@
       "com.instacart.client/com.verygoodsecurity.vgscollect.app.FilePickerActivity",
       "com.instacart.client/net.openid.appauth.AuthorizationManagementActivity"
     ],
+    "aliases": {
+      "com.instacart.client/com.instacart.client.browse.ICBrowseActivity": "com.instacart.client/com.instacart.client.ICMainActivity"
+    },
     "app_name": "Instacart",
     "category": "Shopping",
     "source": "PlayStore",
@@ -5980,6 +6648,7 @@
       "com.iudesk.android.photo.editor/com.google.android.gms.common.api.GoogleApiActivity",
       "com.iudesk.android.photo.editor/com.google.android.libraries.ads.mobile.sdk.common.AdActivity"
     ],
+    "aliases": {},
     "app_name": "Photo Editor",
     "category": "Photography",
     "source": "PlayStore",
@@ -5990,6 +6659,7 @@
       "com.jerboa/androidx.compose.ui.tooling.PreviewActivity",
       "com.jerboa/com.jerboa.MainActivity"
     ],
+    "aliases": {},
     "app_name": "Jerboa",
     "category": "Social",
     "source": "F-Droid",
@@ -6058,6 +6728,10 @@
       "com.kouzoh.mercari/ly.img.android.pesdk.ui.activity.EditorActivity",
       "com.kouzoh.mercari/ly.img.android.pesdk.ui.activity.PhotoEditorActivity"
     ],
+    "aliases": {
+      "com.kouzoh.mercari/com.kouzoh.mercari.activity.SplashActivity": "com.kouzoh.mercari/com.mercari.base.MainActivity",
+      "com.kouzoh.mercari/com.merpay.sdk.ftbo.activity.GooglePlayAuthActivity": "com.kouzoh.mercari/com.merpay.googleplay.impl.GooglePlayAuthActivity"
+    },
     "app_name": "メルカリ",
     "category": "Shopping",
     "source": "PlayStore",
@@ -6196,6 +6870,9 @@
       "com.kroger.mobile/net.openid.appauth.AuthorizationManagementActivity",
       "com.kroger.mobile/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {
+      "com.kroger.mobile/com.kroger.mobile.BannerSelectionActivity": "com.kroger.mobile/com.kroger.mobile.welcome.impl.ui.LoadingActivity"
+    },
     "app_name": "Kroger",
     "category": "Food",
     "source": "PlayStore",
@@ -6266,6 +6943,9 @@
       "com.memrise.android.memrisecompanion/zendesk.support.request.RequestActivity",
       "com.memrise.android.memrisecompanion/zendesk.support.requestlist.RequestListActivity"
     ],
+    "aliases": {
+      "com.memrise.android.memrisecompanion/com.memrise.android.memrisecompanion.ui.activity.LauncherActivity": "com.memrise.android.memrisecompanion/com.memrise.android.app.launch.LauncherActivity"
+    },
     "app_name": "Memrise",
     "category": "Education",
     "source": "PlayStore",
@@ -6479,6 +7159,7 @@
       "com.microsoft.office.outlook/com.yubico.yubikit.android.ui.OtpActivity",
       "com.microsoft.office.outlook/com.yubico.yubikit.android.ui.YubiKeyPromptActivity"
     ],
+    "aliases": {},
     "app_name": "Outlook",
     "category": "Productivity",
     "source": "PlayStore",
@@ -6536,6 +7217,10 @@
       "com.microsoft.office.word/net.hockeyapp.android.FeedbackActivity",
       "com.microsoft.office.word/net.hockeyapp.android.UpdateActivity"
     ],
+    "aliases": {
+      "com.microsoft.office.word/com.microsoft.office.apphost.LaunchActivity": "com.microsoft.office.word/com.microsoft.office.word.WordActivity",
+      "com.microsoft.office.word/com.microsoft.office.word.PDFToWordActivity": "com.microsoft.office.word/com.microsoft.office.word.WordActivity"
+    },
     "app_name": "Word",
     "category": "Productivity",
     "source": "PlayStore",
@@ -6623,6 +7308,19 @@
       "com.mobilefootie.wc2010/com.vungle.ads.internal.ui.VungleActivity",
       "com.mobilefootie.wc2010/no.norsebit.fotmobwidget.WidgetSettingsActivity"
     ],
+    "aliases": {
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconBarcelona": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconBlack": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconChelsea": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconFotMobPlus": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconInter": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconJuventus": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconLiverpool": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconManchesterCity": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconManchesterUnited": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconRealMadrid": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper",
+      "com.mobilefootie.wc2010/com.fotmob.android.icons.AppIconWhite": "com.mobilefootie.wc2010/com.fotmob.android.ui.MainActivityWrapper"
+    },
     "app_name": "FotMob",
     "category": "Sports",
     "source": "PlayStore",
@@ -6645,6 +7343,7 @@
       "com.mufumbo.android.recipe.search/com.google.android.gms.oss.licenses.v2.OssLicensesMenuActivity",
       "com.mufumbo.android.recipe.search/com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
     ],
+    "aliases": {},
     "app_name": "Cookpad",
     "category": "Food",
     "source": "PlayStore",
@@ -6881,6 +7580,9 @@
       "com.myfitnesspal.android/zendesk.support.request.RequestActivity",
       "com.myfitnesspal.android/zendesk.support.requestlist.RequestListActivity"
     ],
+    "aliases": {
+      "com.myfitnesspal.android/com.myfitnesspal.android.AndroidURationaleActivity": "com.myfitnesspal.android/com.myfitnesspal.feature.googlehealth.ui.RationaleActivity"
+    },
     "app_name": "MyFitnessPal",
     "category": "Health",
     "source": "PlayStore",
@@ -7014,6 +7716,9 @@
       "com.nike.ntc/com.urbanairship.push.NotificationProxyActivity",
       "com.nike.ntc/com.urbanairship.util.HelperActivity"
     ],
+    "aliases": {
+      "com.nike.ntc/com.nike.ntc.ViewPermissionUsageActivity": "com.nike.ntc/com.nike.ntc.healthconnect.HealthConnectNikePrivacyActivity"
+    },
     "app_name": "Nike Training",
     "category": "Health",
     "source": "PlayStore",
@@ -7182,6 +7887,10 @@
       "com.nike.plusgps/com.urbanairship.push.NotificationProxyActivity",
       "com.nike.plusgps/com.urbanairship.util.HelperActivity"
     ],
+    "aliases": {
+      "com.nike.plusgps/com.nike.plusgps.SplashActivity": "com.nike.plusgps/com.nike.plusgps.application.AppEntryActivity",
+      "com.nike.plusgps/com.nike.plusgps.ViewPermissionUsageActivity": "com.nike.plusgps/com.nike.plusgps.healthconnect.HealthConnectPrivacyPolicyActivity"
+    },
     "app_name": "Nike⁠ Run Club",
     "category": "Sports",
     "source": "PlayStore",
@@ -7201,6 +7910,10 @@
       "com.niksoftware.snapseed/com.google.android.libraries.social.licenses.LicenseMenuActivity",
       "com.niksoftware.snapseed/com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
     ],
+    "aliases": {
+      "com.niksoftware.snapseed/com.google.android.apps.snapseed.MainActivity": "com.niksoftware.snapseed/com.google.android.apps.snapseed.activities.edit.MainActivity",
+      "com.niksoftware.snapseed/com.google.android.apps.snapseed.WelcomeScreenActivity": "com.niksoftware.snapseed/com.google.android.apps.snapseed.activities.gallery.GalleryActivity"
+    },
     "app_name": "Snapseed",
     "category": "Media",
     "source": "PlayStore",
@@ -7218,6 +7931,7 @@
       "com.nononsenseapps.feeder/com.nononsenseapps.feeder.ui.OpenLinkInDefaultActivity",
       "com.nononsenseapps.feeder/com.nononsenseapps.feeder.widget.FeedWidgetSettingsActivity"
     ],
+    "aliases": {},
     "app_name": "Feeder",
     "category": "News",
     "source": "F-Droid",
@@ -7852,6 +8566,7 @@
       "com.paypal.android.p2pmobile/net.openid.appauth.AuthorizationManagementActivity",
       "com.paypal.android.p2pmobile/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {},
     "app_name": "PayPal",
     "category": "Finance",
     "source": "PlayStore",
@@ -7891,6 +8606,9 @@
       "com.pinterest/com.pinterest.library.navigation.activity.NavActivity",
       "com.pinterest/com.pinterest.widget.configuration.WidgetConfigurationActivity"
     ],
+    "aliases": {
+      "com.pinterest/com.pinterest.activity.PinterestActivity": "com.pinterest/com.pinterest.activity.PinterestActivity"
+    },
     "app_name": "Pinterest",
     "category": "Social",
     "source": "PlayStore",
@@ -7935,6 +8653,31 @@
       "com.reddit.frontpage/com.reddit.sharing.ShareActivity",
       "com.reddit.frontpage/com.reddit.webembed.browser.WebBrowserActivity"
     ],
+    "aliases": {
+      "com.reddit.frontpage/com.reddit.frontpage.StartActivity": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.alien_blue": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.amazedoge": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.astronaut": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.brrr": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.chibi": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.classic": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.default": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.doge": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.mechasnoo": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.neon": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.pixels": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.planet": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.pullover": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.redditgifts": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.retro": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.rocket": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.stocks": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.tothemoon": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.vaporwave": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.vitruvian": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.wallstreet": "com.reddit.frontpage/com.reddit.launch.main.MainActivity",
+      "com.reddit.frontpage/launcher.worldcup2026": "com.reddit.frontpage/com.reddit.launch.main.MainActivity"
+    },
     "app_name": "Reddit",
     "category": "Communication",
     "source": "PlayStore",
@@ -8101,6 +8844,7 @@
       "com.redfin.android/com.redfin.feature.settings.ui.activity.notifications.PushSettingsActivity",
       "com.redfin.android/com.redfin.feature.settings.ui.activity.notifications.TextSettingsActivity"
     ],
+    "aliases": {},
     "app_name": "Redfin",
     "category": "Lifestyle",
     "source": "PlayStore",
@@ -8149,6 +8893,27 @@
       "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.TracksActivity",
       "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.WidgetConfigureActivity"
     ],
+    "aliases": {
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Amber": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Blue": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Blue_grey": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Brown": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Cyan": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Deep_orange": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Deep_purple": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Green": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Grey_black": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Indigo": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Light_blue": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Light_green": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Lime": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Orange": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Pink": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Purple": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Red": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Teal": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity.Yellow": "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity"
+    },
     "app_name": "Music Player",
     "category": "Media",
     "source": "F-Droid",
@@ -8242,6 +9007,12 @@
       "com.spotify.music/com.spotify.wear.pinpairing.PinPairingActivity",
       "com.spotify.music/com.spotify.widgets.npvwidget.WidgetsProxyActivity"
     ],
+    "aliases": {
+      "com.spotify.music/com.spotify.music.MainActivity": "com.spotify.music/com.spotify.music.SpotifyMainActivity",
+      "com.spotify.music/com.spotify.music.SpotifyEntryPointForGoogleMeet": "com.spotify.music/com.spotify.music.SpotifyMainActivity",
+      "com.spotify.music/com.spotify.music.StsShareTargetActivity": "com.spotify.music/com.spotify.music.SpotifyMainActivity",
+      "com.spotify.music/com.spotify.music.main.AppIconEmeraldGreen": "com.spotify.music/com.spotify.music.SpotifyMainActivity"
+    },
     "app_name": "Spotify",
     "category": "Media",
     "source": "PlayStore",
@@ -8311,6 +9082,7 @@
       "com.spotlightsix.zentimerlite2/com.yalantis.ucrop.UCropActivity",
       "com.spotlightsix.zentimerlite2/io.flutter.plugins.urllauncher.WebViewActivity"
     ],
+    "aliases": {},
     "app_name": "Insight Timer",
     "category": "Health",
     "source": "PlayStore",
@@ -8683,6 +9455,24 @@
       "com.strava/zendesk.support.request.RequestActivity",
       "com.strava/zendesk.support.requestlist.RequestListActivity"
     ],
+    "aliases": {
+      "com.strava/com.strava.SplashActivityBlackIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityCyclingIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityGravelIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityHikingIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityKudosIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityLocalLegendIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityMedalIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityPrideIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityRedIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityRoadIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityRunningIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityStickerIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityTealIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityTrophyIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.SplashActivityXomIcon": "com.strava/com.strava.SplashActivity",
+      "com.strava/com.strava.healthconnect.ViewPermissionUsageActivity": "com.strava/com.strava.healthconnect.HealthConnectPermissionsActivity"
+    },
     "app_name": "Strava",
     "category": "Health",
     "source": "PlayStore",
@@ -8917,6 +9707,17 @@
       "com.thetrainline/com.thetrainline.whats_new.WhatsNewActivity",
       "com.thetrainline/com.usabilla.sdk.ubform.screenshot.UbScreenshotActivity"
     ],
+    "aliases": {
+      "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivityChristmasBlueHeartIcon": "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivity",
+      "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivityChristmasGreenHeartIcon": "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivity",
+      "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivityHeartBhmIcon": "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivity",
+      "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivityHeartIcon": "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivity",
+      "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivityHeartIwdIcon": "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivity",
+      "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivityHeartLightIcon": "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivity",
+      "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivityHeartPrideIcon": "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivity",
+      "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivitySpookyHeartIcon": "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivity",
+      "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivityTeamEarthIcon": "com.thetrainline/com.thetrainline.activities.home_screen.SplashScreenActivity"
+    },
     "app_name": "Trainline",
     "category": "Travel",
     "source": "PlayStore",
@@ -8947,6 +9748,7 @@
       "com.thomsonreuters.reuters/com.thomsonreuters.reuters.MainActivity",
       "com.thomsonreuters.reuters/com.thomsonreuters.reuters.widget.WidgetConfigActivity"
     ],
+    "aliases": {},
     "app_name": "Reuters",
     "category": "News",
     "source": "PlayStore",
@@ -9200,6 +10002,35 @@
       "com.ticktick.task/net.openid.appauth.AuthorizationManagementActivity",
       "com.ticktick.task/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {
+      "com.ticktick.task/com.ticktick.task.CreateShortcut": "com.ticktick.task/com.ticktick.task.activity.preference.ShortcutPreferences",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_1": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_10": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_11": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_12": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_2": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_3": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_4": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_5": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_6": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_7": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_8": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_9": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_ai": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_christmas": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_dark_linear": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_default": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_earth": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_emotion": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_macintosh": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_mechanical": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_neon": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_planet": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_plump3d": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_spaceship": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_springFestive": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity",
+      "com.ticktick.task/com.ticktick.task.HomeAlia_tick": "com.ticktick.task/com.ticktick.task.activity.MeTaskActivity"
+    },
     "app_name": "TickTick",
     "category": "Productivity",
     "source": "PlayStore",
@@ -9285,6 +10116,20 @@
       "com.todoist/net.openid.appauth.AuthorizationManagementActivity",
       "com.todoist/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {
+      "com.todoist/com.todoist.QuickAddItemAsTask": "com.todoist/com.todoist.activity.QuickAddItemActivity",
+      "com.todoist/com.todoist.alias.HomeActivityBlueberry": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityDark": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityDefault": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityGold": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityKale": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityLavender": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityLightRainbow": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityMoonstone": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityRaspberry": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityTangerine": "com.todoist/com.todoist.activity.HomeActivity",
+      "com.todoist/com.todoist.alias.HomeActivityTodoist": "com.todoist/com.todoist.activity.HomeActivity"
+    },
     "app_name": "Todoist",
     "category": "Productivity",
     "source": "PlayStore",
@@ -9512,6 +10357,7 @@
       "com.tranzmate/zendesk.messaging.android.internal.conversationscreen.ImageViewerActivity",
       "com.tranzmate/zendesk.messaging.android.internal.messagingscreen.MessagingActivity"
     ],
+    "aliases": {},
     "app_name": "Moovit",
     "category": "Navigation",
     "source": "PlayStore",
@@ -9619,6 +10465,7 @@
       "com.tripit/com.tripit.travelstats.CityPickerActivity",
       "com.tripit/com.tripit.tripsharing.SharingActivity"
     ],
+    "aliases": {},
     "app_name": "TripIt",
     "category": "Travel",
     "source": "PlayStore",
@@ -9662,6 +10509,9 @@
       "com.ubercab/com.ubercab.video_call.base.VideoCallActivity",
       "com.ubercab/com.ubercab.voip.v2.call.screen.activity.VoipV2CallActivity"
     ],
+    "aliases": {
+      "com.ubercab/com.ubercab.presidio.app.core.root.ShareToRideAlias": "com.ubercab/com.ubercab.presidio.app.core.root.RootActivity"
+    },
     "app_name": "Uber",
     "category": "Navigation",
     "source": "PlayStore",
@@ -9814,6 +10664,7 @@
       "com.ubercab.eats/com.ubercab.subscriptions.EatsPassSelectPaymentActivity",
       "com.ubercab.eats/com.ubercab.video_call.base.VideoCallActivity"
     ],
+    "aliases": {},
     "app_name": "Uber Eats",
     "category": "Food",
     "source": "PlayStore",
@@ -9821,6 +10672,7 @@
   },
   "com.uniqlo.kr.catalogue": {
     "activities": [],
+    "aliases": {},
     "app_name": "com.uniqlo.kr.catalogue",
     "category": "Shopping",
     "source": "PlayStore",
@@ -9936,6 +10788,7 @@
       "com.walmart.android/glass.platform.app.update.ui.AppForceUpdateActivity",
       "com.walmart.android/glass.platform.web.content.result.ExternalResultActivity"
     ],
+    "aliases": {},
     "app_name": "Walmart",
     "category": "Shopping",
     "source": "PlayStore",
@@ -10707,6 +11560,40 @@
       "com.whatsapp/org.npci.upi.security.pinactivitycomponent.GetCredential",
       "com.whatsapp/org.npci.upi.security.pinactivitycomponent.UserAuthInfoActivity"
     ],
+    "aliases": {
+      "com.whatsapp/com.meta.foa.deeplink.FoaDeeplinkActivityAliasAppScheme": "com.whatsapp/com.whatsapp.deeplink.ui.DeepLinkActivity",
+      "com.whatsapp/com.meta.foa.deeplink.FoaDeeplinkActivityAliasUniversalLink": "com.whatsapp/com.whatsapp.deeplink.ui.DeepLinkActivity",
+      "com.whatsapp/com.whatsapp.AcceptInviteLinkActivityDeepLink": "com.whatsapp/com.whatsapp.home.ui.HomeActivity",
+      "com.whatsapp/com.whatsapp.AppIcon01": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon02": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon03": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon04": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon05": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon06": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon07": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon08": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon09": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon10": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon11": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon12": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon13": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.AppIcon14": "com.whatsapp/com.whatsapp.Main",
+      "com.whatsapp/com.whatsapp.CreateConversationShortcut": "com.whatsapp/com.whatsapp.contact.ui.picker.ContactPicker",
+      "com.whatsapp/com.whatsapp.EventDeepLink": "com.whatsapp/com.whatsapp.home.ui.HomeActivity",
+      "com.whatsapp/com.whatsapp.HomeActivity": "com.whatsapp/com.whatsapp.home.ui.HomeActivity",
+      "com.whatsapp/com.whatsapp.SetAsProfilePhoto": "com.whatsapp/com.whatsapp.profile.ui.ProfileInfoActivity",
+      "com.whatsapp/com.whatsapp.TextAndDirectChatDeepLink": "com.whatsapp/com.whatsapp.deeplink.ui.DeepLinkActivity",
+      "com.whatsapp/com.whatsapp.VerifyOtpDeepLink": "com.whatsapp/com.whatsapp.deeplink.ui.DeepLinkActivity",
+      "com.whatsapp/com.whatsapp.VoiceMessagingActivity": "com.whatsapp/com.whatsapp.voicemessaging.productinfra.VoiceMessagingActivity",
+      "com.whatsapp/com.whatsapp.contact.picker.ContactPicker": "com.whatsapp/com.whatsapp.contact.ui.picker.ContactPicker",
+      "com.whatsapp/com.whatsapp.contact.picker.ContactPickerBottomSheetActivity": "com.whatsapp/com.whatsapp.contact.ui.picker.ContactPickerBottomSheetActivity",
+      "com.whatsapp/com.whatsapp.contact.ui.picker.ExternalShareAlias": "com.whatsapp/com.whatsapp.contact.ui.picker.ContactPicker",
+      "com.whatsapp/com.whatsapp.instrumentation.ui.InstrumentationAuthActivity": "com.whatsapp/com.whatsapp.instrumentation.product.ui.InstrumentationAuthActivity",
+      "com.whatsapp/com.whatsapp.payments.receiver.IndiaUpiPayIntentReceiverActivity": "com.whatsapp/com.whatsapp.payments.indiaupi.receiver.IndiaUpiPayIntentReceiverActivity",
+      "com.whatsapp/com.whatsapp.settings.SettingsDataUsageActivity": "com.whatsapp/com.whatsapp.settings.ui.SettingsDataUsageActivity",
+      "com.whatsapp/com.whatsapp.settings.SettingsNotifications": "com.whatsapp/com.whatsapp.settings.ui.SettingsNotifications",
+      "com.whatsapp/com.whatsapp.stickers.thirdpartystickers.AddThirdPartyStickerPackActivity": "com.whatsapp/com.whatsapp.stickers.ui.thirdpartystickers.AddThirdPartyStickerPackActivity"
+    },
     "app_name": "WhatsApp",
     "category": "Communication",
     "source": "PlayStore",
@@ -10774,6 +11661,7 @@
       "com.wunderground.android.weather/com.wunderground.android.weather.ui.splash.WeatherHomeActivity",
       "com.wunderground.android.weather/com.wunderground.android.weather.ui.splash.on_boarding.OnBoardingScreenActivity"
     ],
+    "aliases": {},
     "app_name": "Wunderground",
     "category": "Weather",
     "source": "PlayStore",
@@ -10881,6 +11769,7 @@
       "com.xatori.Plugshare/com.xatori.plugshare.ui.tripplanner.TripPlannerActivity",
       "com.xatori.Plugshare/com.yalantis.ucrop.UCropActivity"
     ],
+    "aliases": {},
     "app_name": "PlugShare",
     "category": "Automotive",
     "source": "PlayStore",
@@ -10909,6 +11798,7 @@
       "com.xe.currency/de.epay.volt.VoltModalActivity",
       "com.xe.currency/de.epay.volt.VoltModalActivity"
     ],
+    "aliases": {},
     "app_name": "Xe",
     "category": "Finance",
     "source": "PlayStore",
@@ -10980,6 +11870,7 @@
       "com.yahoo.mobile.client.android.finance/net.openid.appauth.RedirectUriReceiverActivity",
       "com.yahoo.mobile.client.android.finance/org.prebid.mobile.rendering.views.browser.AdBrowserActivity"
     ],
+    "aliases": {},
     "app_name": "Finance",
     "category": "Finance",
     "source": "PlayStore",
@@ -11106,6 +11997,7 @@
       "com.zillow.android.zillowmap/net.openid.appauth.AuthorizationManagementActivity",
       "com.zillow.android.zillowmap/net.openid.appauth.RedirectUriReceiverActivity"
     ],
+    "aliases": {},
     "app_name": "Zillow",
     "category": "Lifestyle",
     "source": "PlayStore",
@@ -11276,6 +12168,7 @@
       "com.zzkko/com.zzkko.uicomponent.pictureEditor.ui.PictureCropActivity",
       "com.zzkko/com.zzkko.uicomponent.pictureEditor.ui.PictureEditActivity"
     ],
+    "aliases": {},
     "app_name": "SHEIN",
     "category": "Shopping",
     "source": "PlayStore",
@@ -11295,6 +12188,7 @@
       "de.danoeh.antennapod/de.danoeh.antennapod.ui.screen.preferences.PreferenceActivity",
       "de.danoeh.antennapod/de.danoeh.antennapod.ui.widget.WidgetConfigActivity"
     ],
+    "aliases": {},
     "app_name": "AntennaPod",
     "category": "Podcast",
     "source": "F-Droid",
@@ -11330,6 +12224,7 @@
       "de.dennisguse.opentracks/de.dennisguse.opentracks.ui.markers.MarkerEditActivity",
       "de.dennisguse.opentracks/de.dennisguse.opentracks.ui.markers.MarkerListActivity"
     ],
+    "aliases": {},
     "app_name": "OpenTracks",
     "category": "Health",
     "source": "F-Droid",
@@ -11351,6 +12246,7 @@
       "de.markusfisch.android.binaryeye/de.markusfisch.android.binaryeye.activity.SplashActivity",
       "de.markusfisch.android.binaryeye/de.markusfisch.android.binaryeye.activity.WelcomeActivity"
     ],
+    "aliases": {},
     "app_name": "Binary Eye",
     "category": "Tools",
     "source": "F-Droid",
@@ -11415,6 +12311,10 @@
       "flipboard.app/flipboard.preference.PartnerAdsPreferenceActivity",
       "flipboard.app/flipboard.service.FlipboardUrlHandler"
     ],
+    "aliases": {
+      "flipboard.app/flipboard.activities.LaunchActivityAlias": "flipboard.app/flipboard.activities.LaunchActivity",
+      "flipboard.app/flipboard.activities.ShareActivityAlias": "flipboard.app/com.flipboard.flip.ItemFlipActivity"
+    },
     "app_name": "Flipboard",
     "category": "News",
     "source": "PlayStore",
@@ -11428,6 +12328,7 @@
       "fr.neamar.kiss/fr.neamar.kiss.SettingsActivity",
       "fr.neamar.kiss/fr.neamar.kiss.kustomsupport.AutoFinishTransparentActivity"
     ],
+    "aliases": {},
     "app_name": "KISS launcher",
     "category": "System",
     "source": "F-Droid",
@@ -11442,6 +12343,7 @@
       "md.obsidian/md.obsidian.MainActivity",
       "md.obsidian/md.obsidian.entrypoints.ui.activity.setup_quick_action.SetupQuickActionActivity"
     ],
+    "aliases": {},
     "app_name": "Obsidian",
     "category": "Productivity",
     "source": "PlayStore",
@@ -11457,6 +12359,9 @@
       "me.lyft.android/com.google.android.play.core.common.PlayCoreDialogWrapperActivity",
       "me.lyft.android/me.lyft.android.ui.MainActivity"
     ],
+    "aliases": {
+      "me.lyft.android/me.lyft.android.ui.MainActivity_Share": "me.lyft.android/me.lyft.android.ui.MainActivity"
+    },
     "app_name": "Lyft",
     "category": "Navigation",
     "source": "PlayStore",
@@ -11493,6 +12398,7 @@
       "me.zhanghai.android.files/me.zhanghai.android.files.viewer.saveas.SaveAsActivity",
       "me.zhanghai.android.files/me.zhanghai.android.files.viewer.text.TextEditorActivity"
     ],
+    "aliases": {},
     "app_name": "Material Files",
     "category": "System",
     "source": "F-Droid",
@@ -11524,6 +12430,7 @@
       "mnn.Android/com.pubmatic.sdk.webrendering.mraid.POBVideoPlayerActivity",
       "mnn.Android/com.pubmatic.sdk.webrendering.ui.POBFullScreenActivity"
     ],
+    "aliases": {},
     "app_name": "AP News",
     "category": "News",
     "source": "PlayStore",
@@ -11533,6 +12440,7 @@
     "activities": [
       "net.cozic.joplin/net.cozic.joplin.MainActivity"
     ],
+    "aliases": {},
     "app_name": "Joplin",
     "category": "Productivity",
     "source": "F-Droid",
@@ -11552,6 +12460,9 @@
       "net.gsantner.markor/net.gsantner.markor.activity.openeditor.OpenShareIntoActivity",
       "net.gsantner.markor/other.writeily.widget.WrWidgetConfigure"
     ],
+    "aliases": {
+      "net.gsantner.markor/net.gsantner.markor.AliasDocumentProcessText": "net.gsantner.markor/net.gsantner.markor.activity.DocumentActivity"
+    },
     "app_name": "Markor",
     "category": "Productivity",
     "source": "F-Droid",
@@ -11576,6 +12487,7 @@
       "net.osmand/net.osmand.plus.plugins.development.TestVoiceActivity",
       "net.osmand/net.osmand.plus.wikivoyage.explore.WikivoyageExploreActivity"
     ],
+    "aliases": {},
     "app_name": "OsmAnd",
     "category": "Navigation",
     "source": "F-Droid",
@@ -11585,6 +12497,7 @@
     "activities": [
       "net.programmierecke.radiodroid2/net.programmierecke.radiodroid2.ActivityMain"
     ],
+    "aliases": {},
     "app_name": "RadioDroid",
     "category": "Music",
     "source": "F-Droid",
@@ -11648,6 +12561,7 @@
       "net.sharewire.parkmobilev2/net.easypark.android.valueproposition.ui.ValuePropositionActivity",
       "net.sharewire.parkmobilev2/net.easypark.debugmenu.DevOptionsFlowActivity"
     ],
+    "aliases": {},
     "app_name": "ParkMobile",
     "category": "Automotive",
     "source": "PlayStore",
@@ -11696,6 +12610,7 @@
       "net.skyscanner.android.main/net.skyscanner.shell.ui.activity.WebArticleActivity",
       "net.skyscanner.android.main/net.skyscanner.widgets.inspiration.ui.WidgetNavigationActivity"
     ],
+    "aliases": {},
     "app_name": "Skyscanner",
     "category": "Travel",
     "source": "PlayStore",
@@ -11707,6 +12622,7 @@
       "net.sourceforge.opencamera/net.sourceforge.opencamera.TakePhoto",
       "net.sourceforge.opencamera/net.sourceforge.opencamera.remotecontrol.DeviceScanner"
     ],
+    "aliases": {},
     "app_name": "Open Camera",
     "category": "System",
     "source": "F-Droid",
@@ -11719,6 +12635,7 @@
       "org.billthefarmer.diary/org.billthefarmer.diary.Editor",
       "org.billthefarmer.diary/org.billthefarmer.diary.Settings"
     ],
+    "aliases": {},
     "app_name": "Diary",
     "category": "Lifestyle",
     "source": "F-Droid",
@@ -11730,6 +12647,7 @@
       "org.billthefarmer.tuner/org.billthefarmer.tuner.Settings",
       "org.billthefarmer.tuner/org.billthefarmer.tuner.Tuner"
     ],
+    "aliases": {},
     "app_name": "Tuner",
     "category": "Music",
     "source": "F-Droid",
@@ -11781,6 +12699,7 @@
       "org.coursera.android/org.coursera.android.infrastructure_ui.webviews.RestrictWebviewActivity",
       "org.coursera.android/org.coursera.android.splash.MainActivity"
     ],
+    "aliases": {},
     "app_name": "Coursera",
     "category": "Education",
     "source": "PlayStore",
@@ -11800,6 +12719,9 @@
       "org.isoron.uhabits/org.isoron.uhabits.widgets.activities.HabitPickerDialog",
       "org.isoron.uhabits/org.isoron.uhabits.widgets.activities.NumericalHabitPickerDialog"
     ],
+    "aliases": {
+      "org.isoron.uhabits/org.isoron.uhabits.MainActivity": "org.isoron.uhabits/org.isoron.uhabits.activities.habits.list.ListHabitsActivity"
+    },
     "app_name": "Habits",
     "category": "Lifestyle",
     "source": "F-Droid",
@@ -11812,6 +12734,7 @@
       "org.joinmastodon.android/org.joinmastodon.android.MainActivity",
       "org.joinmastodon.android/org.joinmastodon.android.OAuthActivity"
     ],
+    "aliases": {},
     "app_name": "Mastodon",
     "category": "Communication",
     "source": "F-Droid",
@@ -11830,6 +12753,13 @@
       "org.khanacademy.android/com.proyecto26.inappbrowser.ChromeTabsManagerActivity",
       "org.khanacademy.android/org.khanacademy.android.ui.library.MainActivity"
     ],
+    "aliases": {
+      "org.khanacademy.android/icon.black": "org.khanacademy.android/org.khanacademy.android.ui.library.MainActivity",
+      "org.khanacademy.android/icon.darker": "org.khanacademy.android/org.khanacademy.android.ui.library.MainActivity",
+      "org.khanacademy.android/icon.navy": "org.khanacademy.android/org.khanacademy.android.ui.library.MainActivity",
+      "org.khanacademy.android/icon.purple": "org.khanacademy.android/org.khanacademy.android.ui.library.MainActivity",
+      "org.khanacademy.android/icon.rainbow": "org.khanacademy.android/org.khanacademy.android.ui.library.MainActivity"
+    },
     "app_name": "Khan Academy",
     "category": "Education",
     "source": "PlayStore",
@@ -11841,6 +12771,7 @@
       "org.koreader.launcher.fdroid/org.koreader.launcher.MainActivity",
       "org.koreader.launcher.fdroid/org.koreader.launcher.TestActivity"
     ],
+    "aliases": {},
     "app_name": "KOReader",
     "category": "Media",
     "source": "F-Droid",
@@ -11848,6 +12779,7 @@
   },
   "org.mozilla.firefox": {
     "activities": [],
+    "aliases": {},
     "app_name": "org.mozilla.firefox",
     "category": "System",
     "source": "PlayStore",
@@ -11855,6 +12787,7 @@
   },
   "org.plantnet": {
     "activities": [],
+    "aliases": {},
     "app_name": "org.plantnet",
     "category": "Health",
     "source": "PlayStore",
@@ -11875,6 +12808,7 @@
       "org.schabi.newpipe/org.schabi.newpipe.settings.SettingsActivity",
       "org.schabi.newpipe/org.schabi.newpipe.util.FilePickerActivityHelper"
     ],
+    "aliases": {},
     "app_name": "NewPipe",
     "category": "Media",
     "source": "F-Droid",
@@ -11930,6 +12864,29 @@
       "org.tasks/org.tasks.widget.WidgetClickActivity",
       "org.tasks/org.tasks.widget.WidgetConfigActivity"
     ],
+    "aliases": {
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Amber": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.BlueGrey": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Brown": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Cyan": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.DarkGrey": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.DeepOrange": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.DeepPurple": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Green": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Grey": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Indigo": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.LightBlue": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.LightGreen": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Lime": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Orange": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Pink": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Purple": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Red": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Teal": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.todoroo.astrid.activity.TaskListActivity.Yellow": "org.tasks/com.todoroo.astrid.activity.MainActivity",
+      "org.tasks/com.twofortyfouram.locale.example.setting.toast.ui.activity.PluginActivity": "org.tasks/org.tasks.locale.ui.activity.TaskerSettingsActivity"
+    },
     "app_name": "Tasks",
     "category": "Productivity",
     "source": "F-Droid",
@@ -11958,6 +12915,15 @@
       "org.telegram.messenger/org.telegram.ui.VoIPFeedbackActivity",
       "org.telegram.messenger/org.telegram.ui.VoIPPermissionActivity"
     ],
+    "aliases": {
+      "org.telegram.messenger/org.telegram.messenger.AquaIcon": "org.telegram.messenger/org.telegram.ui.LaunchActivity",
+      "org.telegram.messenger/org.telegram.messenger.DefaultIcon": "org.telegram.messenger/org.telegram.ui.LaunchActivity",
+      "org.telegram.messenger/org.telegram.messenger.NoxIcon": "org.telegram.messenger/org.telegram.ui.LaunchActivity",
+      "org.telegram.messenger/org.telegram.messenger.PremiumIcon": "org.telegram.messenger/org.telegram.ui.LaunchActivity",
+      "org.telegram.messenger/org.telegram.messenger.TurboIcon": "org.telegram.messenger/org.telegram.ui.LaunchActivity",
+      "org.telegram.messenger/org.telegram.messenger.VintageIcon": "org.telegram.messenger/org.telegram.ui.LaunchActivity",
+      "org.telegram.messenger/org.telegram.ui.CallsActivity": "org.telegram.messenger/org.telegram.ui.LaunchActivity"
+    },
     "app_name": "Telegram",
     "category": "Communication",
     "source": "PlayStore",
@@ -12064,6 +13030,20 @@
       "org.thoughtcrime.securesms/org.thoughtcrime.securesms.wallpaper.crop.WallpaperImageSelectionActivity",
       "org.thoughtcrime.securesms/org.thoughtcrime.securesms.webrtc.VoiceCallShare"
     ],
+    "aliases": {
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivity": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltBubbles": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltChat": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltColor": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltDark": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltDarkVariant": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltNews": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltNotes": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltWaves": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltWeather": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltWhite": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity",
+      "org.thoughtcrime.securesms/org.thoughtcrime.securesms.RoutingActivityAltYellow": "org.thoughtcrime.securesms/org.thoughtcrime.securesms.MainActivity"
+    },
     "app_name": "Signal",
     "category": "Communication",
     "source": "PlayStore",
@@ -12112,6 +13092,7 @@
       "org.videolan.vlc/org.videolan.vlc.remoteaccessserver.gui.remoteaccess.onboarding.RemoteAccessOnboardingActivity",
       "org.videolan.vlc/org.videolan.vlc.widget.MiniPlayerConfigureActivity"
     ],
+    "aliases": {},
     "app_name": "VLC",
     "category": "Media",
     "source": "F-Droid",
@@ -12195,6 +13176,10 @@
       "org.wikipedia/org.wikipedia.yearinreview.YearInReviewActivity",
       "org.wikipedia/org.wikipedia.yearinreview.YearInReviewOnboardingActivity"
     ],
+    "aliases": {
+      "org.wikipedia/org.wikipedia.DefaultIcon": "org.wikipedia/org.wikipedia.main.MainActivity",
+      "org.wikipedia/org.wikipedia.YIR25Icon": "org.wikipedia/org.wikipedia.main.MainActivity"
+    },
     "app_name": "Wikipedia",
     "category": "Education",
     "source": "F-Droid",
@@ -12209,6 +13194,7 @@
       "troop.com.freedcam/freed.viewer.dngconvert.DngConvertingActivity",
       "troop.com.freedcam/freed.viewer.stack.DngStackActivity"
     ],
+    "aliases": {},
     "app_name": "FreeDCam",
     "category": "Photography",
     "source": "F-Droid",
@@ -12252,6 +13238,7 @@
       "tv.twitch.android.app/tv.twitch.android.shared.candlelight.CandlelightActivity",
       "tv.twitch.android.app/tv.twitch.android.shared.chromecast.view.TwitchExpandedControllerActivity"
     ],
+    "aliases": {},
     "app_name": "Twitch",
     "category": "Entertainment",
     "source": "PlayStore",
