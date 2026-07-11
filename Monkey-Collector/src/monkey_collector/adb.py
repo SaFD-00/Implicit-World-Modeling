@@ -157,6 +157,31 @@ class AdbClient:
         """
         return self.shell("input keyevent KEYCODE_ESCAPE")
 
+    def is_keyboard_shown(self) -> bool:
+        """Return whether the soft input (IME) is currently shown.
+
+        Bounded timeout: this is a measurement call on the ESC-dismiss path,
+        not a driver of behavior, so a wedged ``adb shell`` must not stall the
+        loop.
+        """
+        output = self.shell("dumpsys input_method", timeout=5)
+        return self._parse_keyboard_shown(output)
+
+    @staticmethod
+    def _parse_keyboard_shown(output: str) -> bool:
+        """Parse IME-shown state from ``dumpsys input_method`` output.
+
+        Field name observed live (Pixel6-2, API 33, google_apis image):
+        ``mInputShown=true|false`` on the
+        ``mShowRequested=... mInputShown=...`` line. Also accepts
+        ``isInputViewShown=true|false``, seen on some OEM/API variants, so the
+        match is deliberately permissive across both spellings.
+        """
+        match = re.search(r'\b(?:mInputShown|isInputViewShown)=(true|false)\b', output)
+        if match:
+            return match.group(1) == "true"
+        return False
+
     def tap(self, x: int, y: int) -> str:
         """Tap at the given (x, y) coordinates."""
         return self.shell(f"input tap {x} {y}")

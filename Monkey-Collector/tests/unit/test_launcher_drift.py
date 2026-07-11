@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from monkey_collector.domain.actions import PressBack
 from monkey_collector.pipeline.collection_loop import (
+    MAX_KEYBOARD_ESCAPES,
     CollectionState,
     _back_would_exit,
     run_collection_loop,
@@ -206,6 +207,50 @@ class TestKeyboardBackExit:
                 patch("time.sleep"):
             run_collection_loop(collector, state, "com.test.app")
 
+        assert mock_adb.hide_keyboard.call_count == 2
+        assert mock_adb.press_back.call_count == 1
+
+    def test_esc_verify_marker_logged_once_per_attempt(self, mock_adb):
+        # W1: each ESC dismissal logs a `keyboard ESC verify:` marker exactly
+        # once, with the attempt count from the (unchanged) escalation
+        # counter. Measurement only — must not alter ESC/Back call counts.
+        import io
+
+        from loguru import logger
+
+        signals = [
+            _make_xml_signal(xml=SIMPLE_XML, is_first=True),  # root A
+            _make_xml_signal(activity=KEYBOARD),  # ESC 1
+            _make_xml_signal(activity=KEYBOARD),  # ESC 2
+            _make_xml_signal(activity=KEYBOARD),  # exhausted -> Back
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(mock_adb, signals)
+        explorer.has_left_app.return_value = False
+        mock_adb.is_keyboard_shown.return_value = True
+        state = CollectionState(step=0, max_step=100)
+
+        sink = io.StringIO()
+        logger.enable("monkey_collector")
+        handler_id = logger.add(sink, format="{message}", level="INFO")
+        try:
+            with patch("monkey_collector.pipeline.collection_loop.time.sleep"), \
+                    patch("time.sleep"):
+                run_collection_loop(collector, state, "com.test.app")
+        finally:
+            logger.remove(handler_id)
+            logger.disable("monkey_collector")
+
+        output = sink.getvalue()
+        markers = [line for line in output.splitlines() if "keyboard ESC verify:" in line]
+        assert len(markers) == 2
+        assert markers[0] == (
+            f"keyboard ESC verify: still_shown=True (attempt 1/{MAX_KEYBOARD_ESCAPES})"
+        )
+        assert markers[1] == (
+            f"keyboard ESC verify: still_shown=True (attempt 2/{MAX_KEYBOARD_ESCAPES})"
+        )
+        # Escalation semantics unchanged: ESC twice, exhausted 3rd falls to Back.
         assert mock_adb.hide_keyboard.call_count == 2
         assert mock_adb.press_back.call_count == 1
 

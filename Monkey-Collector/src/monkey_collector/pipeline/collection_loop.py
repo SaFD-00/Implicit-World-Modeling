@@ -623,6 +623,12 @@ def _process_xml_signal(
             )
             collector.adb.hide_keyboard()
             time.sleep(0.5)
+            # Measurement only (W1): does not affect ESC/escalation behavior.
+            still_shown = collector.adb.is_keyboard_shown()
+            logger.info(
+                f"keyboard ESC verify: still_shown={still_shown} "
+                f"(attempt {state.keyboard_escape_count}/{MAX_KEYBOARD_ESCAPES})"
+            )
             # ESC can behave like Back on some devices; if it drifted us out,
             # recover so exploration continues on the target app.
             if collector.explorer.has_left_app(package):
