@@ -3,6 +3,21 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-11 — Implicit-World-Modeling: EXP05 (AndroidControl_EXP05) 신규 실험군 도입 — AndroidWorld 해상도 정렬 · 절대 픽셀 좌표 · Qwen2.5-VL 전용
+
+어제(2026-07-10) Slack DM(조병웅↔백승우) 논의를 근거로 EXP05 실험군을 파이프라인에 도입했다. EXP05 = **AndroidWorld 해상도 정렬** 실험군으로, base 이미지 1080×2400 을 image budget **1,605,632**(factor 28) 로 smart_resize 한 **절대 픽셀 좌표(840×1876)** 를 쓴다 — Qwen2.5-VL native 와 일치하므로 **Qwen2.5-VL 전용**(EXP03/EXP04 의 0–1000 정규화·Qwen3-VL 전용과 정확한 대칭). AC_EXP01 ratio73 멤버십을 mirror 파생하는 방식(EXP03/EXP04 계보)이다.
+
+- **신규 스크립트**: `Implicit-World-Modeling/scripts/mirror_exp05.py` — `mirror_exp04.py` 정밀 클론(소스 경로 `*_xy_pixel-aligned.jsonl`, 출력 `data/AndroidControl_EXP05/`, 소스 부재 시 traceback 없이 exit 1, docstring 픽셀 정렬 서술). 함수 로직·JOBS 7튜플(stage1 전용) 무변경.
+- **파이프라인 배선(`scripts/_common.sh`)**: `AC_EXP05` 전 지점 등록(DS_PREFIX=IWM-AC_EXP05, HF_SLUG=ac-exp05-, DS_DATADIR=AndroidControl_EXP05, parse_args/parse_eval_args, build_infer_cmd cutoff 24576) + 신규 모델 `qwen2.5-vl-3b`(`Qwen/Qwen2.5-VL-3B-Instruct`, template qwen2_vl, 3-4B tier). `stage1_eval.sh` dual-task, `filter_long_samples.py`·`eval_viewer.py` 인식(stage2 맵 제외).
+- **노트북 Cell 5/10/14**: qwen2.5-vl-3b + EXP05 config(image 1,605,632/3,136, cutoff 24576, stage1_only, dual-task), Cell 10 `_YAML_GEN_DS` allowlist(EXP03/04 hand-fix YAML 보호), Cell 14 파일부재 dataset skip 완화.
+- **데이터**: Google Drive '0710_버젼' 폴더에서 `gdown`으로 raw 2파일(`stage1_0710_{action,state}_pred.jsonl`, 923M+877M) 다운로드 → canonical 이름(`implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl`)으로 rename → `mirror_exp05.py` 실행. **출력 stage1 7파일 총 64,787행(train 47,556, drop 2,444)**. 좌표 실측 x_max 840 / y_max 1876(픽셀 정렬 확증), 출력 이미지 경로 AndroidControl/ 100%(myset 0 — mirror 가 EXP01 경로 재사용). YAML 6종 + dataset_info EXP05 5키 생성.
+- **검증**: tier-1 결정론적 게이트 직접 재실행(py_compile, 소스 부재 가드 exit1, `bash -n`, `--dataset AC_EXP05` parse→require_yaml exit1, Cell 5 config assert, git scope). tier-2 판정 **GO-with-caveats**(기능 결함 0, caveat=스테일 주석) — codex(openai)가 이 샌드박스 bwrap 오류로 미가용이라 advisor(fable)로 폴백. W3(문서)는 transport stall 실패 후 오케스트레이터 직접 마무리.
+- **문서**: `Implicit-World-Modeling/{AGENTS,ARCHITECTURE,README}.md` 에 EXP05(절대 픽셀·Qwen2.5-VL 전용) + qwen2.5-vl-3b 반영(기존 EXP03/04 정규화 규약 변경 보존). "3B/8B 모두" 요청의 8B는 `qwen2.5-vl-7b`로 해석(Qwen2.5-VL 에 8B 부재, qwen3-vl-8b 는 factor·좌표 이중 mismatch).
+- **커밋/푸시**: `32b1e57` feat(exp05) code + `d8509e5` docs(exp05) → origin/main push 완료. data/·LlamaFactory/ 산출물은 gitignored(로컬 전용).
+- **미완**: 실제 Stage 1 학습(qwen2.5-vl-3b/7b, GPU 멀티시간 — Vessl 또는 로컬 `stage1_train.sh --dataset AC_EXP05`). eval/merge 후속.
+- **워크플로우**: `/workflow:adaptive-router`(advisor plan → worker fan-out → 2-tier verify). `/workflow:revise`는 analyze 산출물 입력이 없어 미적용(이 작업은 Slack 기반).
+- 카테고리: devlog
+
 ## 2026-07-02 — Monkey-Collector: page matching을 Mobile3M Unique Page(BM25 + conjunctive diff)로 교체 — LLM-free matching
 
 사용자가 `.claude/references/mobilevlm` 을 참고해 Monkey-Collector 의 page 식별을 MobileGPT-V2 식 **LLM element-set matching** 에서 Mobile3M 의 "Unique Page" 메커니즘(**BM25 후보검색 + conjunctive element/pixel diff 검증**)으로 교체하고, 문서 갱신 후 나눠서 커밋·푸시하기를 원했다. matching 이 **LLM-free** 가 되어 화면당 LLM 호출 비용·복잡도가 사라졌고, `ScreenMatch`/`page_key` 출력 계약을 불변으로 유지해 하위 소비처(page_graph·exploration·storage)는 무변경이다.
