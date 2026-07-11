@@ -37,6 +37,7 @@ from monkey_collector.pipeline.exploration.memory import Memory
 from monkey_collector.pipeline.exploration.navigator import Navigator
 from monkey_collector.pipeline.exploration.state import (
     LONG_TOUCH,
+    SET_TEXT,
     TOUCH,
     SemanticElement,
     SemanticState,
@@ -233,12 +234,25 @@ class LLMGuidedExplorer:
         name for the Protocol but now carries the loop's broader back-exit
         judgement (session root OR a page learned to back-exit to the launcher
         — see collection_loop._back_would_exit), not just the literal root page.
+
+        Text inputs (SET_TEXT-only elements) are demoted to a last resort here:
+        reaching fallback means every action on this screen is already explored,
+        so re-selecting a search field yields zero coverage while re-summoning
+        the keyboard — the root cause of musicplayer keyboard-drift. The first
+        (and only coverage-bearing) visit to an input is handled by the normal
+        frontier path in ``_pick_unexplored``; by the time we get here that
+        value is spent, leaving only the keyboard cost. The demotion is strict
+        but not exclusion: inputs stay eligible when nothing else is actionable
+        (``primary or actionable``, mirroring ``_pick_unexplored``), so an
+        input-only screen still yields an action rather than an illegal back.
         """
         self._last_record = None
         if is_first_screen or is_root_screen:
             actionable = state.actionable_elements()
-            if actionable:
-                element = self._rng.choice(actionable)
+            primary = [e for e in actionable if SET_TEXT not in e.allowed_actions]
+            pool = primary or actionable
+            if pool:
+                element = self._rng.choice(pool)
                 action_type = TOUCH if TOUCH in element.allowed_actions else element.allowed_actions[0]
                 return self._emit(state, element, action_type)
             return Tap(

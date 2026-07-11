@@ -71,6 +71,37 @@ SIMPLE_XML = """\
 </hierarchy>
 """
 
+# Input-only XML — the sole actionable node is a text field (EditText → SET_TEXT).
+# Exercises the fallback demotion's "not exclusion" branch: with no non-input
+# element available, the input must still be selectable so the screen yields an
+# action instead of an illegal root back-press.
+INPUT_ONLY_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout"
+        content-desc="" checkable="false" checked="false" clickable="false"
+        enabled="true" focusable="false" focused="false" scrollable="false"
+        long-clickable="false" password="false" selected="false"
+        bounds="[0,0][1080,1920]" package="com.test.app"
+        visible-to-user="true" important="false">
+    <node index="1" text="Search music" resource-id="com.test.app:id/hint"
+          class="android.widget.TextView"
+          content-desc="" checkable="false" checked="false" clickable="false"
+          enabled="true" focusable="false" focused="false" scrollable="false"
+          long-clickable="false" password="false" selected="false"
+          bounds="[24,80][1056,160]" package="com.test.app"
+          visible-to-user="true" important="false" />
+    <node index="2" text="" resource-id="com.test.app:id/search_input"
+          class="android.widget.EditText"
+          content-desc="Search field" checkable="false" checked="false"
+          clickable="true" enabled="true" focusable="true" focused="false"
+          scrollable="false" long-clickable="false" password="false"
+          selected="false" bounds="[24,200][1056,300]" package="com.test.app"
+          visible-to-user="true" important="true" />
+  </node>
+</hierarchy>
+"""
+
 # Complex XML — ~12 visible nodes with checkable, long-clickable, nested structures
 COMPLEX_XML = """\
 <?xml version="1.0" encoding="UTF-8"?>

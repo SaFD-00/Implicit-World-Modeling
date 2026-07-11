@@ -5,7 +5,7 @@ import pytest
 from monkey_collector.domain.actions import Tap
 from monkey_collector.pipeline.exploration import Explorer, LLMGuidedExplorer
 from monkey_collector.xml.ui_tree import UITree
-from tests.fixtures.xml_samples import SIMPLE_XML
+from tests.fixtures.xml_samples import INPUT_ONLY_XML, SIMPLE_XML
 
 ACTIVITY = "com.test.app/.MainActivity"
 PACKAGE = "com.test.app"
@@ -38,6 +38,69 @@ def test_explores_distinct_elements_then_backs_off(mock_adb):
     assert len(explored_indices) >= 2
     # once the frontier is exhausted, the engine retreats with back
     assert "press_back" in types
+
+
+def _on_input_only_screen(explorer: LLMGuidedExplorer):
+    explorer.set_screen_context(INPUT_ONLY_XML, ACTIVITY, PACKAGE)
+    return UITree.from_xml_string(INPUT_ONLY_XML)
+
+
+def test_root_fallback_never_reselects_text_input(mock_adb):
+    # Keyboard-drift root cause: on a back-exit/root screen whose frontier is
+    # spent, re-tapping a search field (SET_TEXT) re-summons the keyboard for
+    # zero coverage. The fallback must demote text inputs so, once explored,
+    # they are never chosen again — while root back is still forbidden.
+    explorer = _explorer(mock_adb)
+    tree = _on_screen(explorer)
+
+    # Drain the real frontier (the input's first, coverage-bearing visit is
+    # allowed here via the normal _pick_unexplored path).
+    for _ in range(20):
+        explorer.select_action(tree, is_root_screen=True)
+    assert explorer.has_unvisited(tree, None) is False
+
+    # Every action now comes from _fallback. No text input, no root back-out.
+    fallback_types = [
+        explorer.select_action(tree, is_root_screen=True).action_type
+        for _ in range(20)
+    ]
+    assert "input_text" not in fallback_types
+    assert "press_back" not in fallback_types
+    assert set(fallback_types)  # something was actually returned
+
+
+def test_input_only_root_fallback_still_yields_action(mock_adb):
+    # Demotion is not exclusion: when the input is the ONLY actionable element,
+    # the fallback must still select it (never an illegal root back-press).
+    explorer = _explorer(mock_adb)
+    tree = _on_input_only_screen(explorer)
+
+    for _ in range(10):
+        explorer.select_action(tree, is_root_screen=True)
+    assert explorer.has_unvisited(tree, None) is False
+
+    fallback_types = [
+        explorer.select_action(tree, is_root_screen=True).action_type
+        for _ in range(10)
+    ]
+    assert "press_back" not in fallback_types
+    # The lone input remains selectable — the fallback keeps producing input_text
+    # rather than stalling or backing out.
+    assert "input_text" in fallback_types
+
+
+def test_frontier_text_input_still_selected(mock_adb):
+    # Cross-app regression guard: demotion lives only in _fallback. While the
+    # frontier still has unexplored actions, the normal path (_pick_unexplored)
+    # must exercise the search field's SET_TEXT — the first visit is preserved.
+    explorer = _explorer(mock_adb)
+    tree = _on_screen(explorer)
+
+    types = [
+        explorer.select_action(tree, is_first_screen=False).action_type
+        for _ in range(15)
+    ]
+    assert "input_text" in types
 
 
 def test_recover_clears_pending_transition_record(mock_adb):
