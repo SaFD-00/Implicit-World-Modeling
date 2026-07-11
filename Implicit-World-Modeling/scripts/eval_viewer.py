@@ -54,13 +54,14 @@ STATE_METRIC_KEYS = [
     "avg_bleu", "avg_rouge_l",
     "avg_hungarian_ea", "avg_hungarian_f1",
     "avg_hungarian_prec", "avg_hungarian_rec",
-    "avg_hungarian_text", "avg_hungarian_idx",
+    "avg_hungarian_text", "avg_hungarian_idx", "avg_hungarian_pos",
     "predict_bleu-4", "predict_rouge-l",
 ]
 ACTION_METRIC_KEYS = [
     "total", "parse_rate",
     "type_accuracy", "step_accuracy", "macro_step_accuracy",
-    "cond_index_acc", "cond_dir_acc", "cond_app_acc", "cond_text_acc",
+    "cond_index_acc", "cond_bbox_acc", "cond_dir_acc", "cond_app_acc", "cond_text_acc",
+    "no_bbox_n",
     "predict_bleu-4", "predict_rouge-l",
 ]
 

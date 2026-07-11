@@ -65,7 +65,15 @@ run_exp01_eval() {
   local datadir="${DS_DATADIR[$eval_ds]}"
   local eval_prefix="${DS_PREFIX[$eval_ds]}"
 
-  local task subtag scorer metrics_name
+  # AC_EXP05 는 xy 통일 액션 스페이스 + index 속성 없는 HTML 이라 채점 모드가 다르다.
+  # 나머지 EXP 는 플래그를 붙이지 않아 기존 채점 경로 그대로.
+  local state_mode_flag="" action_mode_flag=""
+  if [[ "$eval_ds" == "AC_EXP05" ]]; then
+    state_mode_flag="--match-mode pos"
+    action_mode_flag="--coord-mode xy"
+  fi
+
+  local task subtag scorer metrics_name mode_flag
   for task in state action; do
     local out_rel="${out_rel_base}/on-${eval_ds}-${task}"
     local out_dir="$LF_ROOT/$out_rel"
@@ -78,9 +86,11 @@ run_exp01_eval() {
     if [[ "$task" == "state" ]]; then
       scorer="_hungarian_eval.py"
       metrics_name="hungarian_metrics.json"
+      mode_flag="$state_mode_flag"
     else
       scorer="_action_eval.py"
       metrics_name="action_metrics.json"
+      mode_flag="$action_mode_flag"
     fi
 
     if skip_if_done "$subtag" "$out_dir/$metrics_name"; then
@@ -118,6 +128,7 @@ run_exp01_eval() {
           --pred-id  '$out_dir/generated_predictions_id.jsonl' \
           --test-ood '$test_ood' \
           --pred-ood '$out_dir/generated_predictions_ood.jsonl' \
+          $mode_flag \
           --output   '$out_dir/$metrics_name'"
 
     # without_open_app sibling: state task 만 (hungarian_eval 만 --exclude-action 지원).
@@ -133,6 +144,7 @@ run_exp01_eval() {
               --pred-id  '$out_dir/generated_predictions_id.jsonl' \
               --test-ood '$test_ood' \
               --pred-ood '$out_dir/generated_predictions_ood.jsonl' \
+              $mode_flag \
               --exclude-action open_app \
               --filtered-test-dir '$BASE_DIR/data/${datadir}' \
               --filtered-pred-dir '$out_dir_woa' \
