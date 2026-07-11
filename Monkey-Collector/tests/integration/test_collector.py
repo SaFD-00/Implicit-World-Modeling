@@ -101,7 +101,7 @@ class TestSessionResume:
         collector._new_session = True
         writer.find_existing_session.return_value = "com.test.app"
 
-        session_id = collector.run(package="com.test.app")
+        collector.run(package="com.test.app")
 
         writer.resume_session.assert_not_called()
         writer.init_session.assert_called_once()
@@ -116,7 +116,7 @@ class TestSessionResume:
         collector, explorer, server, writer = _make_collector(mock_adb, signals)
         writer.find_existing_session.return_value = None
 
-        session_id = collector.run(package="com.test.app")
+        collector.run(package="com.test.app")
 
         writer.resume_session.assert_not_called()
         writer.init_session.assert_called_once()

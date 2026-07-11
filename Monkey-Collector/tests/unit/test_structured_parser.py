@@ -2,8 +2,6 @@
 
 import xml.etree.ElementTree as ET
 
-import pytest
-
 from monkey_collector.xml.structured_parser import (
     StructuredXmlParser,
     encode_to_html_xml,
@@ -12,7 +10,6 @@ from monkey_collector.xml.structured_parser import (
     parse_to_html_xml,
 )
 from tests.fixtures.xml_samples import COMPLEX_XML, SIMPLE_XML
-
 
 # ── Helpers ──
 
