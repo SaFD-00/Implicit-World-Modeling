@@ -18,6 +18,24 @@
 - **워크플로우**: `/workflow:adaptive-router`(advisor plan → worker fan-out → 2-tier verify). `/workflow:revise`는 analyze 산출물 입력이 없어 미적용(이 작업은 Slack 기반).
 - 카테고리: devlog
 
+## 2026-07-11 — Implicit-World-Modeling: EXP05 diff loss 개편 — v2 매칭(bounds 기반) + 신규 가중 체계(diff 1.0 / non-diff 0.25) · eval xy 액션 스페이스 확장
+
+같은 날 Slack DM + Google Meet 회의(조병웅↔백승우)에서 diff loss 의 **가중치 체계**와 **매칭 로직**을 동시에 바꾸기로 확정했다(조병웅이 `new_diff_loss.zip` = v2 코드 공유). 위 EXP05 도입 엔트리에 이어지는 후속 작업이다.
+
+- **신규 가중 체계 (Qwen Agent World 방식)**: 기존 state transition 의 diff 토큰 **2.0** / non-diff **1.0** → 신규 diff **1.0** / non-diff **0.25**. intermediate action 예측 샘플은 가중치 없이 **uniform 1.0**. 배수 자체는 줄었지만 non-diff 도 같이 낮아져 diff 가 non-diff 대비 **실질 4배** 강해진다.
+- **diff loss v2 (v1 과 병존)**: `scripts/diff_loss/` 에 v2 4파일 신규 추가(`hungarian_metric_v2.py`, `hungarian_diff_v2.py`, `token_weight_builder_v2.py`, `preprocess_dataset_v2.py`). v1 4파일은 **무변경**(AC_EXP02 재현성 보존). v1 대비: 위치 cost 가 DOM index → **bounds 중심점 거리**(`W_POS=0.4`, `BOUNDS_NORM=2050.0`=840×1876 대각선, `BOUNDS_TAU=50.0`), `_collect_texts()` 의 자손 텍스트 흡수 제거, `MATCH_THRESHOLD` 1.5→1.7, element 키 index→bounds 폴백, metric key `hungarian_idx`→`hungarian_pos`.
+- **v2 가 EXP05 에 필수인 이유**: EXP05 HTML 에는 `index` 속성이 **아예 없다**(실측: index 0개, bounds 48개). v1 builder 는 `index="..."` 를 regex 로 필수 요구하므로, v1 을 쓰면 모든 토큰이 baseline 으로 방치돼 **diff loss 가 조용히 무력화**된다.
+- **가중치 적용 함정 2건(해결)**: (1) `token_weight_builder` 의 baseline 이 `[1.0]*n_asst` 이고 `if weight == 1.0: continue` 로 기본값을 스킵하는 구조라, 신규 체계에서는 diff weight 가 바로 그 1.0 이어서 **diff 토큰이 baseline(0.25)에 방치**된다 → baseline 을 `wmap["UNCHANGED"]` 에서 유도하고 스킵 조건을 `if weight == base` 로 변경. (2) action 샘플에 uniform 1.0 분기가 없으면 "diff 없음 → 전부 0.25" 로 오처리된다 → `images` 개수로 판별(1개=state_pred, 2개=action_pred)해 명시적 분기 추가.
+- **EXP05 데이터 재생성(실측)**: train **47,556행** = state 33,285(weight 값 `{0.25, 1.0}`) + action 14,271(`{1.0}`). state 샘플 출력 토큰의 **54.1% 가 0.25배로 감쇠**. v1(EXP02) 대조에서 전체 diff 비율은 56.9% vs 55.8% 로 유사하나 세부 분해는 **v2 가 매칭을 개선**(ADDED 45.8%→26.6%, MODIFIED 11.1%→29.2%) — v1 은 매칭 실패로 ADDED 가 부풀었고, v2 는 bounds 좌표 덕에 "같은 자리 텍스트 변경"을 MODIFIED 로 제대로 잡는다.
+- **EXP05 배선**: stage1 YAML 6개 + 노트북 Cell 5(SSoT)에 `use_diff_token_weighted_loss: true` 활성화. `token_weights` 는 train jsonl 인라인이라 `dataset_info.json` 컬럼 등록은 **불필요**(`converter.py:226` 이 raw jsonl 에서 직접 읽음, EXP02 선례).
+- **eval 채점을 xy 액션 스페이스로 확장**: 액션 스페이스가 xy 로 통일돼 GT 스키마가 `<action>{"action":"click","coordinate":[x,y]}</action>` 로 바뀌었다(키가 `action` — 구 `action_type` 과 다름; swipe 는 `coordinate1`/`coordinate2`). **opt-in 플래그**로 구현해 EXP01~04 채점은 불변 — `_action_eval.py --coord-mode {index,xy}`(기본 index), `_hungarian_eval.py --match-mode {index,pos}`(기본 index), `stage1_eval.sh` 가 **AC_EXP05 일 때만** 전달. codex 검증에서 기본 모드가 신/구 코드 **byte-identical** 확인. xy 모드 규칙: click/long-press 는 pred 좌표가 GT 좌표가 속한 element 의 bbox 안이면 정답(포함 element 없으면 오답 + `no_bbox_n` 별도 집계), scroll/swipe 는 xy1→xy2 벡터의 주 방향(`|dx|>=|dy|` → left/right, else up/down) 일치 시 정답, input_text/type 은 좌표 무관. `tests/test_action_eval_xy.py` 30케이스 추가 → 전체 **82 tests OK**. pred 좌표계 sanity 경고 추가(정규화 좌표 의심 시 stderr 경고, 채점 결과는 불변).
+- **검증 — diff loss 가 실제로 작동함을 확증**: 동일 데이터·동일 설정에서 플래그만 바꿔 대조 — step 1 loss 0.6633(ON) vs 1.0391(OFF), step 2 0.2395 vs 1.2479, train_loss **0.4514 vs 1.1435**. loss 가 명확히 달라 `token_weights` 가 collator → trainer → loss 계산까지 실제로 반영됨을 확인.
+- **로컬 학습 불가 판정(실측)**: 로컬 2×RTX5090 에서 EXP05 3B Full FT 는 **CUDA OOM**(step 3 에서 8.92GiB 할당 실패) + **157~168 s/it → 총 97~104시간(약 4일)**. 원인은 `cutoff_len 24576` + `max_pixels 1,605,632` 의 비전 토큰으로 시퀀스가 극단적으로 길어진 것 + RTX5090 에 강제되는 ZeRO-3 CPU offload. **본 학습은 Vessl A100/H100 에서 수행**한다(저장소에 Vessl 파이프라인 스크립트 없음 — 운영 지식).
+- **데이터 분할 비율**: 회의에서 **7:3 확정**. EXP05 는 이미 AC_EXP01 ratio73 멤버십을 미러하므로 충족 — 추가 작업 없음.
+- **미결**: (1) 조병웅의 수정본 stage1 데이터 미업로드(Drive `modifiedTime` 2026-07-10T09:12:02Z 그대로) → 사용자 지시로 **기존 0710 데이터로 진행**. 수정본 도착 시 재다운로드 → mirror → 전처리 재실행 필요. (2) v2 `extract_elements` 의 aria-label 누락 — 포함 조건이 `description` 단독이라 `<div aria-label="Home">` 같은 요소가 제외된다(EXP05 test 300문서 중 117개, element 366개 실측). 학습/평가가 공유하는 규약이라 조병웅 확인 필요. (3) `without_open_app` 필터 무동작 — 필터가 `## Action` 마커를 찾는데 새 프롬프트 포맷은 `Action:` 을 쓴다. **EXP03 에도 존재하는 기존 이슈**(state 와 without_open_app 행수 동일).
+- 참고 계획 문서: `docs/EXP05_DIFF_LOSS_PLAN.md`
+- 카테고리: devlog
+
 ## 2026-07-02 — Monkey-Collector: page matching을 Mobile3M Unique Page(BM25 + conjunctive diff)로 교체 — LLM-free matching
 
 사용자가 `.claude/references/mobilevlm` 을 참고해 Monkey-Collector 의 page 식별을 MobileGPT-V2 식 **LLM element-set matching** 에서 Mobile3M 의 "Unique Page" 메커니즘(**BM25 후보검색 + conjunctive element/pixel diff 검증**)으로 교체하고, 문서 갱신 후 나눠서 커밋·푸시하기를 원했다. matching 이 **LLM-free** 가 되어 화면당 LLM 호출 비용·복잡도가 사라졌고, `ScreenMatch`/`page_key` 출력 계약을 불변으로 유지해 하위 소비처(page_graph·exploration·storage)는 무변경이다.

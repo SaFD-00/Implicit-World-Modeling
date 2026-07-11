@@ -233,6 +233,7 @@ bash scripts/tmux_exp04_stage1.sh
 
 `AndroidControl_EXP05` 는 **AC_EXP01 ratio73 멤버십**을 **절대 픽셀 좌표(840×1876)** 로 미러한 **AndroidWorld 해상도 정렬** 실험군이다. base 이미지 1080×2400 을 image budget **1,605,632** (factor 28) 로 smart_resize 한 좌표계라 **Qwen2.5-VL native 와 일치** — 그래서 **Qwen2.5-VL 전용** (`qwen2.5-vl-3b`/`qwen2.5-vl-7b`) 이다. EXP03/EXP04 (0–1000 정규화, Qwen3-VL 전용) 의 정확한 대칭. **Stage 1 전용** (Stage 2 보류).
 
+- **diff loss**: Stage 1 학습에 `use_diff_token_weighted_loss` 를 적용한다. EXP02 와 달리 신규 가중 체계(diff 토큰 1.0 · non-diff 토큰 0.25, action 예측 샘플은 기존과 동일하게 균일 1.0)를 쓴다.
 - **원천**: `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl` 2 종. Google Drive '0710_버젼' 폴더의 raw `stage1_0710_{action,state}_pred.jsonl` 을 이 canonical 이름으로 rename 한 것 (raw 는 `myset/images/...` + `point="[cx,cy]"` 픽셀 좌표; 좌표 실측 x_max 840 / y_max 1876).
 - **미러**: `scripts/mirror_exp05.py` 가 EXP01 ratio73 멤버십을 따라 `data/AndroidControl_EXP05/` 에 stage1 train (**47,556 줄**) + dual-task test 6 종 (총 7 파일, **64,787 행**) 을 생성한다. 출력 이미지 경로는 EXP01 의 `AndroidControl/images/...` 를 채택 (raw 의 `myset/...` 는 `(episode, step)` 매칭 키에만 사용 → 별도 image path rewrite 불필요).
 - **누락 제외**: 입력 50,000 → train 47,556 (drop 2,444). test 각 3,000 → ~2,854–2,885.
