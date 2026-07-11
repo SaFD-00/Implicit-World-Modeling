@@ -1,10 +1,12 @@
 """Tests for monkey_collector.activity_coverage — Activity coverage tracking."""
 
 import csv
+import json
 import os
 
 import pytest
 
+from monkey_collector.catalog_activities import ActivityCatalog
 from monkey_collector.domain.activity_coverage import (
     ActivityCoverageTracker,
     _normalize_activity_name,
@@ -307,6 +309,52 @@ class TestAliasResolution:
         )
         tracker.record(self.ALIAS, step=1)
         assert tracker.get_visited_count() == 0
+
+
+class TestCatalogFilterIntegration:
+    """ActivityCatalog's non-navigable filter feeds a purified denominator
+    into the tracker; a visit to a filtered-out class can't inflate either
+    the denominator or the numerator."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_catalog(self):
+        ActivityCatalog.reset()
+        yield
+        ActivityCatalog.reset()
+
+    def test_filtered_class_visit_does_not_move_numerator(self, tmp_path):
+        catalog_path = tmp_path / "activities.json"
+        pkg = "com.example.app"
+        catalog_path.write_text(json.dumps({
+            pkg: {
+                "activities": [
+                    f"{pkg}/{pkg}.MainActivity",
+                    f"{pkg}/com.google.android.gms.common.api.GoogleApiActivity",
+                ],
+            },
+        }))
+        catalog = ActivityCatalog.instance(catalog_path)
+        declared = catalog.get_declared(pkg)
+        aliases = catalog.get_aliases(pkg)
+
+        session_dir = tmp_path / "session"
+        session_dir.mkdir()
+        tracker = ActivityCoverageTracker()
+        tracker.initialize(
+            str(session_dir), declared,
+            package=pkg, allow_dynamic_total=False, aliases=aliases,
+        )
+        # Denominator is purified: GoogleApiActivity never entered it.
+        assert len(tracker.total_activities) == 1
+
+        # Visiting the filtered class (e.g. a Google Sign-In redirect)
+        # cannot inflate unique_visited — it isn't in total_activities.
+        tracker.record(f"{pkg}/com.google.android.gms.common.api.GoogleApiActivity", step=1)
+        assert tracker.get_visited_count() == 0
+
+        tracker.record(f"{pkg}/{pkg}.MainActivity", step=2)
+        assert tracker.get_visited_count() == 1
+        assert tracker.get_coverage() == pytest.approx(1.0)
 
 
 class TestNormalize:

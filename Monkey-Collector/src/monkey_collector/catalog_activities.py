@@ -22,6 +22,29 @@ from loguru import logger
 #   parents[2] = <repo root>
 _DEFAULT_PATH = Path(__file__).resolve().parents[2] / "catalog" / "activities.json"
 
+# Class-name prefixes (the part after "/") that are never independently
+# navigable by a user — they belong to third-party framework/SDK namespaces
+# bundled into the APK, not the app's own code. Excluded from the coverage
+# denominator (and from alias resolution) so "% of screens explored" reflects
+# screens a monkey could plausibly reach, not vendored plumbing.
+#
+# Deliberately conservative: only third-party *framework* namespaces are
+# listed here. Activities in the app's own namespace are kept even when
+# their name suggests low navigability (e.g. permission/version-gate
+# screens) because those can still appear in the foreground during a run.
+NON_NAVIGABLE_CLASS_PREFIXES = (
+    "androidx.car.app.",             # CarAppPermissionActivity (Android Auto)
+    "com.android.billingclient.",    # ProxyBillingActivity(+V2)
+    "com.google.android.gms.",       # GoogleApiActivity, SignInHubActivity
+    "com.google.android.play.core.", # PlayCoreDialogWrapper/MissingSplits
+)
+
+
+def _is_navigable(component: str) -> bool:
+    """``True`` unless ``component``'s class (after ``/``) is in the denylist."""
+    _, _, class_name = component.partition("/")
+    return not class_name.startswith(NON_NAVIGABLE_CLASS_PREFIXES)
+
 
 class ActivityCatalog:
     """Process-lifetime cache of ``catalog/activities.json``."""
@@ -87,13 +110,16 @@ class ActivityCatalog:
         return self._loaded
 
     def get_declared(self, package: str) -> list[str] | None:
-        """Return a fresh list of declared activities, or ``None`` on miss."""
+        """Return declared activities minus non-navigable framework classes.
+
+        ``None`` on miss (catalog not loaded, or package unregistered).
+        """
         if not self._loaded:
             return None
         acts = self._data.get(package)
         if acts is None:
             return None
-        return list(acts)
+        return [a for a in acts if _is_navigable(a)]
 
     def get_aliases(self, package: str) -> dict[str, str] | None:
         """Return a fresh ``alias → targetActivity`` map, or ``None`` on miss.
@@ -101,10 +127,17 @@ class ActivityCatalog:
         ``None`` when the catalog is not loaded or the package is unknown
         (same miss semantics as ``get_declared``). A registered package with
         no aliases (or an older catalog file lacking the ``aliases`` key)
-        yields an empty dict.
+        yields an empty dict. Aliases whose target is non-navigable (see
+        ``NON_NAVIGABLE_CLASS_PREFIXES``) are dropped, matching the
+        ``get_declared`` filter — an alias never resolves onto a target that
+        the denominator itself excludes.
         """
         if not self._loaded:
             return None
         if package not in self._data:
             return None
-        return dict(self._aliases.get(package) or {})
+        return {
+            alias: target
+            for alias, target in (self._aliases.get(package) or {}).items()
+            if _is_navigable(target)
+        }

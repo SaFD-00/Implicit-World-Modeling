@@ -114,3 +114,89 @@ class TestAliases:
         first = cat.get_aliases("p")
         first["p/b"] = "p/p.Real"
         assert cat.get_aliases("p") == {"p/a": "p/p.Real"}
+
+
+class TestNonNavigableFilter:
+    """Framework/3p SDK activities are excluded from the coverage denominator."""
+
+    def _catalog(self, tmp_path, activities, aliases=None):
+        path = tmp_path / "activities.json"
+        entry = {"activities": activities}
+        if aliases is not None:
+            entry["aliases"] = aliases
+        path.write_text(json.dumps({"p": entry}))
+        return ActivityCatalog.instance(path)
+
+    def test_drops_car_app_permission_activity(self, tmp_path):
+        cat = self._catalog(tmp_path, [
+            "p/p.MainActivity",
+            "p/androidx.car.app.CarAppPermissionActivity",
+        ])
+        assert cat.get_declared("p") == ["p/p.MainActivity"]
+
+    def test_drops_billingclient_proxy_activity(self, tmp_path):
+        cat = self._catalog(tmp_path, [
+            "p/p.MainActivity",
+            "p/com.android.billingclient.api.ProxyBillingActivity",
+        ])
+        assert cat.get_declared("p") == ["p/p.MainActivity"]
+
+    def test_drops_gms_google_api_activity(self, tmp_path):
+        cat = self._catalog(tmp_path, [
+            "p/p.MainActivity",
+            "p/com.google.android.gms.common.api.GoogleApiActivity",
+        ])
+        assert cat.get_declared("p") == ["p/p.MainActivity"]
+
+    def test_drops_play_core_activities(self, tmp_path):
+        cat = self._catalog(tmp_path, [
+            "p/p.MainActivity",
+            "p/com.google.android.play.core.common.PlayCoreDialogWrapperActivity",
+            "p/com.google.android.play.core.missingsplits.PlayCoreMissingSplitsActivity",
+        ])
+        assert cat.get_declared("p") == ["p/p.MainActivity"]
+
+    def test_keeps_app_namespace_permission_activity(self, tmp_path):
+        """Own-namespace screens are kept even if named like a permission gate."""
+        cat = self._catalog(tmp_path, [
+            "p/p.notificationpermission.RequestNotificationPermissionsActivity",
+        ])
+        assert cat.get_declared("p") == [
+            "p/p.notificationpermission.RequestNotificationPermissionsActivity",
+        ]
+
+    def test_alias_dropped_when_target_non_navigable(self, tmp_path):
+        cat = self._catalog(
+            tmp_path,
+            ["p/p.MainActivity", "p/com.google.android.gms.common.api.GoogleApiActivity"],
+            aliases={
+                "p/p.Alias": "p/com.google.android.gms.common.api.GoogleApiActivity",
+                "p/p.RealAlias": "p/p.MainActivity",
+            },
+        )
+        assert cat.get_aliases("p") == {"p/p.RealAlias": "p/p.MainActivity"}
+
+    def test_osmand_denominator_16_to_11(self, tmp_path):
+        """Real catalog data: 5 framework activities dropped."""
+        activities = [
+            "net.osmand/androidx.car.app.CarAppPermissionActivity",
+            "net.osmand/com.android.billingclient.api.ProxyBillingActivity",
+            "net.osmand/com.google.android.gms.common.api.GoogleApiActivity",
+            "net.osmand/com.google.android.play.core.common.PlayCoreDialogWrapperActivity",
+            "net.osmand/com.google.android.play.core.missingsplits.PlayCoreMissingSplitsActivity",
+            "net.osmand/net.osmand.plus.activities.MapActivity",
+            "net.osmand/net.osmand.plus.download.DownloadActivity",
+            "net.osmand/net.osmand.plus.help.HelpActivity",
+            "net.osmand/net.osmand.plus.myplaces.MyPlacesActivity",
+            "net.osmand/net.osmand.plus.activities.ContributionVersionActivity",
+            "net.osmand/net.osmand.plus.activities.PrintDialogActivity",
+            "net.osmand/net.osmand.plus.activities.RestartActivity",
+            "net.osmand/net.osmand.plus.activities.search.GeoIntentActivity",
+            "net.osmand/net.osmand.plus.plugins.development.LogcatActivity",
+            "net.osmand/net.osmand.plus.plugins.development.TestVoiceActivity",
+            "net.osmand/net.osmand.plus.wikivoyage.explore.WikivoyageExploreActivity",
+        ]
+        path = tmp_path / "activities.json"
+        path.write_text(json.dumps({"net.osmand": {"activities": activities}}))
+        cat = ActivityCatalog.instance(path)
+        assert len(cat.get_declared("net.osmand")) == 11
