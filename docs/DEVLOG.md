@@ -3,6 +3,20 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-11 — Monkey-Collector: 수집 데이터 진단 → signal-timeout/launcher-drift 수정 → coverage/keyboard 재수정 (2 iteration, AVD Pixel6-2 재수집 검증)
+
+사용자가 AVD Pixel6-2 로 수집 파이프라인을 업데이트하기를 원해 `analyze → revise → 재수집 검증` 을 데이터가 "잘 쌓였다" 고 판단될 때까지 반복했다(adaptive-router: 지정 advisor `openai/gpt-5.6-sol` 이 이 환경에서 codex CLI 의 gpt-5.6-* 미지원으로 전면 불가 → 가용성 폴백으로 advisor·검증 모두 `claude/fable`, worker `claude/opus`, 재수집 검증은 `claude/sonnet`). 기존 스냅샷 2개(`data_20260703_015219`/`data_20260702_110426`)를 직접 카운트로 진단한 뒤 두 라운드에 걸쳐 코드를 고치고 AVD 재수집으로 실효를 검증했다.
+
+- **진단(`.claude/analysis/2026-07-11_data-collection-diag/`)**: signal timeout **435건**(각 25s, musicplayer 4.32 min/step ≈ 정체), nexuslauncher launcher-drift **140건**(broccoli), persist_filtered near-dup bloat(broccoli top-2 page=631+511 obs=76%), **타깃 4앱 중 3앱이 catalog/activities.json 누락 → coverage GT 무의미(1.0 클램프)**, calendar 실제 1/39. 저장/조인 스키마(events.jsonl page_key/observation_num, transition:false)는 건강 확인 — 문제는 상류 수집.
+- **iteration 1(커밋 `45895b5` fix + `7102500` data)**: (P1-2) `collection.signal_timeout_sec`(기본 25→**12s**, config 6-place) + `MAX_SIGNAL_TIMEOUTS=3` → stuck 에피소드 최악 대기 125s→**36s**, nudge 는 1·2회차만; 데드상수 `FIRST_STEPS_NO_BACK` 제거. (P1-3) keyboard/back 이 launcher 로 이탈한 page 를 `back_exit_page_ids` 로 세션 학습 + `return_to_app` launcher-aware(무의미 back 생략). (P1-1) catalog broccoli·musicplayer apps.csv 등록 + device-pull APK 로 4앱 activities 재추출(calendar.pro merge-preserve). tcp_server·클라이언트 .kt 무접촉(APK 재빌드 불요).
+- **iteration 1 재수집 검증(`.claude/analysis/2026-07-11_recollection-validation/`, 4앱×30min)**: throughput **2.3~14x** 개선(musicplayer 4.32→0.31 min/step) — P1-2 검증. 그러나 (a) **coverage 측정 결함** 발견: adb `get_current_activity` regex 가 trailing `}` 를 삼키고 activity-alias 가 catalog 부재 → calendar 가 실제 ≥6 activity 방문하고도 1/39 고착, (b) **keyboard-dismiss-back→launcher loop** 가 P1-3 의 D4(press_back 한정 마킹) 사각지대로 musicplayer 스텝 53%·broccoli 22% 소모.
+- **iteration 2(커밋 `b85ecdc` fix + `7a46ab7` data)**: (Bug A) adb `_parse_current_activity` char-class regex 로 `}` 제거, `catalog/extract_activities.py` 가 `<activity-alias>` element 단위(zip 페어링 비결정성 회피) alias→target 맵 추출, `activity_coverage.py` 가 alias 방문을 target 으로 해석(분모 미확장·클램프 유지). (Bug B) launcher 이탈 keyboard-back 이 page 를 학습하고, 학습된 page 의 keyboard 는 `KEYCODE_ESCAPE`(최대 2회)→back 폴백으로 dismiss.
+- **iteration 2 재검증(`.claude/analysis/2026-07-11_iter2-revalidation/`, calendar+musicplayer)**: (Bug A) **완전 수정** — calendar coverage 1→2+ 상승(`}` 제거, AllInOne alias 산입), musicplayer 3→**5/15**, end-to-end 시뮬로 alias→target 산입·split-APK 미산입 확인. (Bug B) **부분 개선** — ESC 경로 발동 25회(iter1 0회), keyboard 프레임 53%→**39%**, 단 이 AVD IME 에서 ESC 유효율 ~61%(11/18 first-attempt), 나머지는 2회 소진 후 back 폴백 → launcher drift 잔존.
+- 검증: `pytest` iteration1 후 **764 passed** → iteration2 후 **784 passed**(신규 `test_adb_parse_activity`·`test_signal_timeout_escalation`·`test_launcher_drift`+`TestAliasResolution`/`TestKeyboardBackExit`, mutation-check). tier-2 advisor(fable) 각 라운드 PASS(주장 전부 CONFIRMED). AVD 재수집으로 empirical 확인. **venv 인터프리터 경로가 stale(`Project`→`Projects` 이동)이라 pytest 실행 불가였던 것도 `uv sync` 로 복구**.
+- 커밋(브랜치 `main`, **푸시 안 함**): `45895b5`·`7102500`(iter1) · `b85ecdc`·`7a46ab7`(iter2). 논리 단위 분리(코드+테스트 / catalog 데이터).
+- 남은 이슈(iteration 3 후속 과제): musicplayer 검색창 keyboard 의 IME-특이 ESC 무효 프레임(~39%) → IME manager 강제 hide 또는 검색창 반복 input 억제. broccoli stuck-rate 이상치 재현 미측정. osmand coverage(1/16) alias 실효성 미검증.
+- 카테고리: devlog
+
 ## 2026-07-02 — Monkey-Collector: page matching을 Mobile3M Unique Page(BM25 + conjunctive diff)로 교체 — LLM-free matching
 
 사용자가 `.claude/references/mobilevlm` 을 참고해 Monkey-Collector 의 page 식별을 MobileGPT-V2 식 **LLM element-set matching** 에서 Mobile3M 의 "Unique Page" 메커니즘(**BM25 후보검색 + conjunctive element/pixel diff 검증**)으로 교체하고, 문서 갱신 후 나눠서 커밋·푸시하기를 원했다. matching 이 **LLM-free** 가 되어 화면당 LLM 호출 비용·복잡도가 사라졌고, `ScreenMatch`/`page_key` 출력 계약을 불변으로 유지해 하위 소비처(page_graph·exploration·storage)는 무변경이다.
