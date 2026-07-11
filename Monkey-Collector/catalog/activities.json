@@ -4133,6 +4133,19 @@
     "source": "PlayStore",
     "sub_category": "Events"
   },
+  "com.flauschcode.broccoli": {
+    "activities": [
+      "com.flauschcode.broccoli/com.flauschcode.broccoli.MainActivity",
+      "com.flauschcode.broccoli/com.flauschcode.broccoli.recipe.cooking.CookingAssistantActivity",
+      "com.flauschcode.broccoli/com.flauschcode.broccoli.recipe.crud.CreateAndEditRecipeActivity",
+      "com.flauschcode.broccoli/com.flauschcode.broccoli.recipe.details.RecipeDetailsActivity",
+      "com.flauschcode.broccoli/com.mikepenz.aboutlibraries.ui.LibsActivity"
+    ],
+    "app_name": "Broccoli",
+    "category": "Food",
+    "source": "F-Droid",
+    "sub_category": "Recipes"
+  },
   "com.fsck.k9": {
     "activities": [
       "com.fsck.k9/androidx.glance.appwidget.action.ActionTrampolineActivity",
@@ -4877,26 +4890,30 @@
       "com.google.android.contacts/com.google.android.apps.contacts.starredcontacts.StarredContactsActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.vcard.CancelActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.vcard.ExportVCardActivity",
-      "com.google.android.contacts/com.google.android.apps.contacts.vcard.ImportVCardAccountPickerActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.vcard.ImportVCardActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.vcard.NfcImportVCardActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.vcard.ShareVCardActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.vcard.export.ExportActivity",
-      "com.google.android.contacts/com.google.android.apps.contacts.vcard.preview.PreviewActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.vcard.importv2.ImportVCardActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.videocalling.services.duo.DuoKitActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesNotificationPermissionActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesPixelTipsBottomSheetActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesWidgetClientEntrypointActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesWidgetGatewayActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesWidgetOnboardingActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.gateway.BestiesWidgetRefreshActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.ui.BestiesWidgetConfigActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.ui.BestiesWidgetManagementActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.besties.ui.BestiesWidgetOverlayActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.widget.besties2.WidgetResizingEducationalActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.widget.bestiessinglecontact.gateway.BestiesSingleContactPinWidgetActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.favoritecontactsgrid.ui.FavoriteContactsGridWidgetConfigActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.logging.InvisibleLoggingTrampolineActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.singlecontact.ui.SingleContactWidgetAddPhoneNumberActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.singlecontact.ui.SingleContactWidgetConfigActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.widget.singlecontact.ui.SingleContactWidgetVerbActivity",
       "com.google.android.contacts/com.google.android.apps.contacts.wizard.CleanupWizardActivity",
+      "com.google.android.contacts/com.google.android.apps.contacts.yourinfo.editor.YourInfoEditorActivity",
       "com.google.android.contacts/com.google.android.gms.auth.api.signin.internal.SignInHubActivity",
       "com.google.android.contacts/com.google.android.gms.common.api.GoogleApiActivity",
       "com.google.android.contacts/com.google.android.gms.duokit.DuoKitContainerActivity",
@@ -4906,7 +4923,7 @@
       "com.google.android.contacts/com.google.android.libraries.places.widget.AutocompleteActivity",
       "com.google.android.contacts/com.google.android.libraries.places.widget.BasicPlaceAutocompleteActivity",
       "com.google.android.contacts/com.google.android.libraries.places.widget.PlaceAutocompleteActivity",
-      "com.google.android.contacts/com.google.android.libraries.places.widget.internal.photoviewer.PlacesLightboxActivity",
+      "com.google.android.contacts/com.google.android.libraries.places.widget.internal.placedetails.photoviewer.PlacesLightboxActivity",
       "com.google.android.contacts/com.google.android.libraries.social.licenses.LicenseActivity",
       "com.google.android.contacts/com.google.android.libraries.social.licenses.LicenseMenuActivity",
       "com.google.android.contacts/com.google.android.libraries.surveys.internal.view.SurveyActivity",
@@ -8113,6 +8130,29 @@
     "category": "Productivity",
     "source": "F-Droid",
     "sub_category": "Calendar"
+  },
+  "com.simplemobiletools.musicplayer": {
+    "activities": [
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.commons.activities.AboutActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.commons.activities.ContributorsActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.commons.activities.CustomizationActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.commons.activities.FAQActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.commons.activities.LicenseActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.AlbumsActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.EqualizerActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.ExcludedFoldersActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.MainActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.QueueActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SettingsActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.SplashActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.TrackActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.TracksActivity",
+      "com.simplemobiletools.musicplayer/com.simplemobiletools.musicplayer.activities.WidgetConfigureActivity"
+    ],
+    "app_name": "Music Player",
+    "category": "Media",
+    "source": "F-Droid",
+    "sub_category": "Music"
   },
   "com.spotify.music": {
     "activities": [
@@ -11516,6 +11556,30 @@
     "category": "Productivity",
     "source": "F-Droid",
     "sub_category": "Notes"
+  },
+  "net.osmand": {
+    "activities": [
+      "net.osmand/androidx.car.app.CarAppPermissionActivity",
+      "net.osmand/com.android.billingclient.api.ProxyBillingActivity",
+      "net.osmand/com.google.android.gms.common.api.GoogleApiActivity",
+      "net.osmand/com.google.android.play.core.common.PlayCoreDialogWrapperActivity",
+      "net.osmand/com.google.android.play.core.missingsplits.PlayCoreMissingSplitsActivity",
+      "net.osmand/net.osmand.plus.activities.ContributionVersionActivity",
+      "net.osmand/net.osmand.plus.activities.MapActivity",
+      "net.osmand/net.osmand.plus.activities.PrintDialogActivity",
+      "net.osmand/net.osmand.plus.activities.RestartActivity",
+      "net.osmand/net.osmand.plus.activities.search.GeoIntentActivity",
+      "net.osmand/net.osmand.plus.download.DownloadActivity",
+      "net.osmand/net.osmand.plus.help.HelpActivity",
+      "net.osmand/net.osmand.plus.myplaces.MyPlacesActivity",
+      "net.osmand/net.osmand.plus.plugins.development.LogcatActivity",
+      "net.osmand/net.osmand.plus.plugins.development.TestVoiceActivity",
+      "net.osmand/net.osmand.plus.wikivoyage.explore.WikivoyageExploreActivity"
+    ],
+    "app_name": "OsmAnd",
+    "category": "Navigation",
+    "source": "F-Droid",
+    "sub_category": "Maps"
   },
   "net.programmierecke.radiodroid2": {
     "activities": [

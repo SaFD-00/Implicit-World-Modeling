@@ -151,3 +151,5 @@ Photography,Editor,Photo Editor,com.iudesk.android.photo.editor,PlayStore,Low,Ph
 Photography,Camera,FreeDCam,troop.com.freedcam,F-Droid,Low,Advanced camera controls,false
 Accessibility,Reader,Voice Aloud,com.hyperionics.avar,PlayStore,Low,Text-to-speech reader,false
 Accessibility,Magnifier,Magnifier Plus,com.vistechprojects.magnifierplus,PlayStore,Low,Screen magnification,false
+Food,Recipes,Broccoli,com.flauschcode.broccoli,F-Droid,High,Open-source recipe manager; collection target,false
+Media,Music,Simple Music Player,com.simplemobiletools.musicplayer,F-Droid,High,Open-source music player; collection target,false
