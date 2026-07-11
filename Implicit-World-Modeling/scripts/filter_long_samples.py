@@ -62,12 +62,15 @@ DATASET_TO_DIR = {
     "AndroidControl_EXP03": "AndroidControl_EXP03",
     "AC_EXP04": "AndroidControl_EXP04",
     "AndroidControl_EXP04": "AndroidControl_EXP04",
+    "AC_EXP05": "AndroidControl_EXP05",
+    "AndroidControl_EXP05": "AndroidControl_EXP05",
 }
 
 # 데이터셋 디렉토리별 측정/필터 대상 source 목록.
 # AndroidControl: AC_EXP01/02 의 원본 3 종 (필터 → _filtered).
 # AndroidControl_EXP03: 좌표 미러 train 산출물 2 종 (측정 전용 — 10%/크래시 통계의 출처).
 # AndroidControl_EXP04: 프롬프트 업그레이드 미러 train 1 종 (stage1 전용, 측정용; Stage 2 보류).
+# AndroidControl_EXP05: 절대 픽셀(840×1876, budget 1605632) 미러 train 1 종 (Qwen2.5-VL 전용, stage1 측정용; Stage 2 보류).
 SOURCES_BY_DIR = {
     "AndroidControl": [
         "implicit-world-modeling_stage1_state.jsonl",
@@ -79,6 +82,9 @@ SOURCES_BY_DIR = {
         "implicit-world-modeling_stage2_train.jsonl",
     ],
     "AndroidControl_EXP04": [
+        "implicit-world-modeling_stage1_train.jsonl",
+    ],
+    "AndroidControl_EXP05": [
         "implicit-world-modeling_stage1_train.jsonl",
     ],
 }
