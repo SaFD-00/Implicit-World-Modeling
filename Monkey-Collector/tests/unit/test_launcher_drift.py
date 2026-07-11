@@ -122,6 +122,110 @@ class TestMarkedPageSuppressesBack:
         mock_adb.press_back.assert_not_called()
 
 
+KEYBOARD = "com.test.app/com.android.inputmethodservice.SoftInputWindow"
+
+
+class TestKeyboardBackExit:
+    """A keyboard on a back-exit page is dismissed via ESC, not a Back that
+    would drop the app to the launcher (P1-3 blind spot). The first dismissal
+    that confirms a launcher exit marks the page (D-B1); later keyboards there
+    use ESC, capped by MAX_KEYBOARD_ESCAPES."""
+
+    def test_keyboard_back_exit_marks_page(self, mock_adb):
+        # Non-root page B, then a keyboard whose Back leaves the app to the
+        # launcher (has_left_app=True) → B is marked as back-exiting.
+        signals = [
+            _make_xml_signal(xml=SIMPLE_XML, is_first=True),  # root A
+            _make_xml_signal(xml=COMPLEX_XML, activity="com.test.app/.SettingsActivity"),  # B
+            _make_xml_signal(activity=KEYBOARD),              # keyboard on B
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(mock_adb, signals)
+        explorer.has_left_app.return_value = True
+        state = CollectionState(step=0, max_step=100)
+        with patch("monkey_collector.pipeline.collection_loop.time.sleep"), \
+                patch("time.sleep"):
+            run_collection_loop(collector, state, "com.test.app")
+
+        assert state.current_page_id in state.back_exit_page_ids
+        mock_adb.press_back.assert_called()
+
+    def test_keyboard_dismiss_in_app_does_not_mark(self, mock_adb):
+        # Keyboard dismissed by Back that stays in-app (has_left_app=False) → no
+        # mark (D4 preserved), but the dismissal still happens via Back.
+        signals = [
+            _make_xml_signal(xml=SIMPLE_XML, is_first=True),  # root A
+            _make_xml_signal(xml=COMPLEX_XML, activity="com.test.app/.SettingsActivity"),  # B
+            _make_xml_signal(activity=KEYBOARD),
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(mock_adb, signals)
+        explorer.has_left_app.return_value = False
+        state = CollectionState(step=0, max_step=100)
+        with patch("monkey_collector.pipeline.collection_loop.time.sleep"), \
+                patch("time.sleep"):
+            run_collection_loop(collector, state, "com.test.app")
+
+        assert state.back_exit_page_ids == set()
+        mock_adb.press_back.assert_called()
+
+    def test_marked_page_keyboard_uses_escape(self, mock_adb):
+        # First keyboard-back marks B (has_left_app True); the second keyboard on
+        # the now-marked B is dismissed via ESC (hide_keyboard), no extra Back.
+        signals = [
+            _make_xml_signal(xml=SIMPLE_XML, is_first=True),  # root A
+            _make_xml_signal(xml=COMPLEX_XML, activity="com.test.app/.SettingsActivity"),  # B
+            _make_xml_signal(activity=KEYBOARD),  # keyboard1 → mark B, Back
+            _make_xml_signal(activity=KEYBOARD),  # keyboard2 → ESC
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(mock_adb, signals)
+        explorer.has_left_app.side_effect = [True, False]
+        state = CollectionState(step=0, max_step=100)
+        with patch("monkey_collector.pipeline.collection_loop.time.sleep"), \
+                patch("time.sleep"):
+            run_collection_loop(collector, state, "com.test.app")
+
+        mock_adb.hide_keyboard.assert_called_once()
+        assert mock_adb.press_back.call_count == 1  # only the marking Back
+
+    def test_escape_exhaustion_falls_back_to_back(self, mock_adb):
+        # Three keyboards on the root (already a back-exit page): ESC twice, then
+        # the exhausted third dismissal falls back to a real Back.
+        signals = [
+            _make_xml_signal(xml=SIMPLE_XML, is_first=True),  # root A
+            _make_xml_signal(activity=KEYBOARD),  # ESC 1
+            _make_xml_signal(activity=KEYBOARD),  # ESC 2
+            _make_xml_signal(activity=KEYBOARD),  # exhausted → Back
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(mock_adb, signals)
+        explorer.has_left_app.return_value = False
+        state = CollectionState(step=0, max_step=100)
+        with patch("monkey_collector.pipeline.collection_loop.time.sleep"), \
+                patch("time.sleep"):
+            run_collection_loop(collector, state, "com.test.app")
+
+        assert mock_adb.hide_keyboard.call_count == 2
+        assert mock_adb.press_back.call_count == 1
+
+    def test_keyboard_frames_do_not_advance_step(self, mock_adb):
+        # Keyboard overlays are not pages: step must not advance across them.
+        signals = [
+            _make_xml_signal(activity=KEYBOARD),
+            _make_xml_signal(activity=KEYBOARD),
+            ("finish", None, None),
+        ]
+        collector, explorer, server, writer = _make_collector(mock_adb, signals)
+        explorer.has_left_app.return_value = False
+        state = CollectionState(step=0, max_step=100)
+        with patch("monkey_collector.pipeline.collection_loop.time.sleep"), \
+                patch("time.sleep"):
+            run_collection_loop(collector, state, "com.test.app")
+
+        assert state.step == 0
+
+
 class TestSafePressBackReturn:
     def test_safe_press_back_returns_exit_flag(self, mock_adb):
         from monkey_collector.pipeline.recovery import safe_press_back

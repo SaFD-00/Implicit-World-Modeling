@@ -30,6 +30,7 @@ class ActivityCatalog:
 
     def __init__(self, path: Path | None = None) -> None:
         self._data: dict[str, list[str]] = {}
+        self._aliases: dict[str, dict[str, str]] = {}
         self._loaded: bool = False
         self._try_load(path or _DEFAULT_PATH)
 
@@ -61,6 +62,17 @@ class ActivityCatalog:
                 for pkg, entry in raw.items()
                 if isinstance(entry, dict)
             }
+            # activity-alias → targetActivity maps, added by a later catalog
+            # revision. Older catalog files without the key parse to {} for
+            # every package (backward-compatible: get_aliases returns an empty
+            # map, and coverage resolution degrades to identity).
+            self._aliases = {
+                pkg: dict(aliases)
+                for pkg, entry in raw.items()
+                if isinstance(entry, dict)
+                for aliases in [entry.get("aliases")]
+                if isinstance(aliases, dict)
+            }
             self._loaded = True
             logger.info(
                 f"Activity catalog loaded: {len(self._data)} packages from {path}"
@@ -82,3 +94,17 @@ class ActivityCatalog:
         if acts is None:
             return None
         return list(acts)
+
+    def get_aliases(self, package: str) -> dict[str, str] | None:
+        """Return a fresh ``alias → targetActivity`` map, or ``None`` on miss.
+
+        ``None`` when the catalog is not loaded or the package is unknown
+        (same miss semantics as ``get_declared``). A registered package with
+        no aliases (or an older catalog file lacking the ``aliases`` key)
+        yields an empty dict.
+        """
+        if not self._loaded:
+            return None
+        if package not in self._data:
+            return None
+        return dict(self._aliases.get(package) or {})

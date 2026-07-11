@@ -40,6 +40,13 @@ if TYPE_CHECKING:
     from monkey_collector.pipeline.collector import Collector
     from monkey_collector.pipeline.screen_matching.screen_matcher import ScreenMatch
 
+# On a page from which a real Back would exit the app to the launcher, dismiss
+# the keyboard with KEYCODE_ESCAPE instead of Back — but cap consecutive ESC
+# attempts so a device that ignores ESC (or where ESC does not close the
+# keyboard) falls back to a real Back rather than spinning here forever. The
+# idle_iterations backstop is the second, absolute guard.
+MAX_KEYBOARD_ESCAPES = 2
+
 
 @dataclass
 class CollectionState:
@@ -80,8 +87,11 @@ class CollectionState:
     # Pages from which a deliberate Back press was observed to exit the app to
     # the launcher this session. Back is suppressed on these pages (relaunch /
     # tap instead) so a known back-exit page cannot oscillate out-and-back.
-    # Learned from press_back drift only (see D4) — tap-driven launcher trips
-    # and keyboard-dismiss backs are never recorded.
+    # Learned from press_back drift only (see D4) AND from a keyboard-dismiss
+    # Back that is confirmed to have left the app to the launcher (a keyboard on
+    # a back-exit page): both routes go through the same launcher-exit check, so
+    # a keyboard-back that reaches home marks the page it dismissed from. A
+    # tap-driven launcher trip is still never recorded.
     back_exit_page_ids: set[int] = field(default_factory=set)
     same_page_count: int = 0
     page_graph: PageGraph = field(default_factory=PageGraph)
@@ -95,6 +105,11 @@ class CollectionState:
     # that breaks pathological loops where the device emits signals forever
     # without ever producing an actionable frame.
     idle_iterations: int = 0
+    # Consecutive KEYCODE_ESCAPE keyboard dismissals on a back-exit page since
+    # the last non-keyboard frame. Capped at MAX_KEYBOARD_ESCAPES so a device
+    # that ignores ESC falls back to a real Back; reset to 0 on any frame that
+    # is not a keyboard (dismiss succeeded) or on the Back fallback itself.
+    keyboard_escape_count: int = 0
 
 
 def _is_root_screen(state: CollectionState) -> bool:
@@ -128,8 +143,10 @@ def _mark_if_back_exited(state: CollectionState, exited: bool) -> None:
 
     ``exited`` is ``safe_press_back``'s return (True = the Back drifted out of
     the app and recovery ran). Marking the page it backed FROM suppresses Back
-    there next time. No-ops on the keyboard-dismiss path, which never calls
-    this (D4: a keyboard Back is not a page back-exit).
+    there next time. The keyboard-dismiss path now also calls this on its Back
+    branch: a keyboard-dismiss Back that is confirmed to have left the app to
+    the launcher marks the underlying page, so a subsequent keyboard on that
+    page is dismissed via ESC instead of a launcher-exiting Back (D-B1).
     """
     if exited and state.current_page_id is not None:
         state.back_exit_page_ids.add(state.current_page_id)
@@ -368,7 +385,10 @@ def _handle_external_app(
     # Back-exit learning (D4): if the drift is specifically to the launcher and
     # the last action was a deliberate Back, the current page back-exits the
     # app — remember it so Back is suppressed there next time. tap-driven trips
-    # and non-launcher drifts (gms/store) are never marked.
+    # and non-launcher drifts (gms/store) are never marked. (The keyboard-
+    # dismiss path marks back-exit pages by the same launcher-exit criterion,
+    # but via _mark_if_back_exited on its own Back branch, not here — it clears
+    # last_action, so this excursion handler never double-counts it.)
     detected = (payload or {}).get("detected_package", "")
     if (
         is_launcher(detected)
@@ -591,13 +611,37 @@ def _process_xml_signal(
     # next signal shows the underlying screen, and do NOT register it as a page
     # (it would pollute same-page / coverage statistics).
     if is_keyboard(activity_name):
-        logger.info(f"Step {state.step}: keyboard window, dismissing")
-        safe_press_back(collector.adb, collector.explorer, package)
+        # On a back-exit page a plain Back would drop the app to the launcher,
+        # so dismiss the keyboard with ESC (which closes soft input without
+        # popping the back stack). Cap consecutive ESC attempts so a device
+        # that ignores ESC falls back to a real Back rather than looping.
+        if _back_would_exit(state) and state.keyboard_escape_count < MAX_KEYBOARD_ESCAPES:
+            state.keyboard_escape_count += 1
+            logger.info(
+                f"Step {state.step}: keyboard on back-exit page, dismissing via "
+                f"ESC ({state.keyboard_escape_count}/{MAX_KEYBOARD_ESCAPES})"
+            )
+            collector.adb.hide_keyboard()
+            time.sleep(0.5)
+            # ESC can behave like Back on some devices; if it drifted us out,
+            # recover so exploration continues on the target app.
+            if collector.explorer.has_left_app(package):
+                collector.explorer.return_to_app(package)
+        else:
+            logger.info(f"Step {state.step}: keyboard window, dismissing")
+            _mark_if_back_exited(state, safe_press_back(
+                collector.adb, collector.explorer, package
+            ))
+            state.keyboard_escape_count = 0
         collector.server.clear_signal_queue()
         state.last_action = None
         state.last_ui_tree = None
         time.sleep(collector.action_delay)
         return True
+
+    # Reached a non-keyboard frame: the previous ESC dismissal (if any)
+    # succeeded, so reset the consecutive-escape counter.
+    state.keyboard_escape_count = 0
 
     # Permission / install grant dialog: act on it (grant > dismiss) instead of
     # burning steps skipping it as stale XML — otherwise we loop here forever.

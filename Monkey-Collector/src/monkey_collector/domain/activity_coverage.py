@@ -60,6 +60,11 @@ class ActivityCoverageTracker:
         self._total_set: set[str] = set()  # normalized names for O(1) lookup
         self._target_package: str = ""
         self._allow_dynamic_total: bool = True
+        # normalized ``activity-alias → targetActivity`` map. An observed alias
+        # visit resolves to its declared target so it counts toward coverage
+        # (get_activities / dumpsys never surface aliases). Empty when the
+        # ground truth came from dumpsys or the catalog had no aliases.
+        self._alias_map: dict[str, str] = {}
         self.start_time: float = 0.0
         self._initialized = False
 
@@ -69,6 +74,7 @@ class ActivityCoverageTracker:
         total_activities: list[str],
         package: str = "",
         allow_dynamic_total: bool = True,
+        aliases: dict[str, str] | None = None,
     ) -> None:
         """Set total activities and create CSV file with header.
 
@@ -76,12 +82,20 @@ class ActivityCoverageTracker:
 
         ``allow_dynamic_total=False`` fixes the denominator to the supplied
         list — used when the ground truth comes from ``catalog/activities.json``.
+
+        ``aliases`` maps ``activity-alias`` component names to the declared
+        ``targetActivity`` they resolve to; a visit to an alias then counts
+        toward its target (aliases never extend the denominator).
         """
         self.csv_path = os.path.join(session_dir, "activity_coverage.csv")
         self.total_activities = list(total_activities)
         self._total_set = {_normalize_activity_name(a) for a in self.total_activities}
         self._target_package = package
         self._allow_dynamic_total = allow_dynamic_total
+        self._alias_map = {
+            _normalize_activity_name(k): _normalize_activity_name(v)
+            for k, v in (aliases or {}).items()
+        }
         self.visited_activities = set()
         self.start_time = time.time()
 
@@ -120,6 +134,9 @@ class ActivityCoverageTracker:
                 # Static ground truth: count only activities in the catalog,
                 # keyed by normalized form so shorthand/full variants merge.
                 normalized = _normalize_activity_name(activity_name)
+                # An alias resolves to its declared target so the visit counts
+                # (and alias/direct visits to the same screen merge).
+                normalized = self._alias_map.get(normalized, normalized)
                 if normalized in self._total_set:
                     self.visited_activities.add(normalized)
 
@@ -149,16 +166,23 @@ class ActivityCoverageTracker:
         total_activities: list[str],
         package: str = "",
         allow_dynamic_total: bool = True,
+        aliases: dict[str, str] | None = None,
     ) -> None:
         """Resume from existing activity_coverage.csv.
 
-        Rebuilds visited_activities from CSV and appends new records.
+        Rebuilds visited_activities from CSV and appends new records. ``aliases``
+        carries the same ``activity-alias → targetActivity`` map as
+        ``initialize`` so alias rows in the CSV resolve onto their target.
         """
         self.csv_path = os.path.join(session_dir, "activity_coverage.csv")
         self.total_activities = list(total_activities)
         self._total_set = {_normalize_activity_name(a) for a in self.total_activities}
         self._target_package = package
         self._allow_dynamic_total = allow_dynamic_total
+        self._alias_map = {
+            _normalize_activity_name(k): _normalize_activity_name(v)
+            for k, v in (aliases or {}).items()
+        }
         self.visited_activities = set()
         self.start_time = time.time()
 
@@ -179,6 +203,7 @@ class ActivityCoverageTracker:
                                 self._total_set.add(normalized)
                     else:
                         normalized = _normalize_activity_name(activity)
+                        normalized = self._alias_map.get(normalized, normalized)
                         if normalized in self._total_set:
                             self.visited_activities.add(normalized)
 
@@ -200,7 +225,11 @@ class ActivityCoverageTracker:
         """
         if not activity_name:
             return False
-        return _normalize_activity_name(activity_name) in self._total_set
+        normalized = _normalize_activity_name(activity_name)
+        # Trust an alias as declared: _resolve_coverage_activity then skips the
+        # adb round-trip for a frame whose a11y name is a known alias.
+        normalized = self._alias_map.get(normalized, normalized)
+        return normalized in self._total_set
 
     def get_coverage(self) -> float:
         """Current coverage ratio (clamped to [0, 1])."""

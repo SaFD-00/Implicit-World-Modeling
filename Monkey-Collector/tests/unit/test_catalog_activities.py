@@ -72,3 +72,45 @@ class TestLoad:
         cat = ActivityCatalog.instance(path)
         assert cat.is_loaded()
         assert cat.get_declared("p") == []
+
+
+class TestAliases:
+    def test_loads_aliases(self, tmp_path):
+        path = tmp_path / "activities.json"
+        path.write_text(json.dumps({
+            "p": {
+                "activities": ["p/p.Real"],
+                "aliases": {"p/p.Alias": "p/p.Real"},
+            },
+        }))
+        cat = ActivityCatalog.instance(path)
+        assert cat.get_aliases("p") == {"p/p.Alias": "p/p.Real"}
+
+    def test_missing_aliases_key_returns_empty_dict(self, tmp_path):
+        # Old-format catalog file (no "aliases" key) → registered package
+        # yields an empty map, not None.
+        path = tmp_path / "activities.json"
+        path.write_text(json.dumps({"p": {"activities": ["p/p.Real"]}}))
+        cat = ActivityCatalog.instance(path)
+        assert cat.get_aliases("p") == {}
+
+    def test_unknown_package_aliases_returns_none(self, tmp_path):
+        path = tmp_path / "activities.json"
+        path.write_text(json.dumps({"p": {"activities": [], "aliases": {}}}))
+        cat = ActivityCatalog.instance(path)
+        assert cat.get_aliases("com.unknown") is None
+
+    def test_aliases_not_loaded_returns_none(self, tmp_path):
+        cat = ActivityCatalog.instance(tmp_path / "absent.json")
+        assert not cat.is_loaded()
+        assert cat.get_aliases("p") is None
+
+    def test_aliases_returns_copy(self, tmp_path):
+        path = tmp_path / "activities.json"
+        path.write_text(json.dumps({
+            "p": {"activities": ["p/p.Real"], "aliases": {"p/a": "p/p.Real"}},
+        }))
+        cat = ActivityCatalog.instance(path)
+        first = cat.get_aliases("p")
+        first["p/b"] = "p/p.Real"
+        assert cat.get_aliases("p") == {"p/a": "p/p.Real"}

@@ -148,6 +148,15 @@ class AdbClient:
         """Press the home button."""
         return self.shell("input keyevent KEYCODE_HOME")
 
+    def hide_keyboard(self) -> str:
+        """Close the soft input without a Back press (keyevent 111).
+
+        KEYCODE_ESCAPE dismisses the on-screen keyboard but does not pop the
+        activity back stack, so it can dismiss a keyboard on a page from which
+        a real Back would exit the app to the launcher.
+        """
+        return self.shell("input keyevent KEYCODE_ESCAPE")
+
     def tap(self, x: int, y: int) -> str:
         """Tap at the given (x, y) coordinates."""
         return self.shell(f"input tap {x} {y}")
@@ -192,6 +201,23 @@ class AdbClient:
             return activity
         return ""
 
+    @staticmethod
+    def _parse_current_activity(output: str) -> str:
+        """Extract the foreground activity component from dumpsys output.
+
+        dumpsys prints the resumed activity inside an ``ActivityRecord{...}``
+        wrapper, e.g. ``ActivityRecord{c5601b7 u0 com.google.android.calendar/
+        .AllInOneCalendarActivity}``. A naive ``\\S+/\\S+`` match swallows the
+        trailing ``}`` (and any following token), producing a component name
+        like ``...AllInOneCalendarActivity}`` that never matches a declared
+        activity and freezes coverage. Restrict the component-name character
+        class to activity-name chars so ``}`` and whitespace act as boundaries.
+        """
+        match = re.search(r'([A-Za-z0-9_$.]+/[A-Za-z0-9_$.]+)', output)
+        if match:
+            return match.group(1)
+        return ""
+
     def get_current_activity(self) -> str:
         """Return the full activity component name of the foreground activity.
 
@@ -206,10 +232,7 @@ class AdbClient:
         output = self.shell(
             "dumpsys activity activities | grep ResumedActivity", timeout=5
         )
-        match = re.search(r'(\S+/\S+)', output)
-        if match:
-            return match.group(1).strip()
-        return ""
+        return self._parse_current_activity(output)
 
     def get_declared_activities(self, package: str) -> list[str]:
         """Return all declared Activity component names for *package*.

@@ -238,6 +238,77 @@ class TestIsDeclared:
         assert tracker.is_declared("") is False
 
 
+class TestAliasResolution:
+    """activity-alias visits resolve onto their declared target (static mode).
+
+    Modeled on Calendar: the alias ``.../.AllInOneCalendarActivity`` resolves to
+    the declared ``.../allinone.AllInOneCalendarActivity``.
+    """
+
+    PKG = "com.google.android.calendar"
+    TARGET = f"{PKG}/{PKG}.allinone.AllInOneCalendarActivity"
+    ALIAS = f"{PKG}/{PKG}.AllInOneCalendarActivity"
+    OTHER = f"{PKG}/{PKG}.SettingsActivity"
+
+    def _tracker(self, tmp_path, aliases=None):
+        tracker = ActivityCoverageTracker()
+        tracker.initialize(
+            str(tmp_path), [self.TARGET, self.OTHER],
+            package=self.PKG, allow_dynamic_total=False,
+            aliases=aliases if aliases is not None else {self.ALIAS: self.TARGET},
+        )
+        return tracker
+
+    def test_alias_visit_counts_target(self, tmp_path):
+        tracker = self._tracker(tmp_path)
+        tracker.record(self.ALIAS, step=1)
+        assert tracker.get_visited_count() == 1
+        assert _normalize_activity_name(self.TARGET) in tracker.visited_activities
+
+    def test_alias_and_target_visits_merge(self, tmp_path):
+        tracker = self._tracker(tmp_path)
+        tracker.record(self.ALIAS, step=1)
+        tracker.record(self.TARGET, step=2)
+        # Both map to the same declared target — counted once.
+        assert tracker.get_visited_count() == 1
+
+    def test_alias_does_not_extend_denominator(self, tmp_path):
+        tracker = self._tracker(tmp_path)
+        tracker.record(self.ALIAS, step=1)
+        assert len(tracker.total_activities) == 2
+
+    def test_is_declared_resolves_alias(self, tmp_path):
+        tracker = self._tracker(tmp_path)
+        # The alias itself is not in the denominator, but resolves to a target
+        # that is → is_declared trusts it so the loop skips the adb round-trip.
+        assert tracker.is_declared(self.ALIAS) is True
+
+    def test_resume_resolves_alias_rows(self, tmp_path):
+        # A prior run recorded the raw alias name in the CSV; resume must resolve
+        # it onto the declared target when rebuilding visited_activities.
+        tracker = self._tracker(tmp_path)
+        tracker.record(self.ALIAS, step=1)
+
+        tracker2 = ActivityCoverageTracker()
+        tracker2.resume(
+            str(tmp_path), [self.TARGET, self.OTHER],
+            package=self.PKG, allow_dynamic_total=False,
+            aliases={self.ALIAS: self.TARGET},
+        )
+        assert tracker2.get_visited_count() == 1
+        assert _normalize_activity_name(self.TARGET) in tracker2.visited_activities
+
+    def test_initialize_without_aliases_backward_compat(self, tmp_path):
+        # No aliases kwarg → identity resolution; an alias visit does not count.
+        tracker = ActivityCoverageTracker()
+        tracker.initialize(
+            str(tmp_path), [self.TARGET, self.OTHER],
+            package=self.PKG, allow_dynamic_total=False,
+        )
+        tracker.record(self.ALIAS, step=1)
+        assert tracker.get_visited_count() == 0
+
+
 class TestNormalize:
     def test_shorthand_to_full(self):
         assert _normalize_activity_name("com.test.app/.MainActivity") == \

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 def _resolve_declared_activities(
     collector: Collector, package: str,
-) -> tuple[list[str], bool]:
+) -> tuple[list[str], dict[str, str], bool]:
     """Resolve the declared-activity ground truth for a package.
 
     Primary: ``catalog/activities.json`` (static, fixed across sessions and
@@ -29,9 +29,11 @@ def _resolve_declared_activities(
     missing/corrupt or the package is not registered (logs a single warning).
 
     Returns:
-        ``(activities, allow_dynamic_total)`` — catalog hit fixes the
-        denominator (``False``); fallback preserves legacy dynamic
-        expansion (``True``).
+        ``(activities, aliases, allow_dynamic_total)`` — a catalog hit fixes
+        the denominator (``allow_dynamic_total=False``) and supplies the
+        ``activity-alias → targetActivity`` map so coverage can resolve alias
+        visits onto their declared target; the dumpsys fallback preserves
+        legacy dynamic expansion (``True``) with no aliases.
     """
     catalog = ActivityCatalog.instance()
     if catalog.is_loaded():
@@ -41,11 +43,11 @@ def _resolve_declared_activities(
                 f"Activity ground truth from catalog: {len(from_catalog)} "
                 f"activities for {package}"
             )
-            return from_catalog, False
+            return from_catalog, catalog.get_aliases(package) or {}, False
         logger.warning(
             f"Activity catalog miss for {package}; falling back to dumpsys"
         )
-    return collector.adb.get_declared_activities(package), True
+    return collector.adb.get_declared_activities(package), {}, True
 
 
 def wait_for_connection(collector: Collector, timeout_seconds: int = 120) -> bool:
@@ -111,12 +113,12 @@ def init_or_resume_session(
         session_id = existing
         resume_step = collector.writer.resume_session(session_id)
         if collector._activity_tracker is not None:
-            total_activities, allow_dynamic = _resolve_declared_activities(
+            total_activities, aliases, allow_dynamic = _resolve_declared_activities(
                 collector, package,
             )
             collector._activity_tracker.resume(
                 collector.writer.runtime_session_dir, total_activities, package,
-                allow_dynamic_total=allow_dynamic,
+                allow_dynamic_total=allow_dynamic, aliases=aliases,
             )
         if collector._cost_tracker is not None:
             collector._cost_tracker.resume(collector.writer.runtime_session_dir)
@@ -136,12 +138,12 @@ def init_or_resume_session(
                 logger.info(f"Removed existing session directory: {existing_dir}")
     collector.writer.init_session(session_id, package)
     if collector._activity_tracker is not None:
-        total_activities, allow_dynamic = _resolve_declared_activities(
+        total_activities, aliases, allow_dynamic = _resolve_declared_activities(
             collector, package,
         )
         collector._activity_tracker.initialize(
             collector.writer.runtime_session_dir, total_activities, package,
-            allow_dynamic_total=allow_dynamic,
+            allow_dynamic_total=allow_dynamic, aliases=aliases,
         )
     if collector._cost_tracker is not None:
         collector._cost_tracker.initialize(collector.writer.runtime_session_dir)

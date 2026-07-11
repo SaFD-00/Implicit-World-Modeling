@@ -63,12 +63,59 @@ def load_csv_meta(csv_path: Path) -> dict[str, dict[str, str]]:
     return meta
 
 
-def extract_from_apk(apk_path: Path) -> tuple[str, str, list[str]]:
+_ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+
+
+def _qualify(package: str, cls: str) -> str:
+    """Expand a manifest class attribute to a fully-qualified class name.
+
+    ``.Foo`` → ``<pkg>.Foo``; ``Foo`` (no dot) → ``<pkg>.Foo``; an already
+    fully-qualified ``a.b.Foo`` is returned unchanged.
+    """
+    if cls.startswith("."):
+        return package + cls
+    if "." not in cls:
+        return f"{package}.{cls}"
+    return cls
+
+
+def extract_from_apk(apk_path: Path) -> tuple[str, str, list[str], dict[str, str]]:
     a = APK(str(apk_path))
     package = a.get_package()
     app_name = a.get_app_name() or package
     activities = sorted(f"{package}/{act}" for act in a.get_activities())
-    return package, app_name, activities
+
+    # androguard's get_activities() returns only <activity> elements, never
+    # <activity-alias>. An alias is a launchable component name that resolves
+    # to a real declared activity (its targetActivity) — Calendar's
+    # `.AllInOneCalendarActivity` is an alias for the declared
+    # `...allinone.AllInOneCalendarActivity`. Without the alias map, a visit to
+    # the alias never matches the catalog denominator and coverage stays stuck.
+    #
+    # Read name/targetActivity from the SAME <activity-alias> element via the
+    # lxml manifest tree: calling get_all_attribute_value('activity-alias',
+    # 'name') and (...,'targetActivity') separately and zip-pairing them
+    # reorders the pairs non-deterministically across runs (observed), so the
+    # element-wise walk is the only correct source.
+    declared = set(activities)
+    aliases: dict[str, str] = {}
+    manifest = a.get_android_manifest_xml()
+    for el in manifest.findall(".//activity-alias"):
+        name = el.get(_ANDROID_NS + "name")
+        target = el.get(_ANDROID_NS + "targetActivity")
+        if not name or not target:
+            continue
+        name = _qualify(package, name)
+        target = _qualify(package, target)
+        if f"{package}/{target}" not in declared:
+            logger.warning(
+                f"  alias {name} targets {target} not in declared activities; "
+                f"skipping"
+            )
+            continue
+        aliases[f"{package}/{name}"] = f"{package}/{target}"
+
+    return package, app_name, activities, aliases
 
 
 def main() -> None:
@@ -92,7 +139,7 @@ def main() -> None:
 
     for apk_path in apk_files:
         try:
-            package, app_name, activities = extract_from_apk(apk_path)
+            package, app_name, activities, aliases = extract_from_apk(apk_path)
         except Exception as e:
             logger.warning(f"  FAIL {apk_path.name}: {e}")
             failures.append((apk_path.name, str(e)))
@@ -105,6 +152,7 @@ def main() -> None:
             "sub_category": meta.get("sub_category", ""),
             "source": meta.get("source", ""),
             "activities": activities,
+            "aliases": aliases,
         }
         logger.info(f"  {apk_path.name}: {package} ({app_name}) -> {len(activities)} activities")
 
