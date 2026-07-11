@@ -118,6 +118,55 @@ def test_in_app_states_filters_foreign_screens():
     assert foreign.page_key not in in_app_keys
 
 
+# ── R1 value-guided ranking accessors (explored_anywhere / is_grouped) ──
+
+
+def test_explored_anywhere_spans_pages():
+    memory = Memory()
+    page_a = _state(SIMPLE_XML, ACTIVITY)
+    page_b = _state(SIMPLE_XML, SETTINGS)  # different activity → different page_key
+    memory.record_state(page_a)
+    memory.record_state(page_b)
+    assert page_a.page_key != page_b.page_key
+
+    assert memory.explored_anywhere("button::Search", TOUCH) is False
+    # exploring it on page_a makes it non-novel everywhere.
+    memory.mark_explored(page_a.page_key, "button::Search", TOUCH)
+    assert memory.explored_anywhere("button::Search", TOUCH) is True
+    # a different action type on the same signature stays novel.
+    assert memory.explored_anywhere("button::Search", LONG_TOUCH) is False
+
+
+def test_explored_anywhere_ignores_nav_failed():
+    # nav-fail is a routing-only exclusion, not real coverage: it must not count
+    # as "explored anywhere" or a genuinely unexplored action would be down-ranked.
+    memory = Memory()
+    state = _state(SIMPLE_XML)
+    memory.record_state(state)
+    memory.mark_nav_failed(state.page_key, "button::Add new", TOUCH)
+    assert memory.explored_anywhere("button::Add new", TOUCH) is False
+
+
+def test_is_grouped_reflects_family_membership():
+    family = ElementFamily(name="toggle", element_index=[6, 8], key_element_index=[6])
+    memory = Memory()
+    state = _state(COMPLEX_XML, SETTINGS)
+    memory.record_state(state, [family])
+
+    assert memory.is_grouped(state.page_key, "input:checkbox:Dark mode toggle") is True
+    assert memory.is_grouped(state.page_key, "input:checkbox:Notifications toggle") is True
+    # an ungrouped element and an unknown page both report False.
+    assert memory.is_grouped(state.page_key, "button::Navigate up") is False
+    assert memory.is_grouped("nonexistent", "input:checkbox:Dark mode toggle") is False
+
+
+def test_is_grouped_false_without_families():
+    memory = Memory()
+    state = _state(COMPLEX_XML, SETTINGS)
+    memory.record_state(state)  # no families → no groups
+    assert memory.is_grouped(state.page_key, "input:checkbox:Dark mode toggle") is False
+
+
 def test_record_transition_marks_explored_and_builds_graph():
     memory = Memory()
     src = _state(SIMPLE_XML)

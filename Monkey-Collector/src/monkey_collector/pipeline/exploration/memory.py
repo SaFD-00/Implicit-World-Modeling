@@ -118,6 +118,27 @@ class Memory:
                     candidates.append((state, element, action_type))
         return candidates
 
+    def explored_anywhere(self, element_signature: str, action_type: str) -> bool:
+        """True if this (signature, action) was explored on *any* page this session.
+
+        Cross-page novelty signal for R1 value-guided ranking
+        (docs/research/gui-exploration-world-model.md line 161): an action whose
+        signature+type was already exercised elsewhere yields little new coverage,
+        so it is down-ranked. Reads only ``_explored`` (real coverage), never
+        ``_nav_failed`` (routing-only exclusions).
+        """
+        pair = (element_signature, action_type)
+        return any(pair in explored for explored in self._explored.values())
+
+    def is_grouped(self, page_key: str, element_signature: str) -> bool:
+        """True if *element_signature* belongs to a same-function group on *page_key*.
+
+        Uniqueness signal for R1 ranking: a member of a same-function family is a
+        near-duplicate of its siblings, so exploring a group-free element first
+        reaches more distinct behaviour per step.
+        """
+        return any(element_signature in group for group in self._groups.get(page_key, []))
+
     @property
     def root_page_key(self) -> str | None:
         """page_key of the first state observed in this session.

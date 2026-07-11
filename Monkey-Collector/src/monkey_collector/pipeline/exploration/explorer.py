@@ -37,6 +37,8 @@ from monkey_collector.pipeline.exploration.memory import Memory
 from monkey_collector.pipeline.exploration.navigator import Navigator
 from monkey_collector.pipeline.exploration.state import (
     LONG_TOUCH,
+    SCROLL,
+    SELECT,
     SET_TEXT,
     TOUCH,
     SemanticElement,
@@ -87,6 +89,48 @@ class Explorer(Protocol):
     def return_to_app(self, package: str) -> None: ...
 
     def recover(self, package: str) -> None: ...
+
+
+# R1 value-guided ranking (docs/research/gui-exploration-world-model.md line 161).
+# Action-type preference: an untried tap opens the most new screens, a scroll
+# reveals off-screen frontier, a toggle/select is narrower, and a text entry is
+# the least likely to reach new pages. long_touch is not scored here — it is
+# demoted out of the pool by _pick_unexplored before ranking.
+_TYPE_PRIOR: dict[str, int] = {TOUCH: 3, SCROLL: 2, SELECT: 1, SET_TEXT: 0}
+
+
+def _candidate_score(
+    memory: Memory,
+    state: SemanticState,
+    element: SemanticElement,
+    action_type: str,
+) -> tuple[int, int, int]:
+    """Lexicographic value of one unexplored candidate (higher = pick sooner).
+
+    R1 replaces uniform-random selection with a deterministic 3-signal ranking
+    so each step is spent on the action most likely to reach new activity/page
+    coverage. The tuple is compared descending as ``(novelty, type_prior,
+    uniqueness)``:
+
+    - ``novelty``   1 if this (signature, action_type) was never explored on any
+      page this session, else 0. Index-fallback signatures (``"...:@<index>"``,
+      last ``:`` segment is ``@`` followed by the integer element index) carry no
+      cross-page identity, so they are treated as always novel rather than
+      spuriously matched. The digit check keeps a real label like ``"@home"`` from
+      being mistaken for a fallback.
+    - ``type_prior`` per :data:`_TYPE_PRIOR` (tap > scroll > select > set_text).
+    - ``uniqueness`` 1 if the signature is in no same-function group on this page,
+      else 0 — a group member is a near-duplicate of its siblings.
+    """
+    signature = element.signature
+    last_segment = signature.rsplit(":", 1)[-1]
+    is_index_fallback = last_segment.startswith("@") and last_segment[1:].isdigit()
+    novelty = 1 if is_index_fallback or not memory.explored_anywhere(
+        signature, action_type
+    ) else 0
+    type_prior = _TYPE_PRIOR.get(action_type, 0)
+    uniqueness = 0 if memory.is_grouped(state.page_key, signature) else 1
+    return (novelty, type_prior, uniqueness)
 
 
 class LLMGuidedExplorer:
@@ -211,6 +255,16 @@ class LLMGuidedExplorer:
     def _pick_unexplored(
         self, state: SemanticState
     ) -> tuple[SemanticElement, str] | None:
+        """Pick the highest-value unexplored action on the current screen.
+
+        R1 (docs/research/gui-exploration-world-model.md line 161): the legacy
+        uniform ``rng.choice`` wasted steps re-reaching already-seen behaviour,
+        stalling activity coverage. We keep the exact same unexplored candidate
+        set (unexplored-first, long_touch demoted) but rank within the pool by the
+        lexicographic ``_candidate_score`` (novelty > type_prior > uniqueness);
+        the seeded rng only breaks exact ties, so a fixed seed still yields a
+        fully deterministic action sequence.
+        """
         candidates = [
             (element, action_type)
             for _, element, action_type in self._memory.unexplored_actions([state])
@@ -219,7 +273,14 @@ class LLMGuidedExplorer:
             return None
         # Prefer non-long-press actions; long_touch is a low-value follow-up.
         primary = [c for c in candidates if c[1] != LONG_TOUCH]
-        return self._rng.choice(primary or candidates)
+        pool = primary or candidates
+        scored = [
+            (_candidate_score(self._memory, state, element, action_type), (element, action_type))
+            for element, action_type in pool
+        ]
+        best = max(score for score, _ in scored)
+        top = [choice for score, choice in scored if score == best]
+        return self._rng.choice(top)
 
     def _fallback(
         self,
