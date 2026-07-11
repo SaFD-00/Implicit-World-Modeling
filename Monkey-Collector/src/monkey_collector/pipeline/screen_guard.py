@@ -32,6 +32,17 @@ SYSTEM_PACKAGES: frozenset[str] = frozenset({
     "com.android.launcher3",
 })
 
+# The home-screen launcher packages. A subset of SYSTEM_PACKAGES (kept in sync):
+# every entry here MUST also be in SYSTEM_PACKAGES above, so a drift here still
+# counts as leaving the app. Distinguished separately because back-exit learning
+# only marks a page when a Back press drifts specifically to the launcher (the
+# app was truly exited to home, not bounced to a gms/store surface).
+LAUNCHER_PACKAGES: frozenset[str] = frozenset({
+    "com.google.android.apps.nexuslauncher",
+    "com.android.launcher3",
+})
+
+
 # Packages that present a permission / install grant dialog we can act on.
 _PERMISSION_PACKAGES: frozenset[str] = frozenset({
     "com.google.android.permissioncontroller",
@@ -73,6 +84,11 @@ def is_permission_dialog(top_package: str) -> bool:
 def is_system_screen(top_package: str) -> bool:
     """Return True if the foreground package is a system/launcher screen."""
     return (top_package or "") in SYSTEM_PACKAGES
+
+
+def is_launcher(package: str) -> bool:
+    """Return True if the package is the home-screen launcher."""
+    return (package or "") in LAUNCHER_PACKAGES
 
 
 def find_dialog_button(

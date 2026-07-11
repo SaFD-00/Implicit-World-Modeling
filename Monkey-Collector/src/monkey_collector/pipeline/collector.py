@@ -50,7 +50,7 @@ class Collector:
         writer: DataWriter,
         max_steps: int = 1500,
         action_delay: float = 1.0,
-        xml_timeout: float = 25.0,
+        xml_timeout: float = 12.0,
         budget_mode: str = "steps",
         max_duration_sec: int = 0,
         activity_coverage_tracker: ActivityCoverageTracker | None = None,

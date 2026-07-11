@@ -34,6 +34,7 @@ class TestRunArgsParsing:
             assert args.luminance_low_res_width is None
             assert args.duration is None
             assert args.budget_mode is None
+            assert args.signal_timeout is None
 
     def test_apps_required(self):
         from monkey_collector.cli import main
@@ -114,6 +115,16 @@ class TestRunArgsParsing:
             args = mock_cmd.call_args[0][0]
             assert args.duration == "90m"
             assert args.budget_mode == "time"
+
+    def test_signal_timeout_flag(self):
+        from monkey_collector.cli import main
+
+        with patch("sys.argv", [
+            "monkey-collect", "run", "--apps", "all", "--signal-timeout", "20",
+        ]), patch("monkey_collector.cli.cmd_run") as mock_cmd:
+            main()
+            args = mock_cmd.call_args[0][0]
+            assert args.signal_timeout == 20.0
 
     def test_budget_mode_rejects_invalid_choice(self):
         from monkey_collector.cli import main

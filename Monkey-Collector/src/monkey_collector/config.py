@@ -36,6 +36,7 @@ _BUILTIN_DEFAULTS: dict = {
         "runtime_dir": "runtime",
         "budget_mode": "time",
         "max_duration": "2h",
+        "signal_timeout_sec": 12.0,
     },
     "llm": {
         "input_mode": "api",
@@ -83,6 +84,9 @@ class CollectionConfig:
     # (product default). "steps": run until max_steps actions (legacy).
     budget_mode: str = "time"
     max_duration_sec: int = 7200
+    # Per-signal wait before a stuck episode escalates (nudge → force-relaunch).
+    # Env: MC_COLLECTION_SIGNAL_TIMEOUT_SEC. See recovery.MAX_SIGNAL_TIMEOUTS.
+    signal_timeout_sec: float = 12.0
 
 
 @dataclass
@@ -254,6 +258,7 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_COLLECTION_RUNTIME_DIR",                "collection",      "runtime_dir",               "str"),
         ("MC_COLLECTION_BUDGET_MODE",                "collection",      "budget_mode",               "str"),
         ("MC_COLLECTION_MAX_DURATION",               "collection",      "max_duration",              "str"),
+        ("MC_COLLECTION_SIGNAL_TIMEOUT_SEC",         "collection",      "signal_timeout_sec",        "float"),
         ("MC_LLM_INPUT_MODE",                        "llm",             "input_mode",                "str"),
         ("MC_LLM_ELEMENT_EXTRACTION",                "llm",             "element_extraction",        "bool"),
         ("MC_SCREEN_MATCHING_LUMINANCE_PREFILTER",     "screen_matching", "luminance_prefilter",       "bool"),
@@ -296,6 +301,14 @@ def _from_raw(raw: dict) -> RunConfig:
 
     strategy = _normalize_strategy(expl.get("strategy", "BFS"), source="config")
 
+    signal_timeout_sec = float(coll.get("signal_timeout_sec", 12.0))
+    if signal_timeout_sec <= 0:
+        logger.warning(
+            "Non-positive signal_timeout_sec %r — falling back to 12.0",
+            signal_timeout_sec,
+        )
+        signal_timeout_sec = 12.0
+
     return RunConfig(
         exploration=ExplorationConfig(strategy=strategy),
         collection=CollectionConfig(
@@ -307,6 +320,7 @@ def _from_raw(raw: dict) -> RunConfig:
             runtime_dir=str(coll.get("runtime_dir", "runtime")),
             budget_mode=_normalize_budget_mode(coll.get("budget_mode", "time"), source="config"),
             max_duration_sec=parse_duration(coll.get("max_duration", "2h")),
+            signal_timeout_sec=signal_timeout_sec,
         ),
         llm=LlmConfig(
             input_mode=str(llm.get("input_mode", "api")),
@@ -416,6 +430,9 @@ def merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfi
         coll = replace(coll, data_dir=data_dir)
     if runtime_dir is not None:
         coll = replace(coll, runtime_dir=runtime_dir)
+    signal_timeout = getattr(args, "signal_timeout", None)
+    if signal_timeout is not None:
+        coll = replace(coll, signal_timeout_sec=float(signal_timeout))
 
     # llm
     input_mode = getattr(args, "input_mode", None)

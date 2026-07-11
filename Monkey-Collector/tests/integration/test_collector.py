@@ -269,7 +269,9 @@ class TestSessionEndSignal:
 class TestRunSessionTimeout:
     @patch("monkey_collector.pipeline.collection_loop.time.sleep")
     def test_max_timeouts(self, mock_sleep, mock_adb):
-        # 5 consecutive timeouts (None) should end session
+        # MAX_SIGNAL_TIMEOUTS (3) consecutive timeouts (None) escalate to a
+        # force-relaunch; a stream of timeouts eventually ends the session via
+        # the idle backstop.
         signals = [None, None, None, None, None]
         collector, explorer, server, writer = _make_collector(mock_adb, signals)
 

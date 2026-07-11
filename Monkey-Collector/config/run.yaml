@@ -8,7 +8,8 @@
 #
 # Experiment runs sweep several keys. Canonical git default: exploration.strategy=BFS,
 # collection.max_steps=1500, collection.action_delay_ms=1500,
-# collection.budget_mode=time, collection.max_duration=2h, llm.element_extraction=false,
+# collection.budget_mode=time, collection.max_duration=2h,
+# collection.signal_timeout_sec=12, llm.element_extraction=false,
 # screen_matching.luminance_prefilter=true, screen_matching.persist_filtered=true,
 # screen_matching.bm25_top_k=5, screen_matching.element_criterion=diff,
 # screen_matching.element_diff_max=5, screen_matching.element_jaccard_min=0.5,
@@ -43,6 +44,10 @@ collection:
   # Wall-clock budget when budget_mode=time. Formats: 2h / 120m / 7200s / 7200
   # (bare number = seconds). Env: MC_COLLECTION_MAX_DURATION
   max_duration: 2h
+  # Per-signal wait (seconds) before a stuck screen escalates: nudge on timeouts
+  # 1-2, force-relaunch on the 3rd (recovery.MAX_SIGNAL_TIMEOUTS), so worst-case
+  # one stuck episode waits signal_timeout_sec×3. Env: MC_COLLECTION_SIGNAL_TIMEOUT_SEC
+  signal_timeout_sec: 12
 
 llm:
   # Input text generation mode. Options: api | random

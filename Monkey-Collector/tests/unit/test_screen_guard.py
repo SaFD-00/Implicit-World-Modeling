@@ -1,8 +1,11 @@
 """Tests for monkey_collector.pipeline.screen_guard — screen classification."""
 
 from monkey_collector.pipeline.screen_guard import (
+    LAUNCHER_PACKAGES,
+    SYSTEM_PACKAGES,
     find_dialog_button,
     is_keyboard,
+    is_launcher,
     is_permission_dialog,
     is_system_screen,
 )
@@ -49,6 +52,30 @@ class TestIsSystemScreen:
 
     def test_target_app_is_not_system(self):
         assert not is_system_screen("com.test.app")
+
+
+class TestIsLauncher:
+    def test_nexuslauncher(self):
+        assert is_launcher("com.google.android.apps.nexuslauncher")
+
+    def test_launcher3(self):
+        assert is_launcher("com.android.launcher3")
+
+    def test_target_app_is_not_launcher(self):
+        assert not is_launcher("com.test.app")
+
+    def test_gms_is_not_launcher(self):
+        # A gms/store surface is a system screen but NOT the launcher, so a
+        # Back drift there must not be learned as a back-exit page.
+        assert not is_launcher("com.google.android.gms")
+
+    def test_empty_is_not_launcher(self):
+        assert not is_launcher("")
+
+    def test_launcher_packages_subset_of_system(self):
+        # Invariant: every launcher package is also a system package, so a
+        # launcher drift still counts as leaving the app.
+        assert LAUNCHER_PACKAGES <= SYSTEM_PACKAGES
 
 
 class TestFindDialogButton:

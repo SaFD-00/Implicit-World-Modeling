@@ -26,6 +26,7 @@ def _full_args(**overrides) -> argparse.Namespace:
         steps=None,
         duration=None,
         budget_mode=None,
+        signal_timeout=None,
         seed=None,
         delay=None,
         port=None,
@@ -63,6 +64,7 @@ def test_builtin_defaults_no_yaml():
     assert cfg.collection.runtime_dir == "runtime"
     assert cfg.collection.budget_mode == "time"
     assert cfg.collection.max_duration_sec == 7200
+    assert cfg.collection.signal_timeout_sec == 12.0
     assert cfg.llm.input_mode == "api"
     assert cfg.llm.element_extraction is False
     assert cfg.screen_matching.luminance_prefilter is True
@@ -412,6 +414,36 @@ def test_invalid_budget_mode_falls_back_to_time(monkeypatch):
     monkeypatch.setenv("MC_COLLECTION_BUDGET_MODE", "bogus")
     cfg = load_run_config(path=NONEXISTENT)
     assert cfg.collection.budget_mode == "time"
+
+
+# ── signal_timeout_sec (YAML + env + CLI + non-positive fallback) ──
+
+def test_yaml_signal_timeout_overrides_builtin(tmp_path):
+    path = _write_yaml(tmp_path, "collection:\n  signal_timeout_sec: 8\n")
+    cfg = load_run_config(path=path)
+    assert cfg.collection.signal_timeout_sec == 8.0
+
+
+def test_env_signal_timeout_coercion(monkeypatch):
+    monkeypatch.setenv("MC_COLLECTION_SIGNAL_TIMEOUT_SEC", "20")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.collection.signal_timeout_sec == 20.0
+
+
+def test_non_positive_signal_timeout_falls_back_to_12(tmp_path):
+    path = _write_yaml(tmp_path, "collection:\n  signal_timeout_sec: 0\n")
+    cfg = load_run_config(path=path)
+    assert cfg.collection.signal_timeout_sec == 12.0
+
+    neg = _write_yaml(tmp_path, "collection:\n  signal_timeout_sec: -5\n")
+    cfg2 = load_run_config(path=neg)
+    assert cfg2.collection.signal_timeout_sec == 12.0
+
+
+def test_cli_signal_timeout_override():
+    cfg = load_run_config(path=NONEXISTENT)
+    cfg = merge_with_cli_args(cfg, _full_args(signal_timeout=20.0))
+    assert cfg.collection.signal_timeout_sec == 20.0
 
 
 # ── CLI: budget-mode / duration resolution (D2) ──

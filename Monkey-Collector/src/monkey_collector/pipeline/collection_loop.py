@@ -18,6 +18,7 @@ from monkey_collector.pipeline.recovery import (
     MAX_EXTERNAL_REINITS,
     MAX_NO_CHANGE_RETRIES,
     MAX_SAME_PAGE_STEPS,
+    MAX_SIGNAL_TIMEOUTS,
     MAX_TIMEOUT_REINITS,
     REINIT_FORGIVE_STEPS,
     describe_action_element,
@@ -28,6 +29,7 @@ from monkey_collector.pipeline.recovery import (
 from monkey_collector.pipeline.screen_guard import (
     find_dialog_button,
     is_keyboard,
+    is_launcher,
     is_permission_dialog,
     is_system_screen,
 )
@@ -75,6 +77,12 @@ class CollectionState:
     is_first_screen: bool = False
     current_page_id: int | None = None
     root_page_id: int | None = None
+    # Pages from which a deliberate Back press was observed to exit the app to
+    # the launcher this session. Back is suppressed on these pages (relaunch /
+    # tap instead) so a known back-exit page cannot oscillate out-and-back.
+    # Learned from press_back drift only (see D4) — tap-driven launcher trips
+    # and keyboard-dismiss backs are never recorded.
+    back_exit_page_ids: set[int] = field(default_factory=set)
     same_page_count: int = 0
     page_graph: PageGraph = field(default_factory=PageGraph)
     # Set per screen when a ScreenMatcher is active; carries the element-set
@@ -101,6 +109,32 @@ def _is_root_screen(state: CollectionState) -> bool:
     )
 
 
+def _back_would_exit(state: CollectionState) -> bool:
+    """True when a deliberate Back on the current page would exit the app.
+
+    Union of the session root (back from it only reaches the launcher) and the
+    pages learned this session to back-exit to the launcher
+    (``back_exit_page_ids``). On these pages the loop relaunches / taps instead
+    of pressing Back, and ``select_action`` is told ``is_root_screen=True``.
+    """
+    return _is_root_screen(state) or (
+        state.current_page_id is not None
+        and state.current_page_id in state.back_exit_page_ids
+    )
+
+
+def _mark_if_back_exited(state: CollectionState, exited: bool) -> None:
+    """Record the current page as back-exiting when a Back press left the app.
+
+    ``exited`` is ``safe_press_back``'s return (True = the Back drifted out of
+    the app and recovery ran). Marking the page it backed FROM suppresses Back
+    there next time. No-ops on the keyboard-dismiss path, which never calls
+    this (D4: a keyboard Back is not a page back-exit).
+    """
+    if exited and state.current_page_id is not None:
+        state.back_exit_page_ids.add(state.current_page_id)
+
+
 def _has_budget(
     state: CollectionState, clock: Callable[[], float], deadline: float | None
 ) -> bool:
@@ -118,7 +152,6 @@ def run_collection_loop(
     now=None,
 ) -> None:
     """Run the main collection while-loop, mutating state until session ends."""
-    max_timeouts = 5
     # `now` is a sentinel (not `time.monotonic` as a default arg) so tests can
     # inject a fake clock at call time; a real default arg would bind
     # `time.monotonic` at function-definition time and ignore monkeypatching.
@@ -154,9 +187,9 @@ def run_collection_loop(
                 state.timeout_count += 1
                 logger.warning(
                     f"Step {state.step}: signal timeout "
-                    f"({state.timeout_count}/{max_timeouts})"
+                    f"({state.timeout_count}/{MAX_SIGNAL_TIMEOUTS})"
                 )
-                if state.timeout_count >= max_timeouts:
+                if state.timeout_count >= MAX_SIGNAL_TIMEOUTS:
                     if state.step - state.last_timeout_reinit_step >= REINIT_FORGIVE_STEPS:
                         state.reinit_timeout_count = 0
                     state.reinit_timeout_count += 1
@@ -257,7 +290,7 @@ def _handle_no_change(
         collector.explorer.exclude_element(state.last_action.element_index)
 
     if state.no_change_retries >= MAX_NO_CHANGE_RETRIES:
-        if state.is_first_screen or _is_root_screen(state):
+        if state.is_first_screen or _back_would_exit(state):
             logger.warning(
                 f"Step {state.step}: {MAX_NO_CHANGE_RETRIES} "
                 f"no-change retries, on first/root screen — relaunching instead of back"
@@ -268,7 +301,9 @@ def _handle_no_change(
                 f"Step {state.step}: {MAX_NO_CHANGE_RETRIES} "
                 f"no-change retries, pressing back"
             )
-            safe_press_back(collector.adb, collector.explorer, package)
+            _mark_if_back_exited(state, safe_press_back(
+                collector.adb, collector.explorer, package
+            ))
         collector.server.clear_signal_queue()
         state.no_change_retries = 0
         collector.explorer.clear_excluded()
@@ -282,7 +317,7 @@ def _handle_no_change(
             collector.explorer.set_screen_context(state.last_raw_xml, package=package)
         action = collector.explorer.select_action(
             state.last_ui_tree, state.step, is_first_screen=state.is_first_screen,
-            page_id=state.current_page_id, is_root_screen=_is_root_screen(state),
+            page_id=state.current_page_id, is_root_screen=_back_would_exit(state),
         )
         logger.info(
             f"Step {state.step}: retry {action.action_type} "
@@ -299,13 +334,15 @@ def _handle_no_change(
 
         time.sleep(collector.action_delay)
     else:
-        if state.is_first_screen or _is_root_screen(state):
+        if state.is_first_screen or _back_would_exit(state):
             logger.info(
                 f"Step {state.step}: no UI tree, on first/root screen — relaunching instead of back"
             )
             relaunch_app_fallback(collector.adb, package)
         else:
-            safe_press_back(collector.adb, collector.explorer, package)
+            _mark_if_back_exited(state, safe_press_back(
+                collector.adb, collector.explorer, package
+            ))
         state.no_change_retries = 0
         collector.explorer.clear_excluded()
         state.last_action = None
@@ -328,6 +365,23 @@ def _handle_external_app(
     record inside ``return_to_app``/``recover``, and the logged event carries
     ``transition: false`` so the offline rebuild and converter skip it.
     """
+    # Back-exit learning (D4): if the drift is specifically to the launcher and
+    # the last action was a deliberate Back, the current page back-exits the
+    # app — remember it so Back is suppressed there next time. tap-driven trips
+    # and non-launcher drifts (gms/store) are never marked.
+    detected = (payload or {}).get("detected_package", "")
+    if (
+        is_launcher(detected)
+        and state.last_action is not None
+        and state.last_action.action_type == "press_back"
+        and state.current_page_id is not None
+    ):
+        state.back_exit_page_ids.add(state.current_page_id)
+        logger.warning(
+            f"Step {state.step}: back from page {state.current_page_id} exited "
+            f"to launcher {detected} — suppressing back on this page"
+        )
+
     state.external_app_count += 1
     logger.warning(
         f"Step {state.step}: external app detected "
@@ -676,10 +730,12 @@ def _process_xml_signal(
                 f"Step {state.step}: stuck on page {state.current_page_id} "
                 f"for {state.same_page_count} steps, forcing back"
             )
-            if state.is_first_screen or _is_root_screen(state):
+            if state.is_first_screen or _back_would_exit(state):
                 relaunch_app_fallback(collector.adb, package)
             else:
-                safe_press_back(collector.adb, collector.explorer, package)
+                _mark_if_back_exited(state, safe_press_back(
+                    collector.adb, collector.explorer, package
+                ))
             collector.server.clear_signal_queue()
             collector.explorer.clear_excluded()
             state.same_page_count = 0
@@ -737,7 +793,7 @@ def _process_xml_signal(
             state.last_action = None
             return True
         state.empty_ui_retries = 0
-        if state.is_first_screen or _is_root_screen(state):
+        if state.is_first_screen or _back_would_exit(state):
             logger.warning(
                 f"Step {state.step}: no UI elements, on first/root screen — relaunching instead of back"
             )
@@ -746,7 +802,9 @@ def _process_xml_signal(
             logger.warning(
                 f"Step {state.step}: no UI elements, pressing back"
             )
-            safe_press_back(collector.adb, collector.explorer, package)
+            _mark_if_back_exited(state, safe_press_back(
+                collector.adb, collector.explorer, package
+            ))
         state.last_ui_tree = None
         state.last_action = None
         return True
@@ -768,7 +826,7 @@ def _process_xml_signal(
     collector.explorer.set_screen_context(xml_str, activity_name, package)
     action = collector.explorer.select_action(
         ui_tree, state.step, is_first_screen=state.is_first_screen,
-        page_id=state.current_page_id, is_root_screen=_is_root_screen(state),
+        page_id=state.current_page_id, is_root_screen=_back_would_exit(state),
     )
     logger.info(
         f"Step {state.step}: {action.action_type} "

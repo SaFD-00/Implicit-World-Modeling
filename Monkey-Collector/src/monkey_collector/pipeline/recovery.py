@@ -16,7 +16,7 @@ MAX_EXTERNAL_APP_RETRIES = 10
 MAX_SAME_PAGE_STEPS = 5
 MAX_EMPTY_UI_RETRIES = 2
 # Maximum number of re-initialization attempts before giving up on a session.
-# A reinit triggers when MAX_EXTERNAL_APP_RETRIES / max_timeouts is hit; each
+# A reinit triggers when MAX_EXTERNAL_APP_RETRIES / MAX_SIGNAL_TIMEOUTS is hit; each
 # reinit resets that counter and force-relaunches the target app. If the limit
 # below is exhausted the session ends as before.
 #
@@ -29,7 +29,7 @@ MAX_EMPTY_UI_RETRIES = 2
 # Calendar's back-navigation from certain views, and a Music Player permission
 # dialog) put the target app into a stuck "loading" state — near-empty XML,
 # no further accessibility events — that only recovers via the full
-# 5-timeout/~2min force-relaunch cycle, and does so reliably every time. But
+# MAX_SIGNAL_TIMEOUTS force-relaunch cycle, and does so reliably every time. But
 # it can recur every 10-25 steps, well inside REINIT_FORGIVE_STEPS, so the old
 # MAX_TIMEOUT_REINITS=3 budget was exhausted (and the session killed) after
 # only 2-4 minutes even though every single relaunch was in fact working. The
@@ -42,9 +42,11 @@ MAX_EMPTY_UI_RETRIES = 2
 MAX_TIMEOUT_REINITS = 20
 MAX_EXTERNAL_REINITS = 10
 REINIT_FORGIVE_STEPS = 15
-# Suppress press_back for the first N steps of a session so an early back does
-# not exit the app before any data is collected (the cause of 1-2 step sessions).
-FIRST_STEPS_NO_BACK = 3
+# Consecutive signal timeouts before escalating to a force-relaunch. With
+# collection.signal_timeout_sec=12s this caps one stuck episode's worst-case
+# wait at 12s×3=36s before the reinit cycle kicks in (nudge on timeouts 1-2,
+# relaunch on the 3rd).
+MAX_SIGNAL_TIMEOUTS = 3
 
 
 def tap_random_fallback(adb: AdbClient) -> None:
@@ -114,8 +116,14 @@ def safe_press_back(
     adb: AdbClient,
     explorer: Explorer,
     package: str,
-) -> None:
-    """Press back and recover if the action caused the app to exit."""
+) -> bool:
+    """Press back and recover if the action caused the app to exit.
+
+    Returns True iff the back press left the target app (and recovery ran) —
+    the caller can then remember that back exits from the current page, so a
+    later deliberate back on the same page is suppressed. Returns False when
+    back stayed inside the app.
+    """
     import time
 
     from loguru import logger
@@ -125,3 +133,5 @@ def safe_press_back(
     if explorer.has_left_app(package):
         logger.warning("press_back caused app exit, recovering")
         explorer.return_to_app(package)
+        return True
+    return False

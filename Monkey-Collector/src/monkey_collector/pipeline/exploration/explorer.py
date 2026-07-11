@@ -41,6 +41,7 @@ from monkey_collector.pipeline.exploration.state import (
     SemanticElement,
     SemanticState,
 )
+from monkey_collector.pipeline.screen_guard import is_launcher
 from monkey_collector.xml.ui_tree import UITree
 
 if TYPE_CHECKING:
@@ -227,8 +228,11 @@ class LLMGuidedExplorer:
     ) -> Action:
         """Choose a safe action when there is nothing unexplored to do.
 
-        On the first/root screen a back press would exit the app, so tap an
-        element (or a random point) instead; elsewhere press back to retreat.
+        When back would exit the app, tap an element (or a random point)
+        instead; elsewhere press back to retreat. ``is_root_screen`` keeps its
+        name for the Protocol but now carries the loop's broader back-exit
+        judgement (session root OR a page learned to back-exit to the launcher
+        — see collection_loop._back_would_exit), not just the literal root page.
         """
         self._last_record = None
         if is_first_screen or is_root_screen:
@@ -323,9 +327,19 @@ class LLMGuidedExplorer:
         happened — and False when a single Back was enough to land back in it.
         Clears the pending transition record so the excursion is never
         attributed as a routing-memory transition.
+
+        When we have already drifted all the way to the launcher (home), a Back
+        press does nothing useful — it stays on the launcher — so skip it and
+        relaunch the app directly. This is the light-weight recovery half of the
+        back-exit fix: a page that back-exits to home is re-fronted in one
+        launch instead of a wasted Back + relaunch.
         """
         self._last_record = None
         try:
+            if is_launcher(self.adb.get_current_package()):
+                self.adb.launch_app(package)
+                time.sleep(3)
+                return True
             self.adb.press_back()
             time.sleep(0.5)
             if self.adb.get_current_package() != package:

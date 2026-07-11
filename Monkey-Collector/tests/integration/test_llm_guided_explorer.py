@@ -82,6 +82,22 @@ def test_return_to_app_no_relaunch_when_back_returns(mock_adb):
     assert explorer._last_record is None
 
 
+def test_return_to_app_launcher_skips_back(mock_adb):
+    # Already drifted to the launcher (home): a Back would stay on home, so
+    # skip it and relaunch the app directly (light-weight recovery half).
+    from unittest.mock import patch
+
+    explorer = _explorer(mock_adb)
+    mock_adb.get_current_package.return_value = "com.google.android.apps.nexuslauncher"
+
+    with patch("monkey_collector.pipeline.exploration.explorer.time.sleep"):
+        launched = explorer.return_to_app(PACKAGE)
+
+    assert launched is True
+    mock_adb.press_back.assert_not_called()
+    mock_adb.launch_app.assert_called_once_with(PACKAGE)
+
+
 def test_first_screen_never_presses_back(mock_adb):
     explorer = _explorer(mock_adb)
     tree = _on_screen(explorer)

@@ -116,6 +116,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         writer=writer,
         max_steps=cfg.collection.max_steps,
         action_delay=cfg.collection.action_delay_ms / 1000.0,
+        xml_timeout=cfg.collection.signal_timeout_sec,
         budget_mode=cfg.collection.budget_mode,
         max_duration_sec=cfg.collection.max_duration_sec,
         activity_coverage_tracker=activity_tracker,
@@ -516,6 +517,16 @@ def main() -> None:
     )
     p.add_argument("--seed", type=int, default=None, help="Random seed")
     p.add_argument("--delay", type=int, default=None, help="Action delay in ms")
+    p.add_argument(
+        "--signal-timeout",
+        type=float,
+        default=None,
+        help=(
+            "Seconds to wait for each screenshot/XML signal before a stuck "
+            "screen escalates (nudge on timeouts 1-2, force-relaunch on the "
+            "3rd); default from config/run.yaml (12s)."
+        ),
+    )
     p.add_argument("--port", type=int, default=None, help="TCP server port")
     p.add_argument("--data-dir", default=None, help="Durable data root (pages/observations, page_graph)")
     p.add_argument("--runtime-dir", default=None, help="Ephemeral runtime root (metadata, events, cost/coverage)")
