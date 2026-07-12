@@ -87,21 +87,27 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 
 ### 모델 family 별 image budget
 
-노트북 Cell 5 의 `MODEL_FAMILY_CONFIG` (factor / max_tokens / min_tokens) 와 `_DATASET_CONFIG[ds]["image_overrides"]` 의 token 단위 override 로 관리된다. token 예산은 **학습 데이터셋** 으로 결정 — 학습된 모델은 평가 데이터셋과 무관하게 학습 시 budget 으로 추론한다 (학습-추론 mismatch 방지).
+**이 절이 image budget 의 단일 진실원이다** (AGENTS / README 는 여기를 참조한다). 노트북 Cell 5 의 `MODEL_FAMILY_CONFIG` (factor / max_tokens / min_tokens) 와 `_DATASET_CONFIG[ds]["image_overrides"]` 의 token 단위 override 로 관리된다. token 예산은 **학습 데이터셋** 으로 결정 — 학습된 모델은 평가 데이터셋과 무관하게 학습 시 budget 으로 추론한다 (학습-추론 mismatch 방지). `max_pixels = max_tokens × factor²`, `min_pixels = min_tokens × factor²` 이며 모든 학습 DS 가 family default `max_tokens=2048` / `min_tokens=4` 를 쓴다 (dataset 별 `image_overrides` 없음).
 
-| family | patch | merge | factor | min_tokens | min_pixels |
-|---|---|---|---|---|---|
-| Qwen3-VL | 16 | 2 | 32 | 4 | 4,096 |
-| Qwen2.5-VL | 14 | 2 | 28 | 4 | 3,136 |
+| family | patch | merge | factor | max_tokens | **max_pixels** | min_tokens | min_pixels |
+|---|---|---|---|---|---|---|---|
+| Qwen3-VL (8B) | 16 | 2 | **32** | 2,048 | **2,097,152** (= 2048 × 32²) | 4 | 4,096 |
+| Qwen2.5-VL (3B/7B) | 14 | 2 | **28** | 2,048 | **1,605,632** (= 2048 × 28²) | 4 | 3,136 |
 
-| 학습 DS | max_tokens | Qwen3-VL (factor 32) | Qwen2.5-VL (factor 28) |
-|---|---|---|---|
-| AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, MC | 2,048 (family default) | 2,097,152 / 4,096 | 1,605,632 / 3,136 |
-| AC_EXP05 (Qwen2.5-VL 전용) | 2,048 (family default) | — (미사용) | **1,605,632 / 3,136** |
+**budget 이 이미지를 실제로 어떤 크기로 만드는가** — base 스크린샷 **1080×2400 (W×H)** 를 각 설정으로 `smart_resize` 한 결과:
 
-> **AC_EXP05 는 budget override 불필요**: EXP05 데이터 생성 budget (1,605,632) 이 Qwen2.5-VL family default 와 정확히 같아 `image_overrides` 를 두지 않는다 — 학습 프로세서 `image_max_pixels=1,605,632` 와 데이터 생성 `--image-budget 1605632` 가 자동으로 일치하므로 grounding 정합이 유지된다 (Slack 요구 "두 값 일치" 충족). EXP05 는 Qwen2.5-VL 전용이라 Qwen3-VL 열은 미사용.
+| 설정 | factor | max_pixels | → 리사이즈 (W×H) | visual tokens |
+|---|---|---|---|---|
+| **Qwen2.5-VL (우리 값)** | 28 | **1,605,632** | **840 × 1876** | **2,010** |
+| **Qwen3-VL (우리 값)** | 32 | **2,097,152** | **960 × 2144** | **2,010** |
+| Qwen3-VL 에 EXP05 budget 을 억지로 준 경우 | 32 | 1,605,632 | 832 × 1888 | 1,534 |
+| (참고) Qwen 공식 기본값 — Qwen2.5-VL | 28 | 12,845,056 | 1092 × 2408 | 3,354 |
 
-`min_tokens=4` 는 family 공통. YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family default 에 dataset override 를 token-aware 로 덮어써 자동 주입한다. 평가측 `scripts/_common.sh::build_infer_cmd` 는 `TRAIN_DATASET` 글로벌 (parse_args 에서 set) 로 학습 DS 를 식별해 동일 budget 을 적용한다.
+> **함정 — "토큰 수가 같으니 괜찮겠지"**: 두 family 모두 `max_tokens=2048` 기준이라 **visual token 수는 2,010 개로 동일** 하다. 다른 것은 **이미지의 실제 픽셀 크기** 다 (840×1876 vs 960×2144). 그래서 EXP05 데이터 (840×1876 절대 픽셀 좌표) 를 Qwen3-VL 로 학습하면 모델이 보는 이미지는 960×2144 인데 좌표는 840×1876 이라 **grounding 이 조용히 깨진다** — 토큰 수 일치는 아무것도 보장하지 않는다. 이것이 EXP05 를 Qwen2.5-VL 전용으로 묶는 두 번째 이유다 (첫 번째는 위 좌표 규약 mismatch).
+
+> **1,605,632 는 "기본값" 이 아니라 의도적 override**: Qwen 공식 기본 `max_pixels` 는 **12,845,056** 이다. 1080×2400 을 공식 기본값으로 돌리면 1092×2408 / 3,354 tokens 가 나온다. 우리는 이를 명시적으로 `max_tokens=2048` (Qwen2.5-VL → 1,605,632) 로 낮춰 잡았고, **데이터 생성 시 `--image-budget` 과 학습 프로세서 `image_max_pixels` 가 반드시 같은 값이어야 한다**. EXP05 는 데이터 생성 budget (`--image-budget 1605632`) 이 Qwen2.5-VL family default 와 정확히 같아 `image_overrides` 를 두지 않아도 자동으로 일치한다 (Slack 요구 "두 값 일치" 충족).
+
+YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family default 에 dataset override 를 token-aware 로 덮어써 자동 주입한다. 평가측 `scripts/_common.sh::build_infer_cmd` 는 `TRAIN_DATASET` 글로벌 (parse_args 에서 set) 로 학습 DS 를 식별해 동일 budget 을 적용한다.
 
 > vLLM `gpu_memory_utilization` 은 `build_infer_cmd` 내부에서 기본 `0.80`, 환경변수 `VLLM_GPU_MEM_UTIL` 로 호출 단위 override. `build_infer_cmd` 는 `stage{1,2}_eval.sh` 양쪽에서 공통으로 호출되므로 stage1/2 모두 동일하게 적용된다 (예: 동일 GPU 에서 학습 병행 / OOM 마진 확보 시 `VLLM_GPU_MEM_UTIL=0.6 bash ./scripts/stage2_eval.sh ...`). 미설정 시 0.80 그대로.
 
@@ -222,11 +228,11 @@ data/
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_{state,action}.jsonl  # EXP03 dual-task test 미러 (4 파일, 좌표 + 프롬프트)
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_state_without_open_app.jsonl  # state without_open_app sibling (2 파일) — train 포함 총 7 파일
 │   # NOTE: 본문 = 좌표(EXP03 와 동일 멤버십·좌표) + 프롬프트 업그레이드 (action scroll→swipe, "html-style XML" 명시, [SWIPE] 규칙), 이미지 경로는 EXP01 채택. Stage 2 보류 (`_STAGE1_ONLY`). EXP04 pool ⊆ EXP03 pool → drop train 320 / 전체 stage1 450 (0.67%).
-├── AndroidControl_EXP05/                 # AC_EXP01 ratio73 멤버십 + 절대 픽셀 좌표(840×1876) 미러 (scripts/mirror_exp05.py 산출 — stage1-only, Qwen2.5-VL 전용)
-│   ├── implicit-world-modeling_stage1_train.jsonl                          # EXP01 train 미러 (절대 픽셀 좌표, 47,556 — 입력 50,000 / drop 2,444)
-│   ├── implicit-world-modeling_stage1_test_{id,ood}_{state,action}.jsonl  # dual-task test 미러 (4 파일, 절대 픽셀)
+├── AndroidControl_EXP05/                 # AC_EXP01 ratio73 멤버십 + 절대 픽셀 좌표 미러 (scripts/mirror_exp05.py 산출 — stage1-only, Qwen2.5-VL 전용). 좌표계·budget 은 §2 참조
+│   ├── implicit-world-modeling_stage1_train.jsonl                          # EXP01 train 미러 (47,556 — 입력 50,000 / drop 2,444)
+│   ├── implicit-world-modeling_stage1_test_{id,ood}_{state,action}.jsonl  # dual-task test 미러 (4 파일)
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_state_without_open_app.jsonl  # state without_open_app sibling (2 파일) — train 포함 총 7 파일, 64,787 행
-│   # NOTE: 본문 = 절대 픽셀 좌표 840×1876 (AndroidWorld 해상도 정렬, budget 1,605,632, factor 28), 이미지 경로는 EXP01 채택 ("AndroidControl/images/..."). Stage 2 보류 (`_STAGE1_ONLY`). 소스는 Drive '0710_버젼'.
+│   # NOTE: 이미지 경로는 EXP01 채택 ("AndroidControl/images/..."). Stage 2 보류 (`_STAGE1_ONLY`). 소스는 Drive '0710_버젼'.
 ├── MonkeyCollection/                 # Stage 1 전용 학습 + 평가
 │   ├── implicit-world-modeling_stage1.jsonl              # 약 100K
 │   ├── implicit-world-modeling_stage1_{train,test}.jsonl # split_data.py --dataset MC (95:5)
