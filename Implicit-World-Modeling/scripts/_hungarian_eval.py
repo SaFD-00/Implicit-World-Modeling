@@ -44,20 +44,25 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from collections import Counter
 from pathlib import Path
 
 # bs4 / munkres 는 score 서브커맨드에서만 사용. 지연 로딩.
 BeautifulSoup = None  # type: ignore
+NavigableString = None  # type: ignore
 Munkres = None  # type: ignore
 
 def _lazy_deps():
     """bs4 / munkres 를 지연 로드. score 서브커맨드 진입 시 한 번 호출."""
-    global BeautifulSoup, Munkres
+    global BeautifulSoup, NavigableString, Munkres
     if BeautifulSoup is None:
         from bs4 import BeautifulSoup as _BS
         BeautifulSoup = _BS
+    if NavigableString is None:
+        from bs4 import NavigableString as _NS
+        NavigableString = _NS
     if Munkres is None:
         from munkres import Munkres as _M
         Munkres = _M
@@ -74,6 +79,16 @@ W_INDEX = 0.2
 
 MATCH_THRESHOLD = 1.5
 INDEX_TAU       = 2
+
+# ── pos 매칭 모드 상수 (hungarian_metric_v2) ──────────────────────────────
+# EXP05 HTML 에는 index 속성이 없고 bounds 만 있다. index cost 를 bounds 중심점
+# 거리로 대체하고, 위치 신호를 상향(0.2 → 0.4)한 뒤 임계값을 1.7 로 완화한다.
+W_POS               = 0.4
+MATCH_THRESHOLD_POS = 1.7
+BOUNDS_NORM         = 2050.0   # 화면 대각선 근사값 (840x1876)
+BOUNDS_TAU          = 50.0     # hungarian_pos 의 "위치 정확" 기준 (px)
+
+_BOUNDS_RE = re.compile(r'\[(-?\d+),(-?\d+)\]')
 
 
 # ── 요소 추출 ────────────────────────────────────────────────────────────
@@ -103,19 +118,52 @@ def _safe_int(v, default=-1):
         return default
 
 
-def extract_elements(xml_str):
+def _collect_texts_pos(el):
+    """pos 모드: 자손 텍스트 흡수 없이 direct text + 자체 속성만 수집."""
+    tokens = set()
+    def add(v):
+        if v:
+            tokens.add(v.strip())
+    add(el.get("description"))
+    add(el.get("id"))
+    add(el.get("text"))
+    add(el.get("aria-label"))
+    for c in el.contents:
+        if isinstance(c, NavigableString):
+            s = str(c).strip()
+            if s:
+                tokens.add(s)
+    return " | ".join(sorted(tokens)) if tokens else ""
+
+
+def extract_elements(xml_str, match_mode='index'):
     try:
         soup = BeautifulSoup(xml_str, "xml")
     except Exception:
         soup = BeautifulSoup(xml_str, "html.parser")
+    pos_mode = (match_mode == 'pos')
     elements = []
     for el in soup.find_all(True):
         tag  = el.name
-        idx  = _safe_int(el.get("index", -1))
-        text = _collect_texts(el)
+        text = _collect_texts_pos(el) if pos_mode else _collect_texts(el)
         is_interactive = tag in INTERACTIVE_TAGS
         is_content     = (tag in CONTENT_TAGS) and bool(text)
         is_clickable   = any(el.get(a) for a in CLICKABLE_ATTRS)
+        if pos_mode:
+            # hungarian_metric_v2 parity: 포함 조건은 description 단독이다.
+            # EXP05 실 XML 에는 description 이 0건이고 aria-label 만 쓰인다. 따라서
+            # aria-label 만 가진 요소(EXP05 test 300문서 기준 div 366개 — "Home"/"Listen"
+            # 같은 nav 항목)는 매칭 대상에서 빠진다. aria-label 을 포함 조건에 넣으면
+            # element 집합이 커져 pos 메트릭이 달라지므로, 채점 기준 변경으로 취급하고
+            # v2 레퍼런스를 따른다. (v2 의 _collect_texts 는 aria-label 을 텍스트로는 쓴다.)
+            is_described = bool(el.get("description"))
+            if is_interactive or is_content or is_clickable or is_described:
+                elements.append({
+                    "tag": tag, "text": text,
+                    "bounds": el.get("bounds", "") or "",
+                })
+            continue
+        idx = _safe_int(el.get("index", -1))
         if is_interactive or is_content or is_clickable:
             elements.append({"tag": tag, "text": text, "index": idx})
     return elements
@@ -144,42 +192,79 @@ def _match_cost(e1, e2, max_idx):
     return round(tc + ic, 5)
 
 
-def _hungarian_match(pred, gt):
+def _parse_bounds_center(s):
+    """'[x1,y1][x2,y2]' → 중심점 (cx, cy). 실패 시 None."""
+    if not s:
+        return None
+    m = _BOUNDS_RE.findall(s)
+    if len(m) >= 2:
+        x1, y1 = int(m[0][0]), int(m[0][1])
+        x2, y2 = int(m[1][0]), int(m[1][1])
+        return (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    return None
+
+
+def _bounds_dist(e1, e2):
+    c1 = _parse_bounds_center(e1.get("bounds", ""))
+    c2 = _parse_bounds_center(e2.get("bounds", ""))
+    if c1 is None or c2 is None:
+        return None
+    return ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
+
+
+def _match_cost_pos(e1, e2):
+    """pos 모드: index 대신 bounds 중심점 거리를 위치 cost 로 사용."""
+    if e1["tag"] != e2["tag"]:
+        return W_TAG
+    tc = W_TEXT * (1.0 - _text_sim(e1["text"], e2["text"]))
+    dist = _bounds_dist(e1, e2)
+    pc = 0.0 if dist is None else W_POS * min(dist / BOUNDS_NORM, 1.0)
+    return round(tc + pc, 5)
+
+
+def _hungarian_match(pred, gt, match_mode='index'):
     n, m = len(pred), len(gt)
     if n == 0 or m == 0:
         return [], []
-    max_idx = max(
-        (e["index"] for e in pred + gt if e["index"] >= 0),
-        default=1,
-    )
-    matrix = [[_match_cost(p, g, max_idx) for g in gt] for p in pred]
+    if match_mode == 'pos':
+        threshold = MATCH_THRESHOLD_POS
+        matrix = [[_match_cost_pos(p, g) for g in gt] for p in pred]
+    else:
+        threshold = MATCH_THRESHOLD
+        max_idx = max(
+            (e["index"] for e in pred + gt if e["index"] >= 0),
+            default=1,
+        )
+        matrix = [[_match_cost(p, g, max_idx) for g in gt] for p in pred]
     size = max(n, m)
-    padded = [row + [MATCH_THRESHOLD * 2] * (size - len(row)) for row in matrix]
+    padded = [row + [threshold * 2] * (size - len(row)) for row in matrix]
     while len(padded) < size:
-        padded.append([MATCH_THRESHOLD * 2] * size)
+        padded.append([threshold * 2] * size)
     indexes = Munkres().compute(padded)
     pairs = []
     for i, j in indexes:
-        if i < n and j < m and matrix[i][j] < MATCH_THRESHOLD:
+        if i < n and j < m and matrix[i][j] < threshold:
             pairs.append((i, j, matrix[i][j]))
     return pairs, matrix
 
 
-def compute_hungarian_acc(pred_str, gt_str):
+def compute_hungarian_acc(pred_str, gt_str, match_mode='index'):
+    pos_mode = (match_mode == 'pos')
+    pos_key = "hungarian_pos" if pos_mode else "hungarian_idx"
     _zero = {
         "hungarian_ea": 0.0, "hungarian_f1": 0.0,
         "hungarian_prec": 0.0, "hungarian_rec": 0.0,
-        "hungarian_text": 0.0, "hungarian_idx": 0.0,
+        "hungarian_text": 0.0, pos_key: 0.0,
     }
     try:
-        pred_els = extract_elements(pred_str)
-        gt_els   = extract_elements(gt_str)
+        pred_els = extract_elements(pred_str, match_mode)
+        gt_els   = extract_elements(gt_str, match_mode)
     except Exception:
         return _zero
     if not gt_els:
         return _zero
 
-    pairs, _ = _hungarian_match(pred_els, gt_els)
+    pairs, _ = _hungarian_match(pred_els, gt_els, match_mode)
     n_pred, n_gt, n_matched = len(pred_els), len(gt_els), len(pairs)
 
     ea   = n_matched / max(n_pred, n_gt) if max(n_pred, n_gt) > 0 else 0.0
@@ -189,12 +274,17 @@ def compute_hungarian_acc(pred_str, gt_str):
 
     if pairs:
         text_sims = [_text_sim(pred_els[i]["text"], gt_els[j]["text"]) for i, j, _ in pairs]
-        idx_diffs = [abs(pred_els[i]["index"] - gt_els[j]["index"]) for i, j, _ in pairs]
         text_avg  = sum(text_sims) / len(text_sims)
-        idx_acc   = sum(1 for d in idx_diffs if d <= INDEX_TAU) / len(idx_diffs)
+        if pos_mode:
+            dists = [_bounds_dist(pred_els[i], gt_els[j]) for i, j, _ in pairs]
+            valid = [d for d in dists if d is not None]
+            pos_acc = (sum(1 for d in valid if d <= BOUNDS_TAU) / len(valid)) if valid else 0.0
+        else:
+            idx_diffs = [abs(pred_els[i]["index"] - gt_els[j]["index"]) for i, j, _ in pairs]
+            pos_acc   = sum(1 for d in idx_diffs if d <= INDEX_TAU) / len(idx_diffs)
     else:
         text_avg = 0.0
-        idx_acc  = 0.0
+        pos_acc  = 0.0
 
     return {
         "hungarian_ea":   round(ea, 4),
@@ -202,7 +292,7 @@ def compute_hungarian_acc(pred_str, gt_str):
         "hungarian_prec": round(prec, 4),
         "hungarian_rec":  round(rec, 4),
         "hungarian_text": round(text_avg, 4),
-        "hungarian_idx":  round(idx_acc, 4),
+        pos_key:          round(pos_acc, 4),
     }
 
 
@@ -268,7 +358,7 @@ def _load_jsonl(path):
         return [json.loads(line) for line in f if line.strip()]
 
 
-def evaluate_pairs(gt_entries, pred_entries):
+def evaluate_pairs(gt_entries, pred_entries, match_mode='index'):
     """Pair-level Hungarian/BLEU/ROUGE 집계. ID/OOD 합산용으로 entries 리스트를 직접 받음."""
     results = []
     for gt_entry, pred_entry in zip(gt_entries, pred_entries):
@@ -280,9 +370,10 @@ def evaluate_pairs(gt_entries, pred_entries):
             'rouge_2':     calc_rouge_n(gt_text, pred_text, 2),
             'rouge_l':     calc_rouge_l(gt_text, pred_text),
             'exact_match': 1.0 if gt_text.strip() == pred_text.strip() else 0.0,
-            'hungarian':   compute_hungarian_acc(pred_text, gt_text),
+            'hungarian':   compute_hungarian_acc(pred_text, gt_text, match_mode),
         })
 
+    pos_key = "hungarian_pos" if match_mode == 'pos' else "hungarian_idx"
     total = len(results)
     avg = lambda key: sum(r[key] for r in results) / total if total else 0.0
     hung_avg = lambda key: sum(r['hungarian'][key] for r in results) / total if total else 0.0
@@ -298,7 +389,7 @@ def evaluate_pairs(gt_entries, pred_entries):
         'avg_hungarian_prec': round(hung_avg('hungarian_prec'), 4),
         'avg_hungarian_rec':  round(hung_avg('hungarian_rec'), 4),
         'avg_hungarian_text': round(hung_avg('hungarian_text'), 4),
-        'avg_hungarian_idx':  round(hung_avg('hungarian_idx'), 4),
+        f'avg_{pos_key}':     round(hung_avg(pos_key), 4),
     }
 
 
@@ -356,9 +447,9 @@ def _predict_results_dict(metrics):
     }
 
 
-def evaluate_stage1_predictions(test_path, pred_path):
+def evaluate_stage1_predictions(test_path, pred_path, match_mode='index'):
     """Backward-compatible file-based entry point."""
-    return evaluate_pairs(_load_jsonl(test_path), _load_jsonl(pred_path))
+    return evaluate_pairs(_load_jsonl(test_path), _load_jsonl(pred_path), match_mode)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────
@@ -377,6 +468,7 @@ def _cmd_score(args):
 
     split_mode = bool(args.test_id or args.pred_id or args.test_ood or args.pred_ood)
     exclude = args.exclude_action or None
+    match_mode = getattr(args, 'match_mode', 'index')
 
     # 필터된 jsonl 산출용 디렉토리 (exclude 가 set 일 때만 사용)
     test_out_dir = Path(args.filtered_test_dir) if args.filtered_test_dir else None
@@ -408,9 +500,9 @@ def _cmd_score(args):
                 _write_jsonl_idempotent(pr_id,  pred_out_dir / "generated_predictions_id.jsonl")
                 _write_jsonl_idempotent(pr_ood, pred_out_dir / "generated_predictions_ood.jsonl")
 
-        m_id      = evaluate_pairs(gt_id, pr_id)
-        m_ood     = evaluate_pairs(gt_ood, pr_ood)
-        m_overall = evaluate_pairs(gt_id + gt_ood, pr_id + pr_ood)
+        m_id      = evaluate_pairs(gt_id, pr_id, match_mode)
+        m_ood     = evaluate_pairs(gt_ood, pr_ood, match_mode)
+        m_overall = evaluate_pairs(gt_id + gt_ood, pr_id + pr_ood, match_mode)
 
         metrics = {
             "overall": m_overall,
@@ -434,7 +526,7 @@ def _cmd_score(args):
                 _write_jsonl_idempotent(gts, test_out_dir / _filtered_test_name(args.test, exclude))
             if pred_out_dir is not None:
                 _write_jsonl_idempotent(preds, pred_out_dir / "generated_predictions.jsonl")
-        metrics = evaluate_pairs(gts, preds)
+        metrics = evaluate_pairs(gts, preds, match_mode)
         _print_metrics_row("all", metrics)
         predict_results = _predict_results_dict(metrics)
 
@@ -470,6 +562,12 @@ def main():
     p_score.add_argument("--test-ood", default=None, dest="test_ood", help="ID/OOD: out-of-domain GT")
     p_score.add_argument("--pred-ood", default=None, dest="pred_ood", help="ID/OOD: out-of-domain prediction")
     p_score.add_argument("--output", required=True, help="Output metrics.json path")
+    p_score.add_argument(
+        "--match-mode", default="index", choices=["index", "pos"], dest="match_mode",
+        help="index (기본, EXP01~04): element index 차이를 위치 cost 로 사용, metric key "
+             "avg_hungarian_idx. pos (EXP05): HTML 에 index 속성이 없으므로 bounds 중심점 "
+             "거리를 위치 cost 로 사용 (W_POS=0.4, threshold=1.7), metric key avg_hungarian_pos.",
+    )
     p_score.add_argument(
         "--exclude-action", default=None, dest="exclude_action",
         help="GT messages 의 ## Action 블록 type 이 이 값과 일치하는 행을 양쪽에서 동시 drop 후 채점 "

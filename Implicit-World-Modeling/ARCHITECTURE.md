@@ -1,6 +1,6 @@
 # Implicit-World-Modeling Architecture
 
-`Implicit-World-Modeling` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **2 개 Vision-Language 모델** (`Qwen/Qwen3-VL-8B-Instruct`, `Qwen/Qwen2.5-VL-7B-Instruct`, 모두 7-9B tier) 을 지원하며, conda env (`implicit-world-modeling`) + 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. eval 은 **local merged dir (`outputs/.../merged/.../epoch-{E}/`) 우선 + HF Hub merged repo fallback** (`_common.sh::resolve_eval_model_path`) — local merge 한 머신에서도 같은 머신 안에서 바로 eval 까지 이어 돌 수 있다.
+`Implicit-World-Modeling` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **3 개 Vision-Language 모델** (`Qwen/Qwen3-VL-8B-Instruct`·`Qwen/Qwen2.5-VL-7B-Instruct` 7-9B tier, `Qwen/Qwen2.5-VL-3B-Instruct` 3-4B tier, EXP05 용 신규) 을 지원하며, conda env (`implicit-world-modeling`) + 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. eval 은 **local merged dir (`outputs/.../merged/.../epoch-{E}/`) 우선 + HF Hub merged repo fallback** (`_common.sh::resolve_eval_model_path`) — local merge 한 머신에서도 같은 머신 안에서 바로 eval 까지 이어 돌 수 있다.
 
 ---
 
@@ -47,7 +47,7 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 | 3 | 18–84 | Stage 1 SFT (2 모델 × 3 DS × {full, lora}) — explicit per-cell |
 | 4 | 85–151 | Stage 1 merge (모든 epoch local merge + 선택적 HF Hub push; `--no-hf-upload` 지원) |
 | 5 | 152–159 | Stage 1 평가 — local merged 우선 + HF Hub fallback sweep, Hungarian metric |
-| 6 | 160–186 | Stage 2 SFT (2 모델 × {AC_EXP01, AC_EXP02, AC_EXP03}) |
+| 6 | 160–186 | Stage 2 SFT (AC_EXP01·AC_EXP02 는 2 모델, AC_EXP03 은 `qwen3-vl-8b` 전용 — 좌표계 mismatch) |
 | 7 | 187–213 | Stage 2 merge (variant × 모든 epoch local merge + 선택적 HF push; `--no-hf-upload` 지원) |
 | 8 | 214–218 | Stage 2 평가 — ID + OOD 동시 sweep, `action_metrics.json` 3 섹션 |
 
@@ -65,29 +65,55 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 |------------|----------|----------|------|
 | qwen3-vl-8b | Qwen/Qwen3-VL-8B-Instruct | qwen3_vl_nothink | 7-9B |
 | qwen2.5-vl-7b | Qwen/Qwen2.5-VL-7B-Instruct | qwen2_vl | 7-9B |
+| qwen2.5-vl-3b | Qwen/Qwen2.5-VL-3B-Instruct | qwen2_vl | 3-4B |
 
 > Qwen3-VL 의 `qwen3_vl_nothink` template 은 `vllm_infer.py` 호출 시 `_common.sh::build_infer_cmd` 가 `--enable_thinking False` 를 자동 주입해 thinking 트리거를 끈다. Qwen2.5-VL 의 `qwen2_vl` template 은 thinking 트리거가 없어 해당 플래그가 주입되지 않는다 (template 분기로 자동 처리).
 
+### 모델 family 별 native 좌표 규약 (GUI grounding)
+
+두 모델은 grounding/GUI 좌표를 서로 다른 규약으로 pretrain 되어 있다. Qwen 계열은 세대마다 규약이 반전됐다 (Qwen2-VL 정규화 → Qwen2.5-VL 절대 픽셀 → Qwen3-VL 다시 정규화).
+
+| model family | native 좌표 규약 | 표현 | 해상도 의존성 |
+|--------------|-----------------|------|---------------|
+| Qwen3-VL | **0–1000 정규화** | bbox `[x1,y1,x2,y2]` + point `[x,y]` (정규화) | resolution-independent (rescale 시 분모 999, backward-compat) |
+| Qwen2.5-VL | **절대 픽셀** | bbox `[x1,y1,x2,y2]` (입력 이미지 실제 해상도 픽셀) | 이미지 해상도에 종속 |
+| (참고) Qwen2-VL | 0–1000 정규화 | — | — |
+
+**우리 좌표 실험군 (EXP03/EXP04) 데이터는 0–1000 정규화로 통일** — XML root div 가 `[0,0][1000,1000]` (`point="[500,500]"`), 전 좌표 min 0 / max 1000, action 의 `point` 는 노드 `point` 속성 verbatim 복사 (`[POINT]` / `[NO HALLUCINATION]` 규칙). 원천은 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy.jsonl` (EXP03) / `*_xy_prompt-enhanced.jsonl` (EXP04) — 둘 다 정규화. **픽셀 좌표가 아님.**
+
+> **EXP03/EXP04 는 Qwen3-VL 전용 실험군 (좌표계 정합성)**: EXP03/EXP04 의 0–1000 정규화는 **Qwen3-VL native 와 일치** 하지만 **Qwen2.5-VL native (절대 픽셀) 와는 어긋난다**. 이 mismatch 때문에 **EXP03/EXP04 는 `qwen3-vl-8b` 만 학습·평가** 하고 Qwen2.5-VL 은 사용하지 않는다 (Qwen2.5-VL 은 정규화 좌표를 native 로 쓰지 않아 자기 pretrain 규약과 충돌). 좌표 표현(index→point) 효과는 동일 Qwen3-VL 계열의 EXP01 ratio73 대조군과 비교한다. 출처 — [Qwen3-VL Spatial Understanding & 2D Grounding (DeepWiki)](https://deepwiki.com/QwenLM/Qwen3-VL/5.2-spatial-understanding-and-2d-grounding), [Qwen2.5-VL Visual Grounding issue #866 (QwenLM)](https://github.com/QwenLM/Qwen2.5-VL/issues/866).
+
+> **EXP05 는 대칭으로 Qwen2.5-VL 전용 실험군 (절대 픽셀)**: EXP05 (AndroidWorld 해상도 정렬) 데이터는 **절대 픽셀 840×1876** — base 1080×2400 을 budget 1,605,632 / factor 28 로 smart_resize 한 이미지의 실제 픽셀 좌표 (min 3,136). 이는 **Qwen2.5-VL native 와 일치** 하고 Qwen3-VL native (0–1000 정규화) 와는 어긋난다. 따라서 **EXP05 는 `qwen2.5-vl-3b`/`qwen2.5-vl-7b` 만 학습·평가** 하고 `qwen3-vl-8b` 는 제외한다 (factor 32 라 1,605,632 를 줘도 832×1888 로 정렬돼 840×1876 과 어긋나고, 0–1000 정규화 native 와도 이중 mismatch — EXP03/04 의 정확한 대칭). 원천은 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl` (Google Drive '0710_버젼' 제공, mirror `scripts/mirror_exp05.py` 로 EXP01 ratio73 멤버십 미러 → 출력 좌표 실측 x_max 840 / y_max 1876). "3B/8B 모두" 요청의 8B 는 `qwen2.5-vl-7b` 로 해석 (Qwen2.5-VL 에 8B 부재).
+
 ### 모델 family 별 image budget
 
-노트북 Cell 5 의 `MODEL_FAMILY_CONFIG` (factor / max_tokens / min_tokens) 와 `_DATASET_CONFIG[ds]["image_overrides"]` 의 token 단위 override 로 관리된다. token 예산은 **학습 데이터셋** 으로 결정 — 학습된 모델은 평가 데이터셋과 무관하게 학습 시 budget 으로 추론한다 (학습-추론 mismatch 방지).
+**이 절이 image budget 의 단일 진실원이다** (AGENTS / README 는 여기를 참조한다). 노트북 Cell 5 의 `MODEL_FAMILY_CONFIG` (factor / max_tokens / min_tokens) 와 `_DATASET_CONFIG[ds]["image_overrides"]` 의 token 단위 override 로 관리된다. token 예산은 **학습 데이터셋** 으로 결정 — 학습된 모델은 평가 데이터셋과 무관하게 학습 시 budget 으로 추론한다 (학습-추론 mismatch 방지). `max_pixels = max_tokens × factor²`, `min_pixels = min_tokens × factor²` 이며 모든 학습 DS 가 family default `max_tokens=2048` / `min_tokens=4` 를 쓴다 (dataset 별 `image_overrides` 없음).
 
-| family | patch | merge | factor | min_tokens | min_pixels |
-|---|---|---|---|---|---|
-| Qwen3-VL | 16 | 2 | 32 | 4 | 4,096 |
-| Qwen2.5-VL | 14 | 2 | 28 | 4 | 3,136 |
+| family | patch | merge | factor | max_tokens | **max_pixels** | min_tokens | min_pixels |
+|---|---|---|---|---|---|---|---|
+| Qwen3-VL (8B) | 16 | 2 | **32** | 2,048 | **2,097,152** (= 2048 × 32²) | 4 | 4,096 |
+| Qwen2.5-VL (3B/7B) | 14 | 2 | **28** | 2,048 | **1,605,632** (= 2048 × 28²) | 4 | 3,136 |
 
-| 학습 DS | max_tokens | Qwen3-VL (factor 32) | Qwen2.5-VL (factor 28) |
-|---|---|---|---|
-| AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, MC | 2,048 (family default) | 2,097,152 / 4,096 | 1,605,632 / 3,136 |
+**budget 이 이미지를 실제로 어떤 크기로 만드는가** — base 스크린샷 **1080×2400 (W×H)** 를 각 설정으로 `smart_resize` 한 결과:
 
-`min_tokens=4` 는 family 공통. YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family default 에 dataset override 를 token-aware 로 덮어써 자동 주입한다. 평가측 `scripts/_common.sh::build_infer_cmd` 는 `TRAIN_DATASET` 글로벌 (parse_args 에서 set) 로 학습 DS 를 식별해 동일 budget 을 적용한다.
+| 설정 | factor | max_pixels | → 리사이즈 (W×H) | visual tokens |
+|---|---|---|---|---|
+| **Qwen2.5-VL (우리 값)** | 28 | **1,605,632** | **840 × 1876** | **2,010** |
+| **Qwen3-VL (우리 값)** | 32 | **2,097,152** | **960 × 2144** | **2,010** |
+| Qwen3-VL 에 EXP05 budget 을 억지로 준 경우 | 32 | 1,605,632 | 832 × 1888 | 1,534 |
+| (참고) Qwen 공식 기본값 — Qwen2.5-VL | 28 | 12,845,056 | 1092 × 2408 | 3,354 |
+
+> **함정 — "토큰 수가 같으니 괜찮겠지"**: 두 family 모두 `max_tokens=2048` 기준이라 **visual token 수는 2,010 개로 동일** 하다. 다른 것은 **이미지의 실제 픽셀 크기** 다 (840×1876 vs 960×2144). 그래서 EXP05 데이터 (840×1876 절대 픽셀 좌표) 를 Qwen3-VL 로 학습하면 모델이 보는 이미지는 960×2144 인데 좌표는 840×1876 이라 **grounding 이 조용히 깨진다** — 토큰 수 일치는 아무것도 보장하지 않는다. 이것이 EXP05 를 Qwen2.5-VL 전용으로 묶는 두 번째 이유다 (첫 번째는 위 좌표 규약 mismatch).
+
+> **1,605,632 는 "기본값" 이 아니라 의도적 override**: Qwen 공식 기본 `max_pixels` 는 **12,845,056** 이다. 1080×2400 을 공식 기본값으로 돌리면 1092×2408 / 3,354 tokens 가 나온다. 우리는 이를 명시적으로 `max_tokens=2048` (Qwen2.5-VL → 1,605,632) 로 낮춰 잡았고, **데이터 생성 시 `--image-budget` 과 학습 프로세서 `image_max_pixels` 가 반드시 같은 값이어야 한다**. EXP05 는 데이터 생성 budget (`--image-budget 1605632`) 이 Qwen2.5-VL family default 와 정확히 같아 `image_overrides` 를 두지 않아도 자동으로 일치한다 (Slack 요구 "두 값 일치" 충족).
+
+YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family default 에 dataset override 를 token-aware 로 덮어써 자동 주입한다. 평가측 `scripts/_common.sh::build_infer_cmd` 는 `TRAIN_DATASET` 글로벌 (parse_args 에서 set) 로 학습 DS 를 식별해 동일 budget 을 적용한다.
 
 > vLLM `gpu_memory_utilization` 은 `build_infer_cmd` 내부에서 기본 `0.80`, 환경변수 `VLLM_GPU_MEM_UTIL` 로 호출 단위 override. `build_infer_cmd` 는 `stage{1,2}_eval.sh` 양쪽에서 공통으로 호출되므로 stage1/2 모두 동일하게 적용된다 (예: 동일 GPU 에서 학습 병행 / OOM 마진 확보 시 `VLLM_GPU_MEM_UTIL=0.6 bash ./scripts/stage2_eval.sh ...`). 미설정 시 0.80 그대로.
 
-`cutoff_len` 은 **AC_EXP01 / AC_EXP02 는 Stage 1 / Stage 2 모두 10000**, **AC_EXP03 / AC_EXP04 (좌표 표현) 만 24576** 이다 — AC_EXP03 은 Stage 1 / Stage 2 / 평가 모두, AC_EXP04 는 Stage 2 보류라 Stage 1 / 평가에 적용 (10000 은 2026-05-13 16384 → 10000 하향). state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패한다 — 10000 은 실측 분포 기준 multi-frame 안전 마진과 메모리/throughput 사이 tradeoff 를 잡은 운영 기준이다. 노트북 Cell 8 의 Stage 1/2 inline YAML 과 `LlamaFactory/examples/custom/IWM-AC_EXP01_*` yaml 모두 10000 으로 통일한다. (`scripts/filter_long_samples.py --threshold` 의 default 도 10000 으로 동기 — 사전 필터와 학습 cutoff 를 같은 기준으로 통일.)
+`cutoff_len` 은 **AC_EXP01 / AC_EXP02 는 Stage 1 / Stage 2 모두 10000**, **AC_EXP03 / AC_EXP04 / AC_EXP05 (좌표 표현) 만 24576** 이다 — AC_EXP03 은 Stage 1 / Stage 2 / 평가 모두, AC_EXP04 는 Stage 2 보류라 Stage 1 / 평가에 적용 (10000 은 2026-05-13 16384 → 10000 하향). state+action ratio-mix 로 frame 이 다수 포함돼 Qwen3-VL multimodal RoPE position 길이가 8192 를 초과 (관측: 8521) 하는 샘플이 있어 학습이 첫 step 에서 shape mismatch 로 실패한다 — 10000 은 실측 분포 기준 multi-frame 안전 마진과 메모리/throughput 사이 tradeoff 를 잡은 운영 기준이다. 노트북 Cell 8 의 Stage 1/2 inline YAML 과 `LlamaFactory/examples/custom/IWM-AC_EXP01_*` yaml 모두 10000 으로 통일한다. (`scripts/filter_long_samples.py --threshold` 의 default 도 10000 으로 동기 — 사전 필터와 학습 cutoff 를 같은 기준으로 통일.)
 
-**AC_EXP03 cutoff_len = 24576 (좌표 표현 무손실·EXP01 공정 비교)**: AC_EXP03 는 같은 전이를 `index="N"` 대신 `point=[x,y]` 좌표로 적어 시퀀스가 ~2~2.5x (최대 20k+) 길다 — `cutoff_len=10000` 에서는 ~10% 가 잘리고 ~0.3% 가 위 `get_rope_index` shape mismatch 로 크래시했다 (EXP01 ratio73 은 max 9059, 잘림 0%). EXP03 멤버십은 EXP01 ratio73 (index 기준 ≤10000 으로 이미 필터된 집합) 의 좌표 미러라 팽창 상한이 묶여 있어, EXP01 원본의 39K long-tail 과 달리 **필터 없이 cutoff 만 24576 으로 올리면 잘림/크래시 0·데이터 손실 0** 이 성립한다 (`python scripts/filter_long_samples.py --dataset AC_EXP03 --threshold 24576 --report-only` 측정: stage1_train max=20272 / stage2_train max=20697 / over-threshold=0 — EXP03 는 필터링하지 않고 측정만 한다; 24576 은 ~3.9k 여유). 평가(`scripts/_common.sh::build_infer_cmd`)도 `IWM-AC_EXP03*` 데이터셋이면 `--cutoff_len 24576` 으로 분기해 입력 truncation 0 을 맞춘다 (vLLM `max_model_len = cutoff + max_new_tokens` 증가 → KV cache 메모리↑·throughput↓, 필요 시 `VLLM_GPU_MEM_UTIL`). 긴 시퀀스로 학습 메모리가 늘어 **EXP03 만 `per_device_train_batch_size` 를 절반** 으로 낮추고 `gradient_accumulation_steps` 로 보정해 `GLOBAL_BATCH_SIZE=64` 를 유지한다 (EXP01 과 global batch 동일 → 공정). **AC_EXP04 는 AC_EXP03 좌표 pool 의 프롬프트 업그레이드본(같은 (episode,step) 멤버십·좌표 표현)** 이라 `cutoff_len 24576` 을 그대로 공유한다 — 좌표 시퀀스가 ~2.5x 길어도 무손실이며, EXP04 멤버십 ⊆ EXP03 이라 잘림/크래시 0 도 승계된다. `IWM-AC_EXP04*` 평가도 `build_infer_cmd` 가 24576 으로 분기한다 (Stage 2 는 보류라 stage1·평가에만 적용).
+**AC_EXP03 cutoff_len = 24576 (좌표 표현 무손실·EXP01 공정 비교)**: AC_EXP03 는 같은 전이를 `index="N"` 대신 `point=[x,y]` 좌표로 적어 시퀀스가 ~2~2.5x (최대 20k+) 길다 — `cutoff_len=10000` 에서는 ~10% 가 잘리고 ~0.3% 가 위 `get_rope_index` shape mismatch 로 크래시했다 (EXP01 ratio73 은 max 9059, 잘림 0%). EXP03 멤버십은 EXP01 ratio73 (index 기준 ≤10000 으로 이미 필터된 집합) 의 좌표 미러라 팽창 상한이 묶여 있어, EXP01 원본의 39K long-tail 과 달리 **필터 없이 cutoff 만 24576 으로 올리면 잘림/크래시 0·데이터 손실 0** 이 성립한다 (`python scripts/filter_long_samples.py --dataset AC_EXP03 --threshold 24576 --report-only` 측정: stage1_train max=20272 / stage2_train max=20697 / over-threshold=0 — EXP03 는 필터링하지 않고 측정만 한다; 24576 은 ~3.9k 여유). 평가(`scripts/_common.sh::build_infer_cmd`)도 `IWM-AC_EXP03*` 데이터셋이면 `--cutoff_len 24576` 으로 분기해 입력 truncation 0 을 맞춘다 (vLLM `max_model_len = cutoff + max_new_tokens` 증가 → KV cache 메모리↑·throughput↓, 필요 시 `VLLM_GPU_MEM_UTIL`). 긴 시퀀스로 학습 메모리가 늘어 **EXP03 만 `per_device_train_batch_size` 를 절반** 으로 낮추고 `gradient_accumulation_steps` 로 보정해 `GLOBAL_BATCH_SIZE=64` 를 유지한다 (EXP01 과 global batch 동일 → 공정). **AC_EXP04 는 AC_EXP03 좌표 pool 의 프롬프트 업그레이드본(같은 (episode,step) 멤버십·좌표 표현)** 이라 `cutoff_len 24576` 을 그대로 공유한다 — 좌표 시퀀스가 ~2.5x 길어도 무손실이며, EXP04 멤버십 ⊆ EXP03 이라 잘림/크래시 0 도 승계된다. `IWM-AC_EXP04*` 평가도 `build_infer_cmd` 가 24576 으로 분기한다 (Stage 2 는 보류라 stage1·평가에만 적용). **AC_EXP05 도 동일** — 절대 픽셀 좌표(point) 표현이라 시퀀스가 길어 `cutoff_len 24576` + half-batch 를 공유하고, `IWM-AC_EXP05*` 평가도 24576 으로 분기한다 (Stage 2 보류).
 
 ### 하이퍼파라미터 — 3 단 머지 구조
 
@@ -97,7 +123,7 @@ CONFIGS 빌더가 다음 순서로 `dict.update()` 한다:
 2. `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` — **AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 공유** 모델 크기 공유값 (7-9B 단일 tier). **현재 7-9B 의 세 키는 모두 빈 dict** 이라 baseline 을 그대로 쓴다 (EXP01/EXP02 실측 어댑터와 동일조건 보존). MC 에는 적용되지 않는다.
 3. `_MODEL_CONFIG[model].hparam_overrides` — 모델별 delta.
 
-각 모델은 `_MODEL_CONFIG[model]["size"]` (현재 `"7-9B"` 단일) 필드로 tier 를 지정한다. MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
+각 모델은 `_MODEL_CONFIG[model]["size"]` (`"7-9B"`, 또는 `qwen2.5-vl-3b` 의 `"3-4B"`) 필드로 tier 를 지정한다. MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
 
 #### `_SIZE_CONFIG_AC` 값 (7-9B)
 
@@ -155,7 +181,7 @@ gradient_accumulation_steps = GLOBAL_BATCH_SIZE / (per_device * NPROC_PER_NODE)
 
 `NPROC_PER_NODE ∈ {1, 2, 4, 8}` 와 `GPU_TYPE ∈ {RTX5090, A100, H100}` 만 허용 — 다른 값은 `ValueError`. Cell 5 의 `_derive_grad_accum()` 이 역계산해 CONFIGS 의 `stage{1,2}.gradient_accumulation_steps` 에 주입한다. 위 표 값이 모든 (size, GPU, NPROC) 조합에서 64 로 나누어떨어지므로 silent rounding 은 발생하지 않는다.
 
-> **AC_EXP03 / AC_EXP04 override**: 좌표 표현으로 시퀀스가 ~2.5x (cutoff_len 24576) 길어 활성화 메모리가 커지므로, EXP03 / EXP04 만 Cell 5 에서 `per_device_train_batch_size` 를 절반 (`max(1, per_device // 2)`; H100/A100 2→1, RTX5090 1 유지) 으로 낮추고 `_derive_grad_accum` 으로 재계산 (H100/A100 grad_accum 16→32) 해 `GLOBAL_BATCH_SIZE=64` 를 그대로 유지한다 — EXP01 과 global batch 가 같아 비교가 공정하다. RTX5090 은 per_device 최소(1) 라 추가 축소 불가 → ZeRO-3 offload + gradient_checkpointing 에 의존 (OOM 시 NPROC↑ 또는 수동 조정). **AC_EXP04 stage1 YAML 은 EXP03 stage1 YAML 을 복사** 한다 (노트북 Cell 10 미사용 — EXP03 single-H100 hand-fix 보존: full→`ds_z3_offload`, lora→`ds_z0`). GPU 0,1 (NPROC=2) 2-GPU 로 `per_device_train_batch_size 1` + grad_accum 보정 (lora 32 → global 64, full 16 → global 32) 해 global batch 를 유지하며, 실제 학습 대상은 두 모델 stage1 LoRA, tmux 스케줄은 `scripts/tmux_exp04_stage1.sh`.
+> **AC_EXP03 / AC_EXP04 / AC_EXP05 override**: 좌표 표현으로 시퀀스가 ~2.5x (cutoff_len 24576) 길어 활성화 메모리가 커지므로, EXP03 / EXP04 / EXP05 만 Cell 5 에서 `per_device_train_batch_size` 를 절반 (`max(1, per_device // 2)`; H100/A100 2→1, RTX5090 1 유지) 으로 낮추고 `_derive_grad_accum` 으로 재계산 (H100/A100 grad_accum 16→32) 해 `GLOBAL_BATCH_SIZE=64` 를 그대로 유지한다 — EXP01 과 global batch 가 같아 비교가 공정하다. RTX5090 은 per_device 최소(1) 라 추가 축소 불가 → ZeRO-3 offload + gradient_checkpointing 에 의존 (OOM 시 NPROC↑ 또는 수동 조정). **AC_EXP04 stage1 YAML 은 EXP03 stage1 YAML 을 복사** 한다 (노트북 Cell 10 미사용 — EXP03 single-H100 hand-fix 보존: full→`ds_z3_offload`, lora→`ds_z0`). GPU 0,1 (NPROC=2) 2-GPU 로 `per_device_train_batch_size 1` + grad_accum 보정 (lora 32 → global 64, full 16 → global 32) 해 global batch 를 유지하며, 실제 학습 대상은 **`qwen3-vl-8b` 단일 모델** stage1 LoRA (EXP03/EXP04 는 Qwen3-VL 전용 — 좌표계 mismatch 로 `qwen2.5-vl-7b` 제외), tmux 스케줄은 `scripts/tmux_exp04_stage1.sh`.
 
 ---
 
@@ -177,8 +203,10 @@ data/
 │   ├── implicit-world-modeling_stage2_xy.jsonl                             # AC_EXP03 원천: Stage 2 좌표(point) 표현
 │   ├── implicit-world-modeling_stage1_action_xy_prompt-enhanced.jsonl      # AC_EXP04 원천: action-pred 좌표(point) + 프롬프트 업그레이드 (swipe / html-style XML / [SWIPE])
 │   ├── implicit-world-modeling_stage1_state_xy_prompt-enhanced.jsonl       # AC_EXP04 원천: state-pred 좌표(point) + 프롬프트 업그레이드 (Stage 2 원천 없음 — 보류)
+│   ├── implicit-world-modeling_stage1_action_xy_pixel-aligned.jsonl        # AC_EXP05 원천: action-pred 절대 픽셀 좌표(840×1876, Qwen2.5-VL) — Drive '0710_버젼' raw stage1_0710_action_pred.jsonl rename
+│   ├── implicit-world-modeling_stage1_state_xy_pixel-aligned.jsonl         # AC_EXP05 원천: state-pred 절대 픽셀 좌표 (Stage 2 원천 없음 — 보류)
 │   ├── episodes_meta.jsonl                 # primary_app = 전경 앱 package_name
-│   └── images/                              # AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 가 JSONL `images` 필드로 공유 참조
+│   └── images/                              # AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / AC_EXP05 가 JSONL `images` 필드로 공유 참조
 ├── AndroidControl_EXP01/                 # Stage 1 ratio mix 학습 + Stage 2 ratio sweep (split_data.py --dataset AC_EXP01 산출)
 │   ├── implicit-world-modeling_stage1_train_{3_7,5_5,7_3}.jsonl            # ratio 별 (state:action) train
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_state.jsonl       # state task, app-level partition
@@ -200,6 +228,11 @@ data/
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_{state,action}.jsonl  # EXP03 dual-task test 미러 (4 파일, 좌표 + 프롬프트)
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_state_without_open_app.jsonl  # state without_open_app sibling (2 파일) — train 포함 총 7 파일
 │   # NOTE: 본문 = 좌표(EXP03 와 동일 멤버십·좌표) + 프롬프트 업그레이드 (action scroll→swipe, "html-style XML" 명시, [SWIPE] 규칙), 이미지 경로는 EXP01 채택. Stage 2 보류 (`_STAGE1_ONLY`). EXP04 pool ⊆ EXP03 pool → drop train 320 / 전체 stage1 450 (0.67%).
+├── AndroidControl_EXP05/                 # AC_EXP01 ratio73 멤버십 + 절대 픽셀 좌표 미러 (scripts/mirror_exp05.py 산출 — stage1-only, Qwen2.5-VL 전용). 좌표계·budget 은 §2 참조
+│   ├── implicit-world-modeling_stage1_train.jsonl                          # EXP01 train 미러 (47,556 — 입력 50,000 / drop 2,444)
+│   ├── implicit-world-modeling_stage1_test_{id,ood}_{state,action}.jsonl  # dual-task test 미러 (4 파일)
+│   ├── implicit-world-modeling_stage1_test_{id,ood}_state_without_open_app.jsonl  # state without_open_app sibling (2 파일) — train 포함 총 7 파일, 64,787 행
+│   # NOTE: 이미지 경로는 EXP01 채택 ("AndroidControl/images/..."). Stage 2 보류 (`_STAGE1_ONLY`). 소스는 Drive '0710_버젼'.
 ├── MonkeyCollection/                 # Stage 1 전용 학습 + 평가
 │   ├── implicit-world-modeling_stage1.jsonl              # 약 100K
 │   ├── implicit-world-modeling_stage1_{train,test}.jsonl # split_data.py --dataset MC (95:5)
@@ -216,6 +249,25 @@ data/
 - **Stage 1 (MC)**: 메타 없음 → 자동 random split (`--stage1-ratio`, 기본 0.95). `_STAGE1_ONLY` guard 로 Stage 2 자동 skip.
 - **AC_EXP01 (Stage 1 ratio mix + Stage 2 ratio sweep)**: split_data.py 의 source 는 항상 원본 `data/AndroidControl/` 이고, 산출물은 `data/AndroidControl_EXP01/` 에 쓰여진다. 선행으로 `scripts/filter_long_samples.py --dataset AC_EXP01` 가 mm-expanded length > `cutoff_len` 인 row 를 제거해 **원본 폴더 안에** `implicit-world-modeling_stage1_{state,action}_filtered.jsonl` + `implicit-world-modeling_stage2_filtered.jsonl` (3 파일) 을 만든다 (Qwen3-VL `get_rope_index` broadcast 회피용). `run_exp01_split` 은 항상 Stage 1/Stage 2 모두 `_filtered` 만 입력으로 사용 — Stage 2 source 누락 시 hard-fail. 그 위에서 `state_pred` (random) + `action_pred` (action-type stratified) 두 풀을 ID/OOD 앱 partition 으로 라우팅 후 ratio (state:action ∈ {7:3, 3:7, 5:5}, default `7:3,3:7,5:5`) 로 혼합한 Stage 1 train 3 종 + (id, ood) × (state, action) 4 test 를 산출. 같은 (id_apps, ood_apps) 를 재사용해 Stage 2 split (`implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl`, 기본 15K / 3K / 3K, action_type stratified) 까지 함께 산출 — Stage 1 ↔ Stage 2 OOD app 집합 일치. **Stage 2 파이프라인은 ratio sweep 으로 활성** (`_STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04"}` 만 Stage 1 전용) — stage2 데이터는 ratio 무관 (3 ratio 공유) 이며, ratio 차원은 stage1 → stage2 base 계보 (Stage 1 ratio merged 가 Stage 2 world-model variant 의 base) 로만 흐른다. 산출 디렉토리/HF slug 는 ratio 별 분리 (`outputs/AndroidControl_EXP01/{adapters,merged,eval}/{MODEL}_ratio{37,55,73}_stage2_*`, `SaFD-00/{short}-ac-exp01-ratio{37,55,73}-...`). ratio 별로 학습 가중치가 다르므로 `--exp01-ratios` 가 sweep 단위, `--exp01-train-total` 이 Stage 1 train 합계 (기본 50K). Stage 2 학습 데이터의 last-message wrapping (`<thought>…</thought>\n<action>{...}</action>`) 은 `_parse_action_payload` regex helper 가 분리.
 - **AC_EXP02 (Stage 1 state-pred diff loss 실험군)**: split 불필요. `scripts/diff_loss/preprocess_dataset.py` 가 AC_EXP01 ratio73 train (`implicit-world-modeling_stage1_train_7_3.jsonl`) 의 future HTML 토큰에 diff 가중치를 부여한 `token_weights` 필드를 추가 — current→future HTML diff 를 헝가리안 매칭으로 ADDED/MODIFIED/UNCHANGED 분류 (가중치 2.0/2.0/1.0). action_pred 샘플은 assistant 가 JSON 이라 diff element 0 개 → `token_weights` 전부 1.0 → 기존 cross-entropy 와 동치 (action 은 기존 loss). test / Stage 2 데이터는 AC_EXP01 에서 복사 (`DS_DATADIR[AC_EXP02]=AndroidControl_EXP02`, 노트북 환경 세팅 셀이 일괄 수행). diff loss 는 LlamaFactory 6 파일 패치 (`use_diff_token_weighted_loss` 인자 + `diff_token_weighted_loss_func` + collator 의 labels 기반 token_weights 복원) 에 의존 — LF 는 gitignore 된 별도 repo 라 `scripts/diff_loss/apply_llamafactory_patch.py` 가 멱등 재적용한다. (`scripts/diff_loss/` 의 `hungarian_metric.py` 는 채점용 `scripts/_hungarian_eval.py` 와 의도적으로 분리된 학습 전처리용 사본.)
+- **diff loss v1 / v2 구조 병존 (AC_EXP02 vs AC_EXP05)**: `scripts/diff_loss/` 에는 `{hungarian_metric,hungarian_diff,token_weight_builder,preprocess_dataset}.py` (v1, AC_EXP02 전용) 와 `..._v2.py` (v2, AC_EXP05 전용) 가 나란히 존재한다 — v1 은 그대로 두고 v2 를 새로 추가해 EXP02 재현성을 보존한다.
+
+  | | v1 (AC_EXP02) | v2 (AC_EXP05) |
+  |---|---|---|
+  | 위치 매칭 cost | DOM `index` | bounds 중심점 거리 (`W_POS=0.4`, `BOUNDS_NORM=2050.0`=840×1876 대각선, `BOUNDS_TAU=50.0`) |
+  | 텍스트 수집 | 자손 텍스트 흡수 포함 | direct text + 자체 속성(description/id/text/aria-label)만 |
+  | `MATCH_THRESHOLD` | 1.5 | 1.7 |
+  | element 키 | index | index → bounds 폴백 |
+  | metric key | `hungarian_idx` | `hungarian_pos` |
+  | diff 토큰 가중치 | ADDED/MODIFIED **2.0** / UNCHANGED 1.0 | diff(ADDED/MODIFIED) **1.0** / non-diff(UNCHANGED) **0.25** |
+  | action_pred 샘플 | uniform 1.0 (diff element 0개라 자동 동치) | uniform 1.0 (명시적 분기 — 판별은 `images` 개수: 1개=state_pred, 2개=action_pred) |
+
+  **EXP05 에 v2 가 필수인 이유**: EXP05 HTML 에는 `index` 속성이 없다 (실측: index 0개, bounds 48개). v1 builder 는 `index="..."` 를 regex 로 필수 요구하므로 v1 을 EXP05 에 쓰면 모든 토큰이 baseline 으로 방치되어 diff loss 가 조용히 무력화된다.
+
+  **신규 가중 체계의 순효과**: 배수 자체(2.0→1.0)는 줄었지만 non-diff 도 1.0→0.25 로 함께 낮아져 diff 가 non-diff 대비 실질 **4 배** 강해진다 (근거: 2026-07-11 Slack DM + Google Meet 회의록).
+
+  **가중치 적용 함정**: `token_weight_builder` 의 baseline 은 `[1.0]*n_asst` 이고 `if weight == 1.0: continue` 로 기본값을 스킵하는 구조다. 신규 체계에서는 diff weight 가 바로 그 1.0 이라, 스킵 때문에 diff 토큰이 baseline(0.25) 에 방치되는 함정이 있었다. v2 는 baseline 을 `wmap["UNCHANGED"]` 에서 유도하고 스킵 조건을 `if weight == base` 로 바꿔 해결했다.
+
+  **EXP05 배선**: EXP05 stage1 YAML 6 개 전부 `use_diff_token_weighted_loss: true`. `token_weights` 는 train jsonl 인라인 필드이며 `dataset_info.json` 컬럼 등록은 불필요 (`converter.py:226` 이 raw jsonl 에서 직접 읽음). 실측: train 47,556 행 = state 33,285 + action 14,271, weight 값 분포는 state `{0.25, 1.0}` / action `{1.0}`.
 - **AC_EXP03 (좌표(point) 표현 미러 실험군)**: split 불필요. `scripts/mirror_exp03.py` 가 AC_EXP01 ratio73 의 산출 파일(`stage1_train_7_3` + dual-task test + Stage 2)을 한 줄씩 읽어 `(episode, step)` 키로 `data/AndroidControl/implicit-world-modeling_stage{1_action,1_state,2}_xy.jsonl` (좌표 표현 원천) 의 대응 레코드를 골라 동일 순서로 `data/AndroidControl_EXP03/` 에 write. UI 트리는 `index="N"` 대신 `bounds="[x1,y1][x2,y2]" point="[cx,cy]"`, 액션은 `point=[x,y]` (0–1000 정규화). 본문만 좌표, 이미지 경로는 EXP01 레코드의 것(`AndroidControl/images/...`)을 채택. 원천에 없는 `(episode, step)` 키(~0.8–1.7%)는 제외 — 각 레코드는 EXP01 과 `(episode, step)` 1:1 대응이나 행 수는 소폭 작다 (train ~49,596 / stage2_train ~14,881). stage1 train 은 EXP02 스타일 단일 `implicit-world-modeling_stage1_train.jsonl` 로 출력. diff loss 미적용 — index→좌표 표현 효과만 AC_EXP01 ratio73 대조군과 비교.
 - **AC_EXP04 (좌표 표현 + stage1 프롬프트 업그레이드 실험군)**: split 불필요. EXP03 의 **stage1 프롬프트 업그레이드** 변형으로, EXP03 와 동일한 `(episode, step)` 멤버십·좌표(point) 표현을 유지하되 프롬프트만 바뀐다 — action space `scroll(direction, point)` → `swipe(start, end)`, role 문구 "represented as html-style XML" 명시, `[SWIPE]` 규칙 추가. `scripts/mirror_exp04.py` 가 AC_EXP01 ratio73 산출 파일(EXP03 와 동일 멤버십)을 한 줄씩 읽어 `(episode, step)` 키로 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_prompt-enhanced.jsonl` (EXP03 좌표 pool 의 프롬프트 업그레이드본) 의 대응 레코드를 골라 동일 순서로 `data/AndroidControl_EXP04/` 에 write — 본문만 좌표/프롬프트, 이미지 경로는 EXP01 채택. **EXP04 pool ⊆ EXP03 pool** 이라 멤버십 = EXP03 ∩ EXP04 pool 이고, EXP03 출력 대비 drop 은 train 320 / 전체 stage1 450 (0.67%) (EXP03 train 49,596 → EXP04 49,276). **Stage 2 는 보류** — `_STAGE1_ONLY` 에 `AndroidControl_EXP04` 를 포함해 stage2 YAML/등록/eval 을 skip 하며, stage1 train + dual-task test(4) + state without_open_app sibling(2) 7 파일만 산출. stage1 train 은 EXP02 스타일 단일 `implicit-world-modeling_stage1_train.jsonl` 로 출력.
 - **MB**: split 없음. 평가 전용.
@@ -437,6 +489,7 @@ Implicit-World-Modeling/outputs/{OUT_DS}/             # OUT_DS = AndroidControl_
 - 저장: `outputs/{DS}/eval/{MODEL}/stage1_eval/{variant}[/epoch-{E}]/on-{EVAL_DS}/hungarian_metrics.json`
 - single-pair (`--test/--pred`) 와 ID/OOD (`--test-id/--pred-id/--test-ood/--pred-ood`) 모드 모두 지원 — ID/OOD 모드는 `overall` / `in_domain` / `out_of_domain` 3 섹션 기록.
 - **AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 dual-task 분기 (Stage 1 한정)**: Stage 1 의 EVAL_DS=AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 일 때는 state_pred / action_pred 두 task 를 각각 독립 채점하여 `on-{DS}-state/hungarian_metrics.json` (Stage1 채점, `_hungarian_eval.py`) + `on-{DS}-action/action_metrics.json` (Stage2 채점, `_action_eval.py`) 두 산출물을 만든다. AC_EXP01 ratio 차원은 학습 산출물 (TRAIN_DS=`AC_EXP01_ratio{37,55,73}`) 에 박혀있고 test 4 파일은 ratio 와 무관. without_open_app sibling 은 state branch 만 (action 채점기 미지원). Stage 2 의 EVAL_DS=AC_EXP01 / AC_EXP02 / AC_EXP03 는 dual-task 가 아니라 일반 action prediction 으로 ID + OOD 두 파일 (`implicit-world-modeling_stage2_test_{id,ood}.jsonl`) 을 함께 채점 — 3 섹션 (`overall` / `in_domain` / `out_of_domain`).
+- **xy 좌표 스페이스 채점 (EXP05, opt-in)**: EXP05 는 액션 스페이스가 xy 좌표로 통일되어 GT 스키마가 `<action>{"action":"click","coordinate":[x,y]}</action>` (키가 `action`, 구 `action_type` 과 다름; swipe 는 `coordinate1`/`coordinate2`) 로 바뀐다. EXP01~04 채점 결과가 불변이도록 **opt-in 플래그** 로 구현했다 — `_action_eval.py --coord-mode {index,xy}` (기본 `index`), `_hungarian_eval.py --match-mode {index,pos}` (기본 `index`). `stage1_eval.sh` 는 **EVAL_DS=AC_EXP05 일 때만** 이 플래그들을 전달한다. xy 모드 채점 규칙: click/long-press 는 pred 좌표가 GT 좌표가 속한 element 의 bbox 안이면 정답 (포함 element 가 없으면 오답 + `no_bbox_n` 으로 별도 집계), scroll/swipe 는 xy1→xy2 벡터의 주 방향(`|dx|>=|dy|` 이면 left/right, 아니면 up/down) 이 GT 와 일치하면 정답, input_text/type 은 좌표 무관. **알려진 제약**: bbox 채점은 pred 가 GT 와 같은 840×1876 절대 픽셀 공간임을 가정한다.
 
 ### Stage 2
 
@@ -525,3 +578,4 @@ Reference baselines (해석용):
 - trl 0.24 / transformers 4.56+ API 매핑: `SFTConfig(max_length=...)`, `SFTTrainer(processing_class=...)` 사용. 구버전 키 (`max_seq_length`, `tokenizer=`, `overwrite_output_dir`) 는 `TypeError`.
 - `gradient_checkpointing` 은 모델 로드 단계에서만 적용. `SFTConfig` 에는 전달하지 않는다 (이중 적용 방지).
 - Full FT 분기에서 `freeze_vision_tower: true` 면 `vision_tower|vision_model|visual|image_encoder` 키워드를 포함한 named parameter 의 `requires_grad=False` 처리 후 frozen 텐서 수/파라미터 수를 stderr 로 출력.
+- **EXP05 로컬 학습 불가 (실측)**: 로컬 2×RTX5090 에서 EXP05 3B Full FT 는 **CUDA OOM** (step 3 에서 8.92GiB 할당 실패) + **157~168 s/it → 총 97~104시간(약 4일)**. 원인은 `cutoff_len 24576` + `max_pixels 1,605,632` 의 비전 토큰으로 시퀀스가 극단적으로 길어진 것과, RTX5090 에 강제되는 ZeRO-3 CPU offload. **본 학습은 Vessl A100/H100 에서 수행한다** — 저장소에는 Vessl 파이프라인 스크립트가 없다 (운영 지식).
