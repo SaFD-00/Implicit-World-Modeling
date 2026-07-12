@@ -1,11 +1,12 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=64,<76", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "implicit-world-modeling"
 version = "0.1.0"
 description = "Training and evaluation pipeline for implicit world modeling and action prediction on GUI agents."
+readme = "README.md"
 requires-python = ">=3.11,<3.13"
 # 공통 deps. transformers / 서브프로젝트 / deepspeed / vllm 등은 extras 에서 선언한다.
 # 설치는 conda env (`implicit-world-modeling`) 에서:
@@ -83,5 +84,33 @@ llamafactory = [
   "omegaconf",
 ]
 
+# 개발·검증 도구. `pip install -e ".[dev]"` 로 설치한다. pytest 는 문서상 정본 테스트
+# 커맨드(`python -m pytest`)이면서도 llamafactory extras 에는 없었으므로 여기서 명시한다.
+dev = [
+  "ruff==0.15.*",
+  "pytest>=8",
+]
+
 [tool.setuptools.packages.find]
 include = ["implicit_world_modeling*"]
+
+# ── 코드 스타일 정본 ────────────────────────────────────────────────────────
+# `ruff format` 이 줄바꿈·정렬을 책임지므로 lint 에서 E501(line-too-long)은 제외한다
+# (formatter 와 충돌하고, 본 저장소의 긴 줄 대부분은 한글 주석이다). print/logging·
+# pathlib·한글 docstring 등 기존 지배 관례는 유지하며 새 스타일을 강제하지 않는다.
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+# LlamaFactory 는 vendored 서브프로젝트라 건드리지 않는다. 노트북은 정본 코드가 아니라
+# 실행 기록이고 magic 명령을 포함하므로 format/lint 대상에서 제외한다.
+extend-exclude = ["LlamaFactory", "*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+docstring-code-format = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
