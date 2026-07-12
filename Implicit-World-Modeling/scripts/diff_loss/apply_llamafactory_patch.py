@@ -24,6 +24,7 @@ notebook 환경 세팅 셀에서 호출된다.
 usage:
   python scripts/diff_loss/apply_llamafactory_patch.py [--lf-root <LlamaFactory 경로>]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -69,14 +70,14 @@ PATCHES: dict[str, list[tuple[str, str]]] = {
         ),
         (
             '        if "image_bound" in features:  # for minicpmv inputs\n'
-            "            bsz, seq_length = features[\"input_ids\"].shape\n"
-            "            features[\"position_ids\"] = torch.arange(seq_length).long().repeat(bsz, 1)\n"
+            '            bsz, seq_length = features["input_ids"].shape\n'
+            '            features["position_ids"] = torch.arange(seq_length).long().repeat(bsz, 1)\n'
             '            return {"data": features, "input_ids": features["input_ids"], "labels": features["labels"]}\n'
             "\n"
             "        return features",
             '        if "image_bound" in features:  # for minicpmv inputs\n'
-            "            bsz, seq_length = features[\"input_ids\"].shape\n"
-            "            features[\"position_ids\"] = torch.arange(seq_length).long().repeat(bsz, 1)\n"
+            '            bsz, seq_length = features["input_ids"].shape\n'
+            '            features["position_ids"] = torch.arange(seq_length).long().repeat(bsz, 1)\n'
             '            return {"data": features, "input_ids": features["input_ids"], "labels": features["labels"]}\n'
             "\n"
             "        # diff token weighted loss: labels(-100) 마스크로 prefix/assistant 경계를 판단해 복원.\n"
@@ -126,7 +127,7 @@ PATCHES: dict[str, list[tuple[str, str]]] = {
             "        default=False,\n"
             "        metadata={\n"
             '            "help": (\n'
-            '                "Whether to apply per-token loss weights supplied via the \'token_weights\' "\n'
+            "                \"Whether to apply per-token loss weights supplied via the 'token_weights' \"\n"
             '                "field in the dataset. Diff tokens (ADDED/MODIFIED) receive higher weights "\n'
             '                "defined during preprocessing."\n'
             "            )\n"
@@ -296,7 +297,9 @@ def apply_patches(lf_root: Path) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="LlamaFactory diff loss 패치 멱등 적용")
+    parser = argparse.ArgumentParser(
+        description="LlamaFactory diff loss 패치 멱등 적용"
+    )
     parser.add_argument(
         "--lf-root",
         type=Path,

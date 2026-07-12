@@ -18,35 +18,36 @@ classify_diff() 결과를 실제 토큰 위치의 가중치 배열로 변환하�
 """
 
 from __future__ import annotations
+
 import re
-from typing import Any
 
 from bs4 import BeautifulSoup
 
 # ── diff_type별 기본 가중치 ────────────────────────────────────────────────
 # 필요에 따라 preprocess_dataset.py에서 오버라이드 가능
 WEIGHT_MAP: dict[str, float] = {
-    "ADDED":     1.0,   # 새로 생긴 element → full loss
-    "MODIFIED":  1.0,   # 변경된 element    → full loss
+    "ADDED": 1.0,  # 새로 생긴 element → full loss
+    "MODIFIED": 1.0,  # 변경된 element    → full loss
     "UNCHANGED": 0.25,  # 동일한 element    → 감쇠 (baseline)
 }
 
 INTERACTIVE_TAGS = {"button", "input", "a", "select", "textarea"}
-CONTENT_TAGS     = {"p", "img", "span"}
-CLICKABLE_ATTRS  = {"clickable", "long-clickable"}
+CONTENT_TAGS = {"p", "img", "span"}
+CLICKABLE_ATTRS = {"clickable", "long-clickable"}
 
 
 # ── char offset 추출 ──────────────────────────────────────────────────────
 
+
 def _find_closing_tag_end(html: str, tag: str, after: int) -> int:
     """매칭되는 closing tag(</tag>)의 끝 위치를 반환. 같은 태그 중첩 처리."""
-    open_pat  = re.compile(rf'<{re.escape(tag)}\b[^>]*?(?<!/)>')
-    close_pat = re.compile(rf'</{re.escape(tag)}\s*>')
+    open_pat = re.compile(rf"<{re.escape(tag)}\b[^>]*?(?<!/)>")
+    close_pat = re.compile(rf"</{re.escape(tag)}\s*>")
 
     depth = 1
     pos = after
     while depth > 0:
-        next_open  = open_pat.search(html, pos)
+        next_open = open_pat.search(html, pos)
         next_close = close_pat.search(html, pos)
 
         if next_close is None:
@@ -89,12 +90,12 @@ def get_element_char_spans(html: str) -> list[tuple[int, int, dict]]:
     # ── Step 1: regex로 원본 HTML에서 (tag, index) → 위치 맵 구축 ──────
     pos_map: dict[tuple, tuple[int, int]] = {}
 
-    for m in re.finditer(r'<(\w+)\b([^>]*?)\s*(/?)>', html):
-        tag_name     = m.group(1)
-        attrs_str    = m.group(2)
-        self_closing = m.group(3) == '/'
+    for m in re.finditer(r"<(\w+)\b([^>]*?)\s*(/?)>", html):
+        tag_name = m.group(1)
+        attrs_str = m.group(2)
+        self_closing = m.group(3) == "/"
 
-        idx_m    = re.search(r'\bindex="(-?\d+)"', attrs_str)
+        idx_m = re.search(r'\bindex="(-?\d+)"', attrs_str)
         bounds_m = re.search(r'\bbounds="([^"]+)"', attrs_str)
 
         # index를 우선 키로 사용, 없으면 bounds로 폴백
@@ -123,17 +124,17 @@ def get_element_char_spans(html: str) -> list[tuple[int, int, dict]]:
         tag = el.name
 
         is_interactive = tag in INTERACTIVE_TAGS
-        is_clickable   = any(el.get(a) for a in CLICKABLE_ATTRS)
-        text           = el.get_text(strip=True)
+        is_clickable = any(el.get(a) for a in CLICKABLE_ATTRS)
+        text = el.get_text(strip=True)
         # hungarian_metric._collect_texts와 동일하게 description/id/text 속성도 텍스트로 간주
-        has_text       = (
+        has_text = (
             bool(text)
             or bool(el.get("description"))
             or bool(el.get("id"))
             or bool(el.get("text"))
         )
-        is_content     = (tag in CONTENT_TAGS) and has_text
-        is_described   = bool(el.get("description"))
+        is_content = (tag in CONTENT_TAGS) and has_text
+        is_described = bool(el.get("description"))
 
         if not (is_interactive or is_content or is_clickable or is_described):
             continue
@@ -158,18 +159,25 @@ def get_element_char_spans(html: str) -> list[tuple[int, int, dict]]:
             continue
 
         char_start, char_end = pos_map[key]
-        spans.append((char_start, char_end, {
-            "tag":    tag,
-            "index":  idx,
-            "text":   text,
-            "bounds": bounds,
-        }))
+        spans.append(
+            (
+                char_start,
+                char_end,
+                {
+                    "tag": tag,
+                    "index": idx,
+                    "text": text,
+                    "bounds": bounds,
+                },
+            )
+        )
 
     spans.sort(key=lambda x: x[0])
     return spans
 
 
 # ── element key 빌더 ──────────────────────────────────────────────────────
+
 
 def _make_el_key(el: dict) -> tuple:
     """
@@ -186,14 +194,15 @@ def _make_el_key(el: dict) -> tuple:
 
 # ── 메인 공개 함수 ─────────────────────────────────────────────────────────
 
+
 def build_token_weights(
     tokenizer,
-    system:      str,
-    user:        str,
+    system: str,
+    user: str,
     future_html: str,
     diff_result: list[dict],
     prefix_text: str | None = None,
-    weight_map:  dict[str, float] | None = None,
+    weight_map: dict[str, float] | None = None,
 ) -> list[float]:
     """
     전체 시퀀스(system + user + assistant)에 대한 token_weights 배열 반환.
@@ -225,21 +234,19 @@ def build_token_weights(
         prefix_text = f"<|system|>\n{system}<|user|>\n{user}<|assistant|>\n"
 
     # ── 2. 토크나이즈 ──────────────────────────────────────────────────────
-    prefix_ids = tokenizer(
-        prefix_text, add_special_tokens=False
-    )["input_ids"]
+    prefix_ids = tokenizer(prefix_text, add_special_tokens=False)["input_ids"]
 
     asst_encoding = tokenizer(
         future_html,
         add_special_tokens=False,
         return_offsets_mapping=True,
     )
-    asst_ids       = asst_encoding["input_ids"]
+    asst_ids = asst_encoding["input_ids"]
     offset_mapping = asst_encoding["offset_mapping"]
     # offset_mapping: [(tok_char_start, tok_char_end), ...] — future_html 기준
 
     n_prefix = len(prefix_ids)
-    n_asst   = len(asst_ids)
+    n_asst = len(asst_ids)
 
     # ── 3. 기본 weight 배열 초기화 ─────────────────────────────────────────
     weights = [0.0] * n_prefix + [base] * n_asst
@@ -258,9 +265,9 @@ def build_token_weights(
 
     # ── 6. char offset → token offset 변환 후 weight 적용 ─────────────────
     for char_start, char_end, el_info in char_spans:
-        el_key    = _make_el_key(el_info)
+        el_key = _make_el_key(el_info)
         diff_type = diff_by_key.get(el_key, "UNCHANGED")
-        weight    = wmap[diff_type]
+        weight = wmap[diff_type]
 
         if weight == base:
             continue  # baseline 그대로이므로 스킵

@@ -14,17 +14,17 @@ Usage:
         --max-episodes 3 --verbose
 """
 
-import os
-import sys
+import argparse
 import gzip
 import io
 import json
-import time
+import os
 import struct
-import argparse
+import sys
 import tempfile
-import urllib.request
+import time
 import urllib.error
+import urllib.request
 
 from PIL import Image
 
@@ -40,6 +40,7 @@ JPEG_QUALITY = 95
 # ---------------------------------------------------------------------------
 # GCS helpers (public bucket, no auth needed)
 # ---------------------------------------------------------------------------
+
 
 def gcs_list_objects(bucket: str, prefix: str) -> list[str]:
     """List object names in a public GCS bucket by prefix."""
@@ -70,6 +71,7 @@ def gcs_download_to_file(bucket: str, obj_name: str, dest_path: str) -> None:
 # TFRecord reader (GZIP compressed)
 # ---------------------------------------------------------------------------
 
+
 def iter_tfrecord_gzip(path: str):
     """Yield raw record bytes from a GZIP-compressed TFRecord file."""
     with gzip.open(path, "rb") as f:
@@ -93,6 +95,7 @@ def iter_tfrecord_gzip(path: str):
 # ---------------------------------------------------------------------------
 # Minimal protobuf wire format parser for tf.train.Example
 # ---------------------------------------------------------------------------
+
 
 def _read_varint(data: bytes, pos: int) -> tuple[int, int]:
     result = 0
@@ -228,6 +231,7 @@ def get_bytes_list(features: dict, key: str) -> list[bytes]:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     ap = argparse.ArgumentParser(
         description="Extract AndroidControl screenshots from GCS TFRecord(GZIP) files."
@@ -248,7 +252,9 @@ def main():
         action="store_true",
         help="Skip images that already exist on disk (enables resume)",
     )
-    ap.add_argument("--verbose", action="store_true", help="Verbose per-episode logging")
+    ap.add_argument(
+        "--verbose", action="store_true", help="Verbose per-episode logging"
+    )
     args = ap.parse_args()
 
     os.makedirs(args.output, exist_ok=True)

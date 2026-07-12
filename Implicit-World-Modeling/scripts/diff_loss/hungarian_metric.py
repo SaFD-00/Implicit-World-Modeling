@@ -17,27 +17,28 @@ compute_hungarian_acc(pred_str, gt_str) 하나만 외부에서 호출하면 됨.
 """
 
 from __future__ import annotations
+
 from typing import Any
-import re
 
 from bs4 import BeautifulSoup
 from munkres import Munkres
 
 # ── 파서 설정 ──────────────────────────────────────────────────────────────
 INTERACTIVE_TAGS = {"button", "input", "a", "select", "textarea"}
-CONTENT_TAGS     = {"p", "img", "span"}
-CLICKABLE_ATTRS  = {"clickable", "long-clickable"}
+CONTENT_TAGS = {"p", "img", "span"}
+CLICKABLE_ATTRS = {"clickable", "long-clickable"}
 
 # ── 비용 함수 가중치 ────────────────────────────────────────────────────────
-W_TAG   = 3.0   # tag 불일치 패널티 (가장 강함 — 다른 종류는 절대 매칭 안 되게)
-W_TEXT  = 1.5   # text 불일치
-W_INDEX = 0.2   # DOM index 거리
+W_TAG = 3.0  # tag 불일치 패널티 (가장 강함 — 다른 종류는 절대 매칭 안 되게)
+W_TEXT = 1.5  # text 불일치
+W_INDEX = 0.2  # DOM index 거리
 
-MATCH_THRESHOLD = 1.5   # 이 이상이면 매칭 거부 → ADDED / DELETED
-INDEX_TAU       = 2     # index_acc: 차이 ≤ τ 이면 위치 정확
+MATCH_THRESHOLD = 1.5  # 이 이상이면 매칭 거부 → ADDED / DELETED
+INDEX_TAU = 2  # index_acc: 차이 ≤ τ 이면 위치 정확
 
 
 # ── 요소 추출 ──────────────────────────────────────────────────────────────
+
 
 def _collect_texts(el: Any) -> str:
     """요소 자신 + 자식 전체에서 텍스트 토큰 수집 (중복 제거, 알파벳순 join).
@@ -89,14 +90,14 @@ def extract_elements(xml_str: str) -> list[dict]:
 
     elements: list[dict] = []
     for el in soup.find_all(True):
-        tag  = el.name
-        idx  = _safe_int(el.get("index", -1))
+        tag = el.name
+        idx = _safe_int(el.get("index", -1))
         text = _collect_texts(el)
 
         is_interactive = tag in INTERACTIVE_TAGS
-        is_content     = (tag in CONTENT_TAGS) and bool(text)
-        is_clickable   = any(el.get(a) for a in CLICKABLE_ATTRS)
-        is_described   = bool(el.get("description"))
+        is_content = (tag in CONTENT_TAGS) and bool(text)
+        is_clickable = any(el.get(a) for a in CLICKABLE_ATTRS)
+        is_described = bool(el.get("description"))
 
         if is_interactive or is_content or is_clickable or is_described:
             elements.append({"tag": tag, "text": text, "index": idx})
@@ -112,6 +113,7 @@ def _safe_int(v: Any, default: int = -1) -> int:
 
 
 # ── 비용 함수 ──────────────────────────────────────────────────────────────
+
 
 def _text_sim(a: str, b: str) -> float:
     """Jaccard 유사도 (단어 집합 기준)."""
@@ -131,14 +133,17 @@ def _match_cost(e1: dict, e2: dict, max_idx: int) -> float:
     """pred 요소 e1과 gt 요소 e2 사이의 매칭 비용."""
     if e1["tag"] != e2["tag"]:
         return W_TAG
-    tc = W_TEXT  * (1.0 - _text_sim(e1["text"], e2["text"]))
+    tc = W_TEXT * (1.0 - _text_sim(e1["text"], e2["text"]))
     ic = W_INDEX * (abs(e1["index"] - e2["index"]) / max(max_idx, 1))
     return round(tc + ic, 5)
 
 
 # ── 헝가리안 매칭 ──────────────────────────────────────────────────────────
 
-def _hungarian_match(pred: list[dict], gt: list[dict]) -> tuple[list[tuple], list[list]]:
+
+def _hungarian_match(
+    pred: list[dict], gt: list[dict]
+) -> tuple[list[tuple], list[list]]:
     """
     헝가리안 알고리즘으로 pred-gt 간 최적 1:1 매칭을 찾는다.
 
@@ -154,12 +159,9 @@ def _hungarian_match(pred: list[dict], gt: list[dict]) -> tuple[list[tuple], lis
         (e["index"] for e in pred + gt if e["index"] >= 0),
         default=1,
     )
-    matrix: list[list[float]] = [
-        [_match_cost(p, g, max_idx) for g in gt]
-        for p in pred
-    ]
+    matrix: list[list[float]] = [[_match_cost(p, g, max_idx) for g in gt] for p in pred]
 
-    size   = max(n, m)
+    size = max(n, m)
     padded = [row + [MATCH_THRESHOLD * 2] * (size - len(row)) for row in matrix]
     while len(padded) < size:
         padded.append([MATCH_THRESHOLD * 2] * size)
@@ -176,23 +178,24 @@ def _hungarian_match(pred: list[dict], gt: list[dict]) -> tuple[list[tuple], lis
 
 # ── 메인 공개 함수 ─────────────────────────────────────────────────────────
 
+
 def compute_hungarian_acc(pred_str: str, gt_str: str) -> dict[str, float]:
     """
     모델이 생성한 XML 문자열(pred_str)과 정답 XML 문자열(gt_str)을 비교해
     hungarian 기반 평가 메트릭을 반환한다.
     """
     _zero = {
-        "hungarian_ea":   0.0,
-        "hungarian_f1":   0.0,
+        "hungarian_ea": 0.0,
+        "hungarian_f1": 0.0,
         "hungarian_prec": 0.0,
-        "hungarian_rec":  0.0,
+        "hungarian_rec": 0.0,
         "hungarian_text": 0.0,
-        "hungarian_idx":  0.0,
+        "hungarian_idx": 0.0,
     }
 
     try:
         pred_els = extract_elements(pred_str)
-        gt_els   = extract_elements(gt_str)
+        gt_els = extract_elements(gt_str)
     except Exception:
         return _zero
 
@@ -201,37 +204,40 @@ def compute_hungarian_acc(pred_str: str, gt_str: str) -> dict[str, float]:
 
     pairs, _ = _hungarian_match(pred_els, gt_els)
 
-    n_pred    = len(pred_els)
-    n_gt      = len(gt_els)
+    n_pred = len(pred_els)
+    n_gt = len(gt_els)
     n_matched = len(pairs)
 
-    ea   = n_matched / max(n_pred, n_gt) if max(n_pred, n_gt) > 0 else 0.0
-    prec = n_matched / n_pred             if n_pred  > 0           else 0.0
-    rec  = n_matched / n_gt               if n_gt    > 0           else 0.0
-    f1   = (2 * prec * rec / (prec + rec)) if (prec + rec) > 0    else 0.0
+    ea = n_matched / max(n_pred, n_gt) if max(n_pred, n_gt) > 0 else 0.0
+    prec = n_matched / n_pred if n_pred > 0 else 0.0
+    rec = n_matched / n_gt if n_gt > 0 else 0.0
+    f1 = (2 * prec * rec / (prec + rec)) if (prec + rec) > 0 else 0.0
 
     if pairs:
-        text_sims  = [_text_sim(pred_els[i]["text"], gt_els[j]["text"])
-                      for i, j, _ in pairs]
-        idx_diffs  = [abs(pred_els[i]["index"] - gt_els[j]["index"])
-                      for i, j, _ in pairs]
-        text_avg   = sum(text_sims) / len(text_sims)
-        idx_acc    = sum(1 for d in idx_diffs if d <= INDEX_TAU) / len(idx_diffs)
+        text_sims = [
+            _text_sim(pred_els[i]["text"], gt_els[j]["text"]) for i, j, _ in pairs
+        ]
+        idx_diffs = [
+            abs(pred_els[i]["index"] - gt_els[j]["index"]) for i, j, _ in pairs
+        ]
+        text_avg = sum(text_sims) / len(text_sims)
+        idx_acc = sum(1 for d in idx_diffs if d <= INDEX_TAU) / len(idx_diffs)
     else:
         text_avg = 0.0
-        idx_acc  = 0.0
+        idx_acc = 0.0
 
     return {
-        "hungarian_ea":   round(ea,       4),
-        "hungarian_f1":   round(f1,       4),
-        "hungarian_prec": round(prec,     4),
-        "hungarian_rec":  round(rec,      4),
+        "hungarian_ea": round(ea, 4),
+        "hungarian_f1": round(f1, 4),
+        "hungarian_prec": round(prec, 4),
+        "hungarian_rec": round(rec, 4),
         "hungarian_text": round(text_avg, 4),
-        "hungarian_idx":  round(idx_acc,  4),
+        "hungarian_idx": round(idx_acc, 4),
     }
 
 
 # ── 배치 집계 헬퍼 ─────────────────────────────────────────────────────────
+
 
 def aggregate_hungarian_metrics(results: list[dict[str, float]]) -> dict[str, float]:
     """compute_hungarian_acc 결과 리스트를 받아 키별 평균을 반환."""
