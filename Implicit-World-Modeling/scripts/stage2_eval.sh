@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage 2 Evaluation — local merged 우선 + HF Hub fallback sweep × 교차 데이터셋.
 #
-# 학습 DS (TRAIN_DATASET ∈ {AC_EXP01, AC_EXP02}) 에서 얻은 merged 모델을
+# 학습 DS (TRAIN_DATASET ∈ {AC_EXP01, AC_EXP02, AC_EXP03}) 에서 얻은 merged 모델을
 # 여러 평가 DS 에서 sweep. MC 는 Stage 2 학습 데이터/YAML 부재로 미지원.
 # (variant, epoch) 별 model path 는 _common.sh::resolve_eval_model_path
 # (kind=stage2_base | stage2_world | stage1 for epoch-0) 가 결정하며, local

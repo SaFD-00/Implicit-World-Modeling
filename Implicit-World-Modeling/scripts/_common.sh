@@ -153,7 +153,7 @@ fi
 # state-pred diff loss 실험군.
 #
 # AC_EXP03 (AndroidControl_EXP03) 는 AC_EXP01 ratio73 멤버십을 좌표(point) 표현으로
-# 미러한 실험군 (index→x,y; scripts/mirror_exp03.py). stage1 train 은 ratio73 단일,
+# 미러한 실험군 (index→x,y; scripts/mirror_experiment.py --experiment exp03). stage1 train 은 ratio73 단일,
 # test/Stage2 는 EXP01 멤버십 미러 — 모두 AndroidControl_EXP03/ 아래.
 #
 # 원본 AndroidControl/ 디렉토리는 EXP01/EXP02/EXP03 의 source jsonl + 이미지 자산으로만
@@ -191,13 +191,13 @@ declare -A DS_DATADIR=(
   # AC_EXP02 = AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred diff loss 실험군.
   # train 은 diff-loss 전처리본, test/Stage2 는 AC_EXP01 에서 복사 — 모두 AndroidControl_EXP02/ 아래.
   [AC_EXP02]="AndroidControl_EXP02"
-  # AC_EXP03 = AC_EXP01 ratio73 멤버십을 좌표(point) 표현으로 미러 (scripts/mirror_exp03.py).
+  # AC_EXP03 = AC_EXP01 ratio73 멤버십을 좌표(point) 표현으로 미러 (scripts/mirror_experiment.py --experiment exp03).
   # stage1 train + test 6종 + Stage2 train/test 3종 모두 AndroidControl_EXP03/ 아래.
   [AC_EXP03]="AndroidControl_EXP03"
-  # AC_EXP04 = AC_EXP03 와 동일 멤버십·좌표 표현 + stage1 프롬프트 업그레이드 (scripts/mirror_exp04.py).
+  # AC_EXP04 = AC_EXP03 와 동일 멤버십·좌표 표현 + stage1 프롬프트 업그레이드 (scripts/mirror_experiment.py --experiment exp04).
   # stage1 train + test 6종만 AndroidControl_EXP04/ 아래 (Stage 2 보류 — 데이터/등록 키 없음).
   [AC_EXP04]="AndroidControl_EXP04"
-  # AC_EXP05 = AC_EXP01 ratio73 멤버십의 절대 픽셀(840×1876, budget 1605632) 미러 — scripts/mirror_exp05.py.
+  # AC_EXP05 = AC_EXP01 ratio73 멤버십의 절대 픽셀(840×1876, budget 1605632) 미러 — scripts/mirror_experiment.py --experiment exp05.
   # Qwen2.5-VL 전용. stage1 7종만, Stage 2 보류.
   [AC_EXP05]="AndroidControl_EXP05"
   [MC]="MonkeyCollection"
