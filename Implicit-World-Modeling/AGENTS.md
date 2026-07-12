@@ -148,7 +148,7 @@ AC_EXP05 는 AC_EXP01 ratio73 멤버십을 절대 픽셀 좌표로 미러한 And
   # → SaFD-00/qwen3-vl-8b-ac-exp02-world-model-stage1-full-epoch3-stage2-lora-epoch1
   ```
 - `rg "BEST_CHECKPOINT" scripts/ tests/` — 비어야 함
-- `rg "transformers.*<5\b" pyproject.toml README.md ARCHITECTURE.md AGENTS.md` — 비어야 함 (모두 `<4.58`)
+- `rg '"transformers[^"]*,<[5-9]' pyproject.toml` — 비어야 함 (실제 dependency pin 이 5.x 이상을 허용하면 안 됨; 산문의 `` `transformers<5` `` 언급은 double-quote 가 없어 매칭 제외). 정본 pin 은 `>=4.57.1,<4.58`.
 - GPU-aware per-device 검증: `.env` 에 `GPU_TYPE=RTX5090 NPROC_PER_NODE=8` 설정 후 노트북 Cell 5 실행 → "RTX5090 × 8 GPU: 7-9B pd=1 ga=8" 출력 확인. 7-9B × GPU × NPROC ∈ {1,2,4,8} 조합이 64 로 나뉘어야 함.
 
 ## 문서 동기화 원칙

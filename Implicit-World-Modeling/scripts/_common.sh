@@ -139,7 +139,7 @@ if [[ "${GPU_TYPE:-}" == "RTX5090" ]]; then
 fi
 
 # --- dataset prefix / HF slug / data dir 매핑 (Cell 3 _DATASET_CONFIG 와 일치) -
-# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, MC}.
+# MB 는 평가 전용 벤치마크(학습 파이프라인 미사용). 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, MC}.
 # MB entry 는 평가 스크립트가 dataset_info 이름/slug 를 조합하는 데 사용.
 #
 # AC_EXP01 (AndroidControl_EXP01) 은 state_pred / action_pred 두 task 를 비율
@@ -278,7 +278,7 @@ ALL_MODELS=(
 #   bash script.sh --model qwen3-vl-8b --dataset AC_EXP02 --stage1-mode lora
 #   bash script.sh --model qwen3-vl-8b --dataset MC
 #
-# 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, MC}. 각 DS 는 명시적으로 선택해야 하며,
+# 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, MC}. 각 DS 는 명시적으로 선택해야 하며,
 # `--dataset all` 같은 일괄 sweep 모드는 지원하지 않는다.
 # MobiBench(MB) 는 평가 전용 벤치마크이므로 --dataset MB 입력은 거절된다.
 # 교차 평가는 stage{1,2}_eval.sh 가 제공하는 parse_eval_args
