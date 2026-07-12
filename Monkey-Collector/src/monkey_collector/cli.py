@@ -119,6 +119,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         xml_timeout=cfg.collection.signal_timeout_sec,
         budget_mode=cfg.collection.budget_mode,
         max_duration_sec=cfg.collection.max_duration_sec,
+        max_action_repeats=cfg.collection.max_action_repeats,
+        max_steps_without_new_page=cfg.collection.max_steps_without_new_page,
         activity_coverage_tracker=activity_tracker,
         cost_tracker=cost_tracker,
         text_generator=text_gen,

@@ -37,6 +37,8 @@ _BUILTIN_DEFAULTS: dict = {
         "budget_mode": "time",
         "max_duration": "2h",
         "signal_timeout_sec": 12.0,
+        "max_action_repeats": 8,
+        "max_steps_without_new_page": 150,
     },
     "llm": {
         "input_mode": "api",
@@ -87,6 +89,15 @@ class CollectionConfig:
     # Per-signal wait before a stuck episode escalates (nudge → force-relaunch).
     # Env: MC_COLLECTION_SIGNAL_TIMEOUT_SEC. See recovery.MAX_SIGNAL_TIMEOUTS.
     signal_timeout_sec: float = 12.0
+    # Repeat-action circuit breaker (D2): max times the same
+    # (page_key, action_type, element_index) may execute on a page before the
+    # next attempt breaks out via back/relaunch. Env:
+    # MC_COLLECTION_MAX_ACTION_REPEATS. 0 or negative disables the guard.
+    max_action_repeats: int = 8
+    # Plateau early-stop (D3): real-action steps with no new page after which the
+    # session clean-stops (app saturated). Env:
+    # MC_COLLECTION_MAX_STEPS_WITHOUT_NEW_PAGE. 0 or negative disables the guard.
+    max_steps_without_new_page: int = 150
 
 
 @dataclass
@@ -259,6 +270,8 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_COLLECTION_BUDGET_MODE",                "collection",      "budget_mode",               "str"),
         ("MC_COLLECTION_MAX_DURATION",               "collection",      "max_duration",              "str"),
         ("MC_COLLECTION_SIGNAL_TIMEOUT_SEC",         "collection",      "signal_timeout_sec",        "float"),
+        ("MC_COLLECTION_MAX_ACTION_REPEATS",         "collection",      "max_action_repeats",        "int"),
+        ("MC_COLLECTION_MAX_STEPS_WITHOUT_NEW_PAGE", "collection",      "max_steps_without_new_page", "int"),
         ("MC_LLM_INPUT_MODE",                        "llm",             "input_mode",                "str"),
         ("MC_LLM_ELEMENT_EXTRACTION",                "llm",             "element_extraction",        "bool"),
         ("MC_SCREEN_MATCHING_LUMINANCE_PREFILTER",     "screen_matching", "luminance_prefilter",       "bool"),
@@ -321,6 +334,11 @@ def _from_raw(raw: dict) -> RunConfig:
             budget_mode=_normalize_budget_mode(coll.get("budget_mode", "time"), source="config"),
             max_duration_sec=parse_duration(coll.get("max_duration", "2h")),
             signal_timeout_sec=signal_timeout_sec,
+            # No non-positive fallback here (unlike signal_timeout_sec above):
+            # a 0-or-negative value is the documented way to DISABLE the D2/D3
+            # guards (tests/experiments), so it is a valid input, not an error.
+            max_action_repeats=int(coll.get("max_action_repeats", 8)),
+            max_steps_without_new_page=int(coll.get("max_steps_without_new_page", 150)),
         ),
         llm=LlmConfig(
             input_mode=str(llm.get("input_mode", "api")),

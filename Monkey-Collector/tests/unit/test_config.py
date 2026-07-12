@@ -65,6 +65,8 @@ def test_builtin_defaults_no_yaml():
     assert cfg.collection.budget_mode == "time"
     assert cfg.collection.max_duration_sec == 7200
     assert cfg.collection.signal_timeout_sec == 12.0
+    assert cfg.collection.max_action_repeats == 8
+    assert cfg.collection.max_steps_without_new_page == 150
     assert cfg.llm.input_mode == "api"
     assert cfg.llm.element_extraction is False
     assert cfg.screen_matching.luminance_prefilter is True
@@ -122,6 +124,24 @@ def test_env_int_coercion(monkeypatch):
     cfg = load_run_config(path=NONEXISTENT)
     assert cfg.collection.max_steps == 321
     assert cfg.collection.port == 55555
+
+
+def test_env_no_progress_guard_coercion(monkeypatch):
+    monkeypatch.setenv("MC_COLLECTION_MAX_ACTION_REPEATS", "12")
+    monkeypatch.setenv("MC_COLLECTION_MAX_STEPS_WITHOUT_NEW_PAGE", "200")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.collection.max_action_repeats == 12
+    assert cfg.collection.max_steps_without_new_page == 200
+
+
+def test_no_progress_guards_non_positive_kept_as_disable(monkeypatch):
+    # 0/negative is the documented DISABLE value — it must pass through, not be
+    # clamped or warned back to the default (unlike signal_timeout_sec).
+    monkeypatch.setenv("MC_COLLECTION_MAX_ACTION_REPEATS", "0")
+    monkeypatch.setenv("MC_COLLECTION_MAX_STEPS_WITHOUT_NEW_PAGE", "-1")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.collection.max_action_repeats == 0
+    assert cfg.collection.max_steps_without_new_page == -1
 
 
 def test_env_luminance_coercion(monkeypatch):

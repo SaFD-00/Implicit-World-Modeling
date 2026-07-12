@@ -59,6 +59,49 @@ def test_self_loop_not_added_as_edge():
     assert graph.shortest_nav_steps(a, _state("A")) == []
 
 
+def test_stale_edge_pair_removed_on_new_destination():
+    # Same action on A first goes to B, later observed going to C. The A→B edge
+    # must lose that pair (and vanish, being its only action) so navigation
+    # follows the latest truth (A→C), not the stale A→B.
+    graph = TransitionGraph()
+    a, b, c = _state("A"), _state("B"), _state("C")
+    graph.add(a, "btn:x", "touch", b)
+    graph.add(a, "btn:x", "touch", c)  # same action, new destination
+    # A→B is gone (empty edge dropped); A→C is the live route.
+    assert graph.shortest_nav_steps(a, b) is None
+    steps = graph.shortest_nav_steps(a, c)
+    assert steps is not None
+    assert [s.page_key for s in steps] == ["A"]
+    assert steps[0].element_signature == "btn:x"
+
+
+def test_stale_edge_keeps_sibling_action():
+    # A→B carries two actions; only the one re-pointed to C is removed. The
+    # other action keeps A→B reachable.
+    graph = TransitionGraph()
+    a, b, c = _state("A"), _state("B"), _state("C")
+    graph.add(a, "btn:x", "touch", b)
+    graph.add(a, "btn:y", "touch", b)
+    graph.add(a, "btn:x", "touch", c)  # re-point btn:x only
+    steps_b = graph.shortest_nav_steps(a, b)
+    assert steps_b is not None
+    assert steps_b[0].element_signature == "btn:y"  # btn:x purged from A→B
+    steps_c = graph.shortest_nav_steps(a, c)
+    assert steps_c is not None
+    assert steps_c[0].element_signature == "btn:x"
+
+
+def test_self_loop_observation_removes_stale_edge():
+    # An action that used to navigate A→B is later observed self-looping on A
+    # (structure unchanged). The stale A→B edge must still be purged, though the
+    # self-loop itself is never added.
+    graph = TransitionGraph()
+    a, b = _state("A"), _state("B")
+    graph.add(a, "btn:x", "touch", b)
+    graph.add(a, "btn:x", "touch", _state("A"))  # now a self-loop
+    assert graph.shortest_nav_steps(a, b) is None
+
+
 def test_shortest_path_prefers_fewer_hops():
     graph = TransitionGraph()
     a, b, c, d = _state("A"), _state("B"), _state("C"), _state("D")

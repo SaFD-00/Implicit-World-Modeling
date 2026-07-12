@@ -9,7 +9,8 @@
 # Experiment runs sweep several keys. Canonical git default: exploration.strategy=BFS,
 # collection.max_steps=1500, collection.action_delay_ms=1500,
 # collection.budget_mode=time, collection.max_duration=2h,
-# collection.signal_timeout_sec=12, llm.element_extraction=false,
+# collection.signal_timeout_sec=12, collection.max_action_repeats=8,
+# collection.max_steps_without_new_page=150, llm.element_extraction=false,
 # screen_matching.luminance_prefilter=true, screen_matching.persist_filtered=true,
 # screen_matching.bm25_top_k=5, screen_matching.element_criterion=diff,
 # screen_matching.element_diff_max=5, screen_matching.element_jaccard_min=0.5,
@@ -48,6 +49,17 @@ collection:
   # 1-2, force-relaunch on the 3rd (recovery.MAX_SIGNAL_TIMEOUTS), so worst-case
   # one stuck episode waits signal_timeout_sec×3. Env: MC_COLLECTION_SIGNAL_TIMEOUT_SEC
   signal_timeout_sec: 12
+  # Repeat-action circuit breaker: max times the same (page, action, element)
+  # may execute on a page before the next attempt breaks out via back/relaunch,
+  # killing the fruitless page ping-pong behind R2 volume-not-diversity. Counter
+  # resets on any new page. 0 or negative disables the guard (tests/experiments).
+  # Env: MC_COLLECTION_MAX_ACTION_REPEATS
+  max_action_repeats: 8
+  # Plateau early-stop: real-action steps with no new page after which the
+  # session clean-stops (app treated as saturated → marked completed; re-collect
+  # with --force). 0 or negative disables the guard (tests/experiments).
+  # Env: MC_COLLECTION_MAX_STEPS_WITHOUT_NEW_PAGE
+  max_steps_without_new_page: 150
 
 llm:
   # Input text generation mode. Options: api | random

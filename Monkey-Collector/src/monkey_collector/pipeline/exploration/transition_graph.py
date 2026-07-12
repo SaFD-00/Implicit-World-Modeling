@@ -53,6 +53,17 @@ class TransitionGraph:
 
         Registers both endpoints as nodes. Self-loops (the structure did not
         change) are kept out of the edge set — they are useless for navigation.
+
+        The latest observation of a (signature, action_type) on *src* is the
+        truth about where that action leads: before recording it on the
+        src→dst edge, purge the same pair from every *other* out-edge of src
+        (and drop an edge whose action set empties out). Without this, a stale
+        edge from an earlier destination lets Navigator re-route over an action
+        whose real target changed — the deterministic livelock behind R2's
+        volume-not-diversity ping-pong. The purge runs even when the new
+        observation is a self-loop (src == dst): the action no longer navigates
+        anywhere, so its old edge must still go, though the self-loop itself is
+        never added as an edge.
         """
         if from_state is not None:
             self._graph.add_node(from_state.page_key)
@@ -62,11 +73,22 @@ class TransitionGraph:
             return
 
         src, dst = from_state.page_key, to_state.page_key
+
+        pair = (element_signature, action_type)
+        for other in list(self._graph.successors(src)):
+            if other == dst:
+                continue
+            actions: set[tuple[str, str]] = self._graph[src][other]["actions"]
+            if pair in actions:
+                actions.discard(pair)
+                if not actions:
+                    self._graph.remove_edge(src, other)
+
         if src == dst:
             return
         if not self._graph.has_edge(src, dst):
             self._graph.add_edge(src, dst, actions=set())
-        self._graph[src][dst]["actions"].add((element_signature, action_type))
+        self._graph[src][dst]["actions"].add(pair)
 
     def shortest_nav_steps(
         self,

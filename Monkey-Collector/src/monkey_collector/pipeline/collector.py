@@ -53,6 +53,8 @@ class Collector:
         xml_timeout: float = 12.0,
         budget_mode: str = "steps",
         max_duration_sec: int = 0,
+        max_action_repeats: int = 8,
+        max_steps_without_new_page: int = 150,
         activity_coverage_tracker: ActivityCoverageTracker | None = None,
         cost_tracker: CostTracker | None = None,
         text_generator: TextGenerator | None = None,
@@ -71,6 +73,11 @@ class Collector:
         self.xml_timeout = xml_timeout
         self.budget_mode = budget_mode
         self.max_duration_sec = max_duration_sec
+        # D2/D3 loop guards (repeat-action circuit breaker + plateau early-stop).
+        # Defaulted so existing tests that build a Collector without them still
+        # get the product guard values; 0 or negative disables each guard.
+        self.max_action_repeats = max_action_repeats
+        self.max_steps_without_new_page = max_steps_without_new_page
         self._latest_screenshot: bytes | None = None
         self._activity_tracker = activity_coverage_tracker
         self._cost_tracker = cost_tracker

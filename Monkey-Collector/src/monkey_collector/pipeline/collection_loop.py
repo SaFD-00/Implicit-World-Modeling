@@ -110,6 +110,20 @@ class CollectionState:
     # that ignores ESC falls back to a real Back; reset to 0 on any frame that
     # is not a keyboard (dismiss succeeded) or on the Back fallback itself.
     keyboard_escape_count: int = 0
+    # Repeat-action circuit breaker (D2). Counts how many times a given
+    # (page_key, action_type, element_index) has been executed since the last
+    # new page. When the same action on the same page is about to run for the
+    # (collector.max_action_repeats + 1)-th time it is a fruitless ping-pong
+    # (R2 volume-not-diversity): break out via back/relaunch instead. Cleared
+    # wholesale on any new page (progress forgives, per 5e2254e) and on escape.
+    action_repeat_counts: dict[tuple[str, str, int], int] = field(default_factory=dict)
+    # Plateau early-stop (D3). Real-action steps since the last new page;
+    # reset to 0 whenever a new page is discovered. When it reaches
+    # collector.max_steps_without_new_page the app is treated as saturated and
+    # the loop clean-stops (no_progress_stop) so finalize marks it completed and
+    # the budget rolls to the next app.
+    steps_since_new_page: int = 0
+    no_progress_stop: bool = False
 
 
 def _is_root_screen(state: CollectionState) -> bool:
@@ -195,7 +209,11 @@ def run_collection_loop(
     # never reach max_step. idle_iterations is the absolute backstop.
     max_idle = max(state.max_step * 4, 20)
 
-    while _has_budget(state, clock, deadline) and state.idle_iterations < max_idle:
+    while (
+        _has_budget(state, clock, deadline)
+        and state.idle_iterations < max_idle
+        and not state.no_progress_stop
+    ):
         state.idle_iterations += 1
         try:
             result = collector.server.get_latest_signal(timeout=collector.xml_timeout)
@@ -330,6 +348,10 @@ def _handle_no_change(
         return False
 
     if state.last_ui_tree is not None and len(state.last_ui_tree) > 0:
+        # NB: no-change retries are NOT fed to the D2 repeat-action circuit
+        # breaker — MAX_NO_CHANGE_RETRIES (3) already caps this path, and this
+        # is the retry loop the breaker's page-level counting is measured
+        # against, not a fresh actionable frame.
         if state.last_raw_xml:
             collector.explorer.set_screen_context(state.last_raw_xml, package=package)
         action = collector.explorer.select_action(
@@ -755,6 +777,11 @@ def _process_xml_signal(
     if state.root_page_id is None:
         state.root_page_id = state.current_page_id
     discovered_new_page = len(state.page_graph.nodes) > pages_before
+    # A new page = real progress: forgive the repeat-action circuit breaker
+    # (D2) wholesale (5e2254e philosophy). The D3 plateau counter is reset at
+    # the step increment below, where discovered_new_page is still in scope.
+    if discovered_new_page:
+        state.action_repeat_counts.clear()
     if previous_page_id is not None and state.last_action is not None:
         element_info = describe_action_element(state.last_action, state.last_ui_tree)
         state.page_graph.add_transition(
@@ -883,6 +910,44 @@ def _process_xml_signal(
         f"(element_index={action.element_index})"
     )
 
+    # Repeat-action circuit breaker (D2). Before executing, check how many times
+    # this exact (page_key, action_type, element_index) has already run on this
+    # page since the last new page. At the (max_action_repeats + 1)-th attempt
+    # the same action on the same page is a fruitless ping-pong (R2 stale-edge
+    # livelock) — break out via the stuck-on-page escape (back / relaunch)
+    # instead of executing, clear the counters, and return WITHOUT advancing
+    # `step`. A non-positive threshold disables the guard entirely.
+    repeat_key = (
+        page_key or str(state.current_page_id),
+        action.action_type,
+        action.element_index,
+    )
+    if (
+        collector.max_action_repeats > 0
+        and state.action_repeat_counts.get(repeat_key, 0) >= collector.max_action_repeats
+    ):
+        logger.warning(
+            f"Step {state.step}: action {repeat_key} repeated "
+            f"{state.action_repeat_counts[repeat_key]}x (>= "
+            f"{collector.max_action_repeats}) with no new page — breaking "
+            f"ping-pong via back/relaunch"
+        )
+        if state.is_first_screen or _back_would_exit(state):
+            relaunch_app_fallback(collector.adb, package)
+        else:
+            _mark_if_back_exited(state, safe_press_back(
+                collector.adb, collector.explorer, package
+            ))
+        collector.server.clear_signal_queue()
+        state.action_repeat_counts.clear()
+        state.last_action = None
+        state.last_ui_tree = None
+        time.sleep(collector.action_delay)
+        return True
+    state.action_repeat_counts[repeat_key] = (
+        state.action_repeat_counts.get(repeat_key, 0) + 1
+    )
+
     collector.explorer.execute_action(action)
     state.total_actions += 1
     # A real action ran: this is the only path that advances `step` and the only
@@ -909,4 +974,23 @@ def _process_xml_signal(
 
     time.sleep(collector.action_delay)
     state.step += 1
+    # Plateau early-stop (D3). Count real-action steps since the last new page;
+    # a new page this step resets the tally. Once the app has gone
+    # max_steps_without_new_page real actions with no new page it is saturated —
+    # flag a clean stop so the while-loop returns normally and finalize marks
+    # the session completed, rolling the budget to the next app. A non-positive
+    # threshold disables the guard.
+    state.steps_since_new_page += 1
+    if discovered_new_page:
+        state.steps_since_new_page = 0
+    if (
+        collector.max_steps_without_new_page > 0
+        and state.steps_since_new_page >= collector.max_steps_without_new_page
+    ):
+        logger.warning(
+            f"Step {state.step}: {state.steps_since_new_page} steps with no new "
+            f"page (>= {collector.max_steps_without_new_page}) — app saturated, "
+            f"clean-stopping session"
+        )
+        state.no_progress_stop = True
     return False
