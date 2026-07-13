@@ -16,11 +16,12 @@
 
 - [x] EXP01 / EXP02 / EXP03 — 결과 Notion 기록 완료
 - [ ] **EXP04** (EXP03 프롬프트 업그레이드) — stage1 LoRA 학습 진행, Stage 2 보류 (`_STAGE1_ONLY`)
-- [ ] **EXP05** (절대 픽셀 좌표 840×1876 · AndroidWorld 해상도 정렬) — **Qwen2.5-VL 전용** (`qwen2.5-vl-3b`/`qwen2.5-vl-7b`; `qwen3-vl-8b` 는 좌표계 mismatch 로 제외), Stage 1 전용 (Stage 2 보류). EXP03/04(0–1000 정규화·Qwen3-VL 전용)의 대칭 실험군.
+- [ ] **EXP05** (절대 픽셀 좌표 840×1876 · AndroidWorld 해상도 정렬) — **Qwen2.5-VL 계열 전용** (`qwen2.5-vl-3b`/`qwen2.5-vl-7b`; **Qwen3-VL 계열(`qwen3-vl-4b`/`qwen3-vl-8b`)은 좌표계 mismatch 로 제외**), Stage 1 전용 (Stage 2 보류). EXP03/04(0–1000 정규화·Qwen3-VL 계열 전용)의 대칭 실험군.
   - [x] 데이터 빌드 — 0711 수정본 적용 + diff loss v2 가중 부여. 빌드 정본은 [`scripts/build_exp05_data.py`](../Implicit-World-Modeling/scripts/build_exp05_data.py) (mirror → 토큰 가중 → 원자 교체)
   - [ ] **데이터 쟁점 4건 조병웅님 확인** — 아래 백로그. **본실험 착수 전 선결**
   - [ ] 학습 — 로컬 2×RTX5090 Full FT 불가(OOM, 실측) → **Vessl A100/H100** 필요
   - [ ] 평가 — xy 좌표 채점 (`--coord-mode xy` / `--match-mode pos`, AC_EXP05 일 때만 적용)
+- [ ] **`qwen3-vl-4b` — EXP01–EXP04 모델 자격만 복원, 학습 미착수** (2026-07-13). 커밋 `67a52e5` 가 삭제했던 모델을 레지스트리에 되돌려 **4 모델 2 tier**(7-9B: `qwen3-vl-8b`/`qwen2.5-vl-7b` · 3-4B: `qwen3-vl-4b`/`qwen2.5-vl-3b`) 가 됐다. **아직 한 번도 학습·평가하지 않았다** — 위 EXP01–04 의 완료/진행 표시는 전부 `qwen3-vl-8b`·`qwen2.5-vl-*` 기준이다. EXP05 는 Qwen3-VL 계열 배제라 대상 아님
 
 ## 할 일 (백로그)
 

@@ -12,15 +12,16 @@
   - `stage1+stage2` — Stage 1 merged (world model) → Stage 2 SFT
 - **파이프라인 흐름** (Stage 1 / Stage 2 공통): `train → merge → eval`. merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. eval 은 **로컬 `outputs/.../merged/.../epoch-{E}/` 가 있으면 우선 사용하고 없을 때만 HF Hub merged repo 를 pull** (`_common.sh::resolve_eval_model_path`) — `--no-hf-upload` 만 한 워크플로우와 HF push 후 다른 머신에서 재실행하는 워크플로우 모두에서 동작한다.
 
-## 지원 모델 (3 개)
+## 지원 모델 (4 개)
 
 | # | model_id | short_name | template | size |
 |---|----------|------------|----------|------|
 | 1 | `Qwen/Qwen3-VL-8B-Instruct` | `qwen3-vl-8b` | `qwen3_vl_nothink` | 7-9B |
-| 2 | `Qwen/Qwen2.5-VL-7B-Instruct` | `qwen2.5-vl-7b` | `qwen2_vl` | 7-9B |
-| 3 | `Qwen/Qwen2.5-VL-3B-Instruct` | `qwen2.5-vl-3b` | `qwen2_vl` | 3-4B |
+| 2 | `Qwen/Qwen3-VL-4B-Instruct` | `qwen3-vl-4b` | `qwen3_vl_nothink` | 3-4B |
+| 3 | `Qwen/Qwen2.5-VL-7B-Instruct` | `qwen2.5-vl-7b` | `qwen2_vl` | 7-9B |
+| 4 | `Qwen/Qwen2.5-VL-3B-Instruct` | `qwen2.5-vl-3b` | `qwen2_vl` | 3-4B |
 
-> **실험군별 모델 전용성**: EXP05 (절대 픽셀 좌표) 는 **Qwen2.5-VL 전용** (`qwen2.5-vl-3b`/`qwen2.5-vl-7b`), EXP03/EXP04 (0–1000 정규화) 는 **`qwen3-vl-8b` 전용** — 두 family 의 native 좌표 규약이 반대다. 사용자 요청의 "3B/8B 모두" 에서 **8B = `qwen2.5-vl-7b`** (Qwen2.5-VL 에 8B 부재; `qwen3-vl-8b` 는 factor 32·정규화 native 로 EXP05 부적합).
+> **실험군별 모델 전용성 (family 자격)**: EXP05 (절대 픽셀 좌표) 는 **Qwen2.5-VL 계열 전용** (`qwen2.5-vl-3b`/`qwen2.5-vl-7b`), EXP03/EXP04 (0–1000 정규화) 는 **Qwen3-VL 계열 전용** (`qwen3-vl-4b`/`qwen3-vl-8b`) — 두 family 의 native 좌표 규약이 반대다. 자격은 family 단위이며, 실제 학습 이력과는 별개다. 사용자 요청의 "3B/8B 모두" 에서 **8B = `qwen2.5-vl-7b`** (Qwen2.5-VL 에 8B 부재; Qwen3-VL 계열은 factor 32·정규화 native 로 EXP05 부적합).
 
 > Qwen3-VL 의 `qwen3_vl_nothink` template 은 추론 시 `vllm_infer.py` 에 `--enable_thinking False` 가 자동 주입된다. Qwen2.5-VL 의 `qwen2_vl` template 은 thinking 트리거가 없어 해당 플래그를 주입하지 않는다.
 
@@ -30,7 +31,7 @@
 
 | family | factor | `max_pixels` | → 리사이즈 (W×H) | visual tokens |
 |--------|--------|--------------|------------------|---------------|
-| Qwen3-VL (8B) | 32 | 2,097,152 | 960 × 2144 | 2,010 |
+| Qwen3-VL (4B/8B) | 32 | 2,097,152 | 960 × 2144 | 2,010 |
 | Qwen2.5-VL (3B/7B) | 28 | 1,605,632 | **840 × 1876** | 2,010 |
 
 > **두 family 는 visual token 수가 같고 (2,010) 이미지 픽셀 크기만 다르다.** EXP05 의 절대 픽셀 좌표(840×1876)를 Qwen3-VL 로 학습하면 모델이 보는 이미지는 960×2144 라 grounding 이 **조용히** 깨진다 — 토큰 수 일치는 아무것도 보장하지 않으며, 이것이 EXP05 를 Qwen2.5-VL 전용으로 묶는 이유다. `1,605,632` 는 Qwen 기본값(12,845,056)이 아니라 **의도적 override** 이며 데이터 생성 `--image-budget` 과 반드시 일치해야 한다. 전체 표·근거는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2 "모델 family 별 image budget".
@@ -50,7 +51,7 @@ Implicit-World-Modeling/
 │   ├── mirror_experiment.py       # EXP01 ratio73 멤버십 → 좌표 표현 미러 (--experiment {exp03,exp04,exp05} 통합)
 │   │                              #   exp03=정규화 좌표(point), exp04=+프롬프트 업그레이드, exp05=절대 픽셀(840×1876, Qwen2.5-VL 전용, stage1-only)
 │   ├── build_exp05_data.py        # AC_EXP05 학습 데이터 정본 빌더 (mirror → diff-loss token_weights → 원자 교체 + sidecar)
-│   ├── tmux_exp04_stage1.sh      # AC_EXP04 Stage 1 LoRA tmux 학습 스케줄 (qwen3-vl-8b 전용 — Qwen3-VL 전용 실험군, GPU 0,1)
+│   ├── tmux_exp04_stage1.sh      # AC_EXP04 Stage 1 LoRA tmux 학습 스케줄 (qwen3-vl-8b 기준 — Qwen3-VL 계열 전용 실험군, GPU 0,1)
 │   ├── extract_androidcontrol_metadata.py   # AndroidControl episodes_meta.jsonl 생성
 │   └── extract_androidcontrol_images.py     # AndroidControl GCS TFRecord → PNG (TF 의존 없음)
 ├── data/                         # AndroidControl (원본 source) / AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / MC / MB
@@ -211,14 +212,14 @@ python scripts/filter_long_samples.py --dataset AC_EXP03 --threshold 24576 --rep
 - **미러**: `scripts/mirror_experiment.py --experiment exp04` 가 EXP01 ratio73 (= EXP03 와 동일) 멤버십을 따라 `data/AndroidControl_EXP04/` 에 stage1 train (49,276 줄) + dual-task test 6 종을 생성한다.
 - **누락 제외**: EXP04 pool ⊆ EXP03 pool 이라 멤버십 = EXP03 ∩ EXP04 pool. drop 은 train 320 / 전체 stage1 450 (0.67%) — EXP03 train 49,596 → EXP04 49,276.
 - **cutoff_len 24576 공유**: 좌표 표현이라 EXP03 과 동일하게 `cutoff_len 24576` (무손실) · `per_device_train_batch_size` 절반 (half-batch, global batch 유지) 을 학습·평가 모두에 적용한다. 학습 YAML 은 **EXP03 stage1 YAML 을 복사**해 쓴다 (노트북 YAML 생성 셀 미사용 — EXP03 의 single-H100 hand-fix 보존).
-- **Stage 2 보류**: 이번 범위는 Stage 1 전용이다. `dataset_info.json` 에는 stage1 **5 키만** 등록하고 (`IWM-AC_EXP04_stage1_{train,test_id_state,test_ood_state,test_id_action,test_ood_action}`), `AndroidControl_EXP04` 를 `_STAGE1_ONLY` 에 넣어 Stage 2 YAML/등록/eval 을 생성하지 않는다. 실제 학습 대상은 **`qwen3-vl-8b` 단일 모델** 의 Stage 1 **LoRA** 이고 (EXP03/EXP04 는 좌표 표현이 0–1000 정규화 = Qwen3-VL native 와 일치, Qwen2.5-VL native (절대 픽셀) 와는 mismatch 라 **Qwen3-VL 전용 실험군**; `qwen2.5-vl-7b` 는 제외), 스케줄은 `scripts/tmux_exp04_stage1.sh` (GPU 0,1) 다.
+- **Stage 2 보류**: 이번 범위는 Stage 1 전용이다. `dataset_info.json` 에는 stage1 **5 키만** 등록하고 (`IWM-AC_EXP04_stage1_{train,test_id_state,test_ood_state,test_id_action,test_ood_action}`), `AndroidControl_EXP04` 를 `_STAGE1_ONLY` 에 넣어 Stage 2 YAML/등록/eval 을 생성하지 않는다. 지금까지 실제로 학습한 대상은 **`qwen3-vl-8b` 단일 모델** 의 Stage 1 **LoRA** 이고 (EXP03/EXP04 는 좌표 표현이 0–1000 정규화 = Qwen3-VL native 와 일치, Qwen2.5-VL native (절대 픽셀) 와는 mismatch 라 **Qwen3-VL 계열 전용 실험군** — 자격은 `qwen3-vl-4b`/`qwen3-vl-8b`, Qwen2.5-VL 계열은 제외), 스케줄은 `scripts/tmux_exp04_stage1.sh` (GPU 0,1) 다.
 
 ```bash
 python scripts/mirror_experiment.py --experiment exp04
 # → data/AndroidControl_EXP04/implicit-world-modeling_stage1_train.jsonl  (49,276 줄)
 #   + stage1_test_{id,ood}_{state,action}(+_without_open_app)
 
-# Stage 1 LoRA tmux 스케줄 — qwen3-vl-8b 전용 (Qwen3-VL 전용 실험군), GPU 0,1 (NPROC=2, LoRA grad_accum 32 로 global batch 64 유지)
+# Stage 1 LoRA tmux 스케줄 — qwen3-vl-8b 기준 (Qwen3-VL 계열 전용 실험군), GPU 0,1 (NPROC=2, LoRA grad_accum 32 로 global batch 64 유지)
 bash scripts/tmux_exp04_stage1.sh
 ```
 
@@ -233,7 +234,7 @@ bash scripts/tmux_exp04_stage1.sh
 - **미러**: `scripts/mirror_experiment.py --experiment exp05` 가 EXP01 ratio73 멤버십을 따라 `data/AndroidControl_EXP05/` 에 stage1 train (**44,670 줄** — 입력 50,000 / drop 5,330) + dual-task test 6 종 (각 3,000 → 2,660–2,695) 을 생성한다 (총 7 파일, **60,717 행**). 출력 이미지 경로는 EXP01 의 `AndroidControl/images/...` 를 채택 (raw 의 `myset/...` 는 `(episode, step)` 매칭 키에만 사용 → 별도 image path rewrite 불필요).
 - **빌드 (정본 경로)**: `scripts/build_exp05_data.py` 가 mirror → diff-loss 가중치 부여까지 한 번에 수행하고 train 을 원자 교체한다. 가중치 산출에 쓴 tokenizer/revision/가중 상수는 `<train>.meta.json` sidecar 에 기록된다. **이 스크립트가 EXP05 train 의 유일한 커밋된 생성 경로다.**
 - **cutoff_len 24576 공유 · half-batch**: 좌표(point) 표현이라 EXP03/EXP04 와 동일. image budget 은 Qwen2.5-VL family 기본값과 같아 `image_overrides` 불필요 — 데이터 생성 `--image-budget` 과 학습 프로세서 `image_max_pixels` 가 자동 일치한다.
-- **YAML 생성**: EXP04 와 달리 노트북 Cell 10 이 `_YAML_GEN_DS={"AndroidControl_EXP05"}` allowlist 로 EXP05 YAML 을 직접 생성한다 (EXP03/04 hand-fix 는 보호). `dataset_info.json` 에 stage1 5 키만 등록, `_STAGE1_ONLY` 로 Stage 2 미생성. 실제 학습 대상은 **`qwen2.5-vl-3b` / `qwen2.5-vl-7b`** Stage 1 (`qwen3-vl-8b` 제외 — 좌표·factor 이중 mismatch).
+- **YAML 생성**: EXP04 와 달리 노트북 Cell 10 이 `_YAML_GEN_DS={"AndroidControl_EXP05"}` allowlist 로 EXP05 YAML 을 직접 생성한다 (EXP03/04 hand-fix 는 보호). `dataset_info.json` 에 stage1 5 키만 등록, `_STAGE1_ONLY` 로 Stage 2 미생성. 실제 학습 대상은 **`qwen2.5-vl-3b` / `qwen2.5-vl-7b`** Stage 1 (**Qwen3-VL 계열 (`qwen3-vl-4b`/`qwen3-vl-8b`) 제외** — 좌표·factor 이중 mismatch).
 
 ```bash
 # 1) Drive '0711_버젼' 에서 소스 2 파일 다운로드 후 canonical 이름으로 배치 (예: gdown --folder <folder-url>)
@@ -385,7 +386,7 @@ python scripts/eval_viewer.py --include AC_EXP02:qwen3-vl-8b \
     --variants "lora_world-model/epoch-1"
 ```
 
-- `--include EXP:MODEL` (필수, 1 개 이상): `EXP ∈ {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, MC}`, `MODEL` 은 `outputs/<DS_DATADIR(EXP)>/eval/` 아래 디렉토리 명 (AC_EXP01 ratio variant 는 `qwen3-vl-8b_ratio{37,55,73}`, AC_EXP02 는 `qwen3-vl-8b`, AC_EXP03 / AC_EXP04 는 `qwen3-vl-8b` 전용 — 좌표계 mismatch 로 Qwen3-VL 전용 실험군, `qwen2.5-vl-7b` 없음).
+- `--include EXP:MODEL` (필수, 1 개 이상): `EXP ∈ {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, MC}`, `MODEL` 은 `outputs/<DS_DATADIR(EXP)>/eval/` 아래 디렉토리 명 (AC_EXP01 ratio variant 는 `qwen3-vl-8b_ratio{37,55,73}`, AC_EXP02 는 `qwen3-vl-8b`, AC_EXP03 / AC_EXP04 는 `qwen3-vl-8b` — 좌표계 mismatch 로 Qwen3-VL 계열 전용 실험군이라 Qwen2.5-VL 계열 산출물이 없다).
 - `--stages {1,2}` (기본 둘 다), `--datasets` 는 **logical key** (예: `on-AC-state-id`, `on-AC-state-id-without-open_app`, `on-AC-action-id`, `on-MB`, `on-MC`; Stage 2 는 `on-AC-id`, `on-AC-ood`, `on-MB`).
 - multi-EXP 모드 variant 라벨은 `[EXP] MODEL/variant_path` 로 컬럼/메트릭 행에 노출되며, in-page checkbox 로 토글한다.
 - 동일 logical key 에 대한 prediction row count 는 모든 spec 에서 일치해야 한다 (AC_EXP01 ↔ AC_EXP02 의 test 데이터는 byte-identical copy — `data/AndroidControl_EXP02/` 가 AC_EXP01 에서 복사됨). **AC_EXP03 / AC_EXP04 는 좌표 표현 + 누락 제외로 행 수가 EXP01/EXP02 와 다르므로 cross-compare 대상이 아니다 — 각각 단독 `--include AC_EXP03:...` / `--include AC_EXP04:...` 조회만 지원**한다.

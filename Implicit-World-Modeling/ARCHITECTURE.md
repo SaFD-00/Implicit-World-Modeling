@@ -1,6 +1,6 @@
 # Implicit-World-Modeling Architecture
 
-`Implicit-World-Modeling` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **3 개 Vision-Language 모델** (`Qwen/Qwen3-VL-8B-Instruct`·`Qwen/Qwen2.5-VL-7B-Instruct` 7-9B tier, `Qwen/Qwen2.5-VL-3B-Instruct` 3-4B tier, EXP05 용 신규) 을 지원하며, conda env (`implicit-world-modeling`) + 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. eval 은 **local merged dir (`outputs/.../merged/.../epoch-{E}/`) 우선 + HF Hub merged repo fallback** (`_common.sh::resolve_eval_model_path`) — local merge 한 머신에서도 같은 머신 안에서 바로 eval 까지 이어 돌 수 있다.
+`Implicit-World-Modeling` 은 모바일 GUI World Modeling 이 Action Prediction 성능에 주는 영향을 검증하는 2-stage fine-tuning 파이프라인이다. **4 개 Vision-Language 모델** (`Qwen/Qwen3-VL-8B-Instruct`·`Qwen/Qwen2.5-VL-7B-Instruct` 7-9B tier, `Qwen/Qwen3-VL-4B-Instruct`·`Qwen/Qwen2.5-VL-3B-Instruct` 3-4B tier) 을 지원하며, conda env (`implicit-world-modeling`) + 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 가 오케스트레이션을 담당하고, [`scripts/`](./scripts) 가 반복 실행용 자동화 레이어다. 학습/export 는 conda env 에 `pip install -e ./LlamaFactory` 로 editable 설치된 LlamaFactory 가 수행한다. 모든 stage 의 흐름은 **`train → merge → eval`** 로 통일되며, merge 는 `--no-hf-upload` 로 local export 만 수행할 수 있다. eval 은 **local merged dir (`outputs/.../merged/.../epoch-{E}/`) 우선 + HF Hub merged repo fallback** (`_common.sh::resolve_eval_model_path`) — local merge 한 머신에서도 같은 머신 안에서 바로 eval 까지 이어 돌 수 있다.
 
 ---
 
@@ -26,8 +26,8 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 
 ### 핵심 엔트리포인트
 
-- [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) — conda `implicit-world-modeling`, 2 개 Qwen3-VL 모델
-  - 환경 설치, `_MODEL_CONFIG` (2) + `MODEL_FAMILY_CONFIG` + `_DATASET_CONFIG` (3 학습 DS) + `_SIZE_CONFIG_AC` (3 tier) 정의
+- [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) — conda `implicit-world-modeling`, 4 개 모델 (Qwen3-VL / Qwen2.5-VL 2 family)
+  - 환경 설치, `_MODEL_CONFIG` (4) + `MODEL_FAMILY_CONFIG` + `_DATASET_CONFIG` (8 키 = 6 학습 DS; AC_EXP01 은 ratio 3 종으로 전개) + `_SIZE_CONFIG_AC` (2 tier) 정의
   - Stage 1/2 학습 YAML 자동 생성 (Cell 8 = Stage 1, Cell 10 = Stage 2; full / lora 분리)
   - `LlamaFactory/data/dataset_info.json` 등록
   - Stage 1/2 학습·평가·merge 셀에서 `scripts/*.sh` 호출
@@ -44,10 +44,10 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 | 0 | 0–10 | 환경, dataset / 모델 / family / size config, Stage 1·Stage 2 학습 YAML 일괄 생성 |
 | 1 | 11–13 | Stage 1 ShareGPT 변환 + `dataset_info.json` 등록 |
 | 2 | 14–17 | Stage 2 ShareGPT 변환 + ID/OOD app 분할 + 등록 |
-| 3 | 18–84 | Stage 1 SFT (2 모델 × 3 DS × {full, lora}) — explicit per-cell |
+| 3 | 18–84 | Stage 1 SFT — `qwen3-vl-8b` Full FT walkthrough (AC_EXP01 · AC_EXP02). 다른 모델/모드는 `--model` / `--stage1-mode` 인자 교체 |
 | 4 | 85–151 | Stage 1 merge (모든 epoch local merge + 선택적 HF Hub push; `--no-hf-upload` 지원) |
 | 5 | 152–159 | Stage 1 평가 — local merged 우선 + HF Hub fallback sweep, Hungarian metric |
-| 6 | 160–186 | Stage 2 SFT (AC_EXP01·AC_EXP02 는 2 모델, AC_EXP03 은 `qwen3-vl-8b` 전용 — 좌표계 mismatch) |
+| 6 | 160–186 | Stage 2 SFT (AC_EXP01·AC_EXP02 는 2 모델, AC_EXP03 은 Qwen3-VL 계열 전용 — 좌표계 mismatch) |
 | 7 | 187–213 | Stage 2 merge (variant × 모든 epoch local merge + 선택적 HF push; `--no-hf-upload` 지원) |
 | 8 | 214–218 | Stage 2 평가 — ID + OOD 동시 sweep, `action_metrics.json` 3 섹션 |
 
@@ -59,11 +59,12 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 
 ### 모델 레지스트리
 
-`implicit-world-modeling.ipynb` Cell 5 의 `_MODEL_CONFIG` (2 모델) 와 `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS` 가 동기화되어야 한다.
+`implicit-world-modeling.ipynb` Cell 5 의 `_MODEL_CONFIG` (4 모델) 와 `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS` 가 동기화되어야 한다.
 
 | short_name | model_id | template | size |
 |------------|----------|----------|------|
 | qwen3-vl-8b | Qwen/Qwen3-VL-8B-Instruct | qwen3_vl_nothink | 7-9B |
+| qwen3-vl-4b | Qwen/Qwen3-VL-4B-Instruct | qwen3_vl_nothink | 3-4B |
 | qwen2.5-vl-7b | Qwen/Qwen2.5-VL-7B-Instruct | qwen2_vl | 7-9B |
 | qwen2.5-vl-3b | Qwen/Qwen2.5-VL-3B-Instruct | qwen2_vl | 3-4B |
 
@@ -81,9 +82,9 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 
 **우리 좌표 실험군 (EXP03/EXP04) 데이터는 0–1000 정규화로 통일** — XML root div 가 `[0,0][1000,1000]` (`point="[500,500]"`), 전 좌표 min 0 / max 1000, action 의 `point` 는 노드 `point` 속성 verbatim 복사 (`[POINT]` / `[NO HALLUCINATION]` 규칙). 원천은 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy.jsonl` (EXP03) / `*_xy_prompt-enhanced.jsonl` (EXP04) — 둘 다 정규화. **픽셀 좌표가 아님.**
 
-> **EXP03/EXP04 는 Qwen3-VL 전용 실험군 (좌표계 정합성)**: EXP03/EXP04 의 0–1000 정규화는 **Qwen3-VL native 와 일치** 하지만 **Qwen2.5-VL native (절대 픽셀) 와는 어긋난다**. 이 mismatch 때문에 **EXP03/EXP04 는 `qwen3-vl-8b` 만 학습·평가** 하고 Qwen2.5-VL 은 사용하지 않는다 (Qwen2.5-VL 은 정규화 좌표를 native 로 쓰지 않아 자기 pretrain 규약과 충돌). 좌표 표현(index→point) 효과는 동일 Qwen3-VL 계열의 EXP01 ratio73 대조군과 비교한다. 출처 — [Qwen3-VL Spatial Understanding & 2D Grounding (DeepWiki)](https://deepwiki.com/QwenLM/Qwen3-VL/5.2-spatial-understanding-and-2d-grounding), [Qwen2.5-VL Visual Grounding issue #866 (QwenLM)](https://github.com/QwenLM/Qwen2.5-VL/issues/866).
+> **EXP03/EXP04 는 Qwen3-VL 계열 전용 실험군 (좌표계 정합성)**: EXP03/EXP04 의 0–1000 정규화는 **Qwen3-VL native 와 일치** 하지만 **Qwen2.5-VL native (절대 픽셀) 와는 어긋난다**. 이 mismatch 때문에 **EXP03/EXP04 는 Qwen3-VL 계열 (`qwen3-vl-4b`/`qwen3-vl-8b`) 만 학습·평가** 하고 Qwen2.5-VL 은 사용하지 않는다 (지금까지 실제로 학습한 것은 `qwen3-vl-8b` 뿐이며, `qwen3-vl-4b` 는 자격만 있고 학습 이력은 없다) (Qwen2.5-VL 은 정규화 좌표를 native 로 쓰지 않아 자기 pretrain 규약과 충돌). 좌표 표현(index→point) 효과는 동일 Qwen3-VL 계열의 EXP01 ratio73 대조군과 비교한다. 출처 — [Qwen3-VL Spatial Understanding & 2D Grounding (DeepWiki)](https://deepwiki.com/QwenLM/Qwen3-VL/5.2-spatial-understanding-and-2d-grounding), [Qwen2.5-VL Visual Grounding issue #866 (QwenLM)](https://github.com/QwenLM/Qwen2.5-VL/issues/866).
 
-> **EXP05 는 대칭으로 Qwen2.5-VL 전용 실험군 (절대 픽셀)**: EXP05 (AndroidWorld 해상도 정렬) 데이터는 **절대 픽셀 840×1876** — base 1080×2400 을 budget 1,605,632 / factor 28 로 smart_resize 한 이미지의 실제 픽셀 좌표 (min 3,136). 이는 **Qwen2.5-VL native 와 일치** 하고 Qwen3-VL native (0–1000 정규화) 와는 어긋난다. 따라서 **EXP05 는 `qwen2.5-vl-3b`/`qwen2.5-vl-7b` 만 학습·평가** 하고 `qwen3-vl-8b` 는 제외한다 (factor 32 라 1,605,632 를 줘도 832×1888 로 정렬돼 840×1876 과 어긋나고, 0–1000 정규화 native 와도 이중 mismatch — EXP03/04 의 정확한 대칭). 원천은 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl` (Google Drive **'0711_버젼'** 제공, 빌드 정본 `scripts/build_exp05_data.py` = mirror + diff-loss 가중치). 좌표 실측: **XML 의 `bounds`/`point` 는 정확히 x_max 840 / y_max 1876** 이다. 다만 **액션 라벨(`coordinate`) 필드에는 범위를 벗어나는 키가 11 개** 있고 (0710·0711 동일 — 기존 원천 버그; 값이 `[1682, 975]` 로 반복되며 1682 ≈ 840×2 라 스케일링 의심), 그중 **10 행이 EXP05 산출물에 실려 있다** (train 7 + `test_ood_{action,state,state_without_open_app}` 각 1 → OOD 평가셋 오염). 상세는 [`docs/EXP05_DIFF_LOSS_PLAN.md`](../docs/EXP05_DIFF_LOSS_PLAN.md) §6. "3B/8B 모두" 요청의 8B 는 `qwen2.5-vl-7b` 로 해석 (Qwen2.5-VL 에 8B 부재).
+> **EXP05 는 대칭으로 Qwen2.5-VL 전용 실험군 (절대 픽셀)**: EXP05 (AndroidWorld 해상도 정렬) 데이터는 **절대 픽셀 840×1876** — base 1080×2400 을 budget 1,605,632 / factor 28 로 smart_resize 한 이미지의 실제 픽셀 좌표 (min 3,136). 이는 **Qwen2.5-VL native 와 일치** 하고 Qwen3-VL native (0–1000 정규화) 와는 어긋난다. 따라서 **EXP05 는 `qwen2.5-vl-3b`/`qwen2.5-vl-7b` 만 학습·평가** 하고 **Qwen3-VL 계열 (`qwen3-vl-4b`/`qwen3-vl-8b`) 은 제외** 한다 (factor 32 라 1,605,632 를 줘도 832×1888 로 정렬돼 840×1876 과 어긋나고, 0–1000 정규화 native 와도 이중 mismatch — EXP03/04 의 정확한 대칭). 이 배제는 코드 가드가 아니라 **문서 규약** 이다 — `--model` 에 Qwen3-VL 계열을 넣어도 에러 없이 학습이 돌아가고 grounding 만 조용히 깨진다. 원천은 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl` (Google Drive **'0711_버젼'** 제공, 빌드 정본 `scripts/build_exp05_data.py` = mirror + diff-loss 가중치). 좌표 실측: **XML 의 `bounds`/`point` 는 정확히 x_max 840 / y_max 1876** 이다. 다만 **액션 라벨(`coordinate`) 필드에는 범위를 벗어나는 키가 11 개** 있고 (0710·0711 동일 — 기존 원천 버그; 값이 `[1682, 975]` 로 반복되며 1682 ≈ 840×2 라 스케일링 의심), 그중 **10 행이 EXP05 산출물에 실려 있다** (train 7 + `test_ood_{action,state,state_without_open_app}` 각 1 → OOD 평가셋 오염). 상세는 [`docs/EXP05_DIFF_LOSS_PLAN.md`](../docs/EXP05_DIFF_LOSS_PLAN.md) §6. "3B/8B 모두" 요청의 8B 는 `qwen2.5-vl-7b` 로 해석 (Qwen2.5-VL 에 8B 부재).
 
 ### 모델 family 별 image budget
 
@@ -119,13 +120,15 @@ YAML 의 `image_max_pixels` / `image_min_pixels` 는 CONFIGS 빌더가 family de
 
 CONFIGS 빌더가 다음 순서로 `dict.update()` 한다:
 
-1. `_DATASET_CONFIG[ds].stage{1,2}` — 데이터셋 공통 baseline (AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / MC). AC_EXP04 는 stage1 만 사용 (Stage 2 보류 — `_STAGE1_ONLY`).
-2. `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` — **AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 공유** 모델 크기 공유값 (7-9B 단일 tier). **현재 7-9B 의 세 키는 모두 빈 dict** 이라 baseline 을 그대로 쓴다 (EXP01/EXP02 실측 어댑터와 동일조건 보존). MC 에는 적용되지 않는다.
+1. `_DATASET_CONFIG[ds].stage{1,2}` — 데이터셋 공통 baseline (AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / AC_EXP05 / MC). AC_EXP04 · AC_EXP05 는 stage1 만 사용 (Stage 2 보류 — `_STAGE1_ONLY`).
+2. `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` — **AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / AC_EXP05 공유** 모델 크기 공유값 (7-9B / 3-4B 2 단 tier). **현재 두 tier 모두 세 키가 빈 dict** 이라 baseline 을 그대로 쓴다 (EXP01/EXP02 실측 어댑터와 동일조건 보존). MC 에는 적용되지 않는다.
 3. `_MODEL_CONFIG[model].hparam_overrides` — 모델별 delta.
 
-각 모델은 `_MODEL_CONFIG[model]["size"]` (`"7-9B"`, 또는 `qwen2.5-vl-3b` 의 `"3-4B"`) 필드로 tier 를 지정한다. MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
+각 모델은 `_MODEL_CONFIG[model]["size"]` 필드로 tier 를 지정한다 — `"7-9B"` (`qwen3-vl-8b`, `qwen2.5-vl-7b`) / `"3-4B"` (`qwen3-vl-4b`, `qwen2.5-vl-3b`). MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
 
-#### `_SIZE_CONFIG_AC` 값 (7-9B)
+#### `_SIZE_CONFIG_AC` 값 (7-9B / 3-4B)
+
+> 등록된 두 tier (`7-9B`, `3-4B`) 는 `stage1` / `stage1_lora` / `stage2` 가 **모두 빈 dict** 이라, tier 와 무관하게 dataset baseline 이 그대로 적용된다. 아래 표는 그 baseline 을 7-9B 기준으로 적은 것이며, 3-4B 모델도 (delta 가 없으므로) 동일한 값을 받는다.
 
 **Stage 1 (full FT)** — dataset baseline 유지:
 
@@ -160,7 +163,7 @@ Full FT (Stage 1 / Stage 2 양쪽) 는 분기 없이 모델별 `stage1_deepspeed
 
 | 계열 | stage1 / stage2 에 추가 |
 |---|---|
-| Qwen 계열 (8 모델) | (empty — 전부 tier 값 그대로) |
+| Qwen 계열 (4 모델) | (empty — 전부 tier 값 그대로) |
 
 #### `per_device_train_batch_size` (size × GPU)
 
