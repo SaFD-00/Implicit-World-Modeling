@@ -286,15 +286,14 @@ if (( DO_VERIFY )); then
     row FAIL "LF HEAD == pin" "HEAD=${HEAD_NOW:0:12} != pin=${LF_PIN:0:12}"
   fi
 
-  # 2. 모든 패치가 적용된 상태인가 (reverse-check)
-  unapplied=()
-  for p in "${PATCHES[@]}"; do
-    git -C "$LF_DIR" apply --reverse --check "$p" 2>/dev/null || unapplied+=("$(basename "$p")")
-  done
-  if (( ${#unapplied[@]} == 0 )); then
+  # 2. 모든 패치가 적용된 상태인가 — 위 기지 상태 게이트의 MATCH_K 를 재사용한다.
+  # 패치를 하나씩 `git apply --reverse --check` 하면 안 된다: 패치는 스택이라
+  # 뒤 패치가 앞 패치의 추가 라인을 수정하므로(0002 가 0001 의 라인을 고친다),
+  # 최종 트리에서 앞 패치만 단독 역적용하는 것은 원리적으로 불가능하다.
+  if (( MATCH_K == NPATCH )); then
     row ok "패치 적용 상태 (${NPATCH}개)" "$(for p in "${PATCHES[@]}"; do printf '%s ' "$(basename "$p")"; done)"
   else
-    row FAIL "패치 적용 상태 (${NPATCH}개)" "미적용/불일치: ${unapplied[*]}"
+    row FAIL "패치 적용 상태 (${NPATCH}개)" "${MATCH_K}/${NPATCH} 적용됨 (기지 상태 게이트 기준)"
   fi
 
   # 3. import 레벨 증명: 패치된 필드가 실제로 설치된 llamafactory 에 존재하는가
