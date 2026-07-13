@@ -56,21 +56,20 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-
 # 학습 대상 DS → (source dir, output dir).
 # source 는 모든 EXP 가 공통으로 사용하는 원본 자산 폴더 (data/AndroidControl/) 또는
 # 자체 폴더 (MC). output 은 산출물(_train/_test 등)을 쓰는 폴더.
 SOURCE_DIR = {
-    "AC_EXP01":             "AndroidControl",
+    "AC_EXP01": "AndroidControl",
     "AndroidControl_EXP01": "AndroidControl",
-    "MC":                   "MonkeyCollection",
-    "MonkeyCollection":     "MonkeyCollection",
+    "MC": "MonkeyCollection",
+    "MonkeyCollection": "MonkeyCollection",
 }
 OUTPUT_DIR = {
-    "AC_EXP01":             "AndroidControl_EXP01",
+    "AC_EXP01": "AndroidControl_EXP01",
     "AndroidControl_EXP01": "AndroidControl_EXP01",
-    "MC":                   "MonkeyCollection",
-    "MonkeyCollection":     "MonkeyCollection",
+    "MC": "MonkeyCollection",
+    "MonkeyCollection": "MonkeyCollection",
 }
 
 # Stage 2 분할을 지원하지 않는 데이터셋 (Stage 1 전용).
@@ -97,7 +96,7 @@ def _parse_action_payload(value: str) -> dict:
 # ── IO helpers ────────────────────────────────────────────────────────────
 def load_jsonl(path: Path) -> list[dict]:
     rows: list[dict] = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
@@ -241,7 +240,9 @@ def compute_app_partition(
     ood_row_budget: int,
     id_row_budget: int,
     seed: int,
-) -> tuple[list[str], list[str], dict[str, list[dict]], list[dict], dict[str, str | None]]:
+) -> tuple[
+    list[str], list[str], dict[str, list[dict]], list[dict], dict[str, str | None]
+]:
     """Stage 2 행 수 기준으로 app partition 을 단일 계산.
 
     Returns
@@ -399,7 +400,9 @@ def build_stage2_id_ood_split(
 
 
 # ── Reporting ─────────────────────────────────────────────────────────────
-def print_stage2_distribution(entries: list, label: str, type_key: str = "type") -> None:
+def print_stage2_distribution(
+    entries: list, label: str, type_key: str = "type"
+) -> None:
     action_types: list[str] = []
     for entry in entries:
         try:
@@ -440,9 +443,11 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
     # 제거 후의 jsonl). 학습 시 Qwen3-VL get_rope_index 의 broadcast shape
     # mismatch 를 피하기 위함. 필터 산출은 scripts/filter_long_samples.py.
     # source_dir = data/AndroidControl/ (원본 자산), output_dir = data/AndroidControl_EXP01/.
-    state_pred_path  = source_dir / "implicit-world-modeling_stage1_state_filtered.jsonl"
-    action_pred_path = source_dir / "implicit-world-modeling_stage1_action_filtered.jsonl"
-    meta_path        = source_dir / "episodes_meta.jsonl"
+    state_pred_path = source_dir / "implicit-world-modeling_stage1_state_filtered.jsonl"
+    action_pred_path = (
+        source_dir / "implicit-world-modeling_stage1_action_filtered.jsonl"
+    )
+    meta_path = source_dir / "episodes_meta.jsonl"
 
     for p in (state_pred_path, action_pred_path):
         if not p.exists():
@@ -454,7 +459,10 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
             )
             return 1
     if not meta_path.exists():
-        print(f"[ERROR] AC_EXP01 split 에 필요한 파일이 없습니다: {meta_path}", file=sys.stderr)
+        print(
+            f"[ERROR] AC_EXP01 split 에 필요한 파일이 없습니다: {meta_path}",
+            file=sys.stderr,
+        )
         return 1
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -478,8 +486,7 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
 
     print(f"Dataset: AC_EXP01 (source={source_dir}, output={output_dir})")
     print(f"Seed: {seed}")
-    print(f"EXP ratios (state:action): "
-          f"{', '.join(f'{a}:{b}' for a, b in ratios)}")
+    print(f"EXP ratios (state:action): {', '.join(f'{a}:{b}' for a, b in ratios)}")
     print(f"Train total per EXP: {total}")
     print()
 
@@ -489,24 +496,31 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
 
     # 두 파일은 같은 episode set 을 공유 → action_pred 기준 1회 partition.
     id_apps, ood_apps, _, _, ep_to_app = compute_app_partition(
-        ap_entries, meta_entries,
+        ap_entries,
+        meta_entries,
         ood_row_budget=test_ood_size,
         id_row_budget=max_per_side + test_id_size,
         seed=seed,
     )
     id_set, ood_set = set(id_apps), set(ood_apps)
 
-    sp_id, sp_ood, sp_null = route_entries_by_app(sp_entries, ep_to_app, id_set, ood_set)
-    ap_id, ap_ood, ap_null = route_entries_by_app(ap_entries, ep_to_app, id_set, ood_set)
+    sp_id, sp_ood, sp_null = route_entries_by_app(
+        sp_entries, ep_to_app, id_set, ood_set
+    )
+    ap_id, ap_ood, ap_null = route_entries_by_app(
+        ap_entries, ep_to_app, id_set, ood_set
+    )
 
     print("=== App Partition (state_pred / action_pred 공유) ===")
     print(f"  Unique labeled apps: {len(id_apps) + len(ood_apps)}")
     print(f"  IN-DOMAIN apps:  {len(id_apps)}")
     print(f"  OUT-OF-DOMAIN apps: {len(ood_apps)}")
-    print(f"  state_pred  ID/OOD pool: {len(sp_id)} / {len(sp_ood)} "
-          f"(null {len(sp_null)})")
-    print(f"  action_pred ID/OOD pool: {len(ap_id)} / {len(ap_ood)} "
-          f"(null {len(ap_null)})")
+    print(
+        f"  state_pred  ID/OOD pool: {len(sp_id)} / {len(sp_ood)} (null {len(sp_null)})"
+    )
+    print(
+        f"  action_pred ID/OOD pool: {len(ap_id)} / {len(ap_ood)} (null {len(ap_null)})"
+    )
     print()
 
     # state_pred 는 random, action_pred 는 action_type stratified.
@@ -517,25 +531,30 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
         return stratified_subsample(entries, n, s, type_key="action_type")
 
     # Test 표본 (각 task 별 3000)
-    sp_test_id  = sp_subsample(sp_id,  test_id_size,  seed + 11)
+    sp_test_id = sp_subsample(sp_id, test_id_size, seed + 11)
     sp_test_ood = sp_subsample(sp_ood, test_ood_size, seed + 12)
-    ap_test_id  = ap_subsample(ap_id,  test_id_size,  seed + 21)
+    ap_test_id = ap_subsample(ap_id, test_id_size, seed + 21)
     ap_test_ood = ap_subsample(ap_ood, test_ood_size, seed + 22)
 
     # train pool: ID pool 에서 test_id 제거 (episode 가 아닌 row id 단위)
     def _disjoint(pool, test):
         marks = {id(e) for e in test}
         return [e for e in pool if id(e) not in marks]
+
     sp_train_pool = _disjoint(sp_id, sp_test_id)
     ap_train_pool = _disjoint(ap_id, ap_test_id)
 
     # Test 4 파일 작성 (output_dir 에 write)
-    test_id_sp_path  = output_dir / "implicit-world-modeling_stage1_test_id_state.jsonl"
-    test_id_ap_path  = output_dir / "implicit-world-modeling_stage1_test_id_action.jsonl"
-    test_ood_sp_path = output_dir / "implicit-world-modeling_stage1_test_ood_state.jsonl"
-    test_ood_ap_path = output_dir / "implicit-world-modeling_stage1_test_ood_action.jsonl"
-    write_jsonl(sp_test_id,  test_id_sp_path)
-    write_jsonl(ap_test_id,  test_id_ap_path)
+    test_id_sp_path = output_dir / "implicit-world-modeling_stage1_test_id_state.jsonl"
+    test_id_ap_path = output_dir / "implicit-world-modeling_stage1_test_id_action.jsonl"
+    test_ood_sp_path = (
+        output_dir / "implicit-world-modeling_stage1_test_ood_state.jsonl"
+    )
+    test_ood_ap_path = (
+        output_dir / "implicit-world-modeling_stage1_test_ood_action.jsonl"
+    )
+    write_jsonl(sp_test_id, test_id_sp_path)
+    write_jsonl(ap_test_id, test_id_ap_path)
     write_jsonl(sp_test_ood, test_ood_sp_path)
     write_jsonl(ap_test_ood, test_ood_ap_path)
 
@@ -544,8 +563,10 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
     print(f"  → {test_id_ap_path.name}  ({len(ap_test_id)})")
     print(f"  → {test_ood_sp_path.name} ({len(sp_test_ood)})")
     print(f"  → {test_ood_ap_path.name} ({len(ap_test_ood)})")
-    print_stage2_distribution(ap_test_id,  "action_pred test_id",  type_key="action_type")
-    print_stage2_distribution(ap_test_ood, "action_pred test_ood", type_key="action_type")
+    print_stage2_distribution(ap_test_id, "action_pred test_id", type_key="action_type")
+    print_stage2_distribution(
+        ap_test_ood, "action_pred test_ood", type_key="action_type"
+    )
     print()
 
     # EXP ratio mixing
@@ -554,20 +575,28 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
         n_state = total * rs // (rs + ra)
         n_action = total - n_state
         if n_state > len(sp_train_pool):
-            print(f"[warn] state_pred {n_state} > pool {len(sp_train_pool)}; "
-                  f"truncating to pool size.", file=sys.stderr)
+            print(
+                f"[warn] state_pred {n_state} > pool {len(sp_train_pool)}; "
+                f"truncating to pool size.",
+                file=sys.stderr,
+            )
         if n_action > len(ap_train_pool):
-            print(f"[warn] action_pred {n_action} > pool {len(ap_train_pool)}; "
-                  f"truncating to pool size.", file=sys.stderr)
-        state_chunk  = sp_subsample(sp_train_pool,  n_state,  seed + 100 + i)
+            print(
+                f"[warn] action_pred {n_action} > pool {len(ap_train_pool)}; "
+                f"truncating to pool size.",
+                file=sys.stderr,
+            )
+        state_chunk = sp_subsample(sp_train_pool, n_state, seed + 100 + i)
         action_chunk = ap_subsample(ap_train_pool, n_action, seed + 200 + i)
         mixed = state_chunk + action_chunk
         random.Random(seed + 300 + i).shuffle(mixed)
 
         out_path = output_dir / f"implicit-world-modeling_stage1_train_{rs}_{ra}.jsonl"
         write_jsonl(mixed, out_path)
-        print(f"  EXP {rs}:{ra} → {out_path.name} "
-              f"({len(mixed)} = state {len(state_chunk)} + action {len(action_chunk)})")
+        print(
+            f"  EXP {rs}:{ra} → {out_path.name} "
+            f"({len(mixed)} = state {len(state_chunk)} + action {len(action_chunk)})"
+        )
         print_stage2_distribution(
             action_chunk, f"  action_pred chunk ({rs}:{ra})", type_key="action_type"
         )
@@ -608,23 +637,25 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
             s2_ood, args.stage2_test_ood_size, seed + 32, type_key="action_type"
         )
 
-        s2_train_path   = output_dir / "implicit-world-modeling_stage2_train.jsonl"
+        s2_train_path = output_dir / "implicit-world-modeling_stage2_train.jsonl"
         s2_test_id_path = output_dir / "implicit-world-modeling_stage2_test_id.jsonl"
         s2_test_ood_path = output_dir / "implicit-world-modeling_stage2_test_ood.jsonl"
-        write_jsonl(s2_train,    s2_train_path)
-        write_jsonl(s2_test_id,  s2_test_id_path)
+        write_jsonl(s2_train, s2_train_path)
+        write_jsonl(s2_test_id, s2_test_id_path)
         write_jsonl(s2_test_ood, s2_test_ood_path)
 
         print("=== Stage 2 (Action Prediction, ID/OOD) ===")
-        print(f"  Total rows: {len(s2_entries)} "
-              f"(labeled {len(s2_id) + len(s2_ood)}, null {len(s2_null)})")
+        print(
+            f"  Total rows: {len(s2_entries)} "
+            f"(labeled {len(s2_id) + len(s2_ood)}, null {len(s2_null)})"
+        )
         print(f"  IN-DOMAIN pool: {len(s2_id)} rows")
         print(f"  OUT-OF-DOMAIN pool: {len(s2_ood)} rows")
         print(f"  → {s2_train_path.name} ({len(s2_train)})")
         print(f"  → {s2_test_id_path.name} ({len(s2_test_id)})")
         print(f"  → {s2_test_ood_path.name} ({len(s2_test_ood)})")
-        print_stage2_distribution(s2_train,    "train",    type_key="action_type")
-        print_stage2_distribution(s2_test_id,  "test_id",  type_key="action_type")
+        print_stage2_distribution(s2_train, "train", type_key="action_type")
+        print_stage2_distribution(s2_test_id, "test_id", type_key="action_type")
         print_stage2_distribution(s2_test_ood, "test_ood", type_key="action_type")
         print()
 
@@ -638,11 +669,14 @@ def main() -> int:
         description="Train/Test split builder (Stage 1/2 ID/OOD; MC Stage 1 random)",
     )
     parser.add_argument(
-        "--dataset", required=True, choices=sorted(SOURCE_DIR),
+        "--dataset",
+        required=True,
+        choices=sorted(SOURCE_DIR),
         help="Dataset short or full name. AC_EXP01 은 source=AndroidControl/ 에서 read.",
     )
     parser.add_argument(
-        "--data-dir", default=None,
+        "--data-dir",
+        default=None,
         help="Data root (default: <repo>/data)",
     )
     parser.add_argument("--seed", type=int, default=42)
@@ -652,18 +686,23 @@ def main() -> int:
 
     # Stage 1
     parser.add_argument(
-        "--stage1-mode", choices=("auto", "random", "id-ood"), default="auto",
+        "--stage1-mode",
+        choices=("auto", "random", "id-ood"),
+        default="auto",
         help="auto: meta 가 있으면 id-ood, 없으면 random (default).",
     )
     parser.add_argument(
-        "--stage1-ratio", type=float, default=0.95,
+        "--stage1-ratio",
+        type=float,
+        default=0.95,
         help="Stage 1 random mode 전용 train 비율 (default 0.95).",
     )
     parser.add_argument("--stage1-train-size", type=int, default=50000)
     parser.add_argument("--stage1-test-id-size", type=int, default=3000)
     parser.add_argument("--stage1-test-ood-size", type=int, default=3000)
     parser.add_argument(
-        "--stage1-exclude-null-app", action="store_true",
+        "--stage1-exclude-null-app",
+        action="store_true",
         help="Stage 1 ID/OOD 모드에서 null primary_app 행을 train pool 에 합치지 않음.",
     )
 
@@ -672,19 +711,24 @@ def main() -> int:
     parser.add_argument("--stage2-test-id-size", type=int, default=3000)
     parser.add_argument("--stage2-test-ood-size", type=int, default=3000)
     parser.add_argument(
-        "--stage2-exclude-null-app", action="store_true",
+        "--stage2-exclude-null-app",
+        action="store_true",
         help="Drop episodes with null primary_app instead of pooling them into train.",
     )
 
     # AC_EXP01 (state_pred + action_pred ratio mixing)
     parser.add_argument(
-        "--exp01-train-total", type=int, default=50000,
+        "--exp01-train-total",
+        type=int,
+        default=50000,
         help="AC_EXP01 EXP 별 train 파일의 총 row 수 (default 50000).",
     )
     parser.add_argument(
-        "--exp01-ratios", type=str, default="7:3,3:7,5:5",
+        "--exp01-ratios",
+        type=str,
+        default="7:3,3:7,5:5",
         help="AC_EXP01 EXP 비율 list (state:action), 콤마 구분. "
-             "Default '7:3,3:7,5:5' → 출력 파일명 train_7_3 / train_3_7 / train_5_5.",
+        "Default '7:3,3:7,5:5' → 출력 파일명 train_7_3 / train_3_7 / train_5_5.",
     )
 
     args = parser.parse_args()
@@ -721,8 +765,11 @@ def main() -> int:
     if stage1_mode == "auto":
         stage1_mode = "id-ood" if meta_available else "random"
     if stage1_mode == "id-ood" and not meta_available:
-        print(f"[ERROR] Stage 1 id-ood requires {meta_path} — run "
-              f"extract_{source_name.lower()}_metadata.py first.", file=sys.stderr)
+        print(
+            f"[ERROR] Stage 1 id-ood requires {meta_path} — run "
+            f"extract_{source_name.lower()}_metadata.py first.",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"Dataset: {args.dataset} ({dataset_dir})")
@@ -731,9 +778,8 @@ def main() -> int:
     print()
 
     # ── Shared partition (id-ood 모드에서 한 번만 계산) ──────────────────
-    partition_needed = (
-        (not args.skip_stage1 and stage1_mode == "id-ood") or
-        (not args.skip_stage2)
+    partition_needed = (not args.skip_stage1 and stage1_mode == "id-ood") or (
+        not args.skip_stage2
     )
     id_apps: list[str] = []
     ood_apps: list[str] = []
@@ -761,9 +807,11 @@ def main() -> int:
             )
         )
         print("=== App Partition (Stage 1 / Stage 2 공유) ===")
-        print(f"  Total Stage 2 rows: {len(stage2_entries)} "
-              f"(labeled {sum(len(v) for v in app_to_rows_s2.values())}, "
-              f"null {len(null_rows_s2)})")
+        print(
+            f"  Total Stage 2 rows: {len(stage2_entries)} "
+            f"(labeled {sum(len(v) for v in app_to_rows_s2.values())}, "
+            f"null {len(null_rows_s2)})"
+        )
         print(f"  Unique labeled apps: {len(app_to_rows_s2)}")
         print(f"  IN-DOMAIN apps:  {len(id_apps)}")
         print(f"  OUT-OF-DOMAIN apps: {len(ood_apps)}")
@@ -796,8 +844,10 @@ def main() -> int:
         write_jsonl(test_ood, test_ood_path)
 
         print("=== Stage 1 (World Modeling, ID/OOD) ===")
-        print(f"  Total rows: {info['total_rows']} "
-              f"(labeled {info['labeled_rows']}, null {info['null_rows']})")
+        print(
+            f"  Total rows: {info['total_rows']} "
+            f"(labeled {info['labeled_rows']}, null {info['null_rows']})"
+        )
         print(f"  IN-DOMAIN pool: {info['id_pool_rows']} rows")
         print(f"  OUT-OF-DOMAIN pool: {info['ood_pool_rows']} rows")
         print(f"  → {train_path.name} ({len(train)})")
@@ -843,8 +893,10 @@ def main() -> int:
         write_jsonl(test_ood, test_ood_path)
 
         print("=== Stage 2 (Action Prediction, ID/OOD) ===")
-        print(f"  Total rows: {info['total_rows']} "
-              f"(labeled {info['labeled_rows']}, null {info['null_rows']})")
+        print(
+            f"  Total rows: {info['total_rows']} "
+            f"(labeled {info['labeled_rows']}, null {info['null_rows']})"
+        )
         print(f"  IN-DOMAIN pool: {info['id_pool_rows']} rows")
         print(f"  OUT-OF-DOMAIN pool: {info['ood_pool_rows']} rows")
         print(f"  → {train_path.name} ({len(train)})")

@@ -1,6 +1,6 @@
 {
   "project": "Implicit World Modeling",
-  "repo_root": "/data/seungwoo/Implicit-World-Modeling",
+  "repo_root": "/home/seungwoo.baek/projects/Implicit-World-Modeling",
   "enabled": [
     "docs",
     "memory",
@@ -20,14 +20,15 @@
     "devlog": "docs/DEVLOG.md"
   },
   "memory": {
-    "encoded": "-data-seungwoo-Implicit-World-Modeling",
-    "claude": "/data/seungwoo/Implicit-World-Modeling/.claude/memory",
-    "gemini": "/data/seungwoo/Implicit-World-Modeling/.gemini/memory"
+    "encoded": "-home-seungwoo-baek-projects-Implicit-World-Modeling",
+    "claude": "/home/seungwoo.baek/projects/Implicit-World-Modeling/.claude/memory",
+    "gemini": "/home/seungwoo.baek/projects/Implicit-World-Modeling/.gemini/memory",
+    "note": "encoded 는 전역 memory (~/.claude/projects/<encoded>/memory/) 를 가리키므로 호스트별 repo 경로에 종속된다. 다른 머신에서 체크아웃 경로가 바뀌면 여기도 함께 갱신해야 memory recorder 가 올바른 디렉터리에 쓴다."
   },
   "obsidian": {
     "vault": "/Users/bsw/Library/CloudStorage/GoogleDrive-sw.baek.2000@gmail.com/내 드라이브/Baek/Obsidian/Obsidian Vault",
     "project": "Implicit-World-Modeling",
-    "note": "이 macOS 머신의 GoogleDrive Obsidian Vault 경로. Linux(/data/seungwoo) 머신엔 이 경로가 없으므로 그 환경에서는 recorder가 자동 SKIP된다."
+    "note": "macOS 머신의 GoogleDrive Obsidian Vault 경로. Linux 머신(현재 체크아웃: /home/seungwoo.baek/projects)엔 이 경로가 없으므로 그 환경에서는 recorder 가 자동 SKIP 된다."
   },
   "notion": {
     "url": "https://app.notion.com/p/Implicit-World-Modeling-264dbb15dd0180a98857dfd5abf92738",

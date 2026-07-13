@@ -66,7 +66,7 @@ per-cell 값·과거 문서의 stale 값을 그대로 베끼지 말 것. SSoT:
 - **Datasets**: 학습 = `AC_EXP01`·`AC_EXP02`·`AC_EXP03`·`AC_EXP04`·`MC`; eval-only 벤치마크 = `MB`(MobiBench). `AC` 자체는 source-only.
   - **EXP01** = state:action ratio-mix(`_ratio37/55/73`, 별도 weight) · Stage1+2 · ID/OOD.
   - **EXP02** = EXP01 ratio73 + **Stage1 diff-loss**(token-weighted SFT, `scripts/diff_loss/`).
-  - **EXP03** = EXP01 ratio73 을 **coordinate(point) 표현**으로 mirror(`mirror_exp03.py`, `cutoff_len 24576`).
+  - **EXP03** = EXP01 ratio73 을 **coordinate(point) 표현**으로 mirror(`mirror_experiment.py --experiment exp03`, `cutoff_len 24576`).
   - **EXP04** = EXP03 + **Stage1 prompt-upgrade**(swipe action space) · **Stage1-only(LoRA)**, Stage2 held.
 - **변형 경로**(`discover_variants`): `base` · `full_base` · `lora_base` · `full_world-model` · `lora_world-model`
   (stage2 world 변형은 Stage1 lineage `_from_{mode}-ep{E1}` 부착) × epoch 1/2/3.
@@ -82,7 +82,7 @@ per-cell 값·과거 문서의 stale 값을 그대로 베끼지 말 것. SSoT:
 ### 🧱 Stage 1 — DATA 구성 *(architectural → 전 셀 공통)*
 
 코드: `scripts/filter_long_samples.py`(cutoff_len 초과 drop) · `split_data.py`(EXP01 ratio-mix + ID/OOD app-partition) ·
-`mirror_exp03.py`/`mirror_exp04.py`(coordinate·prompt mirror). **목적: 학습·평가 데이터가 무결·정렬됐나.**
+`mirror_experiment.py --experiment exp03/exp04`(coordinate·prompt mirror). **목적: 학습·평가 데이터가 무결·정렬됐나.**
 
 - **DATA-1 sample drop** — cutoff 초과·`(episode,step)` 키 누락으로 표본 소실(EXP03 ~0.8–1.7%, EXP04 ~0.67%). drop 카운트·비율을 EXP별로.
 - **DATA-2 row-count mismatch** — EXP01/02/03 간 행수 불일치로 cross-compare 붕괴(`eval_viewer.py` SystemExit line 443). 어느 쌍에서 발생하는지.

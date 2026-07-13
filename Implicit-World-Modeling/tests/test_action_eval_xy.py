@@ -19,6 +19,7 @@ Run:
     pytest tests/test_action_eval_xy.py -v
     # or: python -m unittest tests.test_action_eval_xy -v
 """
+
 from __future__ import annotations
 
 import importlib
@@ -53,11 +54,16 @@ def _wrap(action):
 
 def _gt_entry(action, ui_xml=UI_XML):
     """EXP05 test 샘플 형태: user content 에 UI State XML + [Screenshot] 마커."""
-    return {"messages": [
-        {"from": "system", "value": "sys"},
-        {"from": "human", "value": f"Current UI State:\n{ui_xml}\n\n[Screenshot]\n<image>"},
-        {"from": "gpt", "value": _wrap(action)},
-    ]}
+    return {
+        "messages": [
+            {"from": "system", "value": "sys"},
+            {
+                "from": "human",
+                "value": f"Current UI State:\n{ui_xml}\n\n[Screenshot]\n<image>",
+            },
+            {"from": "gpt", "value": _wrap(action)},
+        ]
+    }
 
 
 def _single(gt_action, pred_action, ui_xml=UI_XML):
@@ -75,22 +81,28 @@ class ClickBBox(unittest.TestCase):
     def test_click_inside_bbox(self):
         # GT (200,240) → 최소 면적 element = button[100,200][300,280]
         # pred (290,275) 는 그 안 → 정답 (좌표가 정확히 같지 않아도 됨)
-        r = _single({"action": "click", "coordinate": [200, 240]},
-                    {"action": "click", "coordinate": [290, 275]})
+        r = _single(
+            {"action": "click", "coordinate": [200, 240]},
+            {"action": "click", "coordinate": [290, 275]},
+        )
         self.assertTrue(r["step_correct"])
         self.assertTrue(r["has_bbox_check"])
         self.assertFalse(r["no_bbox"])
 
     def test_click_boundary_inclusive(self):
         # bbox 경계 좌표 [100,200] 는 포함 (경계 포함 규칙)
-        r = _single({"action": "click", "coordinate": [200, 240]},
-                    {"action": "click", "coordinate": [100, 200]})
+        r = _single(
+            {"action": "click", "coordinate": [200, 240]},
+            {"action": "click", "coordinate": [100, 200]},
+        )
         self.assertTrue(r["step_correct"])
 
     def test_click_outside_bbox(self):
         # pred 가 다른 버튼(Cancel) 위 → 오답
-        r = _single({"action": "click", "coordinate": [200, 240]},
-                    {"action": "click", "coordinate": [550, 240]})
+        r = _single(
+            {"action": "click", "coordinate": [200, 240]},
+            {"action": "click", "coordinate": [550, 240]},
+        )
         self.assertFalse(r["step_correct"])
         self.assertFalse(r["no_bbox"])
 
@@ -98,26 +110,31 @@ class ClickBBox(unittest.TestCase):
         # GT 가 여러 element 에 포함되면 최소 면적이 GT bbox.
         # (200,240) 는 루트 div 와 button 양쪽에 속하지만 button 이 선택되므로
         # 루트 div 안이지만 button 밖인 좌표는 오답이어야 한다.
-        r = _single({"action": "click", "coordinate": [200, 240]},
-                    {"action": "click", "coordinate": [420, 1500]})
+        r = _single(
+            {"action": "click", "coordinate": [200, 240]},
+            {"action": "click", "coordinate": [420, 1500]},
+        )
         self.assertFalse(r["step_correct"])
 
     def test_click_no_bbox_counts_and_fails(self):
         # 화면 밖 GT 좌표 → 포함 element 없음 → 오답 + no_bbox 플래그
-        r = _single({"action": "click", "coordinate": [900, 2000]},
-                    {"action": "click", "coordinate": [900, 2000]})
+        r = _single(
+            {"action": "click", "coordinate": [900, 2000]},
+            {"action": "click", "coordinate": [900, 2000]},
+        )
         self.assertFalse(r["step_correct"])
         self.assertTrue(r["no_bbox"])
 
     def test_long_press_inside_bbox(self):
-        r = _single({"action": "long_press", "coordinate": [550, 240]},
-                    {"action": "long_press", "coordinate": [500, 250]})
+        r = _single(
+            {"action": "long_press", "coordinate": [550, 240]},
+            {"action": "long_press", "coordinate": [500, 250]},
+        )
         self.assertTrue(r["step_correct"])
         self.assertTrue(r["has_bbox_check"])
 
     def test_click_pred_missing_coordinate(self):
-        r = _single({"action": "click", "coordinate": [200, 240]},
-                    {"action": "click"})
+        r = _single({"action": "click", "coordinate": [200, 240]}, {"action": "click"})
         self.assertFalse(r["step_correct"])
 
 
@@ -125,53 +142,71 @@ class SwipeDirection(unittest.TestCase):
     """swipe — start→end 벡터의 주 성분 방향만 매칭 (좌표값 자체는 무관)."""
 
     def test_swipe_up_match(self):
-        r = _single({"action": "swipe", "coordinate1": [420, 1400], "coordinate2": [420, 460]},
-                    {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [100, 300]})
+        r = _single(
+            {"action": "swipe", "coordinate1": [420, 1400], "coordinate2": [420, 460]},
+            {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [100, 300]},
+        )
         self.assertTrue(r["step_correct"])
         self.assertTrue(r["has_dir_check"])
 
     def test_swipe_down_match(self):
-        r = _single({"action": "swipe", "coordinate1": [420, 460], "coordinate2": [420, 1400]},
-                    {"action": "swipe", "coordinate1": [420, 500], "coordinate2": [420, 900]})
+        r = _single(
+            {"action": "swipe", "coordinate1": [420, 460], "coordinate2": [420, 1400]},
+            {"action": "swipe", "coordinate1": [420, 500], "coordinate2": [420, 900]},
+        )
         self.assertTrue(r["step_correct"])
 
     def test_swipe_left_match(self):
-        r = _single({"action": "swipe", "coordinate1": [700, 900], "coordinate2": [100, 900]},
-                    {"action": "swipe", "coordinate1": [800, 300], "coordinate2": [200, 300]})
+        r = _single(
+            {"action": "swipe", "coordinate1": [700, 900], "coordinate2": [100, 900]},
+            {"action": "swipe", "coordinate1": [800, 300], "coordinate2": [200, 300]},
+        )
         self.assertTrue(r["step_correct"])
 
     def test_swipe_right_match(self):
-        r = _single({"action": "swipe", "coordinate1": [100, 900], "coordinate2": [700, 900]},
-                    {"action": "swipe", "coordinate1": [50, 100], "coordinate2": [600, 100]})
+        r = _single(
+            {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [700, 900]},
+            {"action": "swipe", "coordinate1": [50, 100], "coordinate2": [600, 100]},
+        )
         self.assertTrue(r["step_correct"])
 
     def test_swipe_opposite_direction_fails(self):
-        r = _single({"action": "swipe", "coordinate1": [420, 1400], "coordinate2": [420, 460]},
-                    {"action": "swipe", "coordinate1": [420, 460], "coordinate2": [420, 1400]})
+        r = _single(
+            {"action": "swipe", "coordinate1": [420, 1400], "coordinate2": [420, 460]},
+            {"action": "swipe", "coordinate1": [420, 460], "coordinate2": [420, 1400]},
+        )
         self.assertFalse(r["step_correct"])
 
     def test_swipe_diagonal_major_x(self):
         # dx=600, dy=300 → |dx| >= |dy| → right. pred 는 순수 right → 일치
-        r = _single({"action": "swipe", "coordinate1": [100, 100], "coordinate2": [700, 400]},
-                    {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [700, 900]})
+        r = _single(
+            {"action": "swipe", "coordinate1": [100, 100], "coordinate2": [700, 400]},
+            {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [700, 900]},
+        )
         self.assertTrue(r["step_correct"])
 
     def test_swipe_diagonal_major_y(self):
         # dx=300, dy=800 → |dy| > |dx| → down. pred 는 right → 불일치
-        r = _single({"action": "swipe", "coordinate1": [100, 100], "coordinate2": [400, 900]},
-                    {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [700, 900]})
+        r = _single(
+            {"action": "swipe", "coordinate1": [100, 100], "coordinate2": [400, 900]},
+            {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [700, 900]},
+        )
         self.assertFalse(r["step_correct"])
 
     def test_swipe_tie_prefers_horizontal(self):
         # |dx| == |dy| → 규칙상 left/right (현 구현 동작 고정)
-        r = _single({"action": "swipe", "coordinate1": [0, 0], "coordinate2": [500, 500]},
-                    {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [700, 900]})
+        r = _single(
+            {"action": "swipe", "coordinate1": [0, 0], "coordinate2": [500, 500]},
+            {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [700, 900]},
+        )
         self.assertTrue(r["step_correct"])
 
     def test_swipe_zero_vector_fails(self):
         # start == end → 방향 없음 → 오답 (GT 방향이 None 이면 무조건 실패)
-        r = _single({"action": "swipe", "coordinate1": [420, 900], "coordinate2": [420, 900]},
-                    {"action": "swipe", "coordinate1": [420, 900], "coordinate2": [420, 900]})
+        r = _single(
+            {"action": "swipe", "coordinate1": [420, 900], "coordinate2": [420, 900]},
+            {"action": "swipe", "coordinate1": [420, 900], "coordinate2": [420, 900]},
+        )
         self.assertFalse(r["step_correct"])
 
 
@@ -179,26 +214,33 @@ class CoordIrrelevantTypes(unittest.TestCase):
     """type / open / wait / navigate_* — 좌표 검사 없음."""
 
     def test_type_match_normalized(self):
-        r = _single({"action": "type", "text": "Hello World"},
-                    {"action": "type", "text": "hello world"})
+        r = _single(
+            {"action": "type", "text": "Hello World"},
+            {"action": "type", "text": "hello world"},
+        )
         self.assertTrue(r["step_correct"])
         self.assertTrue(r["has_text_check"])
         self.assertFalse(r["has_bbox_check"])
 
     def test_type_mismatch(self):
-        r = _single({"action": "type", "text": "Hello"},
-                    {"action": "type", "text": "Goodbye"})
+        r = _single(
+            {"action": "type", "text": "Hello"}, {"action": "type", "text": "Goodbye"}
+        )
         self.assertFalse(r["step_correct"])
 
     def test_open_match_normalized(self):
-        r = _single({"action": "open", "app_name": "Plantum"},
-                    {"action": "open", "app_name": "plantum"})
+        r = _single(
+            {"action": "open", "app_name": "Plantum"},
+            {"action": "open", "app_name": "plantum"},
+        )
         self.assertTrue(r["step_correct"])
         self.assertTrue(r["has_app_check"])
 
     def test_open_mismatch(self):
-        r = _single({"action": "open", "app_name": "Plantum"},
-                    {"action": "open", "app_name": "Xe"})
+        r = _single(
+            {"action": "open", "app_name": "Plantum"},
+            {"action": "open", "app_name": "Xe"},
+        )
         self.assertFalse(r["step_correct"])
 
     def test_wait_type_only(self):
@@ -215,13 +257,17 @@ class CoordIrrelevantTypes(unittest.TestCase):
 
     def test_type_mismatch_blocks_field_check(self):
         # action type 불일치 → field_match 진입 전에 오답
-        r = _single({"action": "type", "text": "Hello"},
-                    {"action": "click", "coordinate": [200, 240]})
+        r = _single(
+            {"action": "type", "text": "Hello"},
+            {"action": "click", "coordinate": [200, 240]},
+        )
         self.assertFalse(r["type_correct"])
         self.assertFalse(r["step_correct"])
 
     def test_pred_none(self):
-        r = evaluate_single_xy({"action": "click", "coordinate": [200, 240]}, None, UI_XML)
+        r = evaluate_single_xy(
+            {"action": "click", "coordinate": [200, 240]}, None, UI_XML
+        )
         self.assertFalse(r["parsed"])
         self.assertFalse(r["step_correct"])
 
@@ -237,18 +283,34 @@ class XyAggregate(unittest.TestCase):
     def test_no_bbox_counter_and_cond_keys(self):
         specs = [
             # click 3건: 내부(정답) / 외부(오답) / no-bbox(오답)
-            ({"action": "click", "coordinate": [200, 240]},
-             {"action": "click", "coordinate": [290, 275]}),
-            ({"action": "click", "coordinate": [200, 240]},
-             {"action": "click", "coordinate": [550, 240]}),
-            ({"action": "click", "coordinate": [900, 2000]},
-             {"action": "click", "coordinate": [900, 2000]}),
+            (
+                {"action": "click", "coordinate": [200, 240]},
+                {"action": "click", "coordinate": [290, 275]},
+            ),
+            (
+                {"action": "click", "coordinate": [200, 240]},
+                {"action": "click", "coordinate": [550, 240]},
+            ),
+            (
+                {"action": "click", "coordinate": [900, 2000]},
+                {"action": "click", "coordinate": [900, 2000]},
+            ),
             # swipe 1건 정답
-            ({"action": "swipe", "coordinate1": [420, 1400], "coordinate2": [420, 460]},
-             {"action": "swipe", "coordinate1": [100, 900], "coordinate2": [100, 300]}),
+            (
+                {
+                    "action": "swipe",
+                    "coordinate1": [420, 1400],
+                    "coordinate2": [420, 460],
+                },
+                {
+                    "action": "swipe",
+                    "coordinate1": [100, 900],
+                    "coordinate2": [100, 300],
+                },
+            ),
         ]
         gts, preds = self._pairs(specs)
-        m = evaluate_pairs(gts, preds, 'xy')
+        m = evaluate_pairs(gts, preds, "xy")
 
         self.assertEqual(m["total"], 4)
         self.assertEqual(m["no_bbox_n"], 1)
@@ -260,8 +322,13 @@ class XyAggregate(unittest.TestCase):
 
     def test_index_mode_unaffected(self):
         # 기본 모드(index)는 xy 키를 내지 않는다 — 하위호환 고정
-        gts = [{"messages": [{"from": "gpt",
-                              "value": '{"action_type":"click","index":"1"}'}]}]
+        gts = [
+            {
+                "messages": [
+                    {"from": "gpt", "value": '{"action_type":"click","index":"1"}'}
+                ]
+            }
+        ]
         preds = [{"predict": '{"action_type":"click","index":"1"}'}]
         m = evaluate_pairs(gts, preds)
         self.assertIn("cond_index_acc", m)
@@ -277,16 +344,20 @@ class CoordSpaceWarning(unittest.TestCase):
         preds = [{"predict": _wrap(pred)} for _, pred in specs]
         buf = io.StringIO()
         with redirect_stderr(buf):
-            m = evaluate_pairs(gts, preds, 'xy')
+            m = evaluate_pairs(gts, preds, "xy")
         return m, buf.getvalue()
 
     def test_normalized_coords_warn(self):
         # pred 가 0~1 정규화 좌표 → 경고. 채점은 그대로 오답(=0%) 유지.
         specs = [
-            ({"action": "click", "coordinate": [200, 240]},
-             {"action": "click", "coordinate": [0.24, 0.13]}),
-            ({"action": "click", "coordinate": [550, 240]},
-             {"action": "click", "coordinate": [0.65, 0.13]}),
+            (
+                {"action": "click", "coordinate": [200, 240]},
+                {"action": "click", "coordinate": [0.24, 0.13]},
+            ),
+            (
+                {"action": "click", "coordinate": [550, 240]},
+                {"action": "click", "coordinate": [0.65, 0.13]},
+            ),
         ]
         m, err = self._run_capture(specs)
         self.assertIn("정규화 좌표", err)
@@ -294,20 +365,28 @@ class CoordSpaceWarning(unittest.TestCase):
 
     def test_out_of_range_coords_warn(self):
         specs = [
-            ({"action": "click", "coordinate": [200, 240]},
-             {"action": "click", "coordinate": [5000, 9000]}),
-            ({"action": "click", "coordinate": [550, 240]},
-             {"action": "click", "coordinate": [4000, 8000]}),
+            (
+                {"action": "click", "coordinate": [200, 240]},
+                {"action": "click", "coordinate": [5000, 9000]},
+            ),
+            (
+                {"action": "click", "coordinate": [550, 240]},
+                {"action": "click", "coordinate": [4000, 8000]},
+            ),
         ]
         _m, err = self._run_capture(specs)
         self.assertIn("화면 범위", err)
 
     def test_normal_pixel_coords_no_warning(self):
         specs = [
-            ({"action": "click", "coordinate": [200, 240]},
-             {"action": "click", "coordinate": [290, 275]}),
-            ({"action": "click", "coordinate": [550, 240]},
-             {"action": "click", "coordinate": [500, 250]}),
+            (
+                {"action": "click", "coordinate": [200, 240]},
+                {"action": "click", "coordinate": [290, 275]},
+            ),
+            (
+                {"action": "click", "coordinate": [550, 240]},
+                {"action": "click", "coordinate": [500, 250]},
+            ),
         ]
         m, err = self._run_capture(specs)
         self.assertNotIn("[warn]", err)

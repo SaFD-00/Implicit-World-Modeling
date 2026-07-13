@@ -15,11 +15,11 @@ DELETED(current에만 있는 element)는 future 학습 대상이 아니므로 �
 """
 
 from __future__ import annotations
+
 from hungarian_metric import (
-    extract_elements,
     _hungarian_match,
     _text_sim,
-    MATCH_THRESHOLD,
+    extract_elements,
 )
 
 # UNCHANGED / MODIFIED 경계 비용
@@ -52,7 +52,7 @@ def classify_diff(current_html: str, future_html: str) -> list[dict]:
         - current_els가 비어 있으면 전부 ADDED로 분류
     """
     current_els = extract_elements(current_html)
-    future_els  = extract_elements(future_html)
+    future_els = extract_elements(future_html)
 
     if not future_els:
         return []
@@ -61,9 +61,9 @@ def classify_diff(current_html: str, future_html: str) -> list[dict]:
     if not current_els:
         return [
             {
-                "element":       el,
+                "element": el,
                 "future_seq_idx": i,
-                "diff_type":     "ADDED",
+                "diff_type": "ADDED",
                 "change_detail": {"text_sim": 0.0, "match_cost": -1.0},
             }
             for i, el in enumerate(future_els)
@@ -80,20 +80,19 @@ def classify_diff(current_html: str, future_html: str) -> list[dict]:
     # ── future element 별 분류 ─────────────────────────────────────────────
     result: list[dict] = []
     for fut_seq_idx, fut_el in enumerate(future_els):
-
         if fut_seq_idx not in future_to_match:
             # current에 매칭되는 element 없음 → ADDED
             entry = {
-                "element":        fut_el,
+                "element": fut_el,
                 "future_seq_idx": fut_seq_idx,
-                "diff_type":      "ADDED",
-                "change_detail":  {"text_sim": 0.0, "match_cost": -1.0},
+                "diff_type": "ADDED",
+                "change_detail": {"text_sim": 0.0, "match_cost": -1.0},
             }
 
         else:
             cur_idx, cost = future_to_match[fut_seq_idx]
-            cur_el        = current_els[cur_idx]
-            text_sim      = _text_sim(cur_el["text"], fut_el["text"])
+            cur_el = current_els[cur_idx]
+            text_sim = _text_sim(cur_el["text"], fut_el["text"])
 
             if cost <= UNCHANGED_COST_THRESHOLD:
                 diff_type = "UNCHANGED"
@@ -101,11 +100,11 @@ def classify_diff(current_html: str, future_html: str) -> list[dict]:
                 diff_type = "MODIFIED"
 
             entry = {
-                "element":        fut_el,
+                "element": fut_el,
                 "future_seq_idx": fut_seq_idx,
-                "diff_type":      diff_type,
-                "change_detail":  {
-                    "text_sim":   round(text_sim, 4),
+                "diff_type": diff_type,
+                "change_detail": {
+                    "text_sim": round(text_sim, 4),
                     "match_cost": round(cost, 5),
                 },
             }

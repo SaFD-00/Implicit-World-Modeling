@@ -22,6 +22,6 @@
 ## 외부 기록
 
 - **Notion 워크스페이스** (실험/Task/Dev Log/Meeting/Reference + Timeline 허브): [📱 Implicit World Modeling](https://app.notion.com/p/Implicit-World-Modeling-264dbb15dd0180a98857dfd5abf92738)
-- **프로젝트 메모리** (Claude CLI): `~/.claude/projects/-data-seungwoo-Implicit-World-Modeling/memory/`
+- **프로젝트 메모리** (Claude CLI): `~/.claude/projects/-home-seungwoo-baek-projects-Implicit-World-Modeling/memory/` (`.project-sync.json` 의 `memory.encoded` 와 일치 — 체크아웃 경로가 바뀌면 양쪽을 함께 갱신한다)
 
 > 산출물(모델·평가 raw)은 여기 복사하지 않는다. `data/`·`outputs/` 정본 경로와 커밋 SHA로만 인용한다.

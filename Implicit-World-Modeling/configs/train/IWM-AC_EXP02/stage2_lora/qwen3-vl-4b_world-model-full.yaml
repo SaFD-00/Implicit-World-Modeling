@@ -1,0 +1,46 @@
+### model
+model_name_or_path: SaFD-00/qwen3-vl-4b-ac-exp02-stage1-full-world-model
+trust_remote_code: true
+image_max_pixels: 2097152
+image_min_pixels: 4096
+
+### method
+stage: sft
+do_train: true
+finetuning_type: lora
+freeze_vision_tower: true
+lora_rank: 32
+lora_alpha: 64
+lora_target: all
+lora_dropout: 0.1
+
+### dataset
+dataset: IWM-AC_EXP02_stage2_train
+template: qwen3_vl_nothink
+cutoff_len: 10000
+overwrite_cache: false
+preprocessing_num_workers: 16
+media_dir: ../data
+
+### output
+output_dir: ../outputs/AndroidControl_EXP02/adapters/qwen3-vl-4b_stage2_lora_world-model_from_full-ep__STAGE1_EPOCH__
+logging_steps: 1
+save_strategy: epoch
+save_total_limit: 5
+plot_loss: true
+overwrite_output_dir: true
+
+### train
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 32
+learning_rate: 5.0e-5
+num_train_epochs: 3
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+weight_decay: 0.01
+max_grad_norm: 1.0
+bf16: true
+gradient_checkpointing: true
+deepspeed: examples/deepspeed/ds_z3_offload_config.json
+ddp_timeout: 18000000
+# resume_from_checkpoint: true

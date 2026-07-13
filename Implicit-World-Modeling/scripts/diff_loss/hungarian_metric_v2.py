@@ -18,28 +18,30 @@ v1 대비 변경점:
 """
 
 from __future__ import annotations
-from typing import Any
+
 import re
+from typing import Any
 
 from bs4 import BeautifulSoup, NavigableString
 from munkres import Munkres
 
 # ── 파서 설정 ──────────────────────────────────────────────────────────────
 INTERACTIVE_TAGS = {"button", "input", "a", "select", "textarea"}
-CONTENT_TAGS     = {"p", "img", "span"}
-CLICKABLE_ATTRS  = {"clickable", "long-clickable"}
+CONTENT_TAGS = {"p", "img", "span"}
+CLICKABLE_ATTRS = {"clickable", "long-clickable"}
 
 # ── 비용 함수 가중치 ────────────────────────────────────────────────────────
-W_TAG    = 3.0    # tag 불일치 패널티
-W_TEXT   = 1.5    # text 불일치
-W_POS    = 0.4    # bounds 중심점 거리 (개선 B: 0.2 → 0.4, 위치 신호 상향)
+W_TAG = 3.0  # tag 불일치 패널티
+W_TEXT = 1.5  # text 불일치
+W_POS = 0.4  # bounds 중심점 거리 (개선 B: 0.2 → 0.4, 위치 신호 상향)
 
-MATCH_THRESHOLD = 1.7       # 개선 D: 1.5 → 1.7 (같은 자리 텍스트 변경도 MODIFIED로 인정)
-BOUNDS_NORM     = 2050.0    # 화면 대각선 근사값(840x1876) — 거리 정규화용
-BOUNDS_TAU      = 50.0      # hungarian_pos 계산 시 "위치 정확" 기준 (px)
+MATCH_THRESHOLD = 1.7  # 개선 D: 1.5 → 1.7 (같은 자리 텍스트 변경도 MODIFIED로 인정)
+BOUNDS_NORM = 2050.0  # 화면 대각선 근사값(840x1876) — 거리 정규화용
+BOUNDS_TAU = 50.0  # hungarian_pos 계산 시 "위치 정확" 기준 (px)
 
 
 # ── 요소 추출 ──────────────────────────────────────────────────────────────
+
 
 def _collect_texts(el: Any) -> str:
     """[수정 2] 요소의 direct text와 자체 속성만 수집.
@@ -73,25 +75,28 @@ def extract_elements(xml_str: str) -> list[dict]:
 
     elements: list[dict] = []
     for el in soup.find_all(True):
-        tag  = el.name
+        tag = el.name
         text = _collect_texts(el)
 
         is_interactive = tag in INTERACTIVE_TAGS
-        is_content     = (tag in CONTENT_TAGS) and bool(text)
-        is_clickable   = any(el.get(a) for a in CLICKABLE_ATTRS)
-        is_described   = bool(el.get("description"))
+        is_content = (tag in CONTENT_TAGS) and bool(text)
+        is_clickable = any(el.get(a) for a in CLICKABLE_ATTRS)
+        is_described = bool(el.get("description"))
 
         if is_interactive or is_content or is_clickable or is_described:
-            elements.append({
-                "tag":    tag,
-                "text":   text,
-                "bounds": el.get("bounds", "") or "",
-            })
+            elements.append(
+                {
+                    "tag": tag,
+                    "text": text,
+                    "bounds": el.get("bounds", "") or "",
+                }
+            )
 
     return elements
 
 
 # ── 비용 함수 ──────────────────────────────────────────────────────────────
+
 
 def _text_sim(a: str, b: str) -> float:
     """Jaccard 유사도."""
@@ -111,7 +116,7 @@ def _parse_bounds_center(s: str) -> tuple[float, float] | None:
     """'[x1,y1][x2,y2]' → 중심점 (cx, cy). 실패 시 None."""
     if not s:
         return None
-    m = re.findall(r'\[(-?\d+),(-?\d+)\]', s)
+    m = re.findall(r"\[(-?\d+),(-?\d+)\]", s)
     if len(m) >= 2:
         x1, y1 = int(m[0][0]), int(m[0][1])
         x2, y2 = int(m[1][0]), int(m[1][1])
@@ -145,17 +150,17 @@ def _match_cost(e1: dict, e2: dict) -> float:
 
 # ── 헝가리안 매칭 ──────────────────────────────────────────────────────────
 
-def _hungarian_match(pred: list[dict], gt: list[dict]) -> tuple[list[tuple], list[list]]:
+
+def _hungarian_match(
+    pred: list[dict], gt: list[dict]
+) -> tuple[list[tuple], list[list]]:
     n, m = len(pred), len(gt)
     if n == 0 or m == 0:
         return [], []
 
-    matrix: list[list[float]] = [
-        [_match_cost(p, g) for g in gt]
-        for p in pred
-    ]
+    matrix: list[list[float]] = [[_match_cost(p, g) for g in gt] for p in pred]
 
-    size   = max(n, m)
+    size = max(n, m)
     padded = [row + [MATCH_THRESHOLD * 2] * (size - len(row)) for row in matrix]
     while len(padded) < size:
         padded.append([MATCH_THRESHOLD * 2] * size)
@@ -172,6 +177,7 @@ def _hungarian_match(pred: list[dict], gt: list[dict]) -> tuple[list[tuple], lis
 
 # ── 메인 공개 함수 ─────────────────────────────────────────────────────────
 
+
 def compute_hungarian_acc(pred_str: str, gt_str: str) -> dict[str, float]:
     """매칭 기반 평가 메트릭 반환.
 
@@ -184,17 +190,17 @@ def compute_hungarian_acc(pred_str: str, gt_str: str) -> dict[str, float]:
       - hungarian_pos   : 매칭된 쌍의 위치 정확도 (bounds 중심점 거리 ≤ BOUNDS_TAU 비율)
     """
     _zero = {
-        "hungarian_ea":   0.0,
-        "hungarian_f1":   0.0,
+        "hungarian_ea": 0.0,
+        "hungarian_f1": 0.0,
         "hungarian_prec": 0.0,
-        "hungarian_rec":  0.0,
+        "hungarian_rec": 0.0,
         "hungarian_text": 0.0,
-        "hungarian_pos":  0.0,
+        "hungarian_pos": 0.0,
     }
 
     try:
         pred_els = extract_elements(pred_str)
-        gt_els   = extract_elements(gt_str)
+        gt_els = extract_elements(gt_str)
     except Exception:
         return _zero
 
@@ -203,35 +209,39 @@ def compute_hungarian_acc(pred_str: str, gt_str: str) -> dict[str, float]:
 
     pairs, _ = _hungarian_match(pred_els, gt_els)
 
-    n_pred    = len(pred_els)
-    n_gt      = len(gt_els)
+    n_pred = len(pred_els)
+    n_gt = len(gt_els)
     n_matched = len(pairs)
 
-    ea   = n_matched / max(n_pred, n_gt) if max(n_pred, n_gt) > 0 else 0.0
-    prec = n_matched / n_pred             if n_pred  > 0           else 0.0
-    rec  = n_matched / n_gt               if n_gt    > 0           else 0.0
-    f1   = (2 * prec * rec / (prec + rec)) if (prec + rec) > 0    else 0.0
+    ea = n_matched / max(n_pred, n_gt) if max(n_pred, n_gt) > 0 else 0.0
+    prec = n_matched / n_pred if n_pred > 0 else 0.0
+    rec = n_matched / n_gt if n_gt > 0 else 0.0
+    f1 = (2 * prec * rec / (prec + rec)) if (prec + rec) > 0 else 0.0
 
     if pairs:
-        text_sims = [_text_sim(pred_els[i]["text"], gt_els[j]["text"])
-                     for i, j, _ in pairs]
+        text_sims = [
+            _text_sim(pred_els[i]["text"], gt_els[j]["text"]) for i, j, _ in pairs
+        ]
         dists = [_bounds_dist(pred_els[i], gt_els[j]) for i, j, _ in pairs]
         dists_valid = [d for d in dists if d is not None]
 
         text_avg = sum(text_sims) / len(text_sims)
-        pos_acc  = (sum(1 for d in dists_valid if d <= BOUNDS_TAU) / len(dists_valid)
-                    if dists_valid else 0.0)
+        pos_acc = (
+            sum(1 for d in dists_valid if d <= BOUNDS_TAU) / len(dists_valid)
+            if dists_valid
+            else 0.0
+        )
     else:
         text_avg = 0.0
-        pos_acc  = 0.0
+        pos_acc = 0.0
 
     return {
-        "hungarian_ea":   round(ea,       4),
-        "hungarian_f1":   round(f1,       4),
-        "hungarian_prec": round(prec,     4),
-        "hungarian_rec":  round(rec,      4),
+        "hungarian_ea": round(ea, 4),
+        "hungarian_f1": round(f1, 4),
+        "hungarian_prec": round(prec, 4),
+        "hungarian_rec": round(rec, 4),
         "hungarian_text": round(text_avg, 4),
-        "hungarian_pos":  round(pos_acc,  4),
+        "hungarian_pos": round(pos_acc, 4),
     }
 
 

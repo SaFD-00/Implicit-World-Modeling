@@ -29,6 +29,7 @@ test jsonl / metric files 를 단일 매핑으로 갖는다. 디렉토리 명명
 `scripts/stage{1,2}_eval.sh` (`on-{EVAL_DS}[-state|-action][-without-open_app]`)
 와 `scripts/_common.sh::DS_DATADIR` 에 정합.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -46,23 +47,38 @@ DS_DATADIR: dict[str, str] = {
     "AC_EXP03": "AndroidControl_EXP03",
     "AC_EXP04": "AndroidControl_EXP04",
     "AC_EXP05": "AndroidControl_EXP05",
-    "MC":       "MonkeyCollection",
+    "MC": "MonkeyCollection",
 }
 
 STATE_METRIC_KEYS = [
-    "total", "exact_match_rate",
-    "avg_bleu", "avg_rouge_l",
-    "avg_hungarian_ea", "avg_hungarian_f1",
-    "avg_hungarian_prec", "avg_hungarian_rec",
-    "avg_hungarian_text", "avg_hungarian_idx", "avg_hungarian_pos",
-    "predict_bleu-4", "predict_rouge-l",
+    "total",
+    "exact_match_rate",
+    "avg_bleu",
+    "avg_rouge_l",
+    "avg_hungarian_ea",
+    "avg_hungarian_f1",
+    "avg_hungarian_prec",
+    "avg_hungarian_rec",
+    "avg_hungarian_text",
+    "avg_hungarian_idx",
+    "avg_hungarian_pos",
+    "predict_bleu-4",
+    "predict_rouge-l",
 ]
 ACTION_METRIC_KEYS = [
-    "total", "parse_rate",
-    "type_accuracy", "step_accuracy", "macro_step_accuracy",
-    "cond_index_acc", "cond_bbox_acc", "cond_dir_acc", "cond_app_acc", "cond_text_acc",
+    "total",
+    "parse_rate",
+    "type_accuracy",
+    "step_accuracy",
+    "macro_step_accuracy",
+    "cond_index_acc",
+    "cond_bbox_acc",
+    "cond_dir_acc",
+    "cond_app_acc",
+    "cond_text_acc",
     "no_bbox_n",
-    "predict_bleu-4", "predict_rouge-l",
+    "predict_bleu-4",
+    "predict_rouge-l",
 ]
 
 
@@ -73,7 +89,7 @@ def _ac_stage1_entries(exp: str) -> dict:
     actual = f"on-{exp}"  # on-AC_EXP01 / on-AC_EXP02
     return {
         "on-AC-state-id": {
-            "dir":  f"{actual}-state",
+            "dir": f"{actual}-state",
             "pred": "generated_predictions_id.jsonl",
             "test": data / "implicit-world-modeling_stage1_test_id_state.jsonl",
             "metric_files": [
@@ -83,7 +99,7 @@ def _ac_stage1_entries(exp: str) -> dict:
             "metric_keys": STATE_METRIC_KEYS,
         },
         "on-AC-state-ood": {
-            "dir":  f"{actual}-state",
+            "dir": f"{actual}-state",
             "pred": "generated_predictions_ood.jsonl",
             "test": data / "implicit-world-modeling_stage1_test_ood_state.jsonl",
             "metric_files": [
@@ -93,9 +109,10 @@ def _ac_stage1_entries(exp: str) -> dict:
             "metric_keys": STATE_METRIC_KEYS,
         },
         "on-AC-state-id-without-open_app": {
-            "dir":  f"{actual}-state-without-open_app",
+            "dir": f"{actual}-state-without-open_app",
             "pred": "generated_predictions_id.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_id_state_without_open_app.jsonl",
+            "test": data
+            / "implicit-world-modeling_stage1_test_id_state_without_open_app.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "in_domain"),
@@ -103,9 +120,10 @@ def _ac_stage1_entries(exp: str) -> dict:
             "metric_keys": STATE_METRIC_KEYS,
         },
         "on-AC-state-ood-without-open_app": {
-            "dir":  f"{actual}-state-without-open_app",
+            "dir": f"{actual}-state-without-open_app",
             "pred": "generated_predictions_ood.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_ood_state_without_open_app.jsonl",
+            "test": data
+            / "implicit-world-modeling_stage1_test_ood_state_without_open_app.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "out_of_domain"),
@@ -113,7 +131,7 @@ def _ac_stage1_entries(exp: str) -> dict:
             "metric_keys": STATE_METRIC_KEYS,
         },
         "on-AC-action-id": {
-            "dir":  f"{actual}-action",
+            "dir": f"{actual}-action",
             "pred": "generated_predictions_id.jsonl",
             "test": data / "implicit-world-modeling_stage1_test_id_action.jsonl",
             "metric_files": [
@@ -123,7 +141,7 @@ def _ac_stage1_entries(exp: str) -> dict:
             "metric_keys": ACTION_METRIC_KEYS,
         },
         "on-AC-action-ood": {
-            "dir":  f"{actual}-action",
+            "dir": f"{actual}-action",
             "pred": "generated_predictions_ood.jsonl",
             "test": data / "implicit-world-modeling_stage1_test_ood_action.jsonl",
             "metric_files": [
@@ -139,18 +157,18 @@ def _mb_stage1_entries() -> dict:
     data = REPO / "data" / "MobiBench"
     return {
         "on-MB": {
-            "dir":  "on-MB",
+            "dir": "on-MB",
             "pred": "generated_predictions.jsonl",
             "test": data / "implicit-world-modeling_stage1.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
-                ("hungarian_metrics.json", None),     # single-pair: top-level flat
+                ("hungarian_metrics.json", None),  # single-pair: top-level flat
                 ("hungarian_metrics.json", "overall"),  # 호환: 혹시 nested 면 overall
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
         "on-MB-without-open_app": {
-            "dir":  "on-MB-without-open_app",
+            "dir": "on-MB-without-open_app",
             "pred": "generated_predictions.jsonl",
             "test": data / "implicit-world-modeling_stage1_without_open_app.jsonl",
             "metric_files": [
@@ -167,7 +185,7 @@ def _mc_stage1_entries() -> dict:
     data = REPO / "data" / "MonkeyCollection"
     return {
         "on-MC": {
-            "dir":  "on-MC",
+            "dir": "on-MC",
             "pred": "generated_predictions.jsonl",
             "test": data / "implicit-world-modeling_stage1_test.jsonl",
             "metric_files": [
@@ -187,7 +205,7 @@ def _ac_stage2_entries(exp: str) -> dict:
     actual = f"on-{exp}"
     return {
         "on-AC-id": {
-            "dir":  actual,
+            "dir": actual,
             "pred": "generated_predictions_id.jsonl",
             "test": data / "implicit-world-modeling_stage2_test_id.jsonl",
             "metric_files": [
@@ -197,7 +215,7 @@ def _ac_stage2_entries(exp: str) -> dict:
             "metric_keys": ACTION_METRIC_KEYS,
         },
         "on-AC-ood": {
-            "dir":  actual,
+            "dir": actual,
             "pred": "generated_predictions_ood.jsonl",
             "test": data / "implicit-world-modeling_stage2_test_ood.jsonl",
             "metric_files": [
@@ -213,7 +231,7 @@ def _mb_stage2_entries() -> dict:
     data = REPO / "data" / "MobiBench"
     return {
         "on-MB": {
-            "dir":  "on-MB",
+            "dir": "on-MB",
             "pred": "generated_predictions.jsonl",
             "test": data / "implicit-world-modeling_stage2.jsonl",
             "metric_files": [
@@ -234,12 +252,32 @@ STAGE_CONFIG: dict[int, dict] = {
 # (stage, EXP) → {logical_key: entry}
 EVAL_DATASETS: dict[int, dict[str, dict[str, dict]]] = {
     1: {
-        "AC_EXP01": {**_ac_stage1_entries("AC_EXP01"), **_mb_stage1_entries(), **_mc_stage1_entries()},
-        "AC_EXP02": {**_ac_stage1_entries("AC_EXP02"), **_mb_stage1_entries(), **_mc_stage1_entries()},
-        "AC_EXP03": {**_ac_stage1_entries("AC_EXP03"), **_mb_stage1_entries(), **_mc_stage1_entries()},
-        "AC_EXP04": {**_ac_stage1_entries("AC_EXP04"), **_mb_stage1_entries(), **_mc_stage1_entries()},
-        "AC_EXP05": {**_ac_stage1_entries("AC_EXP05"), **_mb_stage1_entries(), **_mc_stage1_entries()},
-        "MC":       {**_mc_stage1_entries(), **_mb_stage1_entries()},
+        "AC_EXP01": {
+            **_ac_stage1_entries("AC_EXP01"),
+            **_mb_stage1_entries(),
+            **_mc_stage1_entries(),
+        },
+        "AC_EXP02": {
+            **_ac_stage1_entries("AC_EXP02"),
+            **_mb_stage1_entries(),
+            **_mc_stage1_entries(),
+        },
+        "AC_EXP03": {
+            **_ac_stage1_entries("AC_EXP03"),
+            **_mb_stage1_entries(),
+            **_mc_stage1_entries(),
+        },
+        "AC_EXP04": {
+            **_ac_stage1_entries("AC_EXP04"),
+            **_mb_stage1_entries(),
+            **_mc_stage1_entries(),
+        },
+        "AC_EXP05": {
+            **_ac_stage1_entries("AC_EXP05"),
+            **_mb_stage1_entries(),
+            **_mc_stage1_entries(),
+        },
+        "MC": {**_mc_stage1_entries(), **_mb_stage1_entries()},
     },
     2: {
         "AC_EXP01": {**_ac_stage2_entries("AC_EXP01"), **_mb_stage2_entries()},
@@ -314,7 +352,9 @@ def load_metrics(target_dir: Path, metric_files: list[tuple[str, str | None]]) -
     return merged
 
 
-def discover_variants(eval_root: Path, actual_dir: str, pred_filename: str) -> list[str]:
+def discover_variants(
+    eval_root: Path, actual_dir: str, pred_filename: str
+) -> list[str]:
     """eval_root 아래에서 `{variant_path}/{actual_dir}/{pred_filename}` 가 존재하는 variant_path 들을 찾는다.
 
     variant_path 는 1-level (예: `base`) 또는 2-level (예: `lora_world-model/epoch-3`).
@@ -457,7 +497,9 @@ def build_dataset(
                 f"stage{stage}/{logical_key}: anchor test ({anchor_test.relative_to(REPO)}) "
                 f"len {len(test_recs)} != predictions len {n}"
             )
-        images = [r.get("images", [""])[0] if r.get("images") else "" for r in test_recs]
+        images = [
+            r.get("images", [""])[0] if r.get("images") else "" for r in test_recs
+        ]
     else:
         images = ["" for _ in range(n)]
 
@@ -465,7 +507,7 @@ def build_dataset(
 
     cb_html = "".join(
         f'<label><input type="checkbox" data-variant="{esc(lab)}"'
-        f'{" checked" if i < 4 else ""}> {esc(lab)}</label>'
+        f"{' checked' if i < 4 else ''}> {esc(lab)}</label>"
         for i, lab in enumerate(labels)
     )
     controls = (
@@ -499,7 +541,9 @@ def build_dataset(
         f"<style>{CSS}</style></head><body>",
         f"<h1>Eval pairs · stage{stage} · {logical_key} · n={n}</h1>",
         f'<div class="meta">test: {esc(anchor_rel)}<br>',
-        f"variants: {len(labels)} (multi-spec)" if multi else f"variants: {len(labels)} (single-spec)",
+        f"variants: {len(labels)} (multi-spec)"
+        if multi
+        else f"variants: {len(labels)} (single-spec)",
         "</div>",
         controls,
         metric_table,
@@ -560,7 +604,13 @@ def build_summary_md(
         out.append("| variant | " + " | ".join(metric_keys) + " |")
         out.append("|" + "---|" * (len(metric_keys) + 1))
         for lab, d in metrics_by_label.items():
-            row = "| " + lab + " | " + " | ".join(fmt_num(d.get(k)) for k in metric_keys) + " |"
+            row = (
+                "| "
+                + lab
+                + " | "
+                + " | ".join(fmt_num(d.get(k)) for k in metric_keys)
+                + " |"
+            )
             out.append(row)
         out.append("")
     return "\n".join(out)
@@ -568,7 +618,9 @@ def build_summary_md(
 
 def parse_spec(s: str) -> tuple[str, str]:
     if ":" not in s:
-        raise SystemExit(f"--include 항목 '{s}' 은 EXP:MODEL 형식이어야 함 (예: AC_EXP02:qwen3-vl-8b).")
+        raise SystemExit(
+            f"--include 항목 '{s}' 은 EXP:MODEL 형식이어야 함 (예: AC_EXP02:qwen3-vl-8b)."
+        )
     exp, model = s.split(":", 1)
     exp = exp.strip()
     model = model.strip()
@@ -582,23 +634,37 @@ def parse_spec(s: str) -> tuple[str, str]:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument(
-        "--include", nargs="+", required=True, metavar="EXP:MODEL",
-        help="비교할 (EXP, MODEL) 쌍. 1개면 단일-EXP 모드, 2개 이상이면 cross-EXP 모드. "
-             "EXP ∈ {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, MC}, MODEL = outputs/<DS_DATADIR(EXP)>/eval/ 아래 디렉토리 명. "
-             "예: --include AC_EXP01:qwen3-vl-8b_ratio73 AC_EXP02:qwen3-vl-8b",
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument(
-        "--stages", type=int, nargs="+", choices=[1, 2], default=[1, 2],
+        "--include",
+        nargs="+",
+        required=True,
+        metavar="EXP:MODEL",
+        help="비교할 (EXP, MODEL) 쌍. 1개면 단일-EXP 모드, 2개 이상이면 cross-EXP 모드. "
+        "EXP ∈ {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, MC}, MODEL = outputs/<DS_DATADIR(EXP)>/eval/ 아래 디렉토리 명. "
+        "예: --include AC_EXP01:qwen3-vl-8b_ratio73 AC_EXP02:qwen3-vl-8b",
+    )
+    p.add_argument(
+        "--stages",
+        type=int,
+        nargs="+",
+        choices=[1, 2],
+        default=[1, 2],
         help="처리할 stage (기본 1 2 모두).",
     )
     p.add_argument(
-        "--datasets", nargs="+", default=None, metavar="LOGICAL_KEY",
+        "--datasets",
+        nargs="+",
+        default=None,
+        metavar="LOGICAL_KEY",
         help="처리할 logical key (예: on-AC-state-id, on-MB). 기본 = 각 EXP 가 가진 logical key 합집합.",
     )
     p.add_argument(
-        "--variants", nargs="+", default=None,
+        "--variants",
+        nargs="+",
+        default=None,
         help="처리할 variant_path 화이트리스트 (예: base 'lora_world-model/epoch-3'). 기본 = auto-discover.",
     )
     return p.parse_args()
@@ -643,7 +709,9 @@ def main() -> None:
                 entry = EVAL_DATASETS[stage].get(exp, {}).get(logical_key)
                 if entry is None:
                     continue
-                eval_root = REPO / "outputs" / DS_DATADIR[exp] / "eval" / model / eval_subdir
+                eval_root = (
+                    REPO / "outputs" / DS_DATADIR[exp] / "eval" / model / eval_subdir
+                )
                 discovered = discover_variants(eval_root, entry["dir"], entry["pred"])
                 if args.variants is not None:
                     discovered = [v for v in discovered if v in args.variants]
@@ -651,11 +719,15 @@ def main() -> None:
                     spec_variants.append((exp, model, v, entry, eval_root))
 
             if not spec_variants:
-                print(f"skip stage{stage}/{logical_key}: no variants found across specs")
+                print(
+                    f"skip stage{stage}/{logical_key}: no variants found across specs"
+                )
                 continue
 
             try:
-                doc, metrics_by_label, n = build_dataset(stage, logical_key, spec_variants, multi)
+                doc, metrics_by_label, n = build_dataset(
+                    stage, logical_key, spec_variants, multi
+                )
             except SystemExit:
                 raise
             except Exception as e:
@@ -668,7 +740,11 @@ def main() -> None:
             print(
                 f"wrote {target.relative_to(REPO)}  rows={n}  variants={len(spec_variants)}  size={size_mb:.1f}MB"
             )
-            per_ds[logical_key] = (spec_variants[0][3]["metric_keys"], metrics_by_label, n)
+            per_ds[logical_key] = (
+                spec_variants[0][3]["metric_keys"],
+                metrics_by_label,
+                n,
+            )
 
         if per_ds:
             summary_path = out_root / "pairs_summary.md"

@@ -22,7 +22,7 @@
 - **비교 실험**: `base` (zero-shot) vs `stage2` (base→Stage 2 SFT) vs `stage1+stage2` (World Model→Stage 2 SFT)
 - **파이프라인 흐름** (Stage 1 / Stage 2 공통): `train → merge → eval`
 
-자세한 모델 매트릭스·데이터셋(AC_EXP01~04 / MC / MB)·실행 방법은 [`Implicit-World-Modeling/README.md`](./Implicit-World-Modeling/README.md) 를 본다.
+자세한 모델 매트릭스·데이터셋(AC_EXP01~05 / MC / MB)·실행 방법은 [`Implicit-World-Modeling/README.md`](./Implicit-World-Modeling/README.md) 를 본다.
 
 ## 저장소 레이아웃
 

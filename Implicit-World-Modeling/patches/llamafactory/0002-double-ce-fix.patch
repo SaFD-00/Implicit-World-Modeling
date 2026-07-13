@@ -1,0 +1,86 @@
+diff --git a/src/llamafactory/train/sft/trainer.py b/src/llamafactory/train/sft/trainer.py
+index e299a7f6..ff84d5bf 100644
+--- a/src/llamafactory/train/sft/trainer.py
++++ b/src/llamafactory/train/sft/trainer.py
+@@ -164,10 +164,15 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
+             return self.compute_loss_func(outputs, inputs["labels"], ref_logits)
+         elif self.finetuning_args.use_diff_token_weighted_loss:
+             token_weights = inputs.pop("token_weights", None)
++            # labels를 forward에 넘기면 모델 내부의 표준 CE(ForCausalLMLoss)가 한 번 더 돌고
++            # 그 결과는 버려진다 (loss 값은 맞지만 fp32 [B, S, V] 그래프가 그대로 남는다).
++            # HF Trainer는 compute_loss_func가 설정되면 labels를 pop하지만, 이 분기는
++            # super().compute_loss()를 우회하므로 여기서 직접 pop해야 한다.
++            labels = inputs.pop("labels")
+             outputs = model(**inputs)
+             return self.compute_loss_func(
+                 outputs,
+-                inputs["labels"],
++                labels,
+                 num_items_in_batch=kwargs.get("num_items_in_batch"),
+                 token_weights=token_weights,
+             )
+diff --git a/src/llamafactory/train/trainer_utils.py b/src/llamafactory/train/trainer_utils.py
+index 42ccdf61..3aeca126 100644
+--- a/src/llamafactory/train/trainer_utils.py
++++ b/src/llamafactory/train/trainer_utils.py
+@@ -826,31 +826,54 @@ def _eaft_cross_entropy(
+     return loss
+ 
+ 
++DIFF_LOSS_CHUNK_SIZE = 1024  # fp32로 upcast할 시퀀스 청크 크기 (토큰 수)
++
++
+ def diff_token_weighted_loss_func(
+     outputs: "torch.Tensor",
+     labels: "torch.Tensor",
+     num_items_in_batch: Optional["torch.Tensor"] = None,
+     token_weights: Optional["torch.Tensor"] = None,
++    chunk_size: int = DIFF_LOSS_CHUNK_SIZE,
+ ) -> "torch.Tensor":
+     r"""Per-token weighted cross-entropy loss for the diff token weighted loss.
+ 
+     Tokens belonging to ADDED/MODIFIED diff elements carry weights > 1.0 (set during
+     preprocessing); all other tokens carry weight 1.0. When `token_weights` is None or
+     all-ones, this reduces exactly to the standard cross-entropy mean.
++
++    Memory: the logits are upcast to fp32 one sequence chunk at a time, so the full
++    fp32 [B, S, V] copies (`logits.float()` and the `.contiguous()` shift copy) never
++    materialize. Only the per-token losses ([B, S - 1] floats) are gathered back, and
++    the weighted sum / normalization runs on the full vector exactly as before — the
++    result is bit-exact (loss and gradients) with the unchunked version.
+     """
+     logits = outputs.get("logits")
+     if logits is None:
+         return outputs.get("loss", torch.tensor(0.0))
+ 
+-    logits = logits.float()
+     vocab_size = logits.size(-1)
++    shift_len = logits.size(-2) - 1  # 마지막 위치는 예측 대상이 없다
+ 
+-    shift_logits = logits[..., :-1, :].contiguous().view(-1, vocab_size)
+-    shift_labels = labels[..., 1:].contiguous().view(-1).to(logits.device)
++    shift_labels = labels[..., 1:].contiguous().to(logits.device)  # [B, S - 1]
+ 
+-    per_token_loss = torch.nn.functional.cross_entropy(
+-        shift_logits, shift_labels, ignore_index=IGNORE_INDEX, reduction="none"
+-    )
++    per_token_chunks = []
++    for start in range(0, shift_len, max(chunk_size, 1)):
++        end = min(start + max(chunk_size, 1), shift_len)
++        chunk_logits = logits[..., start:end, :].reshape(-1, vocab_size).float()
++        chunk_labels = shift_labels[..., start:end].reshape(-1)
++        chunk_loss = torch.nn.functional.cross_entropy(
++            chunk_logits, chunk_labels, ignore_index=IGNORE_INDEX, reduction="none"
++        )
++        per_token_chunks.append(chunk_loss.view(*shift_labels.shape[:-1], end - start))
++
++    if per_token_chunks:
++        # [B, S - 1] → flatten. 청크를 붙인 뒤 한 번에 펼쳐야 원본(view(-1))과 순서가 같다.
++        per_token_loss = torch.cat(per_token_chunks, dim=-1).contiguous().view(-1)
++    else:  # S <= 1
++        per_token_loss = logits.new_zeros(0, dtype=torch.float32)
++
++    shift_labels = shift_labels.view(-1)
+ 
+     if token_weights is not None:
+         shift_weights = token_weights[..., 1:].contiguous().view(-1).to(logits.device)

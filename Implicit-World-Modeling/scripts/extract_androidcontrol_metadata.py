@@ -35,7 +35,6 @@ import urllib.error
 from collections import Counter
 
 from android_env.proto.a11y import android_accessibility_forest_pb2
-
 from extract_androidcontrol_images import (
     GCS_BUCKET,
     GCS_PREFIX,
@@ -127,7 +126,9 @@ def _foreground_package(forest, *, allow_system: bool) -> str | None:
     When ``allow_system`` is ``False``, packages in ``SYSTEM_PACKAGES`` are
     skipped so the caller can prefer real task apps over the launcher.
     """
-    app_windows = [w for w in forest.windows if w.window_type == WINDOW_TYPE_APPLICATION]
+    app_windows = [
+        w for w in forest.windows if w.window_type == WINDOW_TYPE_APPLICATION
+    ]
 
     for w in app_windows:
         if getattr(w, "is_active", False):

@@ -1,0 +1,189 @@
+diff --git a/src/llamafactory/data/collator.py b/src/llamafactory/data/collator.py
+index ade71897..8286030c 100644
+--- a/src/llamafactory/data/collator.py
++++ b/src/llamafactory/data/collator.py
+@@ -312,6 +312,9 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
+             )
+ 
+     def __call__(self, features: list[dict[str, Any]]) -> dict[str, "torch.Tensor"]:
++        # diff token weighted loss: token_weights는 DataCollatorForSeq2Seq가 모르는 필드이므로 분리
++        token_weights_list = [feature.pop("token_weights", None) for feature in features]
++        has_token_weights = any(w is not None for w in token_weights_list)
+         batch_images, batch_videos, batch_audios = [], [], []
+         batch_imglens, batch_vidlens, batch_audlens, batch_input_ids = [], [], [], []
+         packing_params_list: list[dict[str, Any] | None] = []
+@@ -464,6 +467,31 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
+             features["position_ids"] = torch.arange(seq_length).long().repeat(bsz, 1)
+             return {"data": features, "input_ids": features["input_ids"], "labels": features["labels"]}
+ 
++        # diff token weighted loss: labels(-100) 마스크로 prefix/assistant 경계를 판단해 복원.
++        # n_asst >= n_w: template prefix(<think> 등)로 토큰이 늘면 뒤에서 정렬(offset).
++        # n_asst <  n_w: cutoff truncation으로 토큰이 줄면 앞에서부터 n_asst개만 사용.
++        if has_token_weights:
++            max_len = features["input_ids"].shape[1]
++            labels = features["labels"]
++            batch_weights = []
++            for i, w in enumerate(token_weights_list):
++                full_w = torch.ones(max_len, dtype=torch.float32)
++                full_w[labels[i] == IGNORE_INDEX] = 0.0
++                if w is not None:
++                    w = list(w)
++                    asst_indices = (labels[i] != IGNORE_INDEX).nonzero(as_tuple=True)[0]
++                    n_asst = len(asst_indices)
++                    n_w = len(w)
++                    if n_asst >= n_w:
++                        offset = n_asst - n_w
++                        for j in range(n_w):
++                            full_w[asst_indices[offset + j]] = w[j]
++                    else:
++                        for j in range(n_asst):
++                            full_w[asst_indices[j]] = w[j]
++                batch_weights.append(full_w)
++            features["token_weights"] = torch.stack(batch_weights)
++
+         return features
+ 
+ 
+@@ -494,7 +522,7 @@ class SFTDataCollatorWith4DAttentionMask(MultiModalDataCollatorForSeq2Seq):
+         if non_padding_indices.numel() == seq_len:
+             return
+ 
+-        keys_on_seq_dim_1 = {"input_ids", "labels", "attention_mask", "token_type_ids"}
++        keys_on_seq_dim_1 = {"input_ids", "labels", "attention_mask", "token_type_ids", "token_weights"}
+         for key, value in list(features.items()):
+             if not torch.is_tensor(value):
+                 continue
+diff --git a/src/llamafactory/data/converter.py b/src/llamafactory/data/converter.py
+index 7ec6f12b..22bf93d0 100644
+--- a/src/llamafactory/data/converter.py
++++ b/src/llamafactory/data/converter.py
+@@ -223,6 +223,7 @@ class SharegptDatasetConverter(DatasetConverter):
+             "_images": self._find_medias(example[self.dataset_attr.images]) if self.dataset_attr.images else None,
+             "_videos": self._find_medias(example[self.dataset_attr.videos]) if self.dataset_attr.videos else None,
+             "_audios": self._find_medias(example[self.dataset_attr.audios]) if self.dataset_attr.audios else None,
++            "_token_weights": example.get("token_weights", None),  # diff token weighted loss
+         }
+         return output
+ 
+diff --git a/src/llamafactory/data/processor/supervised.py b/src/llamafactory/data/processor/supervised.py
+index 26f14c69..f0e12ea7 100644
+--- a/src/llamafactory/data/processor/supervised.py
++++ b/src/llamafactory/data/processor/supervised.py
+@@ -131,6 +131,8 @@ class SupervisedDatasetProcessor(DatasetProcessor):
+             model_inputs["images"].append(examples["_images"][i])
+             model_inputs["videos"].append(examples["_videos"][i])
+             model_inputs["audios"].append(examples["_audios"][i])
++            if "_token_weights" in examples:  # diff token weighted loss
++                model_inputs["token_weights"].append(examples["_token_weights"][i])
+ 
+         return model_inputs
+ 
+diff --git a/src/llamafactory/hparams/finetuning_args.py b/src/llamafactory/hparams/finetuning_args.py
+index 2a1ecc94..20ab15a8 100644
+--- a/src/llamafactory/hparams/finetuning_args.py
++++ b/src/llamafactory/hparams/finetuning_args.py
+@@ -524,6 +524,16 @@ class FinetuningArguments(
+         default=1.0,
+         metadata={"help": "The alpha parameter for EAFT loss to control the power of adaptive weight."},
+     )
++    use_diff_token_weighted_loss: bool = field(
++        default=False,
++        metadata={
++            "help": (
++                "Whether to apply per-token loss weights supplied via the 'token_weights' "
++                "field in the dataset. Diff tokens (ADDED/MODIFIED) receive higher weights "
++                "defined during preprocessing."
++            )
++        },
++    )
+     freeze_vision_tower: bool = field(
+         default=True,
+         metadata={"help": "Whether ot not to freeze the vision tower in MLLM training."},
+diff --git a/src/llamafactory/train/sft/trainer.py b/src/llamafactory/train/sft/trainer.py
+index dfed95a5..e299a7f6 100644
+--- a/src/llamafactory/train/sft/trainer.py
++++ b/src/llamafactory/train/sft/trainer.py
+@@ -123,6 +123,10 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
+                 asft_loss_func,
+                 asft_alpha=finetuning_args.asft_alpha,
+             )
++        elif finetuning_args.use_diff_token_weighted_loss:
++            from ..trainer_utils import diff_token_weighted_loss_func
++
++            self.compute_loss_func = diff_token_weighted_loss_func
+ 
+         if training_args.fp8 and hasattr(self, "accelerator"):  # verify FP8 status after trainer initialization
+             verify_fp8_status(self.accelerator, training_args)
+@@ -158,6 +162,15 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
+                 ref_logits = ref_outputs.logits
+             outputs = model(**inputs)
+             return self.compute_loss_func(outputs, inputs["labels"], ref_logits)
++        elif self.finetuning_args.use_diff_token_weighted_loss:
++            token_weights = inputs.pop("token_weights", None)
++            outputs = model(**inputs)
++            return self.compute_loss_func(
++                outputs,
++                inputs["labels"],
++                num_items_in_batch=kwargs.get("num_items_in_batch"),
++                token_weights=token_weights,
++            )
+         else:
+             return super().compute_loss(model, inputs, *args, **kwargs)
+ 
+diff --git a/src/llamafactory/train/trainer_utils.py b/src/llamafactory/train/trainer_utils.py
+index 0d89e8a3..42ccdf61 100644
+--- a/src/llamafactory/train/trainer_utils.py
++++ b/src/llamafactory/train/trainer_utils.py
+@@ -826,6 +826,52 @@ def _eaft_cross_entropy(
+     return loss
+ 
+ 
++def diff_token_weighted_loss_func(
++    outputs: "torch.Tensor",
++    labels: "torch.Tensor",
++    num_items_in_batch: Optional["torch.Tensor"] = None,
++    token_weights: Optional["torch.Tensor"] = None,
++) -> "torch.Tensor":
++    r"""Per-token weighted cross-entropy loss for the diff token weighted loss.
++
++    Tokens belonging to ADDED/MODIFIED diff elements carry weights > 1.0 (set during
++    preprocessing); all other tokens carry weight 1.0. When `token_weights` is None or
++    all-ones, this reduces exactly to the standard cross-entropy mean.
++    """
++    logits = outputs.get("logits")
++    if logits is None:
++        return outputs.get("loss", torch.tensor(0.0))
++
++    logits = logits.float()
++    vocab_size = logits.size(-1)
++
++    shift_logits = logits[..., :-1, :].contiguous().view(-1, vocab_size)
++    shift_labels = labels[..., 1:].contiguous().view(-1).to(logits.device)
++
++    per_token_loss = torch.nn.functional.cross_entropy(
++        shift_logits, shift_labels, ignore_index=IGNORE_INDEX, reduction="none"
++    )
++
++    if token_weights is not None:
++        shift_weights = token_weights[..., 1:].contiguous().view(-1).to(logits.device)
++    else:
++        shift_weights = (shift_labels != IGNORE_INDEX).float()
++
++    weighted_loss = per_token_loss * shift_weights
++
++    valid_mask = shift_labels != IGNORE_INDEX
++    denom = shift_weights[valid_mask].sum().clamp(min=1.0)
++    loss = weighted_loss[valid_mask].sum() / denom
++
++    if num_items_in_batch is not None:
++        n_valid = valid_mask.sum().clamp(min=1)
++        if torch.is_tensor(num_items_in_batch):
++            num_items_in_batch = num_items_in_batch.to(loss.device)
++        loss = loss * (n_valid.float() / num_items_in_batch)
++
++    return loss
++
++
+ def nested_detach(
+     tensors: Union["torch.Tensor", list["torch.Tensor"], tuple["torch.Tensor"], dict[str, "torch.Tensor"]],
+     clone: bool = False,

@@ -48,7 +48,6 @@ from transformers import AutoProcessor
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from split_data import load_jsonl, write_jsonl  # noqa: E402
 
-
 # AC_EXP01 / AC_EXP02 의 source 자산은 모두 원본 폴더 data/AndroidControl/ 에 있다
 # (split_data.py 와 동일한 source 분리 정책). _filtered.jsonl 산출물도 같은 폴더에 쓴다.
 # AC_EXP03 (좌표 미러) 는 산출물 폴더 data/AndroidControl_EXP03/ 를 가리키며,
@@ -101,7 +100,9 @@ VEOS = "<|vision_end|>"
 
 
 # ── smart_resize (Qwen3-VL 공식 알고리즘 단순 포팅) ───────────────────────
-def smart_resize(h: int, w: int, factor: int, min_pixels: int, max_pixels: int) -> tuple[int, int]:
+def smart_resize(
+    h: int, w: int, factor: int, min_pixels: int, max_pixels: int
+) -> tuple[int, int]:
     h_bar = max(factor, round(h / factor) * factor)
     w_bar = max(factor, round(w / factor) * factor)
     if h_bar * w_bar > max_pixels:
@@ -116,13 +117,19 @@ def smart_resize(h: int, w: int, factor: int, min_pixels: int, max_pixels: int) 
 
 
 def vision_tokens_for_size(
-    w: int, h: int, *, patch_size: int, merge_size: int, min_pixels: int, max_pixels: int
+    w: int,
+    h: int,
+    *,
+    patch_size: int,
+    merge_size: int,
+    min_pixels: int,
+    max_pixels: int,
 ) -> int:
     factor = patch_size * merge_size
     h_bar, w_bar = smart_resize(h, w, factor, min_pixels, max_pixels)
     grid_h = h_bar // patch_size
     grid_w = w_bar // patch_size
-    return (grid_h * grid_w) // (merge_size ** 2)
+    return (grid_h * grid_w) // (merge_size**2)
 
 
 # ── Length computation ────────────────────────────────────────────────────
@@ -168,9 +175,17 @@ def build_length_fn(processor, *, image_max_pixels: int, image_min_pixels: int):
         if not rels:
             # 이미지 없으면 텍스트만 길이로 계산 (placeholder 도 없을 것).
             total = (
-                (wrap["sys_pre"] + encode_len(sys_text) + wrap["suf"] if sys_text else 0)
-                + wrap["usr_pre"] + encode_len(usr_text) + wrap["suf"]
-                + wrap["ass_pre"] + encode_len(gpt_text) + wrap["suf"]
+                (
+                    wrap["sys_pre"] + encode_len(sys_text) + wrap["suf"]
+                    if sys_text
+                    else 0
+                )
+                + wrap["usr_pre"]
+                + encode_len(usr_text)
+                + wrap["suf"]
+                + wrap["ass_pre"]
+                + encode_len(gpt_text)
+                + wrap["suf"]
             )
             return total
 
@@ -179,7 +194,9 @@ def build_length_fn(processor, *, image_max_pixels: int, image_min_pixels: int):
             with Image.open(full) as im:
                 size = im.size  # (W, H)
         except Exception as exc:
-            print(f"[warn] image open failed: {full} ({exc}) — skipping", file=sys.stderr)
+            print(
+                f"[warn] image open failed: {full} ({exc}) — skipping", file=sys.stderr
+            )
             return None
 
         n_img = usr_text.count("<image>")
@@ -192,7 +209,9 @@ def build_length_fn(processor, *, image_max_pixels: int, image_min_pixels: int):
             + encode_len(usr_minus_img)
             + n_img * (wrap["vbos"] + vt + wrap["veos"])
             + wrap["suf"]
-            + wrap["ass_pre"] + encode_len(gpt_text) + wrap["suf"]
+            + wrap["ass_pre"]
+            + encode_len(gpt_text)
+            + wrap["suf"]
         )
         return total
 
@@ -216,7 +235,10 @@ def filter_jsonl(
     skipped = 0
     for i, entry in enumerate(rows):
         if i % 5000 == 0:
-            print(f"  [{src.name}] {i}/{len(rows)} ... kept={len(kept)} dropped={len(dropped_lengths)}", flush=True)
+            print(
+                f"  [{src.name}] {i}/{len(rows)} ... kept={len(kept)} dropped={len(dropped_lengths)}",
+                flush=True,
+            )
         L = length_of(entry, media_dir)
         if L is None:
             skipped += 1
@@ -254,21 +276,43 @@ def main() -> int:
         description="AC_EXP01 source jsonl 에서 mm-expanded length > threshold 샘플을 제거.",
     )
     parser.add_argument("--dataset", choices=sorted(DATASET_TO_DIR), default="AC_EXP01")
-    parser.add_argument("--data-dir", default=None, help="Data root (default: <repo>/data)")
-    parser.add_argument("--threshold", type=int, default=10000,
-                        help="mm-expanded length 기준 컷 (default 10000 = stage1/2 cutoff_len).")
-    parser.add_argument("--image-max-pixels", type=int, default=2097152,
-                        help="stage1/2 yaml 의 image_max_pixels 와 일치해야 함. "
-                             "Default 2097152 는 Qwen3-VL family (factor 32, 2048 tokens) 기준. "
-                             "Qwen2/2.5-VL (factor 28) 학습 시 1605632 등으로 override.")
-    parser.add_argument("--image-min-pixels", type=int, default=4096,
-                        help="stage1 yaml 의 image_min_pixels 와 일치해야 함 (default 4096).")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Processor / tokenizer model id.")
-    parser.add_argument("--skip-existing", action="store_true",
-                        help="대응하는 _filtered.jsonl 이 이미 있으면 그 source 를 처리하지 않음.")
-    parser.add_argument("--report-only", action="store_true",
-                        help="길이 분포만 측정/출력하고 _filtered.jsonl 은 쓰지 않음 "
-                             "(AC_EXP03 무손실 검증용: threshold 가 전 샘플을 덮는지 확인).")
+    parser.add_argument(
+        "--data-dir", default=None, help="Data root (default: <repo>/data)"
+    )
+    parser.add_argument(
+        "--threshold",
+        type=int,
+        default=10000,
+        help="mm-expanded length 기준 컷 (default 10000 = stage1/2 cutoff_len).",
+    )
+    parser.add_argument(
+        "--image-max-pixels",
+        type=int,
+        default=2097152,
+        help="stage1/2 yaml 의 image_max_pixels 와 일치해야 함. "
+        "Default 2097152 는 Qwen3-VL family (factor 32, 2048 tokens) 기준. "
+        "Qwen2/2.5-VL (factor 28) 학습 시 1605632 등으로 override.",
+    )
+    parser.add_argument(
+        "--image-min-pixels",
+        type=int,
+        default=4096,
+        help="stage1 yaml 의 image_min_pixels 와 일치해야 함 (default 4096).",
+    )
+    parser.add_argument(
+        "--model", default=DEFAULT_MODEL, help="Processor / tokenizer model id."
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="대응하는 _filtered.jsonl 이 이미 있으면 그 source 를 처리하지 않음.",
+    )
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="길이 분포만 측정/출력하고 _filtered.jsonl 은 쓰지 않음 "
+        "(AC_EXP03 무손실 검증용: threshold 가 전 샘플을 덮는지 확인).",
+    )
     args = parser.parse_args()
 
     if args.data_dir:
@@ -300,7 +344,9 @@ def main() -> int:
 
     print(f"Dataset: {args.dataset} ({ds_dir})")
     print(f"Threshold: {args.threshold}")
-    print(f"image_max_pixels={args.image_max_pixels} image_min_pixels={args.image_min_pixels}")
+    print(
+        f"image_max_pixels={args.image_max_pixels} image_min_pixels={args.image_min_pixels}"
+    )
     print(f"Loading processor: {args.model}", flush=True)
     processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
     length_of = build_length_fn(
@@ -318,8 +364,9 @@ def main() -> int:
         label = "report" if args.report_only else "filter"
         arrow = "(측정)" if args.report_only else f"→ {dst.name}"
         print(f"[{label}] {src.name} {arrow}", flush=True)
-        info = filter_jsonl(src, dst, data_root, length_of, args.threshold,
-                            report_only=args.report_only)
+        info = filter_jsonl(
+            src, dst, data_root, length_of, args.threshold, report_only=args.report_only
+        )
         summaries.append(info)
         verb = "over-threshold" if args.report_only else "dropped"
         print(
@@ -344,8 +391,14 @@ def main() -> int:
             f"over-threshold={info['dropped']} ({info['drop_pct']:.2f}%) max={info['max']}"
         )
     if args.report_only:
-        verdict = "OK (전 샘플 ≤ threshold — 무손실)" if overall_over == 0 else "초과 샘플 존재 → cutoff 상향 필요"
-        print(f"  overall: max={overall_max} threshold={args.threshold} over={overall_over} → {verdict}")
+        verdict = (
+            "OK (전 샘플 ≤ threshold — 무손실)"
+            if overall_over == 0
+            else "초과 샘플 존재 → cutoff 상향 필요"
+        )
+        print(
+            f"  overall: max={overall_max} threshold={args.threshold} over={overall_over} → {verdict}"
+        )
     return 0
 
 
