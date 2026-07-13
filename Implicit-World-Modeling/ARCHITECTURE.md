@@ -83,7 +83,7 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 
 > **EXP03/EXP04 는 Qwen3-VL 전용 실험군 (좌표계 정합성)**: EXP03/EXP04 의 0–1000 정규화는 **Qwen3-VL native 와 일치** 하지만 **Qwen2.5-VL native (절대 픽셀) 와는 어긋난다**. 이 mismatch 때문에 **EXP03/EXP04 는 `qwen3-vl-8b` 만 학습·평가** 하고 Qwen2.5-VL 은 사용하지 않는다 (Qwen2.5-VL 은 정규화 좌표를 native 로 쓰지 않아 자기 pretrain 규약과 충돌). 좌표 표현(index→point) 효과는 동일 Qwen3-VL 계열의 EXP01 ratio73 대조군과 비교한다. 출처 — [Qwen3-VL Spatial Understanding & 2D Grounding (DeepWiki)](https://deepwiki.com/QwenLM/Qwen3-VL/5.2-spatial-understanding-and-2d-grounding), [Qwen2.5-VL Visual Grounding issue #866 (QwenLM)](https://github.com/QwenLM/Qwen2.5-VL/issues/866).
 
-> **EXP05 는 대칭으로 Qwen2.5-VL 전용 실험군 (절대 픽셀)**: EXP05 (AndroidWorld 해상도 정렬) 데이터는 **절대 픽셀 840×1876** — base 1080×2400 을 budget 1,605,632 / factor 28 로 smart_resize 한 이미지의 실제 픽셀 좌표 (min 3,136). 이는 **Qwen2.5-VL native 와 일치** 하고 Qwen3-VL native (0–1000 정규화) 와는 어긋난다. 따라서 **EXP05 는 `qwen2.5-vl-3b`/`qwen2.5-vl-7b` 만 학습·평가** 하고 `qwen3-vl-8b` 는 제외한다 (factor 32 라 1,605,632 를 줘도 832×1888 로 정렬돼 840×1876 과 어긋나고, 0–1000 정규화 native 와도 이중 mismatch — EXP03/04 의 정확한 대칭). 원천은 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl` (Google Drive '0710_버젼' 제공, mirror `scripts/mirror_experiment.py --experiment exp05` 로 EXP01 ratio73 멤버십 미러 → 출력 좌표 실측 x_max 840 / y_max 1876). "3B/8B 모두" 요청의 8B 는 `qwen2.5-vl-7b` 로 해석 (Qwen2.5-VL 에 8B 부재).
+> **EXP05 는 대칭으로 Qwen2.5-VL 전용 실험군 (절대 픽셀)**: EXP05 (AndroidWorld 해상도 정렬) 데이터는 **절대 픽셀 840×1876** — base 1080×2400 을 budget 1,605,632 / factor 28 로 smart_resize 한 이미지의 실제 픽셀 좌표 (min 3,136). 이는 **Qwen2.5-VL native 와 일치** 하고 Qwen3-VL native (0–1000 정규화) 와는 어긋난다. 따라서 **EXP05 는 `qwen2.5-vl-3b`/`qwen2.5-vl-7b` 만 학습·평가** 하고 `qwen3-vl-8b` 는 제외한다 (factor 32 라 1,605,632 를 줘도 832×1888 로 정렬돼 840×1876 과 어긋나고, 0–1000 정규화 native 와도 이중 mismatch — EXP03/04 의 정확한 대칭). 원천은 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl` (Google Drive **'0711_버젼'** 제공, 빌드 정본 `scripts/build_exp05_data.py` = mirror + diff-loss 가중치). 좌표 실측: **XML 의 `bounds`/`point` 는 정확히 x_max 840 / y_max 1876** 이다. 다만 **액션 라벨(`coordinate`) 필드에는 범위를 벗어나는 키가 11 개** 있고 (0710·0711 동일 — 기존 원천 버그; 값이 `[1682, 975]` 로 반복되며 1682 ≈ 840×2 라 스케일링 의심), 그중 **10 행이 EXP05 산출물에 실려 있다** (train 7 + `test_ood_{action,state,state_without_open_app}` 각 1 → OOD 평가셋 오염). 상세는 [`docs/EXP05_DIFF_LOSS_PLAN.md`](../docs/EXP05_DIFF_LOSS_PLAN.md) §6. "3B/8B 모두" 요청의 8B 는 `qwen2.5-vl-7b` 로 해석 (Qwen2.5-VL 에 8B 부재).
 
 ### 모델 family 별 image budget
 
@@ -203,8 +203,8 @@ data/
 │   ├── implicit-world-modeling_stage2_xy.jsonl                             # AC_EXP03 원천: Stage 2 좌표(point) 표현
 │   ├── implicit-world-modeling_stage1_action_xy_prompt-enhanced.jsonl      # AC_EXP04 원천: action-pred 좌표(point) + 프롬프트 업그레이드 (swipe / html-style XML / [SWIPE])
 │   ├── implicit-world-modeling_stage1_state_xy_prompt-enhanced.jsonl       # AC_EXP04 원천: state-pred 좌표(point) + 프롬프트 업그레이드 (Stage 2 원천 없음 — 보류)
-│   ├── implicit-world-modeling_stage1_action_xy_pixel-aligned.jsonl        # AC_EXP05 원천: action-pred 절대 픽셀 좌표(840×1876, Qwen2.5-VL) — Drive '0710_버젼' raw stage1_0710_action_pred.jsonl rename
-│   ├── implicit-world-modeling_stage1_state_xy_pixel-aligned.jsonl         # AC_EXP05 원천: state-pred 절대 픽셀 좌표 (Stage 2 원천 없음 — 보류)
+│   ├── implicit-world-modeling_stage1_action_xy_pixel-aligned.jsonl        # AC_EXP05 원천: action-pred 절대 픽셀 좌표(840×1876, Qwen2.5-VL) — Drive '0711_버젼' raw stage1_0711_action_pred.jsonl (74,350 행)
+│   ├── implicit-world-modeling_stage1_state_xy_pixel-aligned.jsonl         # AC_EXP05 원천: state-pred 절대 픽셀 좌표 (73,950 행; Stage 2 원천 없음 — 보류)
 │   ├── episodes_meta.jsonl                 # primary_app = 전경 앱 package_name
 │   └── images/                              # AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / AC_EXP05 가 JSONL `images` 필드로 공유 참조
 ├── AndroidControl_EXP01/                 # Stage 1 ratio mix 학습 + Stage 2 ratio sweep (split_data.py --dataset AC_EXP01 산출)
@@ -219,6 +219,7 @@ data/
 │   ├── implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl       # AC_EXP01 에서 복사 (Stage 2 는 diff loss 미적용)
 │   # NOTE: images/ + episodes_meta.jsonl 은 원본 AndroidControl/ 의 것을 공유 참조.
 ├── AndroidControl_EXP03/                 # AC_EXP01 ratio73 멤버십 좌표(point) 표현 미러 (scripts/mirror_experiment.py --experiment exp03 산출)
+│   ├── build_exp05_data.py        # AC_EXP05 학습 데이터 정본 빌더 (mirror → diff-loss token_weights → 원자 교체 + sidecar)
 │   ├── implicit-world-modeling_stage1_train.jsonl                          # AC_EXP01 train_7_3 미러 (좌표 표현, ~49,596)
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_{state,action}.jsonl  # AC_EXP01 test 멤버십 미러 (좌표 표현)
 │   ├── implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl       # AC_EXP01 Stage 2 멤버십 미러 (좌표 표현)
@@ -229,10 +230,11 @@ data/
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_state_without_open_app.jsonl  # state without_open_app sibling (2 파일) — train 포함 총 7 파일
 │   # NOTE: 본문 = 좌표(EXP03 와 동일 멤버십·좌표) + 프롬프트 업그레이드 (action scroll→swipe, "html-style XML" 명시, [SWIPE] 규칙), 이미지 경로는 EXP01 채택. Stage 2 보류 (`_STAGE1_ONLY`). EXP04 pool ⊆ EXP03 pool → drop train 320 / 전체 stage1 450 (0.67%).
 ├── AndroidControl_EXP05/                 # AC_EXP01 ratio73 멤버십 + 절대 픽셀 좌표 미러 (scripts/mirror_experiment.py --experiment exp05 산출 — stage1-only, Qwen2.5-VL 전용). 좌표계·budget 은 §2 참조
-│   ├── implicit-world-modeling_stage1_train.jsonl                          # EXP01 train 미러 (47,556 — 입력 50,000 / drop 2,444)
+│   ├── implicit-world-modeling_stage1_train.jsonl                          # EXP01 train 미러 (44,670 — 입력 50,000 / drop 5,330) + diff-loss token_weights 인라인
 │   ├── implicit-world-modeling_stage1_test_{id,ood}_{state,action}.jsonl  # dual-task test 미러 (4 파일)
-│   ├── implicit-world-modeling_stage1_test_{id,ood}_state_without_open_app.jsonl  # state without_open_app sibling (2 파일) — train 포함 총 7 파일, 64,787 행
-│   # NOTE: 이미지 경로는 EXP01 채택 ("AndroidControl/images/..."). Stage 2 보류 (`_STAGE1_ONLY`). 소스는 Drive '0710_버젼'.
+│   ├── implicit-world-modeling_stage1_test_{id,ood}_state_without_open_app.jsonl  # state without_open_app sibling (2 파일) — train 포함 총 7 파일, 60,717 행
+│   # NOTE: 이미지 경로는 EXP01 채택 ("AndroidControl/images/..."). Stage 2 보류 (`_STAGE1_ONLY`). 소스는 Drive '0711_버젼'.
+│   # 빌드 정본: scripts/build_exp05_data.py (mirror → diff-loss 가중치 → 원자 교체). sidecar: <train>.meta.json
 ├── MonkeyCollection/                 # Stage 1 전용 학습 + 평가
 │   ├── implicit-world-modeling_stage1.jsonl              # 약 100K
 │   ├── implicit-world-modeling_stage1_{train,test}.jsonl # split_data.py --dataset MC (95:5)
@@ -260,6 +262,12 @@ data/
   | metric key | `hungarian_idx` | `hungarian_pos` |
   | diff 토큰 가중치 | ADDED/MODIFIED **2.0** / UNCHANGED 1.0 | diff(ADDED/MODIFIED) **1.0** / non-diff(UNCHANGED) **0.25** |
   | action_pred 샘플 | uniform 1.0 (diff element 0개라 자동 동치) | uniform 1.0 (명시적 분기 — 판별은 `images` 개수: 1개=state_pred, 2개=action_pred) |
+  | 토큰↔element 경계 | 토큰 **시작점만** 검사 (왼쪽 경계를 걸친 토큰 누락 — 비대칭) | **interval overlap** (`tok_cs < char_end and tok_ce > char_start`, zero-length offset 제외). 중첩 span 은 **max 가중치** |
+  | 실패 처리 | fail-open (uniform 폴백을 성공으로 집계) | `--on-error {fail,uniform,skip}`, 기본 **fail-closed**. 폴백은 성공으로 집계하지 않음 |
+  | 출력 쓰기 | 최종 경로 직접 스트리밍 (부분 산출물 가능) | sibling temp → **`os.replace` 원자 교체**, `--input == --output` 거부 |
+  | 재현성 | tokenizer revision 미고정·미기록 | `--revision` 고정 + `<out>.meta.json` sidecar 에 model/revision/가중 상수/집계 기록 |
+
+  > **v2 의 경계 교정(실측 영향)**: 시작점만 보던 규칙은 element 왼쪽 경계를 걸친 토큰(앞 텍스트와 합쳐 토크나이즈된 것)을 놓치면서 오른쪽으로 넘치는 토큰에는 가중치를 줬다. interval overlap 으로 바꾸자 state 출력 토큰의 **0.65% 가 바뀌었고 전부 `0.25 → 1.0` 상향**(하향 0건) — 버그 서명과 정확히 일치한다. v1 (`token_weight_builder.py`) 에도 같은 비대칭이 있으나 **EXP02 재현성 보존을 위해 고치지 않는다**.
 
   **EXP05 에 v2 가 필수인 이유**: EXP05 HTML 에는 `index` 속성이 없다 (실측: index 0개, bounds 48개). v1 builder 는 `index="..."` 를 regex 로 필수 요구하므로 v1 을 EXP05 에 쓰면 모든 토큰이 baseline 으로 방치되어 diff loss 가 조용히 무력화된다.
 
@@ -267,7 +275,7 @@ data/
 
   **가중치 적용 함정**: `token_weight_builder` 의 baseline 은 `[1.0]*n_asst` 이고 `if weight == 1.0: continue` 로 기본값을 스킵하는 구조다. 신규 체계에서는 diff weight 가 바로 그 1.0 이라, 스킵 때문에 diff 토큰이 baseline(0.25) 에 방치되는 함정이 있었다. v2 는 baseline 을 `wmap["UNCHANGED"]` 에서 유도하고 스킵 조건을 `if weight == base` 로 바꿔 해결했다.
 
-  **EXP05 배선**: EXP05 stage1 YAML 6 개 전부 `use_diff_token_weighted_loss: true`. `token_weights` 는 train jsonl 인라인 필드이며 `dataset_info.json` 컬럼 등록은 불필요 (`converter.py:226` 이 raw jsonl 에서 직접 읽음). 실측: train 47,556 행 = state 33,285 + action 14,271, weight 값 분포는 state `{0.25, 1.0}` / action `{1.0}`.
+  **EXP05 배선**: EXP05 stage1 YAML 6 개 전부 `use_diff_token_weighted_loss: true`. `token_weights` 는 train jsonl 인라인 필드이며 `dataset_info.json` 컬럼 등록은 불필요 (`converter.py:226` 이 raw jsonl 에서 직접 읽음). 실측: train **44,670** 행 = state 31,221 + action 13,449, weight 값 분포는 state `{0.25, 1.0}` / action `{1.0}` (state 출력 토큰의 53.4% 가 0.25 배 감쇠). 빌드 정본은 [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py) 이며 tokenizer/revision/가중 상수를 `<train>.meta.json` sidecar 에 기록한다.
 - **AC_EXP03 (좌표(point) 표현 미러 실험군)**: split 불필요. `scripts/mirror_experiment.py --experiment exp03` 가 AC_EXP01 ratio73 의 산출 파일(`stage1_train_7_3` + dual-task test + Stage 2)을 한 줄씩 읽어 `(episode, step)` 키로 `data/AndroidControl/implicit-world-modeling_stage{1_action,1_state,2}_xy.jsonl` (좌표 표현 원천) 의 대응 레코드를 골라 동일 순서로 `data/AndroidControl_EXP03/` 에 write. UI 트리는 `index="N"` 대신 `bounds="[x1,y1][x2,y2]" point="[cx,cy]"`, 액션은 `point=[x,y]` (0–1000 정규화). 본문만 좌표, 이미지 경로는 EXP01 레코드의 것(`AndroidControl/images/...`)을 채택. 원천에 없는 `(episode, step)` 키(~0.8–1.7%)는 제외 — 각 레코드는 EXP01 과 `(episode, step)` 1:1 대응이나 행 수는 소폭 작다 (train ~49,596 / stage2_train ~14,881). stage1 train 은 EXP02 스타일 단일 `implicit-world-modeling_stage1_train.jsonl` 로 출력. diff loss 미적용 — index→좌표 표현 효과만 AC_EXP01 ratio73 대조군과 비교.
 - **AC_EXP04 (좌표 표현 + stage1 프롬프트 업그레이드 실험군)**: split 불필요. EXP03 의 **stage1 프롬프트 업그레이드** 변형으로, EXP03 와 동일한 `(episode, step)` 멤버십·좌표(point) 표현을 유지하되 프롬프트만 바뀐다 — action space `scroll(direction, point)` → `swipe(start, end)`, role 문구 "represented as html-style XML" 명시, `[SWIPE]` 규칙 추가. `scripts/mirror_experiment.py --experiment exp04` 가 AC_EXP01 ratio73 산출 파일(EXP03 와 동일 멤버십)을 한 줄씩 읽어 `(episode, step)` 키로 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_prompt-enhanced.jsonl` (EXP03 좌표 pool 의 프롬프트 업그레이드본) 의 대응 레코드를 골라 동일 순서로 `data/AndroidControl_EXP04/` 에 write — 본문만 좌표/프롬프트, 이미지 경로는 EXP01 채택. **EXP04 pool ⊆ EXP03 pool** 이라 멤버십 = EXP03 ∩ EXP04 pool 이고, EXP03 출력 대비 drop 은 train 320 / 전체 stage1 450 (0.67%) (EXP03 train 49,596 → EXP04 49,276). **Stage 2 는 보류** — `_STAGE1_ONLY` 에 `AndroidControl_EXP04` 를 포함해 stage2 YAML/등록/eval 을 skip 하며, stage1 train + dual-task test(4) + state without_open_app sibling(2) 7 파일만 산출. stage1 train 은 EXP02 스타일 단일 `implicit-world-modeling_stage1_train.jsonl` 로 출력.
 - **MB**: split 없음. 평가 전용.

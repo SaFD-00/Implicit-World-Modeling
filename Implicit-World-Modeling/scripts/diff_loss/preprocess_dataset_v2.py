@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 from pathlib import Path
 
 from token_weight_builder_v2 import build_token_weights
@@ -49,6 +50,16 @@ from transformers import AutoTokenizer
 
 # 메트릭 모듈은 CLI 옵션에 따라 런타임에 로드 (v1: hungarian_diff / v2: hungarian_diff_v2)
 _hd = None  # hungarian_diff 모듈 참조 (classify_diff, summarize_diff)
+
+
+class SampleFailure(Exception):
+    """diff / weight 생성 실패. --on-error fail 일 때 실행을 중단시킨다."""
+
+    def __init__(self, stage: str, line_no: int, cause: Exception):
+        super().__init__(f"line {line_no}: {stage} 실패 ({cause})")
+        self.stage = stage
+        self.line_no = line_no
+        self.cause = cause
 
 
 def _load_metric(version: str) -> None:
@@ -171,10 +182,20 @@ def process_sample(
     prefix_fn,
     weight_map: dict[str, float],
     line_no: int,
-) -> dict:
+    on_error: str = "fail",
+) -> tuple[dict, str]:
     """
-    샘플 하나를 받아 token_weights를 계산하여 추가한 뒤 반환.
+    샘플 하나를 받아 token_weights를 계산하여 추가한 뒤 (sample, status) 반환.
     current_html / future_html 필드는 제거됨.
+
+    status: "action"        — action 샘플 (설계상 uniform 1.0, 오류 아님)
+            "ok"            — diff 기반 가중치 정상 산출
+            "diff_fail"     — classify_diff 실패 → uniform fallback
+            "weight_fail"   — build_token_weights 실패 → uniform fallback
+
+    on_error: "fail"    — 실패 시 SampleFailure 를 올려 실행 중단 (기본, fail-closed)
+              "uniform" — 실패 시 균일 1.0 로 폴백하되 **성공으로 집계하지 않는다**
+              "skip"    — 실패 레코드를 출력에서 제외
     """
     # ── 메시지 포맷 정규화 (내부 처리용만, 원본 messages는 유지) ──────────
     normalized = _normalize_messages(sample["messages"])
@@ -205,7 +226,7 @@ def process_sample(
         asst_ids = tokenizer(asst, add_special_tokens=False)["input_ids"]
         sample["token_weights"] = [1.0] * len(asst_ids)
         sample["_diff_counts"] = {}
-        return sample
+        return sample, "action"
 
     # current_html 필드가 없으면 user 메시지에서 추출
     if not current_html:
@@ -215,12 +236,20 @@ def process_sample(
     if not future_html:
         future_html = asst
 
+    def _uniform() -> list[float]:
+        asst_ids = tokenizer(asst, add_special_tokens=False)["input_ids"]
+        return [1.0] * len(asst_ids)
+
     # ── diff 분류 ─────────────────────────────────────────────────────────
     try:
         diff_result = _hd.classify_diff(current_html, future_html)
     except Exception as e:
-        print(f"[WARN] line {line_no}: diff 실패 ({e}), 균일 가중치 사용")
-        diff_result = []
+        if on_error == "fail":
+            raise SampleFailure("diff", line_no, e) from e
+        print(f"[WARN] line {line_no}: diff 실패 ({e}) → uniform fallback")
+        sample["token_weights"] = _uniform()
+        sample["_diff_counts"] = {}
+        return sample, "diff_fail"
 
     diff_counts = _hd.summarize_diff(diff_result)
 
@@ -244,17 +273,38 @@ def process_sample(
         n_prefix = len(prefix_ids)
         weights = weights[n_prefix:]
     except Exception as e:
-        print(f"[WARN] line {line_no}: weight 생성 실패 ({e}), 균일 가중치 사용")
-        asst_ids = tokenizer(asst, add_special_tokens=False)["input_ids"]
-        weights = [1.0] * len(asst_ids)
+        if on_error == "fail":
+            raise SampleFailure("weight", line_no, e) from e
+        print(f"[WARN] line {line_no}: weight 생성 실패 ({e}) → uniform fallback")
+        sample["token_weights"] = _uniform()
+        sample["_diff_counts"] = diff_counts
+        return sample, "weight_fail"
 
     sample["token_weights"] = weights
     sample["_diff_counts"] = diff_counts  # 훈련 전 제거하거나 그대로 둬도 무방
 
-    return sample
+    return sample, "ok"
 
 
 # ── 메인 파이프라인 ───────────────────────────────────────────────────────
+
+
+def _resolve_revision(model_name: str, revision: str | None) -> str:
+    """HF 캐시에서 실제 사용된 commit SHA 를 best-effort 로 해석 (실패 시 'unknown')."""
+    try:
+        from huggingface_hub import HfApi  # noqa: F401  (존재 확인용)
+        from huggingface_hub.constants import HF_HUB_CACHE
+
+        repo_dir = Path(HF_HUB_CACHE) / f"models--{model_name.replace('/', '--')}"
+        ref = repo_dir / "refs" / (revision or "main")
+        if ref.is_file():
+            return ref.read_text().strip()
+        # revision 이 이미 commit SHA 인 경우
+        if revision and (repo_dir / "snapshots" / revision).is_dir():
+            return revision
+    except Exception:  # pragma: no cover — 메타데이터용이라 실패해도 진행
+        pass
+    return "unknown"
 
 
 def preprocess(
@@ -266,26 +316,47 @@ def preprocess(
     w_modified: float = 1.0,
     w_unchanged: float = 0.25,
     metric_version: str = "v2",
-) -> None:
+    revision: str | None = None,
+    on_error: str = "fail",
+) -> dict:
     """
     input_jsonl 전체를 순회하며 token_weights를 계산하고 output_jsonl에 저장.
 
+    출력은 sibling temp 파일에 쓴 뒤 **원자 교체**한다 (부분 산출물 방지).
+    `<output>.meta.json` sidecar 에 재현에 필요한 메타데이터를 기록한다.
+
     Args:
         input_jsonl  : 원본 데이터 경로
-        output_jsonl : 출력 데이터 경로
+        output_jsonl : 출력 데이터 경로 (input 과 같으면 거부)
         model_name   : HuggingFace 모델명 (tokenizer 로드에 사용)
         template_key : "qwen" | "llama3" | "default" | None(자동 감지)
         w_added      : ADDED element 가중치
         w_modified   : MODIFIED element 가중치
-        w_unchanged  : UNCHANGED element 가중치 (보통 1.0)
+        w_unchanged  : UNCHANGED element 가중치
+        revision     : tokenizer commit SHA / 태그 고정 (None 이면 캐시 기본)
+        on_error     : "fail" | "uniform" | "skip"
+
+    Returns:
+        집계 dict (sidecar 에 기록되는 것과 동일)
     """
+    in_p = Path(input_jsonl).resolve()
+    out_p = Path(output_jsonl).resolve()
+    if in_p == out_p:
+        raise ValueError(
+            f"--input 과 --output 이 같은 경로입니다 ({in_p}). "
+            "in-place 쓰기는 입력을 truncate 하므로 금지한다."
+        )
+
     _load_metric(metric_version)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
+    resolved_rev = _resolve_revision(model_name, revision)
 
     tkey = template_key or detect_template(model_name)
     prefix_fn = TEMPLATE_MAP.get(tkey, TEMPLATE_MAP["default"])
     print(
-        f"[INFO] metric={metric_version} | 템플릿: {tkey} | 가중치 ADDED={w_added} MODIFIED={w_modified} UNCHANGED={w_unchanged}"
+        f"[INFO] metric={metric_version} | 템플릿: {tkey} | "
+        f"가중치 ADDED={w_added} MODIFIED={w_modified} UNCHANGED={w_unchanged} | "
+        f"on-error={on_error} | tokenizer={model_name}@{resolved_rev[:12]}"
     )
 
     weight_map = {
@@ -294,44 +365,100 @@ def preprocess(
         "UNCHANGED": w_unchanged,
     }
 
-    total = ok = warn = 0
+    counts = {
+        "total": 0,
+        "ok": 0,
+        "action": 0,
+        "diff_fail": 0,
+        "weight_fail": 0,
+        "json_error": 0,
+        "skipped": 0,
+        "written": 0,
+    }
     agg_diff = {"ADDED": 0, "MODIFIED": 0, "UNCHANGED": 0}
 
-    Path(output_jsonl).parent.mkdir(parents=True, exist_ok=True)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    tmp_p = out_p.with_name(out_p.name + ".tmp")
 
-    with (
-        open(input_jsonl, encoding="utf-8") as fin,
-        open(output_jsonl, "w", encoding="utf-8") as fout,
-    ):
-        for line_no, line in enumerate(fin):
-            line = line.strip()
-            if not line:
-                continue
-            total += 1
+    try:
+        with (
+            in_p.open(encoding="utf-8") as fin,
+            tmp_p.open("w", encoding="utf-8") as fout,
+        ):
+            for line_no, line in enumerate(fin):
+                line = line.strip()
+                if not line:
+                    continue
+                counts["total"] += 1
 
-            try:
-                sample = json.loads(line)
-            except json.JSONDecodeError as e:
-                print(f"[ERROR] line {line_no}: JSON 파싱 실패 ({e}), 스킵")
-                warn += 1
-                continue
+                try:
+                    sample = json.loads(line)
+                except json.JSONDecodeError as e:
+                    if on_error == "fail":
+                        raise SampleFailure("json", line_no, e) from e
+                    print(f"[ERROR] line {line_no}: JSON 파싱 실패 ({e}) → 스킵")
+                    counts["json_error"] += 1
+                    counts["skipped"] += 1
+                    continue
 
-            sample = process_sample(sample, tokenizer, prefix_fn, weight_map, line_no)
+                sample, status = process_sample(
+                    sample, tokenizer, prefix_fn, weight_map, line_no, on_error
+                )
+                counts[status] += 1
 
-            # 집계
-            for k, v in sample["_diff_counts"].items():
-                agg_diff[k] += v
-            ok += 1
+                if on_error == "skip" and status in ("diff_fail", "weight_fail"):
+                    counts["skipped"] += 1
+                    continue
 
-            fout.write(json.dumps(sample, ensure_ascii=False) + "\n")
+                for k, v in sample["_diff_counts"].items():
+                    agg_diff[k] += v
 
-            if line_no % 500 == 0:
-                dc = sample["_diff_counts"]
-                wl = len(sample["token_weights"])
-                print(f"  [{line_no:>6}] diff={dc}  weights_len={wl}")
+                fout.write(json.dumps(sample, ensure_ascii=False) + "\n")
+                counts["written"] += 1
 
-    print(f"\n[완료] 총 {total}건 처리 | 성공 {ok}건 | 실패 {warn}건")
+                if line_no % 500 == 0:
+                    dc = sample["_diff_counts"]
+                    wl = len(sample["token_weights"])
+                    print(f"  [{line_no:>6}] diff={dc}  weights_len={wl}")
+
+        # ── 모든 처리가 성공한 뒤에만 원자 교체 ───────────────────────────
+        os.replace(tmp_p, out_p)
+    except BaseException:
+        tmp_p.unlink(missing_ok=True)  # 부분 산출물 남기지 않는다
+        raise
+
+    meta = {
+        "input": str(in_p),
+        "output": str(out_p),
+        "model": model_name,
+        "revision_arg": revision,
+        "revision_resolved": resolved_rev,
+        "tokenizer_class": tokenizer.__class__.__name__,
+        "template": tkey,
+        "metric_version": metric_version,
+        "weight_map": weight_map,
+        "on_error": on_error,
+        "counts": counts,
+        "diff_totals": agg_diff,
+    }
+    Path(str(out_p) + ".meta.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False)
+    )
+
+    fallback = counts["diff_fail"] + counts["weight_fail"]
+    print(
+        f"\n[완료] 총 {counts['total']}건 | 정상(diff) {counts['ok']} | "
+        f"action(uniform) {counts['action']} | fallback {fallback} "
+        f"(diff {counts['diff_fail']} / weight {counts['weight_fail']}) | "
+        f"json오류 {counts['json_error']} | 스킵 {counts['skipped']} | 출력 {counts['written']}"
+    )
     print(f"[diff 집계] {agg_diff}")
+    if fallback:
+        print(
+            f"[주의] {fallback}건이 uniform fallback 이다 — diff 강조가 적용되지 않았다. "
+            "성공으로 집계하지 않았다."
+        )
+    return meta
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────
@@ -351,6 +478,20 @@ if __name__ == "__main__":
         default="v2",
         help="v1: 원본 로직 / v2: _collect_texts·_match_cost 개선판",
     )
+    parser.add_argument(
+        "--revision",
+        default=None,
+        help="tokenizer commit SHA/태그 고정 (미지정 시 캐시 기본). 산출물 sidecar 에 기록된다.",
+    )
+    parser.add_argument(
+        "--on-error",
+        choices=["fail", "uniform", "skip"],
+        default="fail",
+        help=(
+            "diff/weight 생성 실패 처리. fail(기본)=중단, "
+            "uniform=균일 1.0 폴백(성공으로 집계 안 함), skip=해당 레코드 제외"
+        ),
+    )
     args = parser.parse_args()
 
     preprocess(
@@ -362,4 +503,6 @@ if __name__ == "__main__":
         w_modified=args.w_modified,
         w_unchanged=args.w_unchanged,
         metric_version=args.metric_version,
+        revision=args.revision,
+        on_error=args.on_error,
     )

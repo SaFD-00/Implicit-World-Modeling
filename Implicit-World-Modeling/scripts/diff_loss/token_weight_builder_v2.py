@@ -264,6 +264,11 @@ def build_token_weights(
     char_spans = get_element_char_spans(future_html)
 
     # ── 6. char offset → token offset 변환 후 weight 적용 ─────────────────
+    # 경계 규칙: 토큰 구간 [tok_cs, tok_ce) 와 element 구간 [char_start, char_end) 가
+    # 조금이라도 겹치면 가중치를 준다 (interval overlap). 토큰 **시작점만** 보면
+    # element 왼쪽 경계를 걸친 토큰(앞 텍스트와 합쳐 토크나이즈된 경우)을 놓치고,
+    # 오른쪽으로 넘치는 토큰에는 주면서 왼쪽은 안 주는 비대칭이 생긴다.
+    # zero-length offset (special token 등) 은 어디에도 겹치지 않으므로 제외한다.
     for char_start, char_end, el_info in char_spans:
         el_key = _make_el_key(el_info)
         diff_type = diff_by_key.get(el_key, "UNCHANGED")
@@ -273,9 +278,14 @@ def build_token_weights(
             continue  # baseline 그대로이므로 스킵
 
         for tok_i, (tok_cs, tok_ce) in enumerate(offset_mapping):
-            # 토큰의 시작 위치가 element 범위 안이면 weight 부여
-            # (경계 토큰이 element 끝+개행을 합쳐 토크나이즈된 경우도 포함)
-            if tok_cs >= char_start and tok_cs < char_end:
-                weights[n_prefix + tok_i] = weight
+            if tok_cs == tok_ce:
+                continue  # zero-length (special token 등)
+            if tok_cs < char_end and tok_ce > char_start:
+                pos = n_prefix + tok_i
+                cur = weights[pos]
+                # 서로 다른 span 에 동시에 걸친 토큰(중첩 element 경계 등)은
+                # **더 큰 가중치**를 채택한다 (명시적 정책 — 마지막 span 이 이기던
+                # 기존 덮어쓰기 방식은 순서 의존적이었다).
+                weights[pos] = weight if cur == base else max(cur, weight)
 
     return weights
