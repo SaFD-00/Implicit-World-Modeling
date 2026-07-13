@@ -31,6 +31,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   for DS in "${DATASETS[@]}"; do
     # YAML 정본은 repo 가 소유한다 (LF/examples/custom 이 아니라 configs/train).
     YAML="$BASE_DIR/configs/train/IWM-${DS}/stage1_${STAGE1_MODE}/${MODEL_SHORT}_world-model.yaml"
+    require_model_eligible "$MODEL_SHORT" "${DS_DATADIR[$DS]}"
     require_yaml "$YAML" "python -m implicit_world_modeling.gen_configs --write 로 생성하세요"
 
     # GPU 트리오(pdbs/grad_accum/deepspeed) + repo-owned dataset_dir/media_dir 를 런타임 주입.

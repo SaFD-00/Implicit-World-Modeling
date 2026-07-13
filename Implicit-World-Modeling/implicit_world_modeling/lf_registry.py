@@ -462,11 +462,17 @@ _QWEN2_5_VL_FAMILY = ("qwen2.5-vl-7b", "qwen2.5-vl-3b")
 DATASET_MODEL_ELIGIBILITY: dict[str, frozenset[str]] = {
     "AndroidControl_EXP03": frozenset(_QWEN3_VL_FAMILY),
     "AndroidControl_EXP04": frozenset(_QWEN3_VL_FAMILY),
-    # qwen3-vl-8b 은 family 규약상 EXP05 부적합이지만 as-trained YAML 이 이미
-    # 커밋돼 있다 (configs/train/IWM-AC_EXP05/stage1_{full,lora}/qwen3-vl-8b_*.yaml).
-    # 재현성(as-trained byte-exact) 을 위해 예외로 유지한다 — family 승인이 아니라
-    # 과거 산출물 보존이다. 신규 학습에는 쓰지 말 것.
-    "AndroidControl_EXP05": frozenset(_QWEN2_5_VL_FAMILY) | {"qwen3-vl-8b"},
+    # EXP05 는 Qwen2.5-VL 전용이다. 예외 없다.
+    #
+    # 2026-07-13 까지 qwen3-vl-8b 가 예외로 남아 있었다 (as-trained YAML 이 커밋돼
+    # 있어 byte-exact 재현을 위해 자격에 넣어뒀다). 확인해 보니 **그 조합은 한 번도
+    # 학습된 적이 없고** (outputs/AndroidControl_EXP05 에 8b 산출물 0건), YAML 은
+    # 생성만 되고 쓰이지 않은 것이었다. 보존할 as-trained 가 애초에 없었다.
+    # 게다가 이중 mismatch 다 — 좌표 규약(Qwen3-VL = 0~1000 정규화 vs EXP05 = 절대
+    # 픽셀)뿐 아니라 image budget 도 어긋난다 (그 YAML 은 2097152, EXP05 데이터는
+    # 1605632 = Qwen2.5-VL-3B 기준). 돌아가긴 하지만 grounding 이 조용히 깨진다.
+    # → 자격에서 제거하고 YAML 도 삭제했다. AGENTS.md 의 하드 제약과 코드를 일치시킨다.
+    "AndroidControl_EXP05": frozenset(_QWEN2_5_VL_FAMILY),
 }
 
 

@@ -71,6 +71,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
 
       # YAML 정본은 repo 가 소유한다 (LF/examples/custom 이 아니라 configs/train).
       YAML_ABS="$BASE_DIR/configs/train/IWM-${DS}/stage2_${STAGE2_MODE}/${MODEL_SHORT}_${VARIANT}.yaml"
+      require_model_eligible "$MODEL_SHORT" "${DS_DATADIR[$DS]}"
       require_yaml "$YAML_ABS" "python -m implicit_world_modeling.gen_configs --write 로 생성하세요"
       RUN_YAML="$YAML_ABS"
 

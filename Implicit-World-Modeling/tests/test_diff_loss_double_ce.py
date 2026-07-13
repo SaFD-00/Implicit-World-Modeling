@@ -22,7 +22,6 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-
 from llamafactory.extras.constants import IGNORE_INDEX
 from llamafactory.train.sft.trainer import CustomSeq2SeqTrainer
 from llamafactory.train.trainer_utils import diff_token_weighted_loss_func

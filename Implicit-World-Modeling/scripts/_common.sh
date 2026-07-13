@@ -681,6 +681,35 @@ require_yaml() {
   require_dataset_registered "$abs"
 }
 
+# 실험군별 모델 자격 가드 (하드 제약 — AGENTS.md).
+# Qwen family 는 좌표 규약이 세대별로 뒤집힌다: Qwen2.5-VL = 절대 픽셀, Qwen3-VL = 0~1000 정규화
+# (factor 도 28 vs 32 로 다름). 그래서 EXP03/04 (정규화 좌표) 는 Qwen3-VL 전용,
+# EXP05 (절대 픽셀) 는 Qwen2.5-VL 전용이다.
+# 어긋난 조합은 **에러 없이 돌면서 grounding 만 조용히 깨진다** — 그래서 학습 전에 막는다.
+# YAML 부재로 우연히 걸리기를 기대하지 않고 자격을 직접 검사한다.
+require_model_eligible() {
+  local model_short="$1" ds_datadir="$2"
+  python3 - "$model_short" "$ds_datadir" <<'PY' || exit 1
+import sys
+sys.path.insert(0, ".")
+from implicit_world_modeling.lf_registry import DATASET_MODEL_ELIGIBILITY
+
+model, ds = sys.argv[1], sys.argv[2]
+allowed = DATASET_MODEL_ELIGIBILITY.get(ds)
+if allowed is None:
+    sys.exit(0)                      # 자격 정의가 없는 DS 는 통과
+if model not in allowed:
+    print(f"[!] {model} 은 {ds} 에 쓸 수 없습니다 (실험군별 모델 전용성은 하드 제약).",
+          file=sys.stderr)
+    print(f"    허용: {', '.join(sorted(allowed))}", file=sys.stderr)
+    print("    이유: Qwen family 는 좌표 규약이 세대별로 반전됩니다 "
+          "(Qwen2.5-VL = 절대 픽셀, Qwen3-VL = 0~1000 정규화, factor 28 vs 32).",
+          file=sys.stderr)
+    print("    어긋난 조합은 에러 없이 돌면서 grounding 만 조용히 깨집니다.", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 # YAML 의 `dataset:` 키가 dataset_info 정본에 등록돼 있고 그 파일이 실재하는지 확인한다.
 # 없으면 LF 안쪽 깊은 곳에서 죽는 대신 여기서 무엇이 문제인지 말하고 멈춘다.
 # (EXP03 stage2 가 데이터·YAML 은 있는데 등록만 안 돼 있던 적이 있다 — 그때 이 가드가 없었다.)

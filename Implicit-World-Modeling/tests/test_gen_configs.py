@@ -2,14 +2,14 @@
 
 두 가지를 고정한다:
 
-(A) **as-trained 74 개 byte-exact 재현** — 커밋 ``17f49a3`` (LF 워킹트리 흡수:
+(A) **as-trained byte-exact 재현** (74 개 중 자격 있는 72 개) — 커밋 ``17f49a3`` (LF 워킹트리 흡수:
     74 YAML) 의 내용과 생성기 출력이 바이트 단위로 같아야 한다. 이 74 개는 실제
     학습이 돌아간 설정이므로 생성기가 한 글자라도 바꾸면 재현성이 깨진다.
     경로·필드 순서·주석·공백까지 전부 포함한 비교다.
 
 (B) **신규 확장분의 정책 정합** — EXP03/04 (as-trained YAML 소실) 재구성본 헤더,
     3-4B 모델 확장분의 GPU 트리오(pdbs/ga/deepspeed)가 RTX5090×2 baseline 과
-    일치, 실험군별 family 자격 (EXP03/04=Qwen3-VL 전용, EXP05=Qwen3-VL-4B 배제).
+    일치, 실험군별 family 자격 (EXP03/04=Qwen3-VL 전용, EXP05=Qwen2.5-VL 전용).
 
 또한 노트북에서 제거하기로 한 심볼 (``_YAML_GEN_DS`` allowlist,
 ``_PER_DEVICE_BS_BY_SIZE``, ``_derive_grad_accum``, ``GPU_TYPE == "RTX5090"``
@@ -43,12 +43,35 @@ from implicit_world_modeling.gen_configs import (  # noqa: E402
 from implicit_world_modeling.lf_registry import (  # noqa: E402
     _MODEL_CONFIG,
     CONFIGS,
+    DATASET_MODEL_ELIGIBILITY,
     eligible_models,
 )
 
 # LF 워킹트리 유일본을 흡수한 커밋 — as-trained 74 YAML 의 정본 스냅샷.
 AS_TRAINED_COMMIT = "17f49a3"
 AS_TRAINED_COUNT = 74
+
+# 의도적으로 재현하지 않는 as-trained YAML — 삭제 사유를 여기 못박는다.
+# 조용히 빠지면 안 되므로 목록으로 남기고, 나머지 72 개는 여전히 byte-exact 를 강제한다.
+#
+# qwen3-vl-8b × EXP05: EXP05 는 절대 픽셀 좌표라 Qwen2.5-VL 전용이다 (Qwen3-VL 은 0~1000
+# 정규화 + factor 32). 이 조합은 **한 번도 학습된 적이 없고** (outputs 에 산출물 0건) YAML 만
+# 생성돼 있었다 — 보존할 as-trained 가 없다. image budget 도 어긋난다 (2097152 vs 데이터의
+# 1605632). 2026-07-13 자격에서 제거하고 YAML 도 삭제했다. AGENTS.md 하드 제약과 코드를 일치시킴.
+INELIGIBLE_REMOVED = frozenset(
+    {
+        "IWM-AC_EXP05/stage1_full/qwen3-vl-8b_world-model.yaml",
+        "IWM-AC_EXP05/stage1_lora/qwen3-vl-8b_world-model.yaml",
+    }
+)
+
+# lf_subfolder (IWM-AC_EXP05) → dataset 이름 (AndroidControl_EXP05).
+# 하드코딩하지 않고 CONFIGS 에서 유도한다 — 레지스트리가 바뀌면 따라 바뀌어야 한다.
+_DS_DIR_TO_NAME = {
+    cfg["lf_subfolder"]: ds_name
+    for ds_configs in CONFIGS.values()
+    for ds_name, cfg in ds_configs.items()
+}
 
 # 커밋 YAML 의 GPU 트리오 (RTX5090×2 baseline). gpu_policy 와 독립적으로 하드코딩해
 # 정책 모듈이 바뀌면 이 테스트가 잡도록 한다.
@@ -103,16 +126,29 @@ def test_as_trained_snapshot_has_74_files(as_trained: dict[str, str]) -> None:
     assert len(as_trained) == AS_TRAINED_COUNT
 
 
+def test_ineligible_removed_are_actually_gone(generated: dict[str, str]) -> None:
+    """자격 없어 삭제한 YAML 은 생성기가 다시 만들면 안 된다 (자격 가드의 회귀 방어)."""
+    resurrected = sorted(INELIGIBLE_REMOVED & set(generated))
+    assert not resurrected, (
+        f"자격에서 제거된 조합의 YAML 이 되살아났다: {resurrected}. "
+        "lf_registry.DATASET_MODEL_ELIGIBILITY 를 확인하라."
+    )
+
+
 def test_as_trained_yaml_reproduced_byte_exact(
     as_trained: dict[str, str], generated: dict[str, str]
 ) -> None:
-    """74 개 전부 — 경로 존재 + 내용 바이트 동일. 허용 diff = 0."""
-    missing = sorted(set(as_trained) - set(generated))
+    """as-trained 중 자격 있는 72 개 — 경로 존재 + 내용 바이트 동일. 허용 diff = 0.
+
+    INELIGIBLE_REMOVED 2 개는 의도적으로 제외한다 (사유는 그 상수의 주석 참조).
+    """
+    expected = set(as_trained) - INELIGIBLE_REMOVED
+    missing = sorted(expected - set(generated))
     assert not missing, f"생성기가 as-trained YAML 을 만들지 않음: {missing}"
 
     mismatched = {
         rel: (as_trained[rel], generated[rel])
-        for rel in sorted(as_trained)
+        for rel in sorted(expected)
         if as_trained[rel] != generated[rel]
     }
     assert not mismatched, "as-trained YAML 재현 실패: " + ", ".join(mismatched)
@@ -174,11 +210,13 @@ def test_family_eligibility(generated: dict[str, str]) -> None:
         if rel.startswith(("IWM-AC_EXP03/", "IWM-AC_EXP04/")):
             assert "qwen2.5" not in rel, f"EXP03/04 에 Qwen2.5-VL 유입: {rel}"
 
-    # EXP05 (절대 픽셀) — qwen3-vl-4b 배제. qwen3-vl-8b 은 as-trained 예외로 유지.
-    assert "qwen3-vl-4b" not in eligible_models("AndroidControl_EXP05")
+    # EXP05 (절대 픽셀) — Qwen2.5-VL 전용. Qwen3-VL 계열 전체 배제, 예외 없다.
+    # (2026-07-13 이전에는 qwen3-vl-8b 가 "as-trained 보존" 예외였으나, 그 조합은 한 번도
+    #  학습된 적이 없어 보존할 것이 없었다. 자격에서 제거하고 YAML 도 삭제했다.)
+    assert eligible_models("AndroidControl_EXP05") == ["qwen2.5-vl-7b", "qwen2.5-vl-3b"]
     for rel in generated:
         if rel.startswith("IWM-AC_EXP05/"):
-            assert "qwen3-vl-4b" not in rel, f"EXP05 에 qwen3-vl-4b 유입: {rel}"
+            assert "qwen3-vl" not in rel, f"EXP05 에 Qwen3-VL 유입: {rel}"
 
     # EXP01/EXP02/MC — 등록 4 모델 전부.
     assert len(eligible_models("AndroidControl_EXP01_ratio37")) == 4
@@ -259,5 +297,21 @@ def test_deepspeed_is_offload_for_every_gpu_type() -> None:
 
 
 def test_generated_count(generated: dict[str, str]) -> None:
-    """as-trained 74 + 신규 88 = 162."""
-    assert len(generated) == 162
+    """as-trained 74 − 자격박탈 2 + 신규 88 = 160.
+
+    개수를 하드코딩하지 않는다 — 자격 정의(DATASET_MODEL_ELIGIBILITY)의 결과이지
+    독립적 사실이 아니기 때문이다. 자격을 바꾸면 개수는 따라 바뀌는 게 정상이고,
+    이 테스트가 잡아야 할 것은 "생성기가 자격과 어긋나게 만드는가" 다.
+    """
+    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 88
+
+    # 생성된 모든 YAML 이 자격 집합 안에 있는가 (자격 밖 조합을 만들지 않는가)
+    for rel in generated:
+        ds_dir, _stage, fname = rel.split("/")
+        ds_name = _DS_DIR_TO_NAME.get(ds_dir)
+        if ds_name is None or ds_name not in DATASET_MODEL_ELIGIBILITY:
+            continue
+        model = fname.split("_")[0]
+        assert model in DATASET_MODEL_ELIGIBILITY[ds_name], (
+            f"{rel}: {model} 은 {ds_name} 자격이 없는데 생성됐다"
+        )
