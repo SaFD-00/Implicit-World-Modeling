@@ -259,17 +259,19 @@ ds_eval_suffix() {
 # --- 모델 레지스트리 (Cell 5 _MODEL_CONFIG 와 일치) ---------------------------
 declare -A MODEL_ID=(
   [qwen3-vl-8b]="Qwen/Qwen3-VL-8B-Instruct"
+  [qwen3-vl-4b]="Qwen/Qwen3-VL-4B-Instruct"
   [qwen2.5-vl-7b]="Qwen/Qwen2.5-VL-7B-Instruct"
   [qwen2.5-vl-3b]="Qwen/Qwen2.5-VL-3B-Instruct"
 )
 declare -A MODEL_TEMPLATE=(
   [qwen3-vl-8b]="qwen3_vl_nothink"
+  [qwen3-vl-4b]="qwen3_vl_nothink"
   [qwen2.5-vl-7b]="qwen2_vl"
   [qwen2.5-vl-3b]="qwen2_vl"
 )
-# 등록 모델은 모두 7-9B tier + qwen2.5-vl-3b (3-4B).
+# 등록 모델은 7-9B tier (qwen3-vl-8b, qwen2.5-vl-7b) + 3-4B tier (qwen3-vl-4b, qwen2.5-vl-3b).
 ALL_MODELS=(
-  qwen3-vl-8b qwen2.5-vl-7b qwen2.5-vl-3b
+  qwen3-vl-8b qwen3-vl-4b qwen2.5-vl-7b qwen2.5-vl-3b
 )
 
 # --- CLI 인자 파싱 (학습/merge 스크립트용): --model MODEL --dataset DS --------
