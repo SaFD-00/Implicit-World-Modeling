@@ -28,7 +28,7 @@ Implicit-World-Modeling (2-stage VLM fine-tuning)
 
 ## 더 보기
 
-- 모델 매트릭스·데이터셋(AC_EXP01~04 / MC / MB)·실행 절차: [메인 README](../Implicit-World-Modeling/README.md)
+- 모델 매트릭스·데이터셋(AC_EXP01~05 / MC / MB)·실행 절차: [메인 README](../Implicit-World-Modeling/README.md)
 - 수집기 App/Server 구조: [Monkey-Collector README](../Monkey-Collector/README.md)
 
 <!-- project-sync: 구조/계약(contract) 변경 시 이 파일의 해당 섹션만 갱신. 상세는 패키지 트리오에. -->
