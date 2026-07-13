@@ -37,11 +37,41 @@
 - first screen 보호, no-change retry, external app recovery 는 collector 의 핵심 동작이다. 관련 상수는 [`src/monkey_collector/pipeline/recovery.py`](./src/monkey_collector/pipeline/recovery.py) 에 있다.
 - signal timeout escalation 은 6-place 로 노출된 `collection.signal_timeout_sec`(config.py builtin defaults + `CollectionConfig` + `_from_raw`(비양수 폴백) + env `MC_COLLECTION_SIGNAL_TIMEOUT_SEC` + run.yaml + cli `--signal-timeout`→`Collector(xml_timeout=...)`)로 대기 시간을, `recovery.MAX_SIGNAL_TIMEOUTS`(collection_loop 사용)로 relaunch 전 nudge 횟수를 정한다. 6-place 중 하나만 바꾸면 canonical 주석/기본값 계약(`_BUILTIN_DEFAULTS`↔run.yaml)이 어긋나므로 함께 갱신하라.
 - back-exit page 학습: `press_back` 이 런처(`screen_guard.is_launcher`)로 앱을 이탈시킨 페이지를 `CollectionState.back_exit_page_ids` 에 세션 내 기록하고(두 경로: `safe_press_back` 반환값 + `_handle_external_app` 진입부 detected_package 판정), `_back_would_exit(state)`(root ∪ 학습된 페이지)로 그 페이지에서 back 을 억제(relaunch/tap)한다 — `select_action(is_root_screen=...)` 도 이 값을 받는다. 복구 경량화로 `explorer.return_to_app` 은 이미 런처에 있으면 back 을 생략하고 곧장 relaunch 한다. tap 이탈은 미마킹(D4). 키보드 dismiss 는 예외적으로 마킹된다 — back-exit 페이지 위 키보드는 `adb.hide_keyboard()`(KEYCODE_ESCAPE, back-stack 을 pop 하지 않음)로 닫되 연속 `MAX_KEYBOARD_ESCAPES`(2)회 상한 후 back 폴백하고, back 으로 닫다 런처 이탈이 확인되면 그 페이지를 마킹한다(`_mark_if_back_exited`, D-B1).
-- 무성과 반복 액션 가드(R2 volume-not-diversity 제거): ① `TransitionGraph.add`(transition_graph.py)는 한 액션 `(signature, action_type)` 을 기록하기 전에 src 의 다른 out-edge 에서 같은 pair 를 제거(빈 엣지 삭제, self-loop 관측 시에도)해 stale 엣지로 인한 Navigator 결정론적 livelock 을 끊는다. ② D2 반복-액션 서킷브레이커(`collection_loop._process_xml_signal`, `CollectionState.action_repeat_counts`): 같은 `(page_key, action_type, element_index)` 가 신규 page 없이 `collector.max_action_repeats`(기본8)회 실행되면 다음 시도는 execute 대신 stuck-on-page 와 동일하게 back/relaunch 로 탈출(step 미증가, 카운터 리셋). ③ D3 plateau 조기 종료(`CollectionState.steps_since_new_page`/`no_progress_stop`): 실제-액션 스텝이 `collector.max_steps_without_new_page`(기본150) 동안 신규 page 0 이면 앱 포화로 clean-stop → finalize 가 `completed_at` 을 채워 예산을 다음 앱으로 넘긴다(재수집은 --force). 두 임계값은 `collection.max_action_repeats`/`collection.max_steps_without_new_page` 4-place(config.py builtin defaults + `CollectionConfig` + `_from_raw` + env) + run.yaml + `Collector.__init__`(cli.py 전달)로 노출되며 0 이하면 가드 비활성. 두 카운터는 신규 page 시 리셋(진행 시 용서, 5e2254e).
+- 무성과 반복 액션 가드(R2 volume-not-diversity 제거): ① `TransitionGraph.add`(transition_graph.py)는 한 액션 `(signature, action_type)` 을 기록하기 전에 src 의 다른 out-edge 에서 같은 pair 를 제거(빈 엣지 삭제, self-loop 관측 시에도)해 stale 엣지로 인한 Navigator 결정론적 livelock 을 끊는다. ② D2 반복-액션 서킷브레이커(`collection_loop._process_xml_signal`, `CollectionState.action_repeat_counts`): 같은 `(page_key, action_type, element_index)` 가 신규 page 없이 `collector.max_action_repeats`(기본8)회 실행되면 다음 시도는 execute 대신 stuck-on-page 와 동일하게 back/relaunch 로 탈출(step 미증가, 카운터 리셋). ③ D3 plateau 조기 종료(`CollectionState.steps_since_new_page`/`no_progress_stop`): 실제-액션 스텝이 `collector.max_steps_without_new_page`(기본98 = 아카이브 최대 productive gap 49 의 2 배, U3a) 동안 신규 page 0 이면 앱 포화로 clean-stop → finalize 가 `completed_at` 을 채워 예산을 다음 앱으로 넘긴다(재수집은 --force). 두 임계값은 `collection.max_action_repeats`/`collection.max_steps_without_new_page` 4-place(config.py builtin defaults + `CollectionConfig` + `_from_raw` + env) + run.yaml + `Collector.__init__`(cli.py 전달)로 노출되며 0 이하면 가드 비활성. 두 카운터는 신규 page 시 리셋(진행 시 용서, 5e2254e).
 - external 복구가 타깃 앱을 재실행하면 `open_app` 액션을 events.jsonl 에 excursion 당 1회 기록한다(`collection_loop._record_open_app`, `DataWriter.log_open_app`). 이 open_app 은 **navigation 전이가 아니다** — 복구 시 `state.last_action` 클리어(live graph) + `explorer._last_record` 클리어(routing memory) + 이벤트 `transition: false`(offline `_load_events` 재빌드·world-modeling converter)로 3중 격리한다. `return_to_app`/`recover` 의 `bool` 반환(launch 여부)·이 격리·`transition` 표식 중 하나라도 바꾸면 open_app 이 가짜 전이로 샐 수 있으니 함께 검토하라.
 - `src/monkey_collector/__init__.py` 의 공개 export 를 바꾸면 패키지 사용 코드와 문서도 같이 갱신한다.
 - 저장 포맷을 바꾸면 converter, page-map, regenerate, `rehydrate.py`, `config.py`(`data_dir`/`runtime_dir`), `pipeline/reset.py`, 테스트를 함께 갱신해야 한다.
 - action 이벤트의 `page_key`/`observation_num` 이 실제 화면 파일 위치(`data/{package}/pages/{page_key}/{observation_num}/`, 둘 다 0-based 정수·zero-pad 없음)를 가리키는 **조인 키**다 — converter 와 `build_graph_from_new_layout` 이 이걸로 화면을 찾는다. `frame_index` 는 정렬용 단조 카운터(`DataWriter.next_frame_index()`)일 뿐 파일 인덱스가 아니다(화면 파일은 `observation_num` 이 키이고, pending 프레임이나 `persist_filtered` off 재사용 관측은 파일이 없을 수 있어 frame_index 와 1:1 이 아니다). `state.step` 은 **정상 action 경로에서만** `+1` 한다 — signal timeout·no_change·empty-UI 대기·keyboard/permission/system/stale 같은 비-action 반복에서 step 을 올리면 `step` 이 frame_index 와 어긋나 정렬이 깨진다(이게 과거 정렬 버그의 원인이었다). step 증가 지점이나 page_key/observation_num 주입·조인을 바꾸면 converter·page-map·`build_graph_from_new_layout`·테스트를 함께 검토하라.
+
+## 효과 측정 프로토콜 (수집기 변경의 효과를 판정할 때)
+
+수집기 변경(가드·탐색정책·임계값)의 효과를 수치로 판정하려면 **반드시** 아래를 따른다. 이 프로토콜 없이 뽑은 비교는 confound 로 오염돼 인과 해석이 불가하다 — 과거에 실제로 "다양성 +78%" 를 fix 효과로 오귀속했다가 전면 정정한 사례가 있다.
+
+- **앱 상태 리셋 (매 run 마다)**: 측정 run 시작 전 대상 앱을 **동일한 clean state 로 되돌린다**. 이전 run 이 만든 변경(생성된 레시피·바뀐 설정·캐시된 뷰)이 다음 run 으로 흘러 confound 가 된다. 헬퍼: [`.claude/handoff/reset_app.sh`](./.claude/handoff/reset_app.sh).
+  - **user app**(musicplayer/broccoli/osmand): `adb uninstall` **후** `install -r -g catalog/apks/<pkg>.apk`. `install -r` 단독은 앱 데이터를 보존하므로 리셋이 되지 않는다 — uninstall 이 필수다.
+  - **system app**(`com.google.android.calendar` = `/product/app/CalendarGooglePrebuilt`): uninstall 불가 → `pm clear` 가 동등한 데이터 리셋이다.
+  - **seed 코퍼스는 리셋 후에도 동일해야 한다**(검증됨): musicplayer 의 데모 mp3 3곡은 공유 저장소(`/sdcard/Music`)라 uninstall 에 생존하고, calendar 의 seed 이벤트 25건은 **별도 priv-app** 인 `com.android.providers.calendar` DB 에 있어 앱 `pm clear` 에 생존한다. broccoli 레시피는 앱 자체 DB 라 uninstall 시 소멸 → 재시드 필요. `reset_app.sh` 는 리셋 전후 seed 개수를 비교해 달라지면 실패한다.
+- **arm 짝맞춤**: baseline 과 treatment 를 **같은 프로토콜로 각각 수집**한다. 과거 데이터(리셋 없이 수집된 iter3~5 아카이브)를 새 프로토콜 수치와 직접 비교하지 마라 — apples-to-oranges 다. arm 사이에 달라지는 것은 **수집기 코드 하나뿐**이어야 한다(같은 앱 리셋·같은 duration·같은 디바이스 `emulator-5556`).
+- **treatment 오염 금지**: 측정 도중 working tree 의 수집기 소스를 수정하지 마라. 앱마다 새 프로세스가 뜨므로 중간에 코드가 바뀌면 뒤 앱이 다른 코드로 돈다. baseline arm 은 `git worktree` 로 격리해 돌린다. `env | grep MC_` 가 비어 있어야 한다(env override 가 treatment 를 덮는다). `data_dir`/`runtime_dir` 는 CWD-상대(`storage.py`)라 worktree arm 과 메인 arm 은 서로 다른 트리에 쓴다 — cross-arm 덮어쓰기는 없다.
+- **디바이스**: `emulator-5556` 고정 (`adb.py` 의 `REQUIRED_AVD_NAME='Pixel6-2'` 하드코드). 다른 AVD 를 쓰면 그 자체가 새 confound 다.
+
+### ⚠️ 함정 1 — provider-backed 앱은 앱 리셋으로 오염이 안 지워진다 (iter6 실측)
+
+**seed 가 리셋에 생존하는 바로 그 성질이, 수집기가 만든 오염도 생존시킨다.** calendar 이벤트는 별도 priv-app `com.android.providers.calendar` DB 에 살아서 `pm clear com.google.android.calendar` 가 닿지 않는다 — seed 25건이 살아남는 이유이자, **수집기가 탐색 중 만든 이벤트도 살아남는 이유**다.
+
+iter6 실측: calendar armA 의 900s 수집이 이벤트를 58건 생성(**25 → 83**) → 다음 armB 가 **3.3배 데이터**에서 출발 → **calendar arm 쌍 전체가 비교 불가**가 됐다.
+
+`reset_app.sh` 는 이걸 **못 잡는다**: run *내부*의 `before == after` 만 검사하고 **canonical baseline 으로의 복원**은 검사하지 않는다. 두 run 모두 자체 검증을 통과했다(25→25, 83→83).
+
+→ provider-backed 앱을 arm 에 넣으려면 **매 run 전 provider DB 를 canonical seed 로 복원**하고, 검사를 `after == canonical` 로 바꿔야 한다. **`pm clear com.android.providers.calendar` 는 쓰지 마라** — 계정 sync 상태까지 날린다. musicplayer 는 안전하다(수집기가 mp3 를 만들 수 없다) — **그래서 musicplayer 가 load-bearing clean isolator 다.**
+
+### ⚠️ 함정 2 — 노이즈 바닥이 크다. arm 당 n=1 로는 판정할 수 없다 (iter6 실측)
+
+musicplayer 를 900s·리셋 프로토콜·동일 디바이스에서 **똑같은 코드로 두 번** 돌린 결과: **15p/33e/113steps vs 12p/23e/130steps** (pages −3, edges −10, steps +17).
+
+같은 실험에서 측정한 **fix 효과**(pre-fix → fix)는 pages +1, edges +0, steps −32.
+
+→ **동일 코드의 run 간 변동이 측정하려는 효과보다 크다.** "표본이 적으니 조심하라"가 아니라 실측된 노이즈 추정치다. 이 크기의 효과를 판정하려면 **arm 당 최소 3 run + 분산 병기**가 필요하다. **단일 run 델타를 효과로 주장하지 마라.**
 
 ## 빠른 검증 포인트
 
