@@ -554,6 +554,51 @@
       "system_tag": "system"
     }
   },
+  "IWM-AC_EXP03_stage2_train": {
+    "file_name": "../../data/AndroidControl_EXP03/implicit-world-modeling_stage2_train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
+  },
+  "IWM-AC_EXP03_stage2_test_id": {
+    "file_name": "../../data/AndroidControl_EXP03/implicit-world-modeling_stage2_test_id.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
+  },
+  "IWM-AC_EXP03_stage2_test_ood": {
+    "file_name": "../../data/AndroidControl_EXP03/implicit-world-modeling_stage2_test_ood.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
+  },
   "IWM-AC_EXP05_stage1_train": {
     "file_name": "../../data/AndroidControl_EXP05/implicit-world-modeling_stage1_train.jsonl",
     "formatting": "sharegpt",

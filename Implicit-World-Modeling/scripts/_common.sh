@@ -678,6 +678,39 @@ require_yaml() {
     [ -n "$hint" ] && echo "    Hint: $hint" >&2
     exit 1
   fi
+  require_dataset_registered "$abs"
+}
+
+# YAML 의 `dataset:` 키가 dataset_info 정본에 등록돼 있고 그 파일이 실재하는지 확인한다.
+# 없으면 LF 안쪽 깊은 곳에서 죽는 대신 여기서 무엇이 문제인지 말하고 멈춘다.
+# (EXP03 stage2 가 데이터·YAML 은 있는데 등록만 안 돼 있던 적이 있다 — 그때 이 가드가 없었다.)
+require_dataset_registered() {
+  local yaml="$1"
+  local keys
+  keys="$(sed -nE 's/^dataset:[[:space:]]*(.+)$/\1/p' "$yaml" | tr ',' '\n' | tr -d ' ')"
+  [ -n "$keys" ] || return 0
+  local k
+  for k in $keys; do
+    python3 - "$LF_DATASET_DIR" "$k" "$yaml" <<'PY' || exit 1
+import json, os, sys
+ds_dir, key, yaml_path = sys.argv[1], sys.argv[2], sys.argv[3]
+info_path = os.path.join(ds_dir, "dataset_info.json")
+with open(info_path) as f:
+    info = json.load(f)
+if key not in info:
+    print(f"[!] dataset '{key}' 가 정본에 등록돼 있지 않습니다.", file=sys.stderr)
+    print(f"    YAML : {yaml_path}", file=sys.stderr)
+    print(f"    정본 : {info_path}", file=sys.stderr)
+    print("    → 데이터가 있다면 엔트리를 추가하고 커밋하세요. 없다면 그 실험은 아직 돌릴 수 없습니다.",
+          file=sys.stderr)
+    sys.exit(1)
+fn = info[key].get("file_name")
+if fn and not os.path.exists(os.path.join(ds_dir, fn)):
+    print(f"[!] dataset '{key}' 는 등록돼 있으나 파일이 없습니다: {fn}", file=sys.stderr)
+    print(f"    (dataset_dir={ds_dir} 기준)", file=sys.stderr)
+    sys.exit(1)
+PY
+  done
 }
 
 # --- llamafactory-cli 런타임 override ----------------------------------------
