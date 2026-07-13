@@ -12,7 +12,7 @@ conda env       notebook            엔진                              모델
 implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/export    Qwen3-VL-8B-Instruct
                                                           YAML: configs/train/IWM-{DS}/     Qwen2.5-VL-7B-Instruct
                                                                 stage{1,2}_{full,lora}
-                                                          (git 커밋 · 162개)
+                                                          (git 커밋 · 160개)
 ```
 
 - `pip install -e ".[llamafactory]"` + `bash scripts/setup_llamafactory.sh --install --verify` (LF clone → pin `99464b3d…` → `patches/llamafactory/*.patch` 적용 → editable 설치 → 검증; 멱등)
@@ -27,7 +27,7 @@ implicit-world-modeling  implicit-world-modeling.ipynb   llamafactory-cli train/
 ### 핵심 엔트리포인트
 
 - [`implicit_world_modeling/lf_registry.py`](./implicit_world_modeling/lf_registry.py) — **레지스트리 SSoT**: `_MODEL_CONFIG` (4) + `MODEL_FAMILY_CONFIG` + `_DATASET_CONFIG` (8 키 = 6 학습 DS; AC_EXP01 은 ratio 3 종으로 전개) + `_SIZE_CONFIG_AC` (2 tier) + `CONFIGS` 빌더. GPU 트리오 (batch / grad_accum / deepspeed) 는 여기 없다 — `scripts/gpu_policy.py` 소관.
-- [`implicit_world_modeling/gen_configs.py`](./implicit_world_modeling/gen_configs.py) — **학습 YAML 생성기**: `python -m implicit_world_modeling.gen_configs --write` (재생성) / `--check` (커밋본 대조 CI 게이트). 산출은 `configs/train/IWM-{DS}/stage{1,2}_{full,lora}/` 162 YAML (git 커밋).
+- [`implicit_world_modeling/gen_configs.py`](./implicit_world_modeling/gen_configs.py) — **학습 YAML 생성기**: `python -m implicit_world_modeling.gen_configs --write` (재생성) / `--check` (커밋본 대조 CI 게이트). 산출은 `configs/train/IWM-{DS}/stage{1,2}_{full,lora}/` 160 YAML (git 커밋).
 - [`scripts/gpu_policy.py`](./scripts/gpu_policy.py) — **GPU 정책 SSoT**: `resolve_gpu_policy(gpu_type, nproc, size_class, ds_name, mode)` → batch / grad_accum / deepspeed. deepspeed 는 **항상 offload**.
 - [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) — conda `implicit-world-modeling`, 4 개 모델 (Qwen3-VL / Qwen2.5-VL 2 family). 환경 설치, 데이터 변환, Stage 1/2 학습·평가·merge 셀에서 `scripts/*.sh` 호출
 - [`scripts/`](./scripts)
@@ -594,4 +594,4 @@ Reference baselines (해석용):
 - trl 0.24 / transformers 4.56+ API 매핑: `SFTConfig(max_length=...)`, `SFTTrainer(processing_class=...)` 사용. 구버전 키 (`max_seq_length`, `tokenizer=`, `overwrite_output_dir`) 는 `TypeError`.
 - `gradient_checkpointing` 은 모델 로드 단계에서만 적용. `SFTConfig` 에는 전달하지 않는다 (이중 적용 방지).
 - Full FT 분기에서 `freeze_vision_tower: true` 면 `vision_tower|vision_model|visual|image_encoder` 키워드를 포함한 named parameter 의 `requires_grad=False` 처리 후 frozen 텐서 수/파라미터 수를 stderr 로 출력.
-- **EXP05 로컬 학습 불가 (실측)**: 로컬 2×RTX5090 에서 EXP05 3B Full FT 는 **CUDA OOM** (step 3 에서 8.92GiB 할당 실패) + **157~168 s/it → 총 97~104시간(약 4일)**. 원인은 `cutoff_len 24576` + `max_pixels 1,605,632` 의 비전 토큰으로 시퀀스가 극단적으로 길어진 것과, RTX5090 에 강제되는 ZeRO-3 CPU offload. **본 학습은 Vessl A100/H100 에서 수행한다.** 원격 제출 스펙은 저장소에 있다 — `configs/remote/run.template.yaml` + `scripts/remote_launch.sh` 로, **제공자 중립** 이다 (코드에 플랫폼 이름이 없고, 실제 제출 커맨드는 `.env` 의 `REMOTE_SUBMIT_CMD` 템플릿으로 주입된다). 단 **UNVALIDATED** — 이 머신에 제출 CLI 가 없어 실제 제출 경로는 검증되지 않았다.
+- **EXP05 로컬 학습 불가 (실측)**: 로컬 2×RTX5090 에서 EXP05 3B Full FT 는 **CUDA OOM** (step 3 에서 8.92GiB 할당 실패) + **157~168 s/it → 총 97~104시간(약 4일)**. 원인은 `cutoff_len 24576` + `max_pixels 1,605,632` 의 비전 토큰으로 시퀀스가 극단적으로 길어진 것과, RTX5090 에 강제되는 ZeRO-3 CPU offload. **본 학습은 Vessl A100/H100 에서 수행한다.** 원격 제출 스펙은 저장소에 있다 — `configs/remote/run.template.yaml` + `scripts/remote_launch.sh` (미검증 스캐폴드, 실행 이력 0) 로, **제공자 중립** 이다 (코드에 플랫폼 이름이 없고, 실제 제출 커맨드는 `.env` 의 `REMOTE_SUBMIT_CMD` 템플릿으로 주입된다).

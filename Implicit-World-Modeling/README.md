@@ -56,7 +56,7 @@ Implicit-World-Modeling/
 │   └── extract_androidcontrol_images.py     # AndroidControl GCS TFRecord → PNG (TF 의존 없음)
 ├── data/                         # AndroidControl (원본 source) / AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / MC / MB
 ├── configs/
-│   ├── train/IWM-{AC_EXP01_ratio{37,55,73},AC_EXP02,AC_EXP03,AC_EXP04,AC_EXP05,MC}/  # 학습 YAML 162개 (git 커밋, 생성기 산출물)
+│   ├── train/IWM-{AC_EXP01_ratio{37,55,73},AC_EXP02,AC_EXP03,AC_EXP04,AC_EXP05,MC}/  # 학습 YAML 160개 (git 커밋, 생성기 산출물)
 │   ├── lf_dataset/               # LF dataset_dir 정본 — dataset_info.json + data/ 로의 상대 심링크 (git 커밋)
 │   └── remote/run.template.yaml  # 원격 GPU 클러스터 제출 스펙 (제공자 중립, UNVALIDATED)
 ├── patches/llamafactory/         # LF 소스 패치 (0001-diff-loss, 0002-double-ce-fix) + MANIFEST.sha256
@@ -103,7 +103,7 @@ CI / 다른 머신에서는 동일 절차로 재설치한다.
 | `HF_TOKEN` | — | (string) | HF Hub push/pull. merge 를 `--no-hf-upload` 로만 수행하고 eval 도 local merged dir hit 로만 끝낼 때는 불필요 (HF fallback 발생 시에만 필요) |
 | `NPROC_PER_NODE` | `2` | RTX5090: `1`,`2` / A100·H100: `1`,`2`,`4`,`8` | node 당 GPU 수 (single node, torchrun world size) |
 | `GPU_TYPE` | `H100` | `RTX5090`, `A100`, `H100` | GPU 종류. `scripts/gpu_policy.py` 가 이 값으로 batch/grad_accum/deepspeed 결정 |
-| `REMOTE_SUBMIT_CMD` | — | (template) | 원격 클러스터 제출 커맨드 템플릿 (`scripts/remote_launch.sh` 용 — 제공자 이름은 코드에 없다) |
+| `REMOTE_SUBMIT_CMD` | — | (template) | 원격 클러스터 제출 커맨드 템플릿 (`scripts/remote_launch.sh` 용, 미검증 스캐폴드 — 실행 이력 0, 제공자 이름은 코드에 없다) |
 
 #### GPU 매트릭스 — `scripts/gpu_policy.py` 가 단일 진실원
 
@@ -247,7 +247,7 @@ bash scripts/tmux_exp04_stage1.sh
 - **미러**: `scripts/mirror_experiment.py --experiment exp05` 가 EXP01 ratio73 멤버십을 따라 `data/AndroidControl_EXP05/` 에 stage1 train (**44,670 줄** — 입력 50,000 / drop 5,330) + dual-task test 6 종 (각 3,000 → 2,660–2,695) 을 생성한다 (총 7 파일, **60,717 행**). 출력 이미지 경로는 EXP01 의 `AndroidControl/images/...` 를 채택 (raw 의 `myset/...` 는 `(episode, step)` 매칭 키에만 사용 → 별도 image path rewrite 불필요).
 - **빌드 (정본 경로)**: `scripts/build_exp05_data.py` 가 mirror → diff-loss 가중치 부여까지 한 번에 수행하고 train 을 원자 교체한다. 가중치 산출에 쓴 tokenizer/revision/가중 상수는 `<train>.meta.json` sidecar 에 기록된다. **이 스크립트가 EXP05 train 의 유일한 커밋된 생성 경로다.**
 - **cutoff_len 24576 공유 · half-batch**: 좌표(point) 표현이라 EXP03/EXP04 와 동일. image budget 은 Qwen2.5-VL family 기본값과 같아 `image_overrides` 불필요 — 데이터 생성 `--image-budget` 과 학습 프로세서 `image_max_pixels` 가 자동 일치한다.
-- **YAML 생성**: `python -m implicit_world_modeling.gen_configs --write` 가 전 실험군 YAML 을 생성한다 (EXP05 6 개 포함; 예전의 `_YAML_GEN_DS` allowlist 는 삭제됐다 — 보호 대상이던 EXP03/04 hand-fix YAML 이 실재하지 않았다). `configs/lf_dataset/dataset_info.json` 에 stage1 5 키만 등록, `_STAGE1_ONLY` 로 Stage 2 미생성. 실제 학습 대상은 **`qwen2.5-vl-3b` / `qwen2.5-vl-7b`** Stage 1 (**Qwen3-VL 계열 (`qwen3-vl-4b`/`qwen3-vl-8b`) 제외** — 좌표·factor 이중 mismatch).
+- **YAML 생성**: `python -m implicit_world_modeling.gen_configs --write` 가 전 실험군 YAML 을 생성한다 (EXP05 4 개 포함; 예전의 `_YAML_GEN_DS` allowlist 는 삭제됐다 — 보호 대상이던 EXP03/04 hand-fix YAML 이 실재하지 않았다). `configs/lf_dataset/dataset_info.json` 에 stage1 5 키만 등록, `_STAGE1_ONLY` 로 Stage 2 미생성. 실제 학습 대상은 **`qwen2.5-vl-3b` / `qwen2.5-vl-7b`** Stage 1 (**Qwen3-VL 계열 (`qwen3-vl-4b`/`qwen3-vl-8b`) 제외** — 좌표·factor 이중 mismatch).
 
 ```bash
 # 1) Drive '0711_버젼' 에서 소스 2 파일 다운로드 후 canonical 이름으로 배치 (예: gdown --folder <folder-url>)

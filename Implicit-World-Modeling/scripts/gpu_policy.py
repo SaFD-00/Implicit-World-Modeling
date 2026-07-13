@@ -92,6 +92,8 @@ _HALF_BATCH_DATASETS: frozenset[str] = frozenset(
 # examples/deepspeed/ 에 두 config 모두 존재함을 확인했다 (ls LlamaFactory/examples/deepspeed/).
 DEEPSPEED_OFFLOAD = "LlamaFactory/examples/deepspeed/ds_z3_offload_config.json"
 DEEPSPEED_NO_OFFLOAD = "LlamaFactory/examples/deepspeed/ds_z3_config.json"
+# 테스트 전용 opt-out — 프로덕션 호출자 0건 (쉘/노트북/gen_configs 는 allow_no_offload 를 넘기지 않는다).
+# tests/test_gpu_policy.py:205 가 이 값을 고정한다.
 
 _NO_OFFLOAD_WARNING = (
     "no-offload 미실측 — 8×H100 등에서 속도 이득 가능하나 검증 안 됨, "
@@ -219,6 +221,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--size-class", required=True, choices=_ALLOWED_SIZE_CLASS)
     parser.add_argument("--ds", required=True, dest="ds_name")
     parser.add_argument("--mode", required=True, choices=_ALLOWED_MODE)
+    # 테스트 전용 opt-out — 프로덕션 호출자 0건 (쉘/노트북/gen_configs 는 allow_no_offload 를 넘기지 않는다).
+    # tests/test_gpu_policy.py:205 가 이 인자를 고정한다.
     parser.add_argument(
         "--allow-no-offload",
         action="store_true",

@@ -78,7 +78,7 @@ AC_EXP05 는 AC_EXP01 ratio73 멤버십을 절대 픽셀 좌표로 미러한 And
 - **로컬 학습 불가 (실측)**: 로컬 2×RTX5090 에서 EXP05 3B Full FT 는 **CUDA OOM** (step 3 에서 8.92GiB 할당 실패) + **157~168 s/it → 총 97~104시간(약 4일)**. 원인은 `cutoff_len 24576` + `max_pixels 1,605,632` 의 비전 토큰으로 시퀀스가 극단적으로 길어진 것 + RTX5090 에 강제되는 ZeRO-3 CPU offload. **본 학습은 Vessl A100/H100 에서 수행한다** (저장소에 Vessl 파이프라인 스크립트는 없다 — 운영 지식).
 - **dual-task stage1 eval**: `stage1_eval.sh` 가 EXP01–04 와 동일 분기로 state+action 채점. `filter_long_samples.py`·`eval_viewer.py` 도 AC_EXP05 인식 (eval_viewer stage2 맵은 미추가 — stage1 전용).
 - **레지스트리 등록** (`lf_registry.py`): `_MODEL_CONFIG[qwen2.5-vl-3b]` (size `3-4B`), `_DATASET_CONFIG[AndroidControl_EXP05]`, `_DUAL_TASK_TEST`·`_STAGE1_ONLY` 등록, cutoff 24576 에 EXP05 포함. per-device batch 반감은 `scripts/gpu_policy.py` 의 `_HALF_BATCH_DATASETS` 가 담당한다. image budget 은 family 기본이라 `image_overrides` 불필요.
-- **YAML 생성기에 allowlist 는 없다**: 예전 `_YAML_GEN_DS = {"AndroidControl_EXP05"}` (EXP03/04 hand-fix 보호용) 는 **삭제됐다** — 지키려던 hand-fix YAML 이 실재하지 않았기 때문이다. `gen_configs` 는 전 실험군 162 YAML 을 결정론적으로 생성하며, `--check` 로 커밋본과의 drift 를 검출한다.
+- **YAML 생성기에 allowlist 는 없다**: 예전 `_YAML_GEN_DS = {"AndroidControl_EXP05"}` (EXP03/04 hand-fix 보호용) 는 **삭제됐다** — 지키려던 hand-fix YAML 이 실재하지 않았기 때문이다. `gen_configs` 는 전 실험군 160 YAML 을 결정론적으로 생성하며, `--check` 로 커밋본과의 drift 를 검출한다.
 - **Stage 2 보류** (EXP04 와 동일 — `stage2_eval.sh` 미추가, stage1 5 키만 등록) · **git-ignored 범위**: EXP05 **데이터** 는 로컬 전용이나 YAML (`configs/train/IWM-AC_EXP05/`) 과 `dataset_info.json` (`configs/lf_dataset/`) 은 커밋된다.
 
 ### Stage 1 평가
@@ -151,7 +151,7 @@ AC_EXP05 는 AC_EXP01 ratio73 멤버십을 절대 픽셀 좌표로 미러한 And
 - `rg "BEST_CHECKPOINT" scripts/ tests/` — 비어야 함
 - `rg '"transformers[^"]*,<[5-9]' pyproject.toml` — 비어야 함 (실제 dependency pin 이 5.x 이상을 허용하면 안 됨; 산문의 `` `transformers<5` `` 언급은 double-quote 가 없어 매칭 제외). 정본 pin 은 `>=4.57.1,<4.58`.
 - GPU 정책 검증: `pytest tests/test_gpu_policy.py -q` (전 조합 매트릭스 + always-offload 불변식) · `pytest tests/test_gen_configs.py -q`
-- 커밋 YAML drift 검증: `python -m implicit_world_modeling.gen_configs --check` — 레지스트리/정책과 `configs/train/**` 162 YAML 이 일치해야 함
+- 커밋 YAML drift 검증: `python -m implicit_world_modeling.gen_configs --check` — 레지스트리/정책과 `configs/train/**` 160 YAML 이 일치해야 함
 - LF 부트스트랩 검증: `bash scripts/setup_llamafactory.sh --verify` (pin + 패치 적용 상태 표)
 
 ## 문서 동기화 원칙
