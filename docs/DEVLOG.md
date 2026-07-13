@@ -3,6 +3,18 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-13 — Implicit-World-Modeling: 데드 코드 감사 — 도달 불가 심볼 제거 + 노트북 stale 채점기 복제 정리 (4커밋)
+
+`grep` 으로 **호출자 0 을 확정한** 심볼만 제거했다. 삭제 616줄 중 468줄이 노트북의 "정본과 글자 단위 동치" 라 **자칭**하던 채점기 복제본 2개인데, 실제로는 `pos`/`bounds`·xy 채점 경로가 빠진 **구버전**이었다. 브랜치 `chore/dead-code-audit`, 커밋 `db074af`·`a316c9d`·`f2b1a42`·`b7c5be6` (4건), 13 files +51 −616. **동작 변경 0.**
+
+- **셸·Python 도달 불가 심볼 제거 (`db074af`)**: `scripts/_common.sh` 6건(`is_ac_exp01_ratio()`, `EXP01_RATIO_FILE` 맵, write-only `EXP01_RATIO=`, 레거시 `NPROC_PER_NODE_OVERRIDE`, `DS_PREFIX[AC_EXP01_ratio*]` 3키, `HF_SLUG[AC_EXP01]`) + 중복 함수 병합(`ds_eval_suffix`→`ds_model_suffix`, 본문 md5 동일). 이어 `lf_registry`(`QWEN2_VL_CONFIG`/`MODEL_ORDER`/`DS_ORDER`) · `gen_configs`(`STAGE2_VARIANTS` + **항상 빈 문자열이던** optim/seed/save_steps 보간 + `full_lr` fallback) · `_action_eval`(`_FIELD_MATCH_TYPES`) · `setup_llamafactory` dead store 를 제거했다.
+- **삭제 근거는 전부 도달 불가 증명**: `parse_args` 는 bare `AC_EXP01` 을 ratio 로 expand 하고 `parse_eval_args` 는 raw 키만 허용한다 → `DS_PREFIX` 의 ratio 키와 `HF_SLUG` 의 bare 키는 **영원히 인덱싱되지 않는다.** "언젠가 쓸지도" 가 아니라 코드 경로상 닿을 수 없음을 확인한 것만 뺐다.
+- **노트북 stale 복제 정리 (`a316c9d`, 76→73셀)**: 셀 39 는 셀 40 이 호출하므로 삭제 대신 **정본 `scripts/_hungarian_eval.py` 재수출 shim 23줄**로 치환했다. 이 과정에서 **반환 arity 불일치 버그**(정본은 dict 반환, 구 복제본은 2-tuple → 셀 40 의 `metrics, _ =` 언패킹)도 함께 고쳤다 — 복제본이 정본과 동치가 아니었다는 증거다.
+- **문서 수치 drift 교정 (`f2b1a42`)**: 학습 YAML **162 → 160**(EXP05 Qwen3-VL YAML 2개가 `fd4fd77` 에서 삭제됨), EXP05 stage1 YAML **6 → 4**(자격 매트릭스상 Qwen2.5-VL 2모델 × full/lora). 함께 **보존 근거 주석**을 달아 다음 감사에서 다시 데드로 오인하지 않게 했다. `configs/lf_dataset/AndroidControl_EXP04` 심링크 추적 누락도 함께 수정(`b7c5be6`).
+- **보존 결정 (데드가 아님)**: `diff_loss/` **v1 4파일은 데드가 아니다** — EXP02 bit-exact 재현의 **유일 경로**다(v1 40/40 vs v2 17/40). `DEEPSPEED_NO_OFFLOAD` 는 프로덕션 호출자 0건이지만 `tests/test_gpu_policy.py:205` 가 값을 고정하는 **테스트 전용 opt-out** 이고, `qwen3_5*` 분기·`QWEN3_5_VL_CONFIG`·`remote_launch.sh` 는 **사용자가 향후 계획으로 보존 결정**했다.
+- **검증**: `pytest tests/` → **548 passed, 9 skipped**(베이스라인 동일). `gen_configs --check` → **160 YAML 일치**(완전 동등 비교 + orphan 검출 → byte-identical 증명). `bash -n scripts/*.sh` → exit 0. `nbformat.validate` → **73셀, called-but-undefined 0건**, 셀 39 shim 실행 시 `f.__module__ == '_hungarian_eval'`. tier-2 독립 검증(advisor/fable) **전 주장 CONFIRMED** (codex 는 bwrap 샌드박스 오류로 폴백).
+- **카테고리**: devlog
+
 ## 2026-07-13 — Implicit-World-Modeling: LlamaFactory 부트스트랩/설정 재구성 — LF 를 git 에서 재구성 가능하게 (12커밋)
 
 "git clone 후 노트북으로 LlamaFactory 를 clone 하고 그 내부 파일·폴더를 수정해야 하는데 매우 복잡하다"는 문제 제기에서 출발했다. 조사해 보니 복잡함은 증상이고 실체는 **복구 불가능성**이었다 — LF 는 pin 없는·gitignore 된·직접 변조되는 서드파티 체크아웃이라, 그 디렉토리를 지우면 anchor 치환으로 패치한 소스 6파일·학습 YAML 74개·in-place 변조된 `dataset_info.json`·런타임 심링크가 **영구 소실**됐다. 게다가 clone 에 커밋 pin 이 없어 upstream HEAD 가 움직이면 anchor 치환이 깨질 수 있었다. 브랜치 `refactor/lf-bootstrap`, 커밋 `17f49a3`..`3917446` (12건), 193 files +11566 −1411.
