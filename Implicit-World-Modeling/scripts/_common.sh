@@ -748,7 +748,9 @@ resolve_overrides() {
 
   local smoke=""
   if [[ "${SMOKE:-0}" == "1" ]]; then
-    smoke=" max_samples=8 max_steps=1 save_strategy=no report_to=none"
+    # save_strategy 의 값은 반드시 따옴표를 살려서 넘긴다. OmegaConf 는 YAML 1.1 규칙을 써서
+    # 따옴표 없는 no 를 boolean False 로 파싱하고, HF 가 "False is not a valid SaveStrategy" 로 죽는다.
+    smoke=" max_samples=8 max_steps=1 save_strategy=\\\"no\\\" report_to=none"
   fi
 
   printf '%s dataset_dir=%s media_dir=%s%s' \
