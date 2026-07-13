@@ -66,7 +66,7 @@ def test_builtin_defaults_no_yaml():
     assert cfg.collection.max_duration_sec == 7200
     assert cfg.collection.signal_timeout_sec == 12.0
     assert cfg.collection.max_action_repeats == 8
-    assert cfg.collection.max_steps_without_new_page == 150
+    assert cfg.collection.max_steps_without_new_page == 98
     assert cfg.llm.input_mode == "api"
     assert cfg.llm.element_extraction is False
     assert cfg.screen_matching.luminance_prefilter is True

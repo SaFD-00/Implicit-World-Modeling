@@ -10,7 +10,7 @@
 # collection.max_steps=1500, collection.action_delay_ms=1500,
 # collection.budget_mode=time, collection.max_duration=2h,
 # collection.signal_timeout_sec=12, collection.max_action_repeats=8,
-# collection.max_steps_without_new_page=150, llm.element_extraction=false,
+# collection.max_steps_without_new_page=98, llm.element_extraction=false,
 # screen_matching.luminance_prefilter=true, screen_matching.persist_filtered=true,
 # screen_matching.bm25_top_k=5, screen_matching.element_criterion=diff,
 # screen_matching.element_diff_max=5, screen_matching.element_jaccard_min=0.5,
@@ -58,8 +58,10 @@ collection:
   # Plateau early-stop: real-action steps with no new page after which the
   # session clean-stops (app treated as saturated → marked completed; re-collect
   # with --force). 0 or negative disables the guard (tests/experiments).
+  # 98 = 2x the largest productive gap in the archive (49 steps); the margin
+  # covers the 2h budget, whose gaps are unobserved.
   # Env: MC_COLLECTION_MAX_STEPS_WITHOUT_NEW_PAGE
-  max_steps_without_new_page: 150
+  max_steps_without_new_page: 98
 
 llm:
   # Input text generation mode. Options: api | random

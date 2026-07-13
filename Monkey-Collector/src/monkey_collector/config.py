@@ -38,7 +38,7 @@ _BUILTIN_DEFAULTS: dict = {
         "max_duration": "2h",
         "signal_timeout_sec": 12.0,
         "max_action_repeats": 8,
-        "max_steps_without_new_page": 150,
+        "max_steps_without_new_page": 98,
     },
     "llm": {
         "input_mode": "api",
@@ -97,7 +97,10 @@ class CollectionConfig:
     # Plateau early-stop (D3): real-action steps with no new page after which the
     # session clean-stops (app saturated). Env:
     # MC_COLLECTION_MAX_STEPS_WITHOUT_NEW_PAGE. 0 or negative disables the guard.
-    max_steps_without_new_page: int = 150
+    # 98 = 2x the largest productive gap ever observed in the archive (49 steps,
+    # iter6 armA_musicplayer); the 2x margin is the hedge for the 2h budget, whose
+    # gaps are unobserved (longest archived session is 1800s / 542 steps).
+    max_steps_without_new_page: int = 98
 
 
 @dataclass
@@ -338,7 +341,7 @@ def _from_raw(raw: dict) -> RunConfig:
             # a 0-or-negative value is the documented way to DISABLE the D2/D3
             # guards (tests/experiments), so it is a valid input, not an error.
             max_action_repeats=int(coll.get("max_action_repeats", 8)),
-            max_steps_without_new_page=int(coll.get("max_steps_without_new_page", 150)),
+            max_steps_without_new_page=int(coll.get("max_steps_without_new_page", 98)),
         ),
         llm=LlmConfig(
             input_mode=str(llm.get("input_mode", "api")),

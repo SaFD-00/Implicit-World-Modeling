@@ -371,11 +371,12 @@ builtin canonical default 의 `exploration.strategy` 는 **BFS** 이며 `config/
 | `collection` | `budget_mode` | 세션 종료 조건 `time`\|`steps` (제품 기본 `time`). `time` = `max_duration` 경과까지, `steps` = `max_steps` action 까지(legacy). CLI `--budget-mode`, 또는 `--steps`/`--duration` 중 준 쪽으로 추론 |
 | `collection` | `max_duration` | `budget_mode=time` 일 때 벽시계 예산. 형식 `2h`\|`120m`\|`7200s`\|`7200`(맨숫자=초). 파싱 실패/음수는 경고 후 7200s 폴백 (기본 `2h`) |
 | `collection` | `max_steps` | `budget_mode=steps` 일 때 앱 세션당 최대 step 수 (기본 1500) |
+| `collection` | `max_steps_without_new_page` | 신규 page 없이 이만큼 real action 이 지나면 앱을 포화로 보고 세션 종료 (기본 98). 값은 전 아카이브 productive gap 분포(관측 max 49)에 결정 규칙 `T = max(관측 max × 2, 40)`, `T ≤ 120` 을 적용해 얻는다 — 임의 상수가 아니다 |
 | `collection` | `seed` | explorer random seed (기본 42) |
 | `collection` | `action_delay_ms` | action 간 지연(ms) (기본 1500) |
 | `collection` | `port` | TCP 서버 포트 (기본 12345) |
-| `collection` | `data_dir` | 영속 데이터 루트 — pages/observations, page_graph (기본 `data`) |
-| `collection` | `runtime_dir` | 휘발성 런타임 루트 — metadata, events, cost/coverage (기본 `runtime`) |
+| `collection` | `data_dir` | 영속 데이터 루트 — pages/observations, page_graph (기본 `data`). **CWD 상대 경로**라 다른 디렉터리(예: git worktree)에서 실행하면 다른 트리에 쓴다 |
+| `collection` | `runtime_dir` | 휘발성 런타임 루트 — metadata, events, cost/coverage (기본 `runtime`). `data_dir` 와 동일하게 **CWD 상대** |
 | `llm` | `input_mode` | 입력 텍스트 생성 모드 `api`\|`random` (기본 `api`) |
 | `llm` | `element_extraction` | LLM element 추출 + element-set screen matching on/off (기본 `false` — 기본적으로 LLM 은 입력 텍스트 생성에만 쓰고 element 추출은 opt-in; `on` 이어도 `OPENROUTER_API_KEY` 없으면 구조 지문으로 자동 degrade) |
 | `screen_matching` | `luminance_prefilter` | luminance on/off (기본 `true`; OBSERVATION dedup + PAGE pixel 게이트 지문 공급; off 면 pixel 게이트 abstain → element 기준 단독 판정) |

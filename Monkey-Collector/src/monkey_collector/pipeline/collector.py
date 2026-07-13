@@ -54,7 +54,7 @@ class Collector:
         budget_mode: str = "steps",
         max_duration_sec: int = 0,
         max_action_repeats: int = 8,
-        max_steps_without_new_page: int = 150,
+        max_steps_without_new_page: int = 98,
         activity_coverage_tracker: ActivityCoverageTracker | None = None,
         cost_tracker: CostTracker | None = None,
         text_generator: TextGenerator | None = None,
