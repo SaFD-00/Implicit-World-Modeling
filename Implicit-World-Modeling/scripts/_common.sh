@@ -34,95 +34,98 @@ LF_ROOT="$BASE_DIR/LlamaFactory"
 LOG_DIR="$BASE_DIR/logs"
 mkdir -p "$LOG_DIR"
 
-# --- data symlinks --------------------------------------
-# vllm_infer.py 의 media_dir 는 dataset_dir 를 기본으로 사용.
-# JSONL 이미지 경로가 "AndroidControl/images/..." 형태이므로
-# LF_ROOT/data/ 아래에 심볼릭 링크가 필요함.
-# 주의: eval script 에서 vllm_infer.py 호출 시 반드시 --dataset_dir '$LF_ROOT/data'
-#       (절대 경로)를 전달해야 한다. 상대 경로("data") 사용 시 HF datasets 캐시가
-#       다른 cwd 에서 생성된 stale 경로를 재사용하여 이미지 FileNotFoundError 발생.
+# --- dataset_dir (repo-owned) -------------------------------------------------
+# LF 는 dataset_dir/dataset_info.json 을 읽고, media_dir 기본값도 dataset_dir 다
+# (LF hparams/data_args.py:156). 예전에는 LF_ROOT/data/ 를 dataset_dir 로 쓰면서
+# 거기에 심링크를 만들고 dataset_info.json 을 in-place 로 뜯어고쳤다 — LF 는 git 밖
+# 서드파티라 그 상태가 재클론 한 번에 증발했다.
+# 이제 dataset_dir 은 repo 가 소유한다: configs/lf_dataset/ (dataset_info.json + 상대
+# 심링크가 git 에 커밋돼 있다). 학습·평가 스크립트가 이 경로를 절대경로로 넘긴다.
+#
+# 주의: dataset_dir 은 반드시 절대경로로 전달할 것. 상대경로("data")를 쓰면 HF datasets
+#       캐시가 다른 cwd 에서 만든 stale 경로를 재사용해 이미지 FileNotFoundError 가 난다
+#       (vllm_infer.py 실측).
+LF_DATASET_DIR="$BASE_DIR/configs/lf_dataset"
+
+# data/ 에 새 데이터셋이 생기면 상대 심링크를 자기치유로 추가한다 (git 에 커밋할 것).
 for _ds_dir in "$BASE_DIR"/data/*/; do
+  [ -d "$_ds_dir" ] || continue
   _ds_name=$(basename "$_ds_dir")
-  _link="$LF_ROOT/data/$_ds_name"
+  _link="$LF_DATASET_DIR/$_ds_name"
   if [ ! -e "$_link" ]; then
-    ln -sfn "$_ds_dir" "$_link"
+    ln -sfn "../../data/$_ds_name" "$_link"
   fi
 done
 unset _ds_dir _ds_name _link
 
-# --- eval-only benchmark dataset_info entries (idempotent) --------------------
-# MobiBench 는 평가 전용 단일 파일 (ID/OOD split 없음). notebook Cell 13/16 이
-# 같은 엔트리를 기록하지만, notebook 을 돌리지 않은 fresh clone 에서도 eval
-# 파이프라인이 성립하도록 여기서 보장한다. 이미 존재하면 no-op.
-ensure_eval_only_dataset_info() {
-  local di="$LF_ROOT/data/dataset_info.json"
-  [ -f "$di" ] || return 0
-  python3 - "$di" <<'PY'
+# --- dataset_info 검증 (쓰지 않는다) ------------------------------------------
+# 예전에는 이 함수가 LF_ROOT/data/dataset_info.json 을 in-place 로 수정해 MobiBench
+# 평가 엔트리를 심었다. 이제 dataset_info.json 은 configs/lf_dataset/ 에 커밋된 정본이며
+# 그 안에 MB 엔트리도 정적으로 들어있다 — 런타임에 파일을 뜯어고치지 않는다.
+# 여기서는 정본이 온전한지 확인만 하고, 아니면 무엇을 해야 하는지 말하고 죽는다.
+verify_dataset_info() {
+  local di="$LF_DATASET_DIR/dataset_info.json"
+  if [ ! -f "$di" ]; then
+    echo "[!] dataset_info 정본이 없습니다: $di" >&2
+    echo "    이 파일은 git 에 커밋돼 있어야 합니다 (LF 안이 아니라 repo 안이 정본)." >&2
+    exit 1
+  fi
+  local missing
+  missing=$(python3 - "$di" <<'PY'
 import json, sys
-from collections import OrderedDict
-p = sys.argv[1]
-with open(p) as f:
-    d = json.load(f, object_pairs_hook=OrderedDict)
-tags = OrderedDict([
-    ("role_tag", "from"), ("content_tag", "value"),
-    ("user_tag", "human"), ("assistant_tag", "gpt"),
-    ("system_tag", "system"),
-])
-def entry(stage):
-    return OrderedDict([
-        ("file_name", f"../../data/MobiBench/implicit-world-modeling_stage{stage}.jsonl"),
-        ("formatting", "sharegpt"),
-        ("columns", OrderedDict([("messages","messages"),("images","images")])),
-        ("tags", tags),
-    ])
-changed = False
-for stage, anchor in ((1, "IWM-MB_stage1_train"), (2, "IWM-MB_stage2_train")):
-    key = f"IWM-MB_stage{stage}"
-    if key in d:
-        continue
-    new_d = OrderedDict()
-    inserted = False
-    for k, v in d.items():
-        if k == anchor and not inserted:
-            new_d[key] = entry(stage); inserted = True
-        new_d[k] = v
-    if not inserted:
-        new_d[key] = entry(stage)
-    d = new_d
-    changed = True
-if changed:
-    with open(p, 'w') as f:
-        json.dump(d, f, indent=2, ensure_ascii=False)
-        f.write('\n')
+with open(sys.argv[1]) as f:
+    d = json.load(f)
+need = ["IWM-MB_stage1", "IWM-MB_stage2"]
+print(" ".join(k for k in need if k not in d))
 PY
+)
+  if [ -n "$missing" ]; then
+    echo "[!] dataset_info 정본에 평가 전용 엔트리가 없습니다: $missing" >&2
+    echo "    파일: $LF_DATASET_DIR/dataset_info.json" >&2
+    echo "    (예전처럼 런타임에 심지 않습니다 — 정본에 넣고 커밋하세요.)" >&2
+    exit 1
+  fi
 }
-ensure_eval_only_dataset_info
+verify_dataset_info
 
 # --- .env (HF_TOKEN 등) -------------------------------------------------------
+# `set -a; source .env` 는 .env 값으로 프로세스 환경을 **덮어쓴다**. 그러면
+# `GPU_TYPE=A100 NPROC_PER_NODE=4 bash scripts/stage1_train.sh ...` 처럼 호출 시점에
+# GPU 조합을 지정할 수 없다 (.env 의 값이 이긴다). GPU 매트릭스를 쓰려면 프로세스 환경이
+# 이겨야 하므로, .env 를 읽기 전에 값을 붙잡아 두었다가 되돌린다.
+_PRE_ENV_GPU_TYPE="${GPU_TYPE:-}"
+_PRE_ENV_NPROC="${NPROC_PER_NODE:-}"
 if [ -f "$BASE_DIR/.env" ]; then
   set -a
   # shellcheck disable=SC1091
   source "$BASE_DIR/.env"
   set +a
 fi
-# Per-invocation NPROC override (.env 로드 이후 적용 — concurrent tmux 창에서 GPU 수를 독립 지정)
+[[ -n "$_PRE_ENV_GPU_TYPE" ]] && export GPU_TYPE="$_PRE_ENV_GPU_TYPE"
+[[ -n "$_PRE_ENV_NPROC" ]] && export NPROC_PER_NODE="$_PRE_ENV_NPROC"
+unset _PRE_ENV_GPU_TYPE _PRE_ENV_NPROC
+# Per-invocation NPROC override (레거시 — 이제 NPROC_PER_NODE 를 직접 넘겨도 이긴다)
 if [[ -n "${NPROC_PER_NODE_OVERRIDE:-}" ]]; then
   NPROC_PER_NODE="$NPROC_PER_NODE_OVERRIDE"
 fi
 
-# --- RTX5090 + DeepSpeed CPU offload: CUDA toolkit 정렬 가드 -----------------
-# RTX5090 환경에서는 yaml 이 ds_z3_offload_config.json 으로 swap 되어 있어
-# DeepSpeed 가 DeepSpeedCPUAdam → CPUAdamBuilder 를 JIT 컴파일한다. 이 빌드는
-# nvcc 와 cu 헤더가 torch 가 빌드된 cu 버전과 정확히 일치해야 하며,
-# 불일치 시 학습 시작 직후 CUDAMismatchException 으로 죽는다.
-# CUDA_HOME 미설정 + 시스템 PATH 에서 다른 cu 버전 nvcc (예: 13.x) 가 잡히는
-# 사고를 막기 위해 RTX5090 일 때만 /usr/local/cuda 를 강제 export 후 검증한다.
-# (다른 GPU_TYPE 은 offload 를 안 쓰므로 가드 미적용.)
-if [[ "${GPU_TYPE:-}" == "RTX5090" ]]; then
+# --- DeepSpeed CPU offload: CUDA toolkit 정렬 가드 ---------------------------
+# ZeRO-3 CPU offload 는 DeepSpeedCPUAdam → CPUAdamBuilder 를 JIT 컴파일한다. 이 빌드는
+# nvcc 와 cu 헤더가 torch 가 빌드된 cu 버전과 정확히 일치해야 하며, 불일치 시 학습 시작
+# 직후 CUDAMismatchException 으로 죽는다. CUDA_HOME 미설정 상태에서 시스템 PATH 의 다른
+# cu 버전 nvcc (예: 13.x) 가 잡히는 사고를 막는다.
+#
+# 예전에는 이 가드를 GPU_TYPE == RTX5090 일 때만 적용했다 — "다른 GPU 는 offload 를 안 쓴다"
+# 는 전제였는데, 그 전제가 이제 틀렸다. scripts/gpu_policy.py 는 GPU 종류와 무관하게 항상
+# offload 를 반환하므로(as-trained 74/74 YAML 이 그러하고, A100/H100 에서 offload 를 빼면
+# EXP05 7B full FT 가 확정 OOM) A100/H100 도 CPUAdam JIT 경로를 탄다. 따라서 가드도 항상 건다.
+# LF_CUDA_GUARD_SKIP=1 로 우회 가능 (CPUAdam 이 미리 빌드돼 있는 이미지 등).
+if [[ "${LF_CUDA_GUARD_SKIP:-0}" != "1" ]]; then
   export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
   if [[ ! -x "$CUDA_HOME/bin/nvcc" ]]; then
-    echo "[!] RTX5090: nvcc 가 $CUDA_HOME/bin 에 없습니다." >&2
-    echo "    cu12.8 toolkit (nvcc + cuda.h 헤더 + lib64) 를 설치 후 /usr/local/cuda 로 link 하세요." >&2
+    echo "[!] nvcc 가 $CUDA_HOME/bin 에 없습니다 (DeepSpeed CPU offload 는 CPUAdam JIT 빌드를 요구합니다)." >&2
+    echo "    torch 와 같은 cu 버전의 toolkit (nvcc + cuda.h 헤더 + lib64) 을 설치 후 /usr/local/cuda 로 link 하세요." >&2
+    echo "    CPUAdam 이 이미 빌드된 이미지라면 LF_CUDA_GUARD_SKIP=1 로 우회할 수 있습니다." >&2
     exit 1
   fi
   _nvcc_ver="$("$CUDA_HOME/bin/nvcc" --version | sed -nE 's/.*release ([0-9]+\.[0-9]+).*/\1/p' | head -n1)"
@@ -677,6 +680,100 @@ require_yaml() {
   fi
 }
 
+# --- llamafactory-cli 런타임 override ----------------------------------------
+# 커밋된 학습 YAML(configs/train/)은 GPU-불변 baseline (RTX5090 × 2 프로필:
+# pdbs=1, ga=32) 이다. 실제 GPU 조합에 맞는 값은 실행 시점에 주입한다 —
+# LF 가 `llamafactory-cli train cfg.yaml key=value` 를 OmegaConf merge 로 지원한다
+# (LF hparams/parser.py:69-83). 그래야 GPU_TYPE × NPROC 조합마다 YAML 을 재생성하지
+# 않아도 되고, GLOBAL_BATCH=64 가 모든 조합에서 유지된다.
+#
+# 주입하는 것:
+#   per_device_train_batch_size / gradient_accumulation_steps / deepspeed  ← gpu_policy.py (SSoT)
+#   dataset_dir / media_dir                                                ← repo-owned 절대경로
+#
+# ★ dataset_dir 은 반드시 넘겨야 한다. 커밋 YAML 의 `dataset: IWM-AC_*_stage1_train` 키는
+#   configs/lf_dataset/dataset_info.json 에만 있고, LF 기본값(LF_ROOT/data)의 upstream
+#   dataset_info.json 에는 없다. 안 넘기면 fresh clone 에서 학습이 시작조차 못 한다.
+#
+# ★ cwd 는 LF_ROOT 를 유지한다. 커밋 YAML 의 `output_dir: ../outputs/...` 가 cwd 상대경로라
+#   cwd 를 BASE_DIR 로 옮기면 프로젝트 바깥을 가리킨다 (stage2 의 resolve_stage1_base 도 동일).
+#   우리 목적은 "LF 에 쓰지 않는 것"이지 cwd 변경이 아니다 — 그래서 override 는 전부 절대경로로 넘긴다.
+
+# 모델 short name → gpu_policy 의 size_class
+model_size_class() {
+  case "$1" in
+    qwen3-vl-8b|qwen2.5-vl-7b) echo "7-9B" ;;
+    qwen3-vl-4b|qwen2.5-vl-3b) echo "3-4B" ;;
+    *) echo "[!] 알 수 없는 모델의 size_class: $1" >&2; exit 1 ;;
+  esac
+}
+
+# resolve_overrides <model_short> <dataset_dir_name> <mode:full|lora>
+# stdout: llamafactory-cli 에 append 할 override 인자들 (공백 구분 한 줄)
+resolve_overrides() {
+  local model_short="$1" ds_name="$2" mode="$3"
+  local size_class gpu_over
+  size_class="$(model_size_class "$model_short")"
+
+  # gpu_policy 의 stdout 은 override 한 줄, warnings 는 stderr 로 나온다.
+  if ! gpu_over="$(python3 "$BASE_DIR/scripts/gpu_policy.py" \
+      --gpu-type "${GPU_TYPE:-RTX5090}" --nproc "${NPROC_PER_NODE:-2}" \
+      --size-class "$size_class" --ds "$ds_name" --mode "$mode" --format cli)"; then
+    echo "[!] gpu_policy 가 이 조합을 거부했습니다:" >&2
+    echo "    GPU_TYPE=${GPU_TYPE:-RTX5090} NPROC_PER_NODE=${NPROC_PER_NODE:-2}" \
+         "size_class=$size_class ds=$ds_name mode=$mode" >&2
+    exit 1
+  fi
+
+  # global batch 불변식 재확인 (gpu_policy 가 이미 강제하지만, 주입 직전에 한 번 더).
+  local pdbs ga total
+  pdbs="$(sed -nE 's/.*per_device_train_batch_size=([0-9]+).*/\1/p' <<<"$gpu_over")"
+  ga="$(sed -nE 's/.*gradient_accumulation_steps=([0-9]+).*/\1/p' <<<"$gpu_over")"
+  total=$(( pdbs * ga * ${NPROC_PER_NODE:-2} ))
+  if (( total != 64 )); then
+    echo "[!] global batch 가 64 가 아닙니다: ${pdbs} × ${ga} × ${NPROC_PER_NODE:-2} = ${total}" >&2
+    echo "    scripts/gpu_policy.py 와 .env 의 GPU_TYPE/NPROC_PER_NODE 를 확인하세요." >&2
+    exit 1
+  fi
+
+  # gpu_policy 는 deepspeed 를 BASE_DIR 상대경로로 준다. cwd 는 LF_ROOT 이므로 절대경로로 바꾼다.
+  local ds_path
+  ds_path="$(sed -nE 's/.*deepspeed=([^ ]+).*/\1/p' <<<"$gpu_over")"
+  [[ "$ds_path" == /* ]] || ds_path="$BASE_DIR/$ds_path"
+  if [ ! -f "$ds_path" ]; then
+    echo "[!] deepspeed config 가 없습니다: $ds_path" >&2
+    exit 1
+  fi
+  gpu_over="$(sed -E "s|deepspeed=[^ ]+|deepspeed=$ds_path|" <<<"$gpu_over")"
+
+  local smoke=""
+  if [[ "${SMOKE:-0}" == "1" ]]; then
+    smoke=" max_samples=8 max_steps=1 save_strategy=no report_to=none"
+  fi
+
+  printf '%s dataset_dir=%s media_dir=%s%s' \
+    "$gpu_over" "$LF_DATASET_DIR" "$BASE_DIR/data" "$smoke"
+}
+
+# 해석된 실행 커맨드를 로그에 남긴다 — 커밋 YAML ≠ 실제 실행값인 override 설계에서
+# 무엇이 실제로 쓰였는지 알 수 있는 유일한 장치다.
+echo_resolved() {
+  local yaml="$1" overrides="$2"
+  echo "[cfg] YAML      : $yaml" >&2
+  echo "[cfg] overrides : $overrides" >&2
+  echo "[cfg] GPU       : ${GPU_TYPE:-RTX5090} × ${NPROC_PER_NODE:-2}" >&2
+}
+
+# DRY_RUN=1 이면 실행하지 않고 최종 커맨드만 출력하고 종료한다.
+maybe_dry_run() {
+  local yaml="$1" overrides="$2"
+  if [[ "${DRY_RUN:-0}" == "1" ]]; then
+    echo "[dry-run] cd '$LF_ROOT' && llamafactory-cli train '$yaml' $overrides"
+    return 0
+  fi
+  return 1
+}
+
 # --- checkpoint → epoch 매핑 -------------------------------------------------
 # HF Trainer 가 저장한 trainer_state.json 의 "epoch" 필드를 int 로 반환.
 # 학습 YAML 은 save_strategy=epoch 이므로 정수에 근접하지만 방어적으로 round.
@@ -863,7 +960,7 @@ build_infer_cmd() {
   INFER_CMD="python scripts/vllm_infer.py \
       --model_name_or_path '$model_path' \
       --dataset '$ds_name' \
-      --dataset_dir '$LF_ROOT/data' \
+      --dataset_dir '$LF_DATASET_DIR' \
       --template $template \
       --cutoff_len $infer_cutoff \
       --image_max_pixels $mm_max \

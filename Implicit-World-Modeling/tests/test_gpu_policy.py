@@ -234,9 +234,11 @@ def test_committed_train_corpus_matches_baseline_policy():
         assert pdbs_m and ga_m and ds_m, f"{f}: missing per_device/grad_accum/deepspeed key"
         trios.add((int(pdbs_m.group(1)), int(ga_m.group(1)), Path(ds_m.group(1)).name))
 
-    assert len(train_yamls) == 74, (
-        f"expected 74 committed train YAMLs with per_device_train_batch_size, "
-        f"found {len(train_yamls)}"
+    # as-trained 74 개는 하한이다 — 생성기가 EXP03/04 와 3b/4b 확장분을 추가하므로 코퍼스는 자란다.
+    # 개수는 부수적이고, 불변식은 "전 YAML 의 GPU 트리오가 baseline resolve 와 같다" 는 것이다:
+    # 그래야 baseline(RTX5090×2)에서 런타임 override 가 no-op 이고, 다른 GPU 조합에서만 값이 바뀐다.
+    assert len(train_yamls) >= 74, (
+        f"as-trained 74 개가 하한인데 {len(train_yamls)} 개뿐 — 커밋 코퍼스가 유실됐다"
     )
     assert len(trios) == 1, f"non-uniform (pdbs, ga, deepspeed-basename) trio across corpus: {trios}"
 
