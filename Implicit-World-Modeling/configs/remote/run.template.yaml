@@ -1,0 +1,127 @@
+# UNVALIDATED TEMPLATE — 실제 제출 CLI 로 스키마 검증 필요.
+#
+# 이 파일은 원격 GPU 클러스터(A100/H100)에 EXP05 Stage1 을 제출하기 위한 run spec 템플릿이다.
+# 작성 환경에 제출 CLI 가 없어 스키마(키 이름 / preset 이름 / import·export URI 형식 / secret 표기)를
+# 실제로 검증하지 못했다. 확인된 것은 (1) YAML 파싱, (2) placeholder 렌더뿐이다.
+#
+# ★ 플랫폼 종속성: 아래 스키마(organization/project/resources/import/export/run)는 특정 제공자의
+#   run spec 형식을 따른다. 다른 제공자를 쓴다면 이 파일만 교체하면 된다 — 코드(scripts/remote_launch.sh)와
+#   변수 이름(REMOTE_*)은 제공자에 중립적이므로 그대로 쓸 수 있다.
+#
+# 렌더:  bash scripts/remote_launch.sh --dry-run
+#   치환되는 placeholder (이것만):
+#     ${REMOTE_ORG} ${REMOTE_PROJECT} ${REMOTE_CLUSTER} ${REMOTE_GPU_TYPE} ${REMOTE_GPU_COUNT}
+#     ${REMOTE_IMAGE} ${REMOTE_ARTIFACT_URI} ${IWM_DATA_MOUNT} ${IWM_GIT_URL} ${IWM_GIT_REF}
+# ★ 위 목록 외에 달러-중괄호 표기를 추가하지 마라. run 커맨드의 셸 변수는 반드시 중괄호 없는 $VAR 로 쓴다
+#   (envsubst 오치환 방지 + 렌더 결과에 미치환 placeholder 0건 보장).
+#
+# ─── 리소스 가이드 (EXP05 Stage1 full FT, 실측 근거) ──────────────────────────────
+# GPU 메모리:
+#   * A100 80GB 기준 peak ≈ 3B 68 GiB / 7B 70 GiB → 여유 12~15%. OOM 은 나지 않지만 여유가 얇다.
+#     (2026-07-13 diff-loss 이중 CE 수정 이후로는 이보다 더 여유가 있다 — activation 48.6% 절감.)
+#   * CPU offload 필수. 빼면 7B full FT 는 모델 상태(fp32 param+grad+Adam)만 GPU당 ~77 GiB → 확정 OOM.
+#     configs/train/*.yaml 과 scripts/gpu_policy.py 가 deepspeed=ds_z3_offload_config.json 을 항상 강제한다.
+#     "A100 이니까 offload 빼도 되겠지" 가 이 파이프라인의 대표적 함정이다. 빼지 마라.
+#   * peak 지배항은 lm_head logits (S × vocab) → GPU 를 늘려도(ZeRO-3 shard 대상이 아님) 줄지 않고,
+#     LoRA 로 바꿔도 GPU peak 은 사실상 동일하다. GPU 증설은 처리량만 늘린다.
+# host RAM (가장 자주 놓치는 항목):
+#   * ZeRO-3 CPU offload 이므로 파라미터/그래디언트/옵티마이저가 호스트 메모리에 상주한다.
+#   * 7B full FT 기준 steady ~154 GB/노드, 체크포인트 저장 시 ~175 GB+ 순간 피크.
+#   * → 메모리 요청 최소 192 GB 권고. preset 을 쓰는 경우 GPU 수만 보지 말고 preset 의 RAM 을 확인하라.
+# 스토리지:
+#   * data 마운트에 AndroidControl/images (~36 GB) + AndroidControl_EXP05/*.jsonl 이 모두 있어야 한다.
+#     (EXP05 JSONL 의 image 경로가 "AndroidControl/images/..." 이므로 두 디렉토리 다 필요)
+#   * 체크포인트: num_train_epochs=3, save_strategy=epoch, save_total_limit=5 → full FT 는 수백 GB 급.
+# global batch:
+#   * 커밋된 YAML 은 GPU-불변 baseline (pdbs=1, ga=32) = RTX5090x2 프로필이고, GPU 트리오는
+#     stage1_train.sh 가 scripts/gpu_policy.py 결과를 llamafactory-cli override 로 주입한다.
+#     따라서 REMOTE_GPU_COUNT 가 1/2/4/8 어느 값이어도 GLOBAL_BATCH=64 가 유지된다.
+
+# 주의: organization/project 가 제출 CLI 의 run spec 스키마에 없는 키라면 이 두 줄을 지워라.
+#       remote_launch.sh 의 REMOTE_SUBMIT_CMD 가 플래그로도 전달할 수 있다.
+organization: "${REMOTE_ORG}"
+project: "${REMOTE_PROJECT}"
+
+name: iwm-exp05-stage1-full
+description: |-
+  Implicit-World-Modeling EXP05 (AndroidControl 절대 픽셀 좌표) Stage1 full fine-tuning.
+  DeepSpeed ZeRO-3 + CPU offload, diff-token weighted loss 패치 적용 LlamaFactory.
+
+tags:
+  - implicit-world-modeling
+  - exp05
+  - stage1
+
+resources:
+  cluster: "${REMOTE_CLUSTER}"
+  # preset 이름은 클러스터마다 다르다. 제출 CLI 의 resource-spec 조회 명령으로 실제 이름을 확인해
+  # 아래 값을 교체하라 (예: gpu-a100-80gb-2 / v1.a100-80g.2 등).
+  # ★ RAM 192GB 이상, GPU 80GB (A100/H100) preset 을 골라라. 32GB GPU 는 EXP05 full FT 불가.
+  preset: "gpu-${REMOTE_GPU_TYPE}-${REMOTE_GPU_COUNT}"
+  # on-prem/커스텀 리소스 클러스터라 preset 대신 직접 요청하는 경우 위 preset 을 지우고 아래를 사용:
+  # accelerators: "${REMOTE_GPU_TYPE}:${REMOTE_GPU_COUNT}"
+  # cpu: 32
+  # memory: 192Gi
+
+# CUDA + conda 가 있는 이미지가 필요하다. scripts/_common.sh 는 CONDA_PREFIX 가 비어 있으면 즉시 exit 1 한다.
+# 클러스터에서 사용 가능한 이미지를 .env 의 REMOTE_IMAGE 로 지정하라 (검증되지 않은 기본값을 쓰지 마라).
+image: "${REMOTE_IMAGE}"
+
+import:
+  # private 레포다. 제출 플랫폼에 git credential(SSH key 또는 PAT)을 등록해야 clone 이 된다.
+  # ★ 선결 조건: 아래 run 커맨드가 호출하는 scripts/setup_llamafactory.sh · scripts/stage1_train.sh ·
+  #   configs/train/ 은 refactor/lf-bootstrap 브랜치에 있다. main 에 머지하기 전이라면
+  #   IWM_GIT_REF 를 그 브랜치로 맞춰라 — 아니면 clone 직후 "No such file" 로 즉시 실패한다.
+  /root/iwm/:
+    git:
+      url: "${IWM_GIT_URL}"
+      ref: "${IWM_GIT_REF}"
+  # AndroidControl/ (images) + AndroidControl_EXP05/ (jsonl) 를 포함하는 볼륨/데이터셋.
+  # 형식은 제공자에 따라 다르다 (오브젝트 스토리지 URI, 데이터셋 URI, NFS 절대경로 등).
+  /root/iwm-data/: "${IWM_DATA_MOUNT}"
+
+export:
+  # YAML 의 output_dir 은 ../outputs/... (= 프로젝트 루트 outputs/) 이다.
+  /root/iwm/Implicit-World-Modeling/outputs/: "${REMOTE_ARTIFACT_URI}"
+
+env:
+  GPU_TYPE: "${REMOTE_GPU_TYPE}"
+  NPROC_PER_NODE: "${REMOTE_GPU_COUNT}"
+  DISABLE_VERSION_CHECK: "1"
+  # HF_TOKEN 은 평문으로 적지 마라. 플랫폼의 secret 기능으로 등록 후 주입한다 (아래 표기는 스키마 미검증).
+  HF_TOKEN:
+    secret: HF_TOKEN
+
+run:
+  - workdir: /root/iwm/Implicit-World-Modeling
+    command: |-
+      set -eo pipefail
+
+      # 0) conda — scripts/_common.sh 가 CONDA_PREFIX 를 요구한다 (없으면 exit 1).
+      #    이미지에 따라 conda.sh 경로가 다르다. 없으면 여기서 멈추고 이미지를 바꿔라.
+      . /opt/conda/etc/profile.d/conda.sh
+      conda activate implicit-world-modeling 2>/dev/null || {
+        conda create -y -n implicit-world-modeling python=3.12
+        conda activate implicit-world-modeling
+      }
+
+      # 1) .env 구성 — GPU 트리오/토큰은 위 env 블록에서 주입된 값을 그대로 기록한다.
+      #    (값을 stdout 에 출력하지 않는다: set -x 를 켜지 마라.)
+      printf 'HF_TOKEN=%s\n' "$HF_TOKEN" > .env
+      printf 'GPU_TYPE=%s\n' "$GPU_TYPE" >> .env
+      printf 'NPROC_PER_NODE=%s\n' "$NPROC_PER_NODE" >> .env
+      chmod 600 .env
+
+      # 2) 데이터 — 마운트를 프로젝트 data/ 로 링크.
+      mkdir -p data
+      ln -sfn /root/iwm-data/AndroidControl data/AndroidControl
+      ln -sfn /root/iwm-data/AndroidControl_EXP05 data/AndroidControl_EXP05
+
+      # 3) LlamaFactory 부트스트랩 (clone → pin → diff-loss patch → editable install → verify)
+      bash scripts/setup_llamafactory.sh --install --verify
+
+      # 4) Stage1 학습. YAML 정본은 configs/train/ 이고, GPU 트리오(pdbs/grad_accum/deepspeed)는
+      #    stage1_train.sh 가 gpu_policy.py 결과를 llamafactory-cli override 로 주입한다.
+      #    모델 교체: --model {qwen2.5-vl-3b | qwen2.5-vl-7b | qwen3-vl-8b} (EXP05 는 qwen3-vl-4b 미지원).
+      #    7B/8B 가 host RAM 192GB 권고치의 근거이며, 3B 는 그보다 여유가 있다.
+      bash scripts/stage1_train.sh --model qwen2.5-vl-3b --dataset AC_EXP05 --stage1-mode full
