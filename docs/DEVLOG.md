@@ -3,6 +3,23 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-14 — Monkey-Collector: iter6 통제 ablation — budget-loop fix 판정 + D3 임계값 재보정
+
+리셋 프로토콜 paired-arm ablation(pre-fix `6ff8e95` vs fix `fe12f46`, musicplayer+calendar, 900s × 4 run + 동일 코드 반복측정 1 run)으로 budget-loop fix(D1/D2/D3)가 실제로 무엇을 했는지 판정했다. 결론은 **fix의 다양성 이득이 노이즈와 구별되지 않는다**는 것이고, 그 과정에서 진짜 병목이 따로 드러났다. 상세는 [분석 보고](../Monkey-Collector/.claude/analysis/2026-07-14_04-05-29_iter6-controlled-ablation/README.md) · [revise 기록](../Monkey-Collector/.claude/devlog/2026-07-14_04-05-29_iter6-d3-recalibration.md).
+
+- **판정 — 다양성 이득은 노이즈에 묻힌다**: musicplayer(clean isolator, 900s, 리셋 프로토콜)에서 측정된 fix 효과는 **pages +1 / edges +0 / steps −32**다. 그런데 **동일 코드 두 run의 노이즈 바닥이 pages −3 / edges −10 / steps +17** — 효과가 노이즈보다 작다. iter5의 "다양성 +78%" 서사는 **반박**됐다. 이는 효과 부재의 증명이 아니라 **arm당 n=1로는 분해 불가**하다는 확인이며, 판정하려면 arm당 n≥3이 필요하다.
+- **steps −32는 fix 탓이 아니다**: 지배 항은 확률적 reinit 사이클(armA=3 / armB=6 / 동일 코드 u3b=4)이다. "가드가 예산을 구했다"는 주장은 `weak-evidence`에 머문다.
+- **D2는 발화한다**(musicplayer 2회, calendar 1회) — 메커니즘은 작동하나 **이득은 미입증**이다.
+- **calendar arm 쌍은 CONFOUNDED**(armA seed=25 vs armB seed=83)라 판정에서 제외했다. 수집기가 `com.android.providers.calendar`(별도 priv-app DB)에 이벤트를 만들고 `pm clear`가 거기 못 닿아 오염이 다음 arm으로 샌다. **이 쌍의 델타를 fix 효과로 읽으면 안 된다.**
+- **🔴 최대 발견 — 예산의 44~56%가 signal timeout 대기에서 소진**된다(5/5 run, 양 arm, 양 앱; 평균 대기 13.0~13.4s로 `signal_timeout_sec=12`와 일치). 가드는 예산의 **소수 지분**을 다투고 있었다. 다음 우선순위 **P1**.
+- **D3 임계값 150 → 98 재보정(이번의 유일한 확정 코드 변경)**: 전 아카이브 23개 `events.jsonl`의 max productive gap = 49 → 결정 규칙 `T = max(49×2, 40) = 98 ≤ 120`(규칙 충돌 없음). 오케스트레이터 tier-1과 codex(gpt-5.6-terra) tier-2의 독립 재계산이 일치했다. 조기 포기 위험 없음 — 98을 넘는 tail 실측 두 케이스(iter1 calendar 374, iter4 calendar 160) 모두 그 구간 신규 page 0건이라 98은 진짜 포화 구간만 회수한다. D3 **발화 로직은 무변경**(상수만).
+- **측정 프로토콜 함정 2건을 `Monkey-Collector/AGENTS.md`에 문서화**: (1) provider-backed 앱(calendar)은 seed가 `pm clear`에 생존해 수집기가 만든 오염도 다음 arm으로 새는데 `reset_app.sh`는 run 내부 `before==after`만 검사해 못 잡는다. (2) 동일 코드 반복측정의 노이즈가 측정하려는 효과보다 커서 arm당 n=1로는 판정할 수 없다.
+- 변경: `Monkey-Collector/src/monkey_collector/config.py` · `pipeline/collector.py` · `config/run.yaml` · `tests/unit/test_config.py`(D3 상수 동기화 지점 7곳) + `Monkey-Collector/AGENTS.md` · `Monkey-Collector/.claude/handoff/HANDOFF.md`. 문서 정합: `Monkey-Collector/ARCHITECTURE.md` §7 config 표(D3 행 신설, `data_dir`/`runtime_dir` CWD-상대 명시).
+- 커밋: **미커밋**(working tree, HEAD = `fe12f46`).
+- 결과/검증: `pytest` **824 passed**(기준선 불변) · `git diff -- src/monkey_collector/pipeline/collection_loop.py` 빈 출력(발화 로직 무변경) · 잔여 `150` grep 0건 · 회귀 체크 U3b probe 908s 예산 소진 정상 종료(`no_progress_stop` 0건, 이 run max gap 45 < 98).
+- 후속: **P1** signal timeout 원인 계측(client logcat + server 신호 타임스탬프 — 예산의 절반이라 가드 튜닝보다 우선) · **P2-a** 효과 측정은 arm당 n≥3 · **P2-b** `reset_app.sh`가 provider-backed 앱을 canonical seed로 복원하고 검사를 `after==canonical`로 변경 · **P3-b** broccoli harness-evict(사용자 확인 게이트). 2h regime의 gap 분포는 미관측이라 그 구간의 조기 포기 위험은 아직 배제되지 않았다.
+- 카테고리: devlog
+
 ## 2026-07-12 — Monkey-Collector: iteration 3 검증 + 관련연구 문서화 + iteration 4(R1 value-guided 탐색) — coverage 정체는 reachability ceiling으로 확정
 
 전날 iteration 3(W-A/W1/W2)을 AVD Pixel6-2로 재수집 검증하고, 사용자 요청으로 관련 연구를 조사·문서화한 뒤 최우선 권고(R1)를 iteration 4로 구현했다. 핵심 결론: **R1은 올바르게 구현·검증됐으나 4앱 activity coverage 정체는 exploration-order 문제가 아니라 reachability ceiling(계정·데이터·딥네비·권한 게이트 전제)이라 R1으로 count가 오르지 않는다.** adaptive-router 라우팅: advisor `claude/fable`(지정 `gpt-5.6-sol` hard-unavailable), worker `claude/opus`, tier-2 `codex/gpt-5.6-terra`(플레이키 — 후반 `gpt-5.5` 폴백), 재수집은 worker-held가 두 번 실패해 orchestrator-background로 대체.
