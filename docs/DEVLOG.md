@@ -3,6 +3,20 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-13 — Implicit-World-Modeling: qwen3-vl-4b 레지스트리 복원 (EXP01–04 자격) + 노트북·문서 서술 코드 정합화
+
+`qwen3-vl-8b` 가 가능한 실험군(EXP01–EXP04)에 `qwen3-vl-4b` 를 추가해 달라는 요청을 처리했다. 조사해 보니 4b 는 신규 모델이 아니라 커밋 `67a52e5`(2026-05-31, "qwen3-vl-4b 삭제·qwen2.5-vl-7b 등록, 7-9B 단일 tier 통합")가 **의도적으로 삭제**한 모델이어서, 신규 설계가 아니라 **삭제 전 설정의 복원**으로 처리했다. 이어 "노트북도 현재 코드 기준으로" 요청이 들어와 노트북 서술의 stale 사실을 전수 정합화했다.
+
+- **레지스트리 복원 (4 모델 2 tier)**: `qwen3-vl-4b`(= `Qwen/Qwen3-VL-4B-Instruct`, template `qwen3_vl_nothink`, size `3-4B`)를 `scripts/_common.sh` 3구조(`MODEL_ID`/`MODEL_TEMPLATE`/`ALL_MODELS`) + 노트북 Cell 5 3구조(`MODEL_FAMILY_CONFIG`/`_MODEL_CONFIG`/`MODEL_ORDER`)에 재등록. `_MODEL_CONFIG` 엔트리는 삭제 전 원문과 **byte-identical**. 이제 **7-9B: `qwen3-vl-8b`·`qwen2.5-vl-7b` / 3-4B: `qwen3-vl-4b`·`qwen2.5-vl-3b`** 체제다.
+- **hparam delta 없음**: `_SIZE_CONFIG_AC` 의 tier dict 를 빈 dict 로 유지했다 (`hparam_overrides={}`) — EXP01/EXP02 실측 어댑터와 동일조건 보존 정책 유지. lr/rank 를 새로 도입하지 않았다.
+- **모델 자격 vs 학습 이력 분리**: 문서의 "전용성" 문구만 **Qwen3-VL 계열(4b/8b)** 로 확장하고, 실행 이력·산출물 서술은 사실 그대로 뒀다. **`qwen3-vl-4b` 는 아직 한 번도 학습된 적이 없다** — 자격만 복원된 상태이며 노트북 walkthrough 의 `--model` 은 전부 `qwen3-vl-8b` 그대로다.
+- **EXP05 는 배제**: 절대 픽셀 좌표(840×1876)라 Qwen3-VL 계열 전체가 좌표·factor **이중 mismatch**다. 기존 8b 배제와 대칭으로 **코드 가드는 신설하지 않고 문서 규약으로만** 배제했다 — 즉 `--model all --dataset AC_EXP05` 는 CLI 상 통과하며(이제 8b + 4b 2개가 통과), `IWM-AC_EXP05/stage1_full/` 에 `qwen3-vl-8b_world-model.yaml` 이 실재하는 것이 그 증거다.
+- **노트북 정합화 (12 셀)**: "8 모델"/"12개 모델" → 등록 4 모델, "96 YAML"(8×6×2) → **64 YAML**(4 모델 × `_DATASET_CONFIG` 8 키 × 2 mode, allowlist 해제 시), tier "3 단(2B/3-4B/7-9B)" → **2 단**(7-9B/3-4B, 전부 빈 dict = 미적용), 학습 DS 열거에 **EXP04·EXP05 추가**(Cell 1 표에 2 행 신설), YAML 경로 `custom/Implicit-World-Modeling-{DS}` → 실제 `custom/IWM-{DS}`.
+- **Cell 5 자기모순 주석 정정**: "AC_EXP01 은 Stage 2 미정의 — `_STAGE1_ONLY` guard 로 skip" 이 **코드에 반증**됐다(`stage2` 정의 실재 + `_STAGE1_ONLY` = {MC, EXP04, EXP05} 에 EXP01 없음 + `IWM-AC_EXP01_ratio73/stage2_*` 실존 + README 가 sweep 문서화). 함께 `_SIZE_CONFIG_AC` 적용 범위(EXP01/02 → **EXP01–EXP05**, MC 미적용), cutoff_len 24576 목록에 **EXP05 추가**, "등록 모델은 모두 7-9B tier" 를 정정. **주석만 변경 — 실행 코드 불변.**
+- **검증**: `bash -n` exit 0 · 레지스트리 ast 정합성(`_common.sh` ↔ 노트북 일치) · 노트북 JSON 유효 + Cell 5 `ast.parse` · stale 패턴 게이트 0 hit · `!bash` 20 줄 HEAD 와 byte 동일 · **pytest 96 passed / 9 skipped**(변경 전후 동일). tier-2 는 codex 가 샌드박스 초기화 실패(`bwrap` loopback)로 2회 미가용이라 advisor(mode=verify) 폴백 판정 — 전건 CONFIRMED / PASS.
+- **잔여 이슈(범위 밖)**: `scripts/tmux_exp04_stage1.sh` 가 문서에서 참조되나 레포에 부재(학습 머신 untracked 추정) · ARCHITECTURE 섹션맵의 셀 범위 숫자가 실제 노트북(76 셀)과 불일치(재부여는 교차 참조 파손 위험이라 보류).
+- **카테고리**: devlog
+
 ## 2026-07-13 — Implicit-World-Modeling: EXP05 stage1 0711 수정본 적용 + diff-loss v2 버그 수정 (GAP1 호출자 신설)
 
 조병웅님의 stage1 수정본(Drive `0711_버젼`)이 모두 도착해(action 파일이 2026-07-12 23:24 마지막 업로드) 다운로드·전수 검증 후 EXP05 데이터를 재생성했다. 재생성에 쓰는 v2 diff-loss 체인의 CONFIRMED 버그를 **먼저** 고치고 재생성은 1회만 수행했다. `data/AndroidControl/_backup_0710/` 에 0710 원천 + 구 EXP05 산출물을 보존한다.
