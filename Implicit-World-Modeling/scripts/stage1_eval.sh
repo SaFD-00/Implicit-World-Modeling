@@ -36,7 +36,7 @@
 # 산출물:
 #   outputs/{OUT_DS}/eval/{MODEL}{EVAL_SFX}/stage1_eval/{variant}[/epoch-{E}]/on-{EVAL_DS}/
 #     OUT_DS   = ds_outputs_code(TRAIN_DS)  — AC_EXP01_ratio* → AndroidControl_EXP01, 그 외는 그대로.
-#     EVAL_SFX = ds_eval_suffix(TRAIN_DS)   — AC_EXP01_ratio*=_ratio{37,55,73}, 그 외="".
+#     EVAL_SFX = ds_model_suffix(TRAIN_DS)  — AC_EXP01_ratio*=_ratio{37,55,73}, 그 외="".
 #     EVAL_DS=MC / MB           : generated_predictions.jsonl          + hungarian_metrics.json (overall only)
 #     EVAL_DS=AC_EXP01-state / AC_EXP02-state   : generated_predictions_{id,ood}.jsonl + hungarian_metrics.json
 #     EVAL_DS=AC_EXP01-action / AC_EXP02-action : generated_predictions_{id,ood}.jsonl + action_metrics.json
@@ -233,9 +233,9 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   TEMPLATE="${MODEL_TEMPLATE[$MODEL_SHORT]}"
 
   # outputs/ 1-level 디렉토리는 ds_outputs_code 로 정규화 (AC_EXP01_ratio* → AndroidControl_EXP01),
-  # 모델 디렉토리에는 ds_eval_suffix (AC_EXP01_ratio*=_ratio{37,55,73}) 를 붙인다.
+  # 모델 디렉토리에는 ds_model_suffix (AC_EXP01_ratio*=_ratio{37,55,73}) 를 붙인다.
   OUT_DS="$(ds_outputs_code "$TRAIN_DS")"
-  EVAL_SFX="$(ds_eval_suffix "$TRAIN_DS")"
+  EVAL_SFX="$(ds_model_suffix "$TRAIN_DS")"
   EVAL_DIR_REL="../outputs/${OUT_DS}/eval/${MODEL_SHORT}${EVAL_SFX}/stage1_eval"
 
   for VARIANT in "${VARIANTS[@]}"; do

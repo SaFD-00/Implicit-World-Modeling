@@ -104,10 +104,6 @@ fi
 [[ -n "$_PRE_ENV_GPU_TYPE" ]] && export GPU_TYPE="$_PRE_ENV_GPU_TYPE"
 [[ -n "$_PRE_ENV_NPROC" ]] && export NPROC_PER_NODE="$_PRE_ENV_NPROC"
 unset _PRE_ENV_GPU_TYPE _PRE_ENV_NPROC
-# Per-invocation NPROC override (레거시 — 이제 NPROC_PER_NODE 를 직접 넘겨도 이긴다)
-if [[ -n "${NPROC_PER_NODE_OVERRIDE:-}" ]]; then
-  NPROC_PER_NODE="$NPROC_PER_NODE_OVERRIDE"
-fi
 
 # --- DeepSpeed CPU offload: CUDA toolkit 정렬 가드 ---------------------------
 # ZeRO-3 CPU offload 는 DeepSpeedCPUAdam → CPUAdamBuilder 를 JIT 컴파일한다. 이 빌드는
@@ -164,9 +160,6 @@ fi
 declare -A DS_PREFIX=(
   [MB]="IWM-MB"
   [AC_EXP01]="IWM-AC_EXP01"
-  [AC_EXP01_ratio37]="IWM-AC_EXP01"
-  [AC_EXP01_ratio55]="IWM-AC_EXP01"
-  [AC_EXP01_ratio73]="IWM-AC_EXP01"
   [AC_EXP02]="IWM-AC_EXP02"
   [AC_EXP03]="IWM-AC_EXP03"
   [AC_EXP04]="IWM-AC_EXP04"
@@ -175,7 +168,6 @@ declare -A DS_PREFIX=(
 )
 declare -A HF_SLUG=(
   [MB]="mb-"
-  [AC_EXP01]="ac-exp01-"
   [AC_EXP01_ratio37]="ac-exp01-ratio37-"
   [AC_EXP01_ratio55]="ac-exp01-ratio55-"
   [AC_EXP01_ratio73]="ac-exp01-ratio73-"
@@ -206,22 +198,7 @@ declare -A DS_DATADIR=(
   [MC]="MonkeyCollection"
 )
 
-# AC_EXP01 ratio variant 메타: ratio 키 ↔ split_data.py 산출 파일 stem.
-# split_data.py 는 train_3_7.jsonl / train_5_5.jsonl / train_7_3.jsonl 을 생성한다.
-declare -A EXP01_RATIO_FILE=(
-  [AC_EXP01_ratio37]="train_3_7"
-  [AC_EXP01_ratio55]="train_5_5"
-  [AC_EXP01_ratio73]="train_7_3"
-)
 EXP01_ALL_RATIOS=(ratio37 ratio55 ratio73)
-
-# AC_EXP01 ratio variant 인지 검사. usage: if is_ac_exp01_ratio "$DS"; then ...
-is_ac_exp01_ratio() {
-  case "$1" in
-    AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73) return 0 ;;
-    *) return 1 ;;
-  esac
-}
 
 # DS 키 → outputs/ 1-level 디렉토리 코드 (notebook Cell 5 의 output_prefix 와 동치).
 # AC_EXP01 ratio variant 3 키는 단일 부모 'AndroidControl_EXP01' 로 모인다.
@@ -240,17 +217,6 @@ ds_outputs_code() {
 # DS 키 → adapters/ + merged/ 의 모델 디렉토리 이름에 붙일 suffix.
 # AC_EXP01 ratio variant 만 _ratio{37,55,73} 을 갖고, 다른 DS 는 빈 문자열.
 ds_model_suffix() {
-  case "$1" in
-    AC_EXP01_ratio37) echo "_ratio37" ;;
-    AC_EXP01_ratio55) echo "_ratio55" ;;
-    AC_EXP01_ratio73) echo "_ratio73" ;;
-    *) echo "" ;;
-  esac
-}
-
-# DS 키 → eval/ 의 모델 디렉토리 이름에 붙일 suffix.
-# AC_EXP01 ratio 는 ratio 만, 그 외는 빈 문자열.
-ds_eval_suffix() {
   case "$1" in
     AC_EXP01_ratio37) echo "_ratio37" ;;
     AC_EXP01_ratio55) echo "_ratio55" ;;
@@ -554,7 +520,6 @@ EOF
         *) echo "Error: --exp01-ratio must be ratio37 | ratio55 | ratio73 (got '$_r')." >&2; exit 2 ;;
       esac
       TRAIN_DATASET="AC_EXP01_${_r}"
-      EXP01_RATIO="$_r"
       unset _r ;;
     MB)
       echo "Error: --train-dataset MB 는 허용되지 않습니다 (MobiBench 는 평가 전용)." >&2
