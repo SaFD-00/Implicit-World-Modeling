@@ -1,4 +1,4 @@
-"""Exploration memory: coverage tracking with same-function compression.
+"""Exploration memory: coverage tracking over abstract pages.
 
 Ports the essence of LLM-Explorer's ``Memory`` — what has been explored and what
 remains — but keyed on stable element *signatures* instead of bound-box strings.
@@ -9,14 +9,9 @@ Core ideas preserved:
     or ``structure_str`` when no matcher is active), so coverage learned on one
     screen instance applies to every instance of that page.
   - An action's coverage unit is ``(page_key, element_signature, action_type)``.
-  - The extractor's same-function element families compress the frontier:
-    exploring one member of a family marks the whole family explored for that
-    action type.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from monkey_collector.pipeline.exploration.state import (
     LONG_TOUCH,
@@ -26,40 +21,26 @@ from monkey_collector.pipeline.exploration.state import (
 )
 from monkey_collector.pipeline.exploration.transition_graph import TransitionGraph
 
-if TYPE_CHECKING:
-    from monkey_collector.pipeline.screen_matching.screen_matcher import ElementFamily
-
 # One unexplored candidate: the screen, the element, and the action to try.
 UnexploredAction = tuple[SemanticState, SemanticElement, str]
 
 
 class Memory:
-    """Tracks explored actions, same-function groups, and the transition graph."""
+    """Tracks explored actions and the transition graph."""
 
     def __init__(self) -> None:
         self._states: dict[str, SemanticState] = {}
         # page_key -> set of (element_signature, action_type)
         self._explored: dict[str, set[tuple[str, str]]] = {}
         self._nav_failed: dict[str, set[tuple[str, str]]] = {}
-        # page_key -> list of same-function signature groups
-        self._groups: dict[str, list[set[str]]] = {}
         self.transition_graph = TransitionGraph()
 
     # -- observation ----------------------------------------------------------
 
-    def record_state(
-        self, state: SemanticState, families: list[ElementFamily] | None = None
-    ) -> None:
-        """Register an observed screen and compute its same-function groups once.
-
-        ``families`` (the freshly-extracted element families for a brand-new
-        page) are consumed only on the first sighting of a ``page_key``; later
-        visits / merges pass an empty list and reuse the cached groups.
-        """
+    def record_state(self, state: SemanticState) -> None:
+        """Register an observed screen."""
         self._states[state.state_str] = state
         self.transition_graph.add_state(state)
-        if state.page_key not in self._groups:
-            self._groups[state.page_key] = self._compute_groups(state, families)
 
     def record_transition(
         self,
@@ -80,13 +61,8 @@ class Memory:
         element_signature: str,
         action_type: str,
     ) -> None:
-        """Record an action as explored, extending to its same-function group."""
-        explored = self._explored.setdefault(page_key, set())
-        explored.add((element_signature, action_type))
-        for group in self._groups.get(page_key, []):
-            if element_signature in group:
-                for sibling in group:
-                    explored.add((sibling, action_type))
+        """Record an action as explored on its page."""
+        self._explored.setdefault(page_key, set()).add((element_signature, action_type))
 
     def mark_nav_failed(
         self,
@@ -121,23 +97,13 @@ class Memory:
     def explored_anywhere(self, element_signature: str, action_type: str) -> bool:
         """True if this (signature, action) was explored on *any* page this session.
 
-        Cross-page novelty signal for R1 value-guided ranking
-        (docs/research/gui-exploration-world-model.md line 161): an action whose
+        Cross-page novelty signal for R1 value-guided ranking: an action whose
         signature+type was already exercised elsewhere yields little new coverage,
         so it is down-ranked. Reads only ``_explored`` (real coverage), never
         ``_nav_failed`` (routing-only exclusions).
         """
         pair = (element_signature, action_type)
         return any(pair in explored for explored in self._explored.values())
-
-    def is_grouped(self, page_key: str, element_signature: str) -> bool:
-        """True if *element_signature* belongs to a same-function group on *page_key*.
-
-        Uniqueness signal for R1 ranking: a member of a same-function family is a
-        near-duplicate of its siblings, so exploring a group-free element first
-        reaches more distinct behaviour per step.
-        """
-        return any(element_signature in group for group in self._groups.get(page_key, []))
 
     @property
     def root_page_key(self) -> str | None:
@@ -158,28 +124,3 @@ class Memory:
 
     def _blocked_pairs(self, page_key: str) -> set[tuple[str, str]]:
         return self._explored.get(page_key, set()) | self._nav_failed.get(page_key, set())
-
-    def _compute_groups(
-        self, state: SemanticState, families: list[ElementFamily] | None
-    ) -> list[set[str]]:
-        """Resolve same-function signature groups from extractor families.
-
-        Each family's ``element_index`` members are mapped to their element
-        signatures (encoded ``index`` aligns 1:1 with ``SemanticElement.index``);
-        a family of ≥2 distinct signatures becomes a compression group. Returns
-        ``[]`` when no families are available (no matcher / merge revisit), so
-        exploration degrades to pure unexplored-first.
-        """
-        if not families:
-            return []
-        index_to_signature = {element.index: element.signature for element in state.elements}
-        groups: list[set[str]] = []
-        for family in families:
-            signatures = {
-                index_to_signature[index]
-                for index in family.element_index
-                if index in index_to_signature
-            }
-            if len(signatures) >= 2:
-                groups.append(signatures)
-        return groups

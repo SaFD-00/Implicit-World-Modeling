@@ -6,7 +6,7 @@ import csv
 import hashlib
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
@@ -142,7 +142,6 @@ class PageNode:
     # Element-set matching (live ScreenMatcher). Empty for the structural
     # (offline / degrade) path so old page_graph.json files load unchanged.
     page_key: str = ""
-    element_names: list[str] = field(default_factory=list)
     # Distinct visual states persisted under data/{package}/pages/{page_key}/ —
     # bumped via record_observation()/next_observation_num() (0 default so old
     # page_graph.json files load unchanged).
@@ -206,7 +205,6 @@ class PageGraph:
             first_seen_step=step,
             screenshot_step=step,
             page_key=match.page_key,
-            element_names=[f.name for f in match.families],
         )
         self.nodes.append(node)
         self._key_to_id[match.page_key] = page_id
@@ -362,7 +360,6 @@ class PageGraph:
                 screenshot_step=nd["screenshot_step"],
                 visit_count=nd.get("visit_count", 1),
                 page_key=nd.get("page_key", ""),
-                element_names=nd.get("element_names", []),
                 observation_count=nd.get("observation_count", 0),
             )
             graph.nodes.append(node)

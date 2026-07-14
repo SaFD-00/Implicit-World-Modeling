@@ -1,9 +1,9 @@
-"""Integration tests for LLMGuidedExplorer orchestration over mock ADB."""
+"""Integration tests for CoverageGuidedExplorer orchestration over mock ADB."""
 
 import pytest
 
 from monkey_collector.domain.actions import Tap
-from monkey_collector.pipeline.exploration import Explorer, LLMGuidedExplorer
+from monkey_collector.pipeline.exploration import CoverageGuidedExplorer, Explorer
 from monkey_collector.xml.ui_tree import UITree
 from tests.fixtures.xml_samples import INPUT_ONLY_XML, SIMPLE_XML
 
@@ -13,11 +13,11 @@ PACKAGE = "com.test.app"
 pytestmark = pytest.mark.integration
 
 
-def _explorer(mock_adb) -> LLMGuidedExplorer:
-    return LLMGuidedExplorer(mock_adb, config={"seed": 42})
+def _explorer(mock_adb) -> CoverageGuidedExplorer:
+    return CoverageGuidedExplorer(mock_adb, config={"seed": 42})
 
 
-def _on_screen(explorer: LLMGuidedExplorer):
+def _on_screen(explorer: CoverageGuidedExplorer):
     explorer.set_screen_context(SIMPLE_XML, ACTIVITY, PACKAGE)
     return UITree.from_xml_string(SIMPLE_XML)
 
@@ -40,7 +40,7 @@ def test_explores_distinct_elements_then_backs_off(mock_adb):
     assert "press_back" in types
 
 
-def _on_input_only_screen(explorer: LLMGuidedExplorer):
+def _on_input_only_screen(explorer: CoverageGuidedExplorer):
     explorer.set_screen_context(INPUT_ONLY_XML, ACTIVITY, PACKAGE)
     return UITree.from_xml_string(INPUT_ONLY_XML)
 

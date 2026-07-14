@@ -4,7 +4,7 @@ from disk after a session resume.
 Before this module existed, resuming a session unconditionally reset the
 matcher (``collector.py``), silently re-discovering every previously-seen page
 as "new" again even though the durable ``data/{package}/pages/`` tree already
-held its anchors, elements, and observations. This module closes that gap: it
+held its page identity and observations. This module closes that gap: it
 walks that tree (via :class:`~monkey_collector.storage.DataWriter`) and
 repopulates the matcher's registry, structural exact-match cache
 (``_fp_to_key``), and per-page observation counters — the luminance

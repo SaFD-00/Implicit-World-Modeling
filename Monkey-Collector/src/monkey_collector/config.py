@@ -43,7 +43,6 @@ _BUILTIN_DEFAULTS: dict = {
     },
     "llm": {
         "input_mode": "api",
-        "element_extraction": False,
     },
     "screen_matching": {
         "luminance_prefilter": True,
@@ -117,9 +116,6 @@ class CollectionConfig:
 @dataclass
 class LlmConfig:
     input_mode: str = "api"       # api | random
-    # Default OFF: the LLM is used for input-text generation only. Turn on to
-    # add LLM element extraction + element-set screen matching.
-    element_extraction: bool = False
 
 
 @dataclass
@@ -304,7 +300,6 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_COLLECTION_MAX_ACTION_REPEATS",         "collection",      "max_action_repeats",        "int"),
         ("MC_COLLECTION_MAX_STEPS_WITHOUT_NEW_PAGE", "collection",      "max_steps_without_new_page", "int"),
         ("MC_LLM_INPUT_MODE",                        "llm",             "input_mode",                "str"),
-        ("MC_LLM_ELEMENT_EXTRACTION",                "llm",             "element_extraction",        "bool"),
         ("MC_SCREEN_MATCHING_LUMINANCE_PREFILTER",     "screen_matching", "luminance_prefilter",       "bool"),
         ("MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD",     "screen_matching", "luminance_threshold",       "int"),
         ("MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD", "screen_matching", "screenshot_diff_threshold", "float"),
@@ -378,7 +373,6 @@ def _from_raw(raw: dict) -> RunConfig:
         ),
         llm=LlmConfig(
             input_mode=str(llm.get("input_mode", "api")),
-            element_extraction=_coerce_bool(llm.get("element_extraction", False)),
         ),
         screen_matching=ScreenMatchingConfig(
             luminance_prefilter=_coerce_bool(sm.get("luminance_prefilter", True)),
@@ -493,19 +487,12 @@ def merge_with_cli_args(config: RunConfig, args: argparse.Namespace) -> RunConfi
 
     # llm
     input_mode = getattr(args, "input_mode", None)
-    elem_extr = getattr(args, "element_extraction", None)
     if input_mode is not None:
         llm = replace(llm, input_mode=input_mode)
-    if elem_extr is not None:
-        llm = replace(llm, element_extraction=(elem_extr == "on"))
-    # deprecated --screen-grouping alias
-    screen_grouping = getattr(args, "screen_grouping", None)
-    if screen_grouping == "off":
-        llm = replace(llm, element_extraction=False)
 
     # screen_matching
-    # luminance prefilter: --luminance-prefilter uses the {on,off} string sentinel
-    # (like --element-extraction); the rest are typed scalars.
+    # luminance prefilter: --luminance-prefilter uses the {on,off} string sentinel;
+    # the rest are typed scalars.
     lum = getattr(args, "luminance_prefilter", None)
     lt = getattr(args, "luminance_threshold", None)
     sdt = getattr(args, "screenshot_diff_threshold", None)

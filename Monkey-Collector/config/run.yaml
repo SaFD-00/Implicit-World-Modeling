@@ -11,7 +11,7 @@
 # collection.budget_mode=time, collection.max_duration=2h,
 # collection.signal_timeout_sec=12, collection.poke_delay_sec=1.5,
 # collection.max_action_repeats=8,
-# collection.max_steps_without_new_page=98, llm.element_extraction=false,
+# collection.max_steps_without_new_page=98,
 # screen_matching.luminance_prefilter=true, screen_matching.persist_filtered=true,
 # screen_matching.bm25_top_k=5, screen_matching.element_criterion=diff,
 # screen_matching.element_diff_max=5, screen_matching.element_jaccard_min=0.5,
@@ -79,15 +79,9 @@ llm:
   # Input text generation mode. Options: api | random
   #   api    = OpenRouter LLM (requires OPENROUTER_API_KEY)
   #   random = hardcoded fallback (no API cost)
+  # The LLM is used for input-text generation ONLY.
   # Env: MC_LLM_INPUT_MODE
   input_mode: api
-  # LLM element extraction + element-set screen matching. Options: true | false
-  # Default false: the LLM is used for input-text generation ONLY. When true,
-  # each screen is element-extracted (one LLM call) for element-set page identity;
-  # disabled automatically when OPENROUTER_API_KEY is unset. Page/observation
-  # dedup keeps working either way via the luminance/structural prefilter below.
-  # Env: MC_LLM_ELEMENT_EXTRACTION
-  element_extraction: false
 
 screen_matching:
   # Luminance prefilter (MobileGPT-V2 port). Governs the tighter OBSERVATION

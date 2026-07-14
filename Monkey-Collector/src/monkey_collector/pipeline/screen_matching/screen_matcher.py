@@ -49,11 +49,8 @@ OTHER pair — and the whole knob-off path — takes the unchanged route above; 
 thresholds are the same ones, reused. BM25 retrieval, the structural pre-filter,
 and observation identity are untouched by the canvas path.
 
-This engine is LLM-FREE. LLM element extraction is now OPTIONAL enrichment: when
-an *extractor* is supplied (``llm.element_extraction`` on), a NEW page runs ONE
-extract to populate ``ScreenMatch.families`` for the explorer's same-function
-compression; without one (the default) families are empty and matching relies
-solely on the element-line document. Matching itself never calls the LLM.
+This engine is LLM-FREE: page identity relies solely on the element-line
+document plus the gates above. Matching never calls the LLM.
 
 Beyond PAGE identity (above), a MERGE also resolves a second-level OBSERVATION
 identity: given the page is already fixed, which of its stored visual states (if
@@ -76,19 +73,12 @@ the near-dup fingerprint is not re-appended to the capped luminance ring. With
 the flag off the historical no-write-on-reuse behaviour is preserved.
 
 The emitted ``page_key`` drives BOTH the ``page_graph.json`` node identity and
-the exploration abstract page. On a NEW page ``families`` carries the
-freshly-extracted, current-index element families (when an extractor is present)
-that feed the explorer's same-function compression. On a merge / structural
-revisit ``families`` is also populated — the matched page's stored elements
-re-grounded on the current screen (their anchors re-matched here) — but the
-explorer ignores them (the page's groups were computed on first sighting); it is
-empty when the page was minted without an extractor.
+the exploration abstract page.
 """
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -110,46 +100,16 @@ from monkey_collector.pipeline.screen_matching.page_knowledge import (
     PageKnowledge,
 )
 from monkey_collector.pipeline.screen_matching.ui_attributes import (
-    UIAttributes,
     extract_interactable_indexes,
-    find_matching_node,
-    get_ui_key_attrib,
-    text_blind_requirements,
 )
 
 if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
 
-    from monkey_collector.llm.element_extractor import ElementExtractor, ExtractedElement
-
-
-@dataclass(frozen=True)
-class ElementFamily:
-    """A same-function element family with current-screen indices (for Memory).
-
-    ``description`` / ``parameters`` carry the LLM's extracted semantics through
-    to ``{step}_elements.json`` (they originate on :class:`ExtractedElement` and
-    are filled at family-build time; both are appended at the END to preserve the
-    positional construction and the dataclass default-ordering rule).
-    """
-
-    name: str
-    element_index: list[int]
-    key_element_index: list[int]
-    description: str = ""
-    parameters: dict = field(default_factory=dict)
-
 
 @dataclass(frozen=True)
 class ScreenMatch:
-    """Outcome of matching one screen: its page identity and its element families.
-
-    ``families`` is populated on a new page (freshly-extracted, current-index
-    families when an extractor is present, else empty) and on a merge / structural
-    revisit (the matched page's stored elements re-grounded on the current
-    screen). The explorer consumes it only on the first sighting of a
-    ``page_key``; on a revisit it reaches ``{step}_elements.json`` but not
-    same-function compression.
+    """Outcome of matching one screen: its page identity.
 
     ``pending`` flags a screen the matcher declined to register (a loading /
     splash frame with no interactable): it carries no ``page_key`` and the
@@ -166,8 +126,6 @@ class ScreenMatch:
     page_key: str
     is_new_page: bool
     match_type: str
-    families: list[ElementFamily] = field(default_factory=list)
-    page_description: str = ""
     pending: bool = False
     observation_num: int = 0
     is_new_observation: bool = True
@@ -183,36 +141,12 @@ def package_of(activity: str) -> str:
     return (activity or "").strip().split("/", 1)[0].strip()
 
 
-def _families_from_elements(elements: list[ExtractedElement]) -> list[ElementFamily]:
-    """Convert ExtractedElements to an ElementFamily list, copying indices verbatim.
-
-    ``name`` / ``description`` / ``parameters`` carry the LLM semantics; the
-    indices are copied as-is. Use this ONLY for elements whose indices already
-    live in the CURRENT screen's index space (a fresh extract). A stored page's
-    elements on a revisit carry first-sighting indices and must be re-grounded
-    via :meth:`ScreenMatcher._remap_families` instead.
-    """
-    return [
-        ElementFamily(
-            name=e.name,
-            element_index=list(e.element_index),
-            key_element_index=list(e.key_element_index),
-            description=e.description,
-            parameters=dict(e.parameters),
-        )
-        for e in elements
-    ]
-
-
 class ScreenMatcher:
     """BM25 page identifier with conjunctive element + pixel verification.
 
     Page identity is decided WITHOUT the LLM: serialize the encoded XML to an
     element-line document, retrieve BM25 top-K candidates, and confirm the first
-    candidate that passes both the element criterion and the pixel gate. When an
-    *extractor* is supplied (``llm.element_extraction`` on) a NEW page also runs
-    one element extraction to populate ``families`` for exploration; without one
-    (the default) families are empty and identity relies solely on element-lines.
+    candidate that passes both the element criterion and the pixel gate.
     """
 
     # Per-page luminance-fingerprint observation cap. Bounds the observation
@@ -221,7 +155,6 @@ class ScreenMatcher:
 
     def __init__(
         self,
-        extractor: ElementExtractor | None,
         luminance_prefilter: bool = False,
         luminance_threshold: int = 10,
         screenshot_diff_threshold: float = 0.02,
@@ -236,7 +169,6 @@ class ScreenMatcher:
         canvas_min_area_frac: float = 0.7,
         package_guard: bool = True,
     ):
-        self._extractor = extractor
         # Luminance knobs. ``screenshot_diff_threshold`` governs OBSERVATION
         # identity (the tighter per-page dedup); the PAGE-level pixel gate uses
         # ``page_pixel_diff_threshold``. All image work is skipped when
@@ -337,24 +269,15 @@ class ScreenMatcher:
                 f"screen_match: structural prefilter hit page={cached_key} obs={cached_obs}"
             )
             cached_page = self._registry.get(cached_key)
-            try:
-                c_tree = ET.fromstring(encoded_xml)
-            except ET.ParseError:
-                c_tree = None
-            fams = (
-                self._remap_families(c_tree, cached_page)
-                if (c_tree is not None and cached_page is not None)
-                else []
-            )
             if self._persist_filtered and cached_page is not None:
                 new_obs = self._allocate_observation(cached_page, current_feat, append_luma=False)
                 self._fp_to_key[fp_key] = (cached_key, new_obs)
                 return ScreenMatch(
-                    cached_key, is_new_page=False, match_type="STRUCTURAL_IDENTICAL", families=fams,
+                    cached_key, is_new_page=False, match_type="STRUCTURAL_IDENTICAL",
                     observation_num=new_obs, is_new_observation=True,
                 )
             return ScreenMatch(
-                cached_key, is_new_page=False, match_type="STRUCTURAL_IDENTICAL", families=fams,
+                cached_key, is_new_page=False, match_type="STRUCTURAL_IDENTICAL",
                 observation_num=cached_obs, is_new_observation=False,
             )
 
@@ -364,11 +287,6 @@ class ScreenMatcher:
         if not extract_interactable_indexes(encoded_xml):
             logger.debug("screen_match: no interactable, declining (pending)")
             return ScreenMatch("", is_new_page=False, match_type="PENDING_EMPTY", pending=True)
-
-        try:
-            tree = ET.fromstring(encoded_xml)
-        except ET.ParseError:
-            tree = None
 
         # 1. Serialize the encoded XML to the element-line document (BM25 doc),
         # plus the text-blind projection + canvas flag the canvas path needs.
@@ -383,8 +301,7 @@ class ScreenMatcher:
         # session (empty registry) is likewise a new page.
         if not lines or len(self._registry) == 0:
             return self._new_page(
-                fp_key, encoded_xml, tree, lines, current_feat, cur_canvas, blind_lines,
-                activity,
+                fp_key, lines, current_feat, cur_canvas, blind_lines, activity,
             )
 
         # 2-3. BM25 top-K retrieval → same-package guard, then the conjunctive
@@ -412,20 +329,19 @@ class ScreenMatcher:
                 page_key, current_feat, allow_reuse=True,
             )
             self._fp_to_key[fp_key] = (page_key, obs_num)
-            fams = self._remap_families(tree, page) if tree is not None else []
             logger.info(
                 f"screen_match: BM25_MERGE page={page_key} "
                 f"|cur|={len(cur_set)} |cand|={len(page.element_lines)} "
                 f"crit={self._element_criterion} canvas_pair={canvas_pair}"
             )
             return ScreenMatch(
-                page_key, is_new_page=False, match_type="BM25_MERGE", families=fams,
+                page_key, is_new_page=False, match_type="BM25_MERGE",
                 observation_num=obs_num, is_new_observation=is_new_obs,
             )
 
         # No candidate confirmed → a genuinely new page.
         return self._new_page(
-            fp_key, encoded_xml, tree, lines, current_feat, cur_canvas, blind_lines, activity,
+            fp_key, lines, current_feat, cur_canvas, blind_lines, activity,
         )
 
     # -- verification ---------------------------------------------------------
@@ -512,49 +428,6 @@ class ScreenMatcher:
             for _, stored in page.luminance_features
         ) < self._page_pixel_diff_threshold
 
-    # -- family regrounding ---------------------------------------------------
-
-    @staticmethod
-    def _matched_indexes(tree: ET.Element, ui: UIAttributes) -> list[int]:
-        """Indices of nodes matching *ui* on the current tree (text-blind)."""
-        req = text_blind_requirements(ui.to_dict())
-        out: list[int] = []
-        for node in find_matching_node(tree, req):
-            idx = node.attrib.get("index")
-            if idx is not None:
-                out.append(int(idx))
-        return out
-
-    def _remap_families(self, tree: ET.Element, page: PageKnowledge) -> list[ElementFamily]:
-        """Re-ground a stored page's elements on the CURRENT screen.
-
-        On a merge / structural revisit the page_key is reused, but the stored
-        ``element_index`` / ``key_element_index`` live in the page's
-        FIRST-SIGHTING index space, which need not match the current step's
-        encoded XML. Re-match each element's anchor fingerprints
-        (``page.key_elements[name]``) against the current ``tree`` to recover
-        current-screen indices. Only anchors are stored, so ``element_index`` is
-        approximated by the anchor indices; an element with no current match (not
-        rendered on this screen) is dropped. Returns ``[]`` for a page minted
-        without an extractor (no stored elements).
-        """
-        fams: list[ElementFamily] = []
-        for e in page.elements:
-            anchors = page.key_elements.get(e.name, [])
-            cur = sorted({mi for ui in anchors for mi in self._matched_indexes(tree, ui)})
-            if not cur:
-                continue
-            fams.append(
-                ElementFamily(
-                    name=e.name,
-                    element_index=cur,
-                    key_element_index=cur,
-                    description=e.description,
-                    parameters=dict(e.parameters),
-                )
-            )
-        return fams
-
     # -- observation identity -------------------------------------------------
 
     def _page_luminance_lookup(self, page: PageKnowledge, feat: PILImage) -> int | None:
@@ -628,8 +501,6 @@ class ScreenMatcher:
     def _new_page(
         self,
         fp_key: tuple[str, str],
-        encoded_xml: str,
-        tree: ET.Element | None,
         lines: list[str],
         current_feat: PILImage | None = None,
         is_canvas: bool = False,
@@ -637,12 +508,6 @@ class ScreenMatcher:
         activity: str = "",
     ) -> ScreenMatch:
         """Register a fresh page; add its element-line document to the BM25 corpus.
-
-        With an extractor (``llm.element_extraction`` on), run ONE extract to
-        populate the page's elements + anchor fingerprints and the returned
-        families (the explorer's same-function grouping). Without one (default),
-        the page carries no elements/anchors and families are empty — matching
-        re-identifies it via BM25 + element/pixel only, which needs neither.
 
         The BM25 corpus keeps the UNBLINDED document: retrieval is not the
         bottleneck the canvas path fixes (map candidates already surface in the
@@ -652,32 +517,9 @@ class ScreenMatcher:
         page_key = str(self._counter)
         self._counter += 1
 
-        elements: list[ExtractedElement] = []
-        key_elements: dict[str, list[UIAttributes]] = {}
-        extra_uis: list[UIAttributes] = []
-
-        if self._extractor is not None:
-            elements = self._extractor.extract(encoded_xml, known_elements=[])
-            accounted: set[int] = set()
-            for el in elements:
-                attrs = [
-                    UIAttributes.from_attrib_dict(get_ui_key_attrib(i, encoded_xml))
-                    for i in el.key_element_index
-                ]
-                if attrs:
-                    key_elements[el.name] = attrs
-                accounted.update(el.key_element_index)
-            leftover = sorted(set(extract_interactable_indexes(encoded_xml)) - accounted)
-            extra_uis = [
-                UIAttributes.from_attrib_dict(get_ui_key_attrib(i, encoded_xml)) for i in leftover
-            ]
-
         self._registry.add(
             PageKnowledge(
                 page_key=page_key,
-                elements=elements,
-                key_elements=key_elements,
-                extra_uis=extra_uis,
                 element_lines=lines,
                 is_canvas=is_canvas,
                 element_lines_blind=list(blind_lines or []),
@@ -690,13 +532,9 @@ class ScreenMatcher:
         # first-sighting luminance fingerprint (no-op when the prefilter is off).
         obs_num, is_new_obs = self._record_observation(page_key, current_feat, allow_reuse=False)
         self._fp_to_key[fp_key] = (page_key, obs_num)
-        logger.debug(
-            f"screen_match: new page={page_key} elements={[e.name for e in elements]} "
-            f"lines={len(lines)}"
-        )
+        logger.debug(f"screen_match: new page={page_key} lines={len(lines)}")
 
-        families = _families_from_elements(elements)
         return ScreenMatch(
-            page_key, is_new_page=True, match_type="NEW", families=families,
+            page_key, is_new_page=True, match_type="NEW",
             observation_num=obs_num, is_new_observation=is_new_obs,
         )

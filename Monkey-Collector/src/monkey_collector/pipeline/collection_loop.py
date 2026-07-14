@@ -768,15 +768,14 @@ def _process_xml_signal(
     previous_page_id = state.current_page_id
     pages_before = len(state.page_graph.nodes)
 
-    # Cost attribution covers every LLM consumer this step (element extraction
-    # in the matcher + input-text generation); set the step before the matcher
-    # makes any call.
+    # Cost attribution covers the only LLM consumer this step (input-text
+    # generation); set the step before it makes any call.
     if collector._llm_client is not None:
         collector._llm_client.set_step(state.step)
 
-    # Page identity. With a ScreenMatcher, element-set matching decides the page
-    # (and feeds the explorer's same-function compression); without one, fall
-    # back to the structural-fingerprint identity (byte-for-byte legacy path).
+    # Page identity. With a ScreenMatcher, element-set matching decides the page;
+    # without one, fall back to the structural-fingerprint identity (byte-for-byte
+    # legacy path).
     # Alongside page identity, resolve OBSERVATION identity: which of the
     # page's stored visual states (if any) this screen matches — is_new_observation
     # gates whether the save block below writes new observation files at all.
@@ -806,7 +805,7 @@ def _process_xml_signal(
             state.page_graph.record_observation(
                 state.current_page_id, match.is_new_observation,
             )
-            collector.explorer.set_match_context(match.page_key, match.families)
+            collector.explorer.set_match_context(match.page_key)
             page_key = match.page_key
             observation_num = match.observation_num
             is_new_observation = match.is_new_observation

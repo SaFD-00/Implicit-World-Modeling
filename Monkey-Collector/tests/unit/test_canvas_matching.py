@@ -80,7 +80,7 @@ def _enc(raw):
 
 def _matcher(**kw):
     """Default-threshold matcher (element_diff_max=5, as shipped), luminance off."""
-    return ScreenMatcher(None, luminance_prefilter=True, **kw)
+    return ScreenMatcher(luminance_prefilter=True, **kw)
 
 
 def _jpeg(color, size=(40, 80)):

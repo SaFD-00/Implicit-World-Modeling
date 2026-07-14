@@ -20,21 +20,15 @@ def cmd_run(args: argparse.Namespace) -> None:
     from monkey_collector.config import load_run_config, merge_with_cli_args
     from monkey_collector.domain.activity_coverage import ActivityCoverageTracker
     from monkey_collector.domain.cost_tracker import CostTracker
-    from monkey_collector.llm import create_element_extractor, create_llm_client
+    from monkey_collector.llm import create_llm_client
     from monkey_collector.pipeline.collector import Collector
-    from monkey_collector.pipeline.exploration import LLMGuidedExplorer
+    from monkey_collector.pipeline.exploration import CoverageGuidedExplorer
     from monkey_collector.pipeline.screen_matching import create_screen_matcher
     from monkey_collector.pipeline.text_generator import create_text_generator
     from monkey_collector.storage import DataWriter
     from monkey_collector.tcp_server import CollectionServer
 
     # Resolve config: builtin defaults → run.yaml → MC_* env → CLI flags.
-    # --screen-grouping deprecation is honoured by merge_with_cli_args; warn here.
-    if getattr(args, "screen_grouping", None) == "off":
-        logger.warning(
-            "--screen-grouping is deprecated; use --element-extraction. "
-            "Treating --screen-grouping off as --element-extraction off."
-        )
     cfg = load_run_config(path=getattr(args, "config", None))
     cfg = merge_with_cli_args(cfg, args)
     logger.info(
@@ -44,7 +38,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         f"max_steps={cfg.collection.max_steps}, seed={cfg.collection.seed}, "
         f"delay_ms={cfg.collection.action_delay_ms}, port={cfg.collection.port}, "
         f"input_mode={cfg.llm.input_mode}, "
-        f"element_extraction={cfg.llm.element_extraction}, "
         f"luminance_prefilter={cfg.screen_matching.luminance_prefilter}, "
         f"persist_filtered={cfg.screen_matching.persist_filtered}"
     )
@@ -65,26 +58,18 @@ def cmd_run(args: argparse.Namespace) -> None:
     activity_tracker = ActivityCoverageTracker()
     cost_tracker = CostTracker()
 
-    element_extraction_on = cfg.llm.element_extraction
-
-    # Single shared OpenRouter client reused by input-text generation and
-    # element extraction. Created only when an LLM feature is requested; returns
-    # None (→ random text / structural-fingerprint matching) when
-    # OPENROUTER_API_KEY is unset.
+    # Single OpenRouter client, used for input-text generation only. Created
+    # only when requested; returns None (→ random text) when OPENROUTER_API_KEY
+    # is unset.
     llm_client = None
-    if cfg.llm.input_mode == "api" or element_extraction_on:
+    if cfg.llm.input_mode == "api":
         llm_client = create_llm_client(cost_tracker=cost_tracker)
 
     text_gen = create_text_generator(
         mode=cfg.llm.input_mode, seed=cfg.collection.seed, llm_client=llm_client,
     )
-    # Page identity is decided by the BM25 matcher (LLM-free). With element
-    # extraction on, one ElementExtractor additionally enriches a new page's
-    # families (exploration same-function grouping). With it off (extractor
-    # None), families are empty — see create_screen_matcher.
-    extractor = create_element_extractor(llm_client) if element_extraction_on else None
+    # Page identity is decided by the BM25 matcher (LLM-free).
     screen_matcher = create_screen_matcher(
-        extractor,
         luminance_prefilter=cfg.screen_matching.luminance_prefilter,
         luminance_threshold=cfg.screen_matching.luminance_threshold,
         screenshot_diff_threshold=cfg.screen_matching.screenshot_diff_threshold,
@@ -99,7 +84,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         canvas_min_area_frac=cfg.screen_matching.canvas_min_area_frac,
         package_guard=cfg.screen_matching.package_guard,
     )
-    explorer = LLMGuidedExplorer(
+    explorer = CoverageGuidedExplorer(
         adb,
         text_generator=text_gen,
         config={
@@ -543,32 +528,12 @@ def main() -> None:
         help="Input text generation mode: 'api' (LLM) or 'random' (hardcoded)",
     )
     p.add_argument(
-        "--element-extraction",
-        choices=["on", "off"],
-        default=None,
-        help=(
-            "LLM element extraction + element-set screen matching. 'on' extracts "
-            "each screen's elements (same-function family + representative anchor) "
-            "in one call and uses them as page identity, saving "
-            "xml/{step}_elements.json (requires OPENROUTER_API_KEY; auto-disabled "
-            "to structural-fingerprint matching when no client is available). "
-            "'off' uses structural matching only."
-        ),
-    )
-    p.add_argument(
-        "--screen-grouping",
-        choices=["on", "off"],
-        default=None,
-        help="Deprecated alias for --element-extraction (off disables it).",
-    )
-    p.add_argument(
         "--luminance-prefilter",
         choices=["on", "off"],
         default=None,
         help=(
             "Stage-0 luminance prefilter: dedup a near-pixel-identical screen to a "
-            "stored page with no LLM call (default on; runs standalone even with "
-            "--element-extraction off, keeping page/observation dedup)"
+            "stored page with no LLM call (default on)"
         ),
     )
     p.add_argument(

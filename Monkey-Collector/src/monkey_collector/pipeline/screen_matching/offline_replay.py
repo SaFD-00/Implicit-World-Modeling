@@ -90,7 +90,6 @@ def _build_matcher(canvas_merge: bool = True, package_guard: bool = True) -> Scr
     shipped configuration. Sweeping them independently isolates what each does.
     """
     return ScreenMatcher(
-        extractor=None,
         luminance_prefilter=True,
         luminance_threshold=10,
         screenshot_diff_threshold=0.02,

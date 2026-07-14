@@ -8,9 +8,7 @@ existing XML utilities instead of re-deriving a view hierarchy:
                     get different ``state_str``.
 - ``structure_str`` content-free identity (layout only) — like the reference's
                     ``text_representation_frame``; the abstract-page key.
-- ``elements``      interactable elements keyed by **encoded XML index** so they
-                    line up 1:1 with :class:`ScreenGrouper` output, which is what
-                    makes same-function grouping applicable to exploration.
+- ``elements``      interactable elements keyed by **encoded XML index**.
 
 Coordinates for each element are recovered from the ``index -> bounds`` map
 returned alongside the encoded XML, so an element's ``center`` is always
@@ -40,7 +38,7 @@ SCROLL = "scroll"
 class SemanticElement:
     """One interactable element of a screen, identified independently of layout.
 
-    ``index`` is the encoded-XML index (aligned with ScreenGrouper groups).
+    ``index`` is the encoded-XML index.
     ``signature`` is a coordinate-free identity used for coverage tracking and
     navigation re-matching, so it survives scrolling and re-rendering.
     """
@@ -151,9 +149,8 @@ def _extract_scrollables(raw_xml: str) -> tuple[SemanticElement, ...]:
 
     The encoder collapses single-child scroll containers, dropping the
     ``data-scroll`` marker, so scrollables are taken from :class:`UITree`
-    instead. They are not part of same-function grouping (a screen has only a
-    handful), so they use **negative indices** to stay clear of the encoded
-    index space that ScreenGrouper references.
+    instead. A screen has only a handful, so they use **negative indices**
+    to stay clear of the encoded index space.
     """
     tree = UITree.from_xml_string(raw_xml)
     scrollables: list[SemanticElement] = []

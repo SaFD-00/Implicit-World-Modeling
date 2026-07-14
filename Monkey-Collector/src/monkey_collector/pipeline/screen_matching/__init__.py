@@ -3,13 +3,10 @@
 Serialize the encoded XML to an element-line document, retrieve BM25 top-K
 candidate pages, and confirm the first candidate that passes a conjunctive gate
 (element criterion AND pixel gate). This decides page identity — LLM-free — for
-both the page graph and exploration. LLM element extraction is optional
-enrichment (populates ``families`` on a new page when enabled).
+both the page graph and exploration.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from monkey_collector.pipeline.screen_matching.page_knowledge import (
     KnowledgeRegistry,
@@ -19,29 +16,21 @@ from monkey_collector.pipeline.screen_matching.rehydrate import (
     rehydrate_screen_matcher,
 )
 from monkey_collector.pipeline.screen_matching.screen_matcher import (
-    ElementFamily,
     ScreenMatch,
     ScreenMatcher,
 )
-from monkey_collector.pipeline.screen_matching.ui_attributes import UIAttributes
-
-if TYPE_CHECKING:
-    from monkey_collector.llm.element_extractor import ElementExtractor
 
 __all__ = [
     "ScreenMatcher",
     "ScreenMatch",
-    "ElementFamily",
     "PageKnowledge",
     "KnowledgeRegistry",
-    "UIAttributes",
     "create_screen_matcher",
     "rehydrate_screen_matcher",
 ]
 
 
 def create_screen_matcher(
-    extractor: ElementExtractor | None,
     luminance_prefilter: bool = False,
     luminance_threshold: int = 10,
     screenshot_diff_threshold: float = 0.02,
@@ -59,16 +48,14 @@ def create_screen_matcher(
     """Build a :class:`ScreenMatcher`, or ``None`` when nothing distinguishes pages.
 
     The BM25 matcher decides page identity without the LLM (element-line
-    document + element/pixel verification). An *extractor* adds optional
-    families enrichment. ``None`` is returned only when there is neither an
-    extractor nor the luminance prefilter — the historical opt-out that routes
-    page identity to the structural ``page_graph.get_or_create_page`` fallback.
+    document + element/pixel verification). ``None`` is returned only when the
+    luminance prefilter is off — the historical opt-out that routes page
+    identity to the structural ``page_graph.get_or_create_page`` fallback.
     (BM25 needs no dependency, so this gating is conservative, not required.)
     """
-    if extractor is None and not luminance_prefilter:
+    if not luminance_prefilter:
         return None
     return ScreenMatcher(
-        extractor,
         luminance_prefilter=luminance_prefilter,
         luminance_threshold=luminance_threshold,
         screenshot_diff_threshold=screenshot_diff_threshold,

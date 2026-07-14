@@ -1,8 +1,10 @@
-"""LLM-guided exploration engine and the Explorer contract it fulfils.
+"""Coverage-guided exploration engine and the Explorer contract it fulfils.
 
-``LLMGuidedExplorer`` replaced a legacy weighted-random explorer while keeping
-the same public surface (the :class:`Explorer` Protocol) so the collection
-loop, recovery helpers, and tests are unaffected.
+``CoverageGuidedExplorer`` is a port of the reference ``LLM-Explorer``
+algorithm; despite the reference name, it does not call an LLM at runtime.
+It replaced a legacy weighted-random explorer while keeping the same public
+surface (the :class:`Explorer` Protocol) so the collection loop, recovery
+helpers, and tests are unaffected.
 
 Per step, :meth:`select_action` orchestrates:
   1. continue an in-progress navigation plan (one queued step), else
@@ -10,9 +12,9 @@ Per step, :meth:`select_action` orchestrates:
   3. plan the shortest route to an unexplored action elsewhere and start it, else
   4. fall back to back (or a safe tap on the first/root screen).
 
-State abstraction, coverage tracking, same-function compression, and the
-transition graph live in :class:`Memory`; multi-step routing lives in
-:class:`Navigator`. This class wires them to the device via ADB.
+State abstraction, coverage tracking, and the transition graph live in
+:class:`Memory`; multi-step routing lives in :class:`Navigator`. This class
+wires them to the device via ADB.
 """
 
 from __future__ import annotations
@@ -49,7 +51,6 @@ from monkey_collector.xml.ui_tree import UITree
 
 if TYPE_CHECKING:
     from monkey_collector.adb import AdbClient
-    from monkey_collector.pipeline.screen_matching.screen_matcher import ElementFamily
     from monkey_collector.pipeline.text_generator import TextGenerator
 
 
@@ -72,9 +73,7 @@ class Explorer(Protocol):
         self, raw_xml: str, activity: str = "", package: str = ""
     ) -> None: ...
 
-    def set_match_context(
-        self, page_key: str, families: list[ElementFamily] | None
-    ) -> None: ...
+    def set_match_context(self, page_key: str) -> None: ...
 
     def reset(self) -> None: ...
 
@@ -91,11 +90,11 @@ class Explorer(Protocol):
     def recover(self, package: str) -> None: ...
 
 
-# R1 value-guided ranking (docs/research/gui-exploration-world-model.md line 161).
-# Action-type preference: an untried tap opens the most new screens, a scroll
-# reveals off-screen frontier, a toggle/select is narrower, and a text entry is
-# the least likely to reach new pages. long_touch is not scored here — it is
-# demoted out of the pool by _pick_unexplored before ranking.
+# R1 value-guided ranking. Action-type preference: an untried tap opens the
+# most new screens, a scroll reveals off-screen frontier, a toggle/select is
+# narrower, and a text entry is the least likely to reach new pages. long_touch
+# is not scored here — it is demoted out of the pool by _pick_unexplored before
+# ranking.
 _TYPE_PRIOR: dict[str, int] = {TOUCH: 3, SCROLL: 2, SELECT: 1, SET_TEXT: 0}
 
 
@@ -104,13 +103,12 @@ def _candidate_score(
     state: SemanticState,
     element: SemanticElement,
     action_type: str,
-) -> tuple[int, int, int]:
+) -> tuple[int, int]:
     """Lexicographic value of one unexplored candidate (higher = pick sooner).
 
-    R1 replaces uniform-random selection with a deterministic 3-signal ranking
-    so each step is spent on the action most likely to reach new activity/page
-    coverage. The tuple is compared descending as ``(novelty, type_prior,
-    uniqueness)``:
+    R1 replaces uniform-random selection with a deterministic ranking so each
+    step is spent on the action most likely to reach new activity/page
+    coverage. The tuple is compared descending as ``(novelty, type_prior)``:
 
     - ``novelty``   1 if this (signature, action_type) was never explored on any
       page this session, else 0. Index-fallback signatures (``"...:@<index>"``,
@@ -119,8 +117,6 @@ def _candidate_score(
       spuriously matched. The digit check keeps a real label like ``"@home"`` from
       being mistaken for a fallback.
     - ``type_prior`` per :data:`_TYPE_PRIOR` (tap > scroll > select > set_text).
-    - ``uniqueness`` 1 if the signature is in no same-function group on this page,
-      else 0 — a group member is a near-duplicate of its siblings.
     """
     signature = element.signature
     last_segment = signature.rsplit(":", 1)[-1]
@@ -129,11 +125,10 @@ def _candidate_score(
         signature, action_type
     ) else 0
     type_prior = _TYPE_PRIOR.get(action_type, 0)
-    uniqueness = 0 if memory.is_grouped(state.page_key, signature) else 1
-    return (novelty, type_prior, uniqueness)
+    return (novelty, type_prior)
 
 
-class LLMGuidedExplorer:
+class CoverageGuidedExplorer:
     """Coverage-driven, navigation-capable explorer (LLM-Explorer port)."""
 
     def __init__(
@@ -163,9 +158,8 @@ class LLMGuidedExplorer:
         self._package = ""
 
         # Element-set match context, set by the loop (set_match_context) when a
-        # ScreenMatcher is active; "" / None drives the structural degrade path.
+        # ScreenMatcher is active; "" drives the structural degrade path.
         self._page_key = ""
-        self._families: list[ElementFamily] | None = None
 
         # Transition tracking across steps.
         self._current_state: SemanticState | None = None
@@ -187,10 +181,8 @@ class LLMGuidedExplorer:
         if package:
             self._package = package
 
-    def set_match_context(
-        self, page_key: str, families: list[ElementFamily] | None
-    ) -> None:
-        """Provide the current screen's element-set page key and (new-page) families.
+    def set_match_context(self, page_key: str) -> None:
+        """Provide the current screen's element-set page key.
 
         Called by the collection loop once per new screen after the
         ``ScreenMatcher`` runs. Sticky across no-change retries (which re-supply
@@ -198,14 +190,12 @@ class LLMGuidedExplorer:
         screen. ``page_key=""`` keeps the structural ``structure_str`` fallback.
         """
         self._page_key = page_key
-        self._families = families
 
     def reset(self) -> None:
         """Drop all per-session memory so each app session explores in isolation."""
         self._memory = Memory()
         self._navigator = Navigator(self._memory, self._rng, strategy=self._strategy)
         self._page_key = ""
-        self._families = None
         self._current_state = None
         self._last_record = None
 
@@ -224,7 +214,7 @@ class LLMGuidedExplorer:
             self._raw_xml, self._activity, self._package, page_key=self._page_key
         )
         self._current_state = current
-        self._memory.record_state(current, self._families)
+        self._memory.record_state(current)
 
         # Attribute the previous action's outcome now that we see its result.
         if self._last_record is not None:
@@ -257,13 +247,12 @@ class LLMGuidedExplorer:
     ) -> tuple[SemanticElement, str] | None:
         """Pick the highest-value unexplored action on the current screen.
 
-        R1 (docs/research/gui-exploration-world-model.md line 161): the legacy
-        uniform ``rng.choice`` wasted steps re-reaching already-seen behaviour,
-        stalling activity coverage. We keep the exact same unexplored candidate
-        set (unexplored-first, long_touch demoted) but rank within the pool by the
-        lexicographic ``_candidate_score`` (novelty > type_prior > uniqueness);
-        the seeded rng only breaks exact ties, so a fixed seed still yields a
-        fully deterministic action sequence.
+        R1: the legacy uniform ``rng.choice`` wasted steps re-reaching
+        already-seen behaviour, stalling activity coverage. We keep the exact
+        same unexplored candidate set (unexplored-first, long_touch demoted) but
+        rank within the pool by the lexicographic ``_candidate_score``
+        (novelty > type_prior); the seeded rng only breaks exact ties, so a
+        fixed seed still yields a fully deterministic action sequence.
         """
         candidates = [
             (element, action_type)

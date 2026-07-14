@@ -46,22 +46,11 @@ class TestNextFrameIndex:
         assert writer.step_count == 3
 
 
-class _FakeFamily:
-    def __init__(self, name, element_index, key_element_index, description="", parameters=None):
-        self.name = name
-        self.element_index = element_index
-        self.key_element_index = key_element_index
-        self.description = description
-        self.parameters = parameters or {}
-
-
 class _FakeMatch:
-    def __init__(self, page_key, match_type, is_new_page, families, page_description=""):
+    def __init__(self, page_key, match_type, is_new_page):
         self.page_key = page_key
         self.match_type = match_type
         self.is_new_page = is_new_page
-        self.families = families
-        self.page_description = page_description
 
 
 class TestLogEvent:
@@ -359,14 +348,7 @@ class TestSaveObservation:
     def test_writes_elements_json_with_activity(self, writer, tmp_path):
         from tests.fixtures.xml_samples import SIMPLE_XML
 
-        match = _FakeMatch(
-            page_key="page_0",
-            match_type="NEW",
-            is_new_page=True,
-            families=[
-                _FakeFamily("open_search", [1, 2], [1], description="open search")
-            ],
-        )
+        match = _FakeMatch(page_key="page_0", match_type="NEW", is_new_page=True)
         writer.save_observation(
             "page_0", 0, None, SIMPLE_XML, match=match, activity="act.Main",
         )
@@ -375,7 +357,8 @@ class TestSaveObservation:
         data = json.loads((obs_dir / "elements.json").read_text())
         assert data["page_key"] == "page_0"
         assert data["activity"] == "act.Main"
-        assert data["elements"][0]["name"] == "open_search"
+        assert data["match_type"] == "NEW"
+        assert data["is_new_page"] is True
 
     def test_second_observation_gets_own_directory(self, writer, tmp_path):
         from tests.fixtures.xml_samples import SIMPLE_XML
@@ -387,43 +370,19 @@ class TestSaveObservation:
         assert (pages_dir / "0").is_dir()
         assert (pages_dir / "1").is_dir()
 
-    def test_empty_families_writes_empty_elements(self, writer, tmp_path):
-        # elements.json serializes whatever families the match carries; an
-        # empty families list (e.g. nothing re-grounded on this screen) yields
-        # elements=[].
-        from tests.fixtures.xml_samples import SIMPLE_XML
-
-        match = _FakeMatch("page_0", "BM25_MERGE", False, families=[])
-        writer.save_observation("page_0", 0, None, SIMPLE_XML, match=match)
-
-        obs_dir = tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "0"
-        data = json.loads((obs_dir / "elements.json").read_text())
-        assert data["match_type"] == "BM25_MERGE"
-        assert data["elements"] == []
-
 
 class TestPageKnowledgePersistence:
     def test_save_and_load_round_trips(self, writer, tmp_path):
-        from monkey_collector.llm.element_extractor import ExtractedElement
         from monkey_collector.pipeline.screen_matching.page_knowledge import (
             PageKnowledge,
-        )
-        from monkey_collector.pipeline.screen_matching.ui_attributes import (
-            UIAttributes,
         )
 
         page = PageKnowledge(
             page_key="page_0",
-            elements=[
-                ExtractedElement(
-                    name="open_search", description="open search",
-                    parameters={}, element_index=[1], key_element_index=[1],
-                )
-            ],
-            key_elements={
-                "open_search": [UIAttributes(self_attrs={"tag": "button"}, parent={}, children=[])]
-            },
-            extra_uis=[],
+            element_lines=["<button>Search</button>"],
+            is_canvas=True,
+            element_lines_blind=["<button></button>"],
+            first_activity="com.test.app/.MainActivity",
         )
         path = writer.save_page_knowledge("page_0", page)
         assert (tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "page.json").exists()
@@ -434,8 +393,10 @@ class TestPageKnowledgePersistence:
         loaded = writer.load_page_knowledge("page_0")
         assert loaded is not None
         assert loaded.page_key == "page_0"
-        assert loaded.elements[0].name == "open_search"
-        assert loaded.key_elements["open_search"][0].self_attrs == {"tag": "button"}
+        assert loaded.element_lines == ["<button>Search</button>"]
+        assert loaded.is_canvas is True
+        assert loaded.element_lines_blind == ["<button></button>"]
+        assert loaded.first_activity == "com.test.app/.MainActivity"
         # luminance_features/next_observation_num are never persisted.
         assert loaded.luminance_features == []
         assert loaded.next_observation_num == 0
@@ -491,7 +452,7 @@ class TestLoadObservationHelpers:
     def test_load_elements_meta(self, writer):
         from tests.fixtures.xml_samples import SIMPLE_XML
 
-        match = _FakeMatch("page_0", "NEW", True, families=[])
+        match = _FakeMatch("page_0", "NEW", True)
         writer.save_observation(
             "page_0", 0, None, SIMPLE_XML, match=match, activity="act.Main",
         )

@@ -1,9 +1,7 @@
 """Shared OpenRouter (OpenAI-compatible Chat Completions) LLM client.
 
-A single, provider-agnostic client reused by every LLM consumer in the
-collector — input text generation (``pipeline/text_generator.py``) and screen
-element semantic grouping (``llm/screen_grouper.py``). Modeled on the
-``GPT`` helper from the reference ``LLM-Explorer`` project, but cleaned up:
+The sole consumer is input text generation (``pipeline/text_generator.py``).
+Modeled on the ``GPT`` helper from the reference ``LLM-Explorer`` project, but cleaned up:
 ``base_url`` / ``api_key`` / ``model`` are env-driven so the provider can be
 swapped without touching call sites.
 
@@ -87,12 +85,11 @@ class LLMClient:
             response_format: Optional response_format dict, e.g.
                 ``{"type": "json_object"}`` (silently ignored by providers
                 that don't support it).
-            agent: Cost-attribution label (e.g. ``"text_generator"``,
-                ``"screen_grouper"``).
+            agent: Cost-attribution label (e.g. ``"text_generator"``).
             timeout: Optional per-call override of the shared client's default
                 ``self._timeout``. Bounds a hung/slow provider connection for
                 this call only — the shared default is untouched so other
-                consumers (text generation, screen grouping) are unaffected.
+                calls (input text generation) are unaffected.
             max_retries: Optional per-call override of the SDK's default retry
                 count. Passed via ``with_options`` (the ``.create`` call does
                 not accept ``max_retries``); tighten it to keep a tight
@@ -152,7 +149,7 @@ def create_llm_client(cost_tracker: CostTracker | None = None) -> LLMClient | No
     Reads (after loading ``.env`` if available):
 
     * ``OPENROUTER_API_KEY`` — required; without it this returns ``None`` so
-      callers fall back (random text / no grouping).
+      callers fall back to random input text.
     * ``OPENROUTER_BASE_URL`` — defaults to ``https://openrouter.ai/api/v1``.
     * ``OPENROUTER_MODEL`` — defaults to ``qwen/qwen3.7-plus``.
 
@@ -170,8 +167,8 @@ def create_llm_client(cost_tracker: CostTracker | None = None) -> LLMClient | No
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
         logger.warning(
-            "OPENROUTER_API_KEY not set — LLM features disabled (random text, "
-            "no screen grouping). Set it in .env or environment to enable."
+            "OPENROUTER_API_KEY not set — LLM features disabled (input text "
+            "falls back to random). Set it in .env or environment to enable."
         )
         return None
 

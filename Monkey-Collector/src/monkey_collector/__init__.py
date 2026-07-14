@@ -7,15 +7,10 @@ from monkey_collector.domain.page_graph import (
     build_graph_from_session,
 )
 from monkey_collector.export.converter import Converter
-from monkey_collector.llm import (
-    ElementExtractor,
-    LLMClient,
-    create_element_extractor,
-    create_llm_client,
-)
+from monkey_collector.llm import LLMClient, create_llm_client
 from monkey_collector.pipeline.app_catalog import AppCatalog, AppJob
 from monkey_collector.pipeline.collector import Collector
-from monkey_collector.pipeline.exploration import Explorer, LLMGuidedExplorer
+from monkey_collector.pipeline.exploration import CoverageGuidedExplorer, Explorer
 from monkey_collector.pipeline.screen_matching import (
     ScreenMatcher,
     create_screen_matcher,
@@ -35,11 +30,10 @@ __all__ = [
     "CollectionServer",
     "Collector",
     "Converter",
+    "CoverageGuidedExplorer",
     "DataWriter",
-    "ElementExtractor",
     "Explorer",
     "LLMClient",
-    "LLMGuidedExplorer",
     "LLMTextGenerator",
     "PageGraph",
     "RandomTextGenerator",
@@ -47,7 +41,6 @@ __all__ = [
     "TextGenerator",
     "build_graph_from_new_layout",
     "build_graph_from_session",
-    "create_element_extractor",
     "create_llm_client",
     "create_screen_matcher",
 ]

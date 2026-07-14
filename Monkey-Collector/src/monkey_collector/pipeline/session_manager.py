@@ -186,8 +186,8 @@ def rehydrate_session(collector: Collector, state: CollectionState) -> None:
 def finalize_session(collector: Collector, session_id: str) -> None:
     """Finalize: notify app, save session, persist page graph, visualize.
 
-    The live page graph (``state.page_graph``, carrying ``page_key`` /
-    ``element_names`` when a ScreenMatcher is active) built during the loop is
+    The live page graph (``state.page_graph``, carrying ``page_key`` when a
+    ScreenMatcher is active) built during the loop is
     persisted as-is whenever it has content. Only a session with no live graph
     at all falls back to rebuilding one post-hoc from the session via the
     structural fingerprint — the same path the offline ``page-map`` command uses.

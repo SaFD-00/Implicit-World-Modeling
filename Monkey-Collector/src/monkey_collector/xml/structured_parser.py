@@ -523,7 +523,7 @@ def encode_with_bounds(raw_xml: str) -> tuple[str, dict[int, str]]:
     Same encoded XML as :func:`encode_to_html_xml` (bounds stripped, ``index``
     kept), plus the bounds that were stripped — keyed by the encoded ``index`` —
     so callers can recover on-screen coordinates that line up 1:1 with the
-    encoded ``index`` values (and therefore with ``ScreenGrouper`` output).
+    encoded ``index`` values.
     """
     parser = StructuredXmlParser()
     if not parser.parse(raw_xml) or parser.views is None:

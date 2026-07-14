@@ -20,7 +20,7 @@ def _build_legacy(tmp_path):
     pages = data / "pages"
 
     # page_0 with one observation (0000) carrying elements.json + raw.xml
-    _write(pages / "page_0" / "page.json", json.dumps({"page_key": "page_0", "element_names": []}))
+    _write(pages / "page_0" / "page.json", json.dumps({"page_key": "page_0"}))
     _write(pages / "page_0" / "0000" / "raw.xml", "<hierarchy/>")
     _write(
         pages / "page_0" / "0000" / "elements.json",

@@ -33,8 +33,6 @@ def _full_args(**overrides) -> argparse.Namespace:
         data_dir=None,
         runtime_dir=None,
         input_mode=None,
-        element_extraction=None,
-        screen_grouping=None,
         luminance_prefilter=None,
         luminance_threshold=None,
         screenshot_diff_threshold=None,
@@ -69,7 +67,6 @@ def test_builtin_defaults_no_yaml():
     assert cfg.collection.max_action_repeats == 8
     assert cfg.collection.max_steps_without_new_page == 98
     assert cfg.llm.input_mode == "api"
-    assert cfg.llm.element_extraction is False
     assert cfg.screen_matching.luminance_prefilter is True
     assert cfg.screen_matching.luminance_threshold == 10
     assert cfg.screen_matching.screenshot_diff_threshold == 0.02
@@ -180,15 +177,15 @@ def test_invalid_element_criterion_falls_back_to_diff(monkeypatch):
 
 
 def test_env_bool_coercion(monkeypatch):
-    monkeypatch.setenv("MC_LLM_ELEMENT_EXTRACTION", "false")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_PACKAGE_GUARD", "false")
     cfg = load_run_config(path=NONEXISTENT)
-    assert cfg.llm.element_extraction is False
+    assert cfg.screen_matching.package_guard is False
 
 
 def test_env_bool_coercion_truthy(monkeypatch):
-    monkeypatch.setenv("MC_LLM_ELEMENT_EXTRACTION", "on")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_CANVAS_MERGE", "on")
     cfg = load_run_config(path=NONEXISTENT)
-    assert cfg.llm.element_extraction is True
+    assert cfg.screen_matching.canvas_merge is True
 
 
 def test_mc_config_path_env_respected(tmp_path, monkeypatch):
@@ -240,20 +237,6 @@ def test_cli_strategy_normalised():
     assert cfg.exploration.strategy == "DFS"
 
 
-def test_cli_element_extraction_on_off():
-    cfg = load_run_config(path=NONEXISTENT)
-    off = merge_with_cli_args(cfg, _full_args(element_extraction="off"))
-    assert off.llm.element_extraction is False
-    on = merge_with_cli_args(cfg, _full_args(element_extraction="on"))
-    assert on.llm.element_extraction is True
-
-
-def test_cli_screen_grouping_off_disables_extraction():
-    cfg = load_run_config(path=NONEXISTENT)
-    cfg = merge_with_cli_args(cfg, _full_args(screen_grouping="off"))
-    assert cfg.llm.element_extraction is False
-
-
 def test_cli_invalid_strategy_falls_back_to_greedy():
     cfg = load_run_config(path=NONEXISTENT)
     cfg = merge_with_cli_args(cfg, _full_args(strategy="SIDEWAYS"))
@@ -265,18 +248,18 @@ def test_cli_invalid_strategy_falls_back_to_greedy():
 def test_no_state_leak_across_calls(monkeypatch):
     """An env override with no YAML must not mutate the module-global defaults."""
     monkeypatch.setenv("MC_COLLECTION_MAX_STEPS", "999")
-    monkeypatch.setenv("MC_LLM_ELEMENT_EXTRACTION", "false")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_PACKAGE_GUARD", "false")
     first = load_run_config(path=NONEXISTENT)
     assert first.collection.max_steps == 999
-    assert first.llm.element_extraction is False
+    assert first.screen_matching.package_guard is False
 
     # Remove the env vars; a fresh load must return the true builtin values,
     # not the previously-applied overrides.
     monkeypatch.delenv("MC_COLLECTION_MAX_STEPS")
-    monkeypatch.delenv("MC_LLM_ELEMENT_EXTRACTION")
+    monkeypatch.delenv("MC_SCREEN_MATCHING_PACKAGE_GUARD")
     second = load_run_config(path=NONEXISTENT)
     assert second.collection.max_steps == 1500
-    assert second.llm.element_extraction is False
+    assert second.screen_matching.package_guard is True
 
 
 def test_cli_full_override():

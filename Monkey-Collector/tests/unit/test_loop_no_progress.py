@@ -16,7 +16,6 @@ tight thresholds so a short fake signal stream exercises the boundary.
 
 from unittest.mock import patch
 
-from monkey_collector.domain.actions import Tap
 from monkey_collector.pipeline.collection_loop import CollectionState, run_collection_loop
 from tests.fixtures.xml_samples import COMPLEX_XML, SIMPLE_XML
 from tests.integration.test_collector import _make_collector, _make_xml_signal

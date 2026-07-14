@@ -58,7 +58,7 @@ def _enc(raw):
 
 
 def _matcher(**kw):
-    return ScreenMatcher(None, luminance_prefilter=True, **kw)
+    return ScreenMatcher(luminance_prefilter=True, **kw)
 
 
 def _drive(sm, raw, activity):

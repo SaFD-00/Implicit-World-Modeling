@@ -4,7 +4,7 @@ Directory structure::
 
     data/{package}/
     ├── pages/{page_key}/
-    │   ├── page.json                 (frozen anchors, written once at page creation)
+    │   ├── page.json                 (frozen page identity, written once at page creation)
     │   └── {observation_num}/
     │       ├── screenshot.png, raw.xml, parsed.xml, hierarchy.xml, encoded.xml, pretty.xml
     │       └── elements.json         (only when a live match produced one)
@@ -308,18 +308,7 @@ class DataWriter:
                 "page_key": match.page_key,
                 "match_type": match.match_type,
                 "is_new_page": match.is_new_page,
-                "page_description": match.page_description,
                 "activity": activity,
-                "elements": [
-                    {
-                        "name": fam.name,
-                        "description": fam.description,
-                        "parameters": dict(fam.parameters),
-                        "element_index": list(fam.element_index),
-                        "key_element_index": list(fam.key_element_index),
-                    }
-                    for fam in match.families
-                ],
             }
             with open(elements_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -356,11 +345,11 @@ class DataWriter:
         return data
 
     def save_page_knowledge(self, page_key: str, page) -> str:
-        """Write ``pages/{page_key}/page.json`` (a page's frozen anchors).
+        """Write ``pages/{page_key}/page.json`` (a page's frozen identity).
 
         *page* is a ``PageKnowledge``-like object exposing ``to_dict()``.
         Written once, at page creation — a merge never mutates a page's
-        stored anchors, so there is nothing to re-save on a revisit.
+        stored identity, so there is nothing to re-save on a revisit.
         """
         page_dir = os.path.join(self.data_session_dir, "pages", page_key)
         os.makedirs(page_dir, exist_ok=True)
@@ -370,7 +359,7 @@ class DataWriter:
         return path
 
     def load_page_knowledge(self, page_key: str):
-        """Load a page's frozen anchors back into a ``PageKnowledge``, or
+        """Load a page's frozen identity back into a ``PageKnowledge``, or
         ``None`` if ``page.json`` doesn't exist (e.g. a legacy-path page that
         never had one)."""
         from monkey_collector.pipeline.screen_matching.page_knowledge import (
