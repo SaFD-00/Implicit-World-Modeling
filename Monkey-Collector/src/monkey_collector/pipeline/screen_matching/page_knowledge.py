@@ -32,6 +32,24 @@ class PageKnowledge:
     # first sighting — the page's identity for BM25 retrieval + element-diff /
     # Jaccard verification. Serialized to page.json (additive/back-compat).
     element_lines: list[str] = field(default_factory=list)
+    # Canvas-gated text-blind matching (S-9). ``is_canvas``: this page's
+    # first-sighting raw XML showed a full-screen interactive drawing surface
+    # (canvas.is_canvas_screen) — a map/photo/game viewport. ``element_lines_blind``:
+    # the same element-line document with node TEXT emptied (attributes kept),
+    # which is what the matcher compares when BOTH sides are canvas screens, so a
+    # pan/zoom's rewritten scale-bar and distance readouts stop forking the page.
+    # Both are written at page creation and serialized to page.json
+    # (additive/back-compat, like element_lines above); they always travel
+    # together, so a page.json missing one is missing both and the resume path
+    # re-derives both from the page's first observation.
+    is_canvas: bool = False
+    element_lines_blind: list[str] = field(default_factory=list)
+    # Activity label (``package/window.Class``) this page was minted under. Only
+    # its PACKAGE part is load-bearing: it is what the BM25 merge guard compares
+    # against the current screen's, so a launcher/home frame can never merge into
+    # an app's page. Serialized to page.json (additive/back-compat); a legacy file
+    # without it is refilled on resume from the first observation's meta.
+    first_activity: str = ""
     # Stage-0 luminance prefilter observations: (observation_num, resized
     # BT.601 L-mode PIL image) pairs, one per sighting that became a new
     # observation (a reused observation is never appended again). The number
@@ -80,6 +98,9 @@ class PageKnowledge:
             },
             "extra_uis": [ui.to_dict() for ui in self.extra_uis],
             "element_lines": list(self.element_lines),
+            "is_canvas": self.is_canvas,
+            "element_lines_blind": list(self.element_lines_blind),
+            "first_activity": self.first_activity,
         }
 
     @classmethod
@@ -97,6 +118,9 @@ class PageKnowledge:
             },
             extra_uis=[UIAttributes.from_attrib_dict(u) for u in d.get("extra_uis", [])],
             element_lines=list(d.get("element_lines", [])),
+            is_canvas=bool(d.get("is_canvas", False)),
+            element_lines_blind=list(d.get("element_lines_blind", [])),
+            first_activity=str(d.get("first_activity", "")),
         )
 
 

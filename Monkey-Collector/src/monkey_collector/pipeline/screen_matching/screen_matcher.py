@@ -21,6 +21,34 @@ mechanism, run live in the collection loop. Per screen:
                     0.3). The first candidate passing BOTH merges; if none pass,
                     a fresh page is minted and added to the BM25 corpus.
 
+THE SAME-PACKAGE GUARD (``package_guard``, default on) is a veto that runs ahead
+of the whole of step 3: a candidate whose page was minted under a DIFFERENT
+package than the current screen can never merge, whatever the gates say. BM25
+verification never looked at which APP a screen belongs to (only the structural
+pre-filter keys on the activity), so a launcher/home frame sharing a few generic
+element-lines with an app screen could — and did — merge into its page (measured
+in the pre-fix live corpora: osmand armB pages 0/34, broccoli page 0). Text was
+the de-facto defence, which is why the guard covers the WHOLE merge path and not
+just the canvas pairs whose blinding removes it. The comparison is at PACKAGE
+level, not activity: the baseline deliberately merges across window labels of one
+app (DrawerLayout ↔ MapActivity), and ``page_graph._canonical_activity`` already
+holds that a window label is not an identity. Either side's package missing → the
+guard ABSTAINS (fail-open): an unparsable activity name must not fragment a page.
+
+CANVAS PAIRS (``canvas_merge``, default on) are the one exception to step 3.
+When the current screen AND the candidate page are BOTH canvas screens (a
+full-screen interactive drawing surface — ``canvas.is_canvas_screen``), the
+element criterion is evaluated on the TEXT-BLIND element-line sets and the pixel
+gate abstains. On a map, the floating scale bar / distance / address readouts
+rewrite themselves on every pan and the rendered tiles change wholesale, so both
+gates are measuring viewport state rather than page identity (measured: 95.6% /
+84.6% of osmand's map-page mints were element-blocked, at diffs far above any
+sane threshold). The two relaxations are one mechanism, not two knobs: blinding
+the text alone still leaves the pixel gate rejecting most map re-visits. Every
+OTHER pair — and the whole knob-off path — takes the unchanged route above; the
+thresholds are the same ones, reused. BM25 retrieval, the structural pre-filter,
+and observation identity are untouched by the canvas path.
+
 This engine is LLM-FREE. LLM element extraction is now OPTIONAL enrichment: when
 an *extractor* is supplied (``llm.element_extraction`` on), a NEW page runs ONE
 extract to populate ``ScreenMatch.families`` for the explorer's same-function
@@ -67,6 +95,7 @@ from loguru import logger
 
 from monkey_collector.domain.page_graph import compute_xml_fingerprint
 from monkey_collector.pipeline.screen_matching.bm25 import Bm25Index
+from monkey_collector.pipeline.screen_matching.canvas import is_canvas_screen
 from monkey_collector.pipeline.screen_matching.element_lines import (
     element_diff_count,
     element_jaccard,
@@ -144,6 +173,16 @@ class ScreenMatch:
     is_new_observation: bool = True
 
 
+def package_of(activity: str) -> str:
+    """Package part of an activity label (``package/window.Class`` → ``package``).
+
+    Returns ``""`` for an empty/degenerate label — the caller treats that as
+    "unknown", which makes the merge guard abstain (fail-open) rather than
+    fragment a page over a missing activity name.
+    """
+    return (activity or "").strip().split("/", 1)[0].strip()
+
+
 def _families_from_elements(elements: list[ExtractedElement]) -> list[ElementFamily]:
     """Convert ExtractedElements to an ElementFamily list, copying indices verbatim.
 
@@ -193,6 +232,9 @@ class ScreenMatcher:
         element_diff_max: int = 5,
         element_jaccard_min: float = 0.5,
         page_pixel_diff_threshold: float = 0.3,
+        canvas_merge: bool = True,
+        canvas_min_area_frac: float = 0.7,
+        package_guard: bool = True,
     ):
         self._extractor = extractor
         # Luminance knobs. ``screenshot_diff_threshold`` governs OBSERVATION
@@ -210,6 +252,20 @@ class ScreenMatcher:
         self._element_diff_max = element_diff_max
         self._element_jaccard_min = element_jaccard_min
         self._page_pixel_diff_threshold = page_pixel_diff_threshold
+        # Canvas-gated text-blind verification. The knob gates the MATCH path
+        # only: a page always stores its is_canvas / blind element-lines, so the
+        # durable page.json cannot depend on how the knob stood when it was
+        # written (and a resume with the knob flipped is coherent either way).
+        self._canvas_merge = canvas_merge
+        self._canvas_min_area_frac = canvas_min_area_frac
+        # Same-package merge guard. BM25 verification never looked at WHICH APP a
+        # screen belongs to — only the structural pre-filter keys on the activity —
+        # so a launcher/home frame that happens to share a few generic element-lines
+        # with an app screen could merge into its page (measured in the pre-fix live
+        # corpora: armB osmand pages 0/34, broccoli page 0). Text was the de-facto
+        # defence and the canvas path's blinding removes it, so the guard covers the
+        # WHOLE BM25 merge path, not just canvas pairs.
+        self._package_guard = package_guard
         self._bm25 = Bm25Index()
         self._registry = KnowledgeRegistry()
         self._fp_to_key: dict[tuple[str, str], tuple[str, int]] = {}
@@ -314,24 +370,42 @@ class ScreenMatcher:
         except ET.ParseError:
             tree = None
 
-        # 1. Serialize the encoded XML to the element-line document (BM25 doc).
+        # 1. Serialize the encoded XML to the element-line document (BM25 doc),
+        # plus the text-blind projection + canvas flag the canvas path needs.
+        # Both are computed regardless of the knob so a minted page's stored
+        # identity never depends on it (see __init__).
         lines = serialize_element_lines(encoded_xml)
+        blind_lines = serialize_element_lines(encoded_xml, blind_text=True)
+        cur_canvas = is_canvas_screen(raw_xml, self._canvas_min_area_frac)
 
         # An empty document must never merge (a size-0 query would let a tiny
         # candidate spuriously pass the element criterion). First screen of a
         # session (empty registry) is likewise a new page.
         if not lines or len(self._registry) == 0:
-            return self._new_page(fp_key, encoded_xml, tree, lines, current_feat)
+            return self._new_page(
+                fp_key, encoded_xml, tree, lines, current_feat, cur_canvas, blind_lines,
+                activity,
+            )
 
-        # 2-3. BM25 top-K retrieval → conjunctive (element AND pixel) verification.
+        # 2-3. BM25 top-K retrieval → same-package guard, then the conjunctive
+        # (element AND pixel) verification, with a canvas pair taking the
+        # text-blind / pixel-abstaining route.
         cur_set = set(lines)
+        cur_blind_set = set(blind_lines)
         for page_key, _score in self._bm25.top_k(lines, self._bm25_top_k):
             page = self._registry.get(page_key)
             if page is None:
                 continue
-            if not self._element_ok(cur_set, set(page.element_lines)):
+            canvas_pair, package_ok, element_ok, pixel_ok = self._verify_candidate(
+                cur_set, cur_blind_set, page, current_feat, cur_canvas, activity,
+            )
+            if not package_ok:
+                logger.debug(
+                    f"screen_match: package guard blocked merge into page={page_key} "
+                    f"(cur={package_of(activity)!r} page={package_of(page.first_activity)!r})"
+                )
                 continue
-            if not self._pixel_ok(page, current_feat):
+            if not (element_ok and pixel_ok):
                 continue
             # MATCH → merge. Resolve OBSERVATION identity within the page.
             obs_num, is_new_obs = self._record_observation(
@@ -342,7 +416,7 @@ class ScreenMatcher:
             logger.info(
                 f"screen_match: BM25_MERGE page={page_key} "
                 f"|cur|={len(cur_set)} |cand|={len(page.element_lines)} "
-                f"crit={self._element_criterion}"
+                f"crit={self._element_criterion} canvas_pair={canvas_pair}"
             )
             return ScreenMatch(
                 page_key, is_new_page=False, match_type="BM25_MERGE", families=fams,
@@ -350,9 +424,70 @@ class ScreenMatcher:
             )
 
         # No candidate confirmed → a genuinely new page.
-        return self._new_page(fp_key, encoded_xml, tree, lines, current_feat)
+        return self._new_page(
+            fp_key, encoded_xml, tree, lines, current_feat, cur_canvas, blind_lines, activity,
+        )
 
     # -- verification ---------------------------------------------------------
+
+    def _verify_candidate(
+        self,
+        cur_set: set[str],
+        cur_blind_set: set[str],
+        page: PageKnowledge,
+        feat: PILImage | None,
+        cur_canvas: bool,
+        cur_activity: str = "",
+    ) -> tuple[bool, bool, bool, bool]:
+        """Run the full gate for one candidate → (canvas_pair, package, element, pixel).
+
+        The single place a merge is decided, so ``match()`` and the offline
+        replay's diagnosis cannot drift apart.
+
+        The PACKAGE guard comes first and covers EVERY merge, canvas or not: the
+        candidate page's minting package must equal the current screen's, or the
+        two screens are different apps and no element/pixel similarity may merge
+        them. It ABSTAINS (passes) when either side's package is unknown —
+        fail-open, so a missing activity label fragments nothing.
+
+        A CANVAS PAIR (knob on and both sides canvas screens) then compares the
+        TEXT-BLIND element-line sets — via the same :meth:`_element_ok`, the same
+        criterion and the same thresholds — and abstains from the pixel gate (a
+        repainted map fails it by construction). Any other pair is the historical
+        path, byte for byte.
+        """
+        package_ok = self._package_ok(page, cur_activity)
+        canvas_pair = self._canvas_merge and cur_canvas and page.is_canvas
+        if not package_ok:
+            return canvas_pair, False, False, False
+        if canvas_pair:
+            return True, True, self._element_ok(cur_blind_set, set(page.element_lines_blind)), True
+        # Short-circuit as the original loop did: the pixel gate is only asked
+        # once the element criterion has passed.
+        element_ok = self._element_ok(cur_set, set(page.element_lines))
+        pixel_ok = element_ok and self._pixel_ok(page, feat)
+        return False, True, element_ok, pixel_ok
+
+    def _package_ok(self, page: PageKnowledge, cur_activity: str) -> bool:
+        """Same-package guard: may *cur_activity*'s screen merge into *page*?
+
+        True when the knob is off, when either package is unknown (abstain), or
+        when they are equal. The guard is deliberately at PACKAGE level, not
+        activity: the matcher is designed to merge one app's window labels
+        together (a drawer over a map is the same page), and
+        ``page_graph._canonical_activity`` already treats window labels as
+        non-identity. Only a CROSS-APP merge is the error.
+        """
+        if not self._package_guard:
+            return True
+        cur_pkg = package_of(cur_activity)
+        page_pkg = package_of(page.first_activity)
+        if not cur_pkg or not page_pkg:
+            logger.debug(
+                f"screen_match: package guard abstains (cur={cur_pkg!r} page={page_pkg!r})"
+            )
+            return True
+        return cur_pkg == page_pkg
 
     def _element_ok(self, cur: set[str], cand: set[str]) -> bool:
         """Element criterion between the current and a candidate element-line set."""
@@ -497,6 +632,9 @@ class ScreenMatcher:
         tree: ET.Element | None,
         lines: list[str],
         current_feat: PILImage | None = None,
+        is_canvas: bool = False,
+        blind_lines: list[str] | None = None,
+        activity: str = "",
     ) -> ScreenMatch:
         """Register a fresh page; add its element-line document to the BM25 corpus.
 
@@ -505,6 +643,11 @@ class ScreenMatcher:
         families (the explorer's same-function grouping). Without one (default),
         the page carries no elements/anchors and families are empty — matching
         re-identifies it via BM25 + element/pixel only, which needs neither.
+
+        The BM25 corpus keeps the UNBLINDED document: retrieval is not the
+        bottleneck the canvas path fixes (map candidates already surface in the
+        top-K), and blinding it would coarsen retrieval for every app. Only the
+        canvas-pair VERIFICATION consults ``element_lines_blind``.
         """
         page_key = str(self._counter)
         self._counter += 1
@@ -536,6 +679,9 @@ class ScreenMatcher:
                 key_elements=key_elements,
                 extra_uis=extra_uis,
                 element_lines=lines,
+                is_canvas=is_canvas,
+                element_lines_blind=list(blind_lines or []),
+                first_activity=activity or "",
             )
         )
         self._bm25.add_document(page_key, lines)
