@@ -176,7 +176,7 @@ monkey-collect run --apps all --input-mode random
 - `exploration.strategy`: `DFS` | `BFS` | `GREEDY` (canonical 기본 `BFS`)
 - `collection.{budget_mode, max_duration, max_steps, seed, action_delay_ms, poke_delay_sec, port, data_dir, runtime_dir}` (`budget_mode` 기본 `time`, `max_duration` 기본 `2h`, `poke_delay_sec` 기본 `1.5`)
 - `llm.{input_mode, element_extraction}`
-- `screen_matching.{luminance_prefilter, luminance_threshold, screenshot_diff_threshold, luminance_low_res_width, persist_filtered, bm25_top_k, element_criterion, element_diff_max, element_jaccard_min, page_pixel_diff_threshold}`
+- `screen_matching.{luminance_prefilter, luminance_threshold, screenshot_diff_threshold, luminance_low_res_width, persist_filtered, bm25_top_k, element_criterion, element_diff_max, element_jaccard_min, page_pixel_diff_threshold, canvas_merge, canvas_min_area_frac, package_guard}`
 
 각 키에 대응하는 `MC_*` 환경변수(+ 타입)의 전체 목록은 [ARCHITECTURE.md](./ARCHITECTURE.md) 의 「MC_* 환경변수」 표가 정본이다. 대체 yaml 경로는 `MC_CONFIG_PATH` 로 지정한다.
 

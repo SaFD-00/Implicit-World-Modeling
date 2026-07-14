@@ -44,6 +44,19 @@
 
 - **`scripts/tmux_*.sh` 를 커맨드로 제시하지 마라.** `.gitignore` 대상이라 저장소에 존재하지 않는다 — 실행은 `scripts/stage{1,2}_{train,merge,eval}.sh` 를 직접 호출한다. [§4 함정 16](./ARCHITECTURE.md#4-파이프라인-컴포넌트)
 - `docs/EXP05_DIFF_LOSS_PLAN.md`, `docs/research/gui-exploration-world-model.md` 는 **삭제됐다** — 링크하지 마라.
+- **`MC` (MonkeyCollection) 데이터셋은 배선만 있고 검증된 학습 데이터가 아니다 (2026-07-14).** 레지스트리
+  (`lf_registry.py` `"MonkeyCollection"`) · `dataset_info.json` (`IWM-MC_stage1_{train,test}`) ·
+  `configs/train/IWM-MC/` · `split_data.py --dataset MC` 는 **전부 이전부터 존재**했으나, 이 파이프는
+  2026-07-14 에 **처음 실행됐다**. 현재 `data/MonkeyCollection/` 의 164 examples(train 155 / test 9)는
+  Monkey-Collector 의 **실험 잔여물**(musicplayer + calendar)이며 **프로덕션 코퍼스가 아니다** —
+  osmand 는 page 지문 오염(S-9)으로 의도적으로 제외했고, 수집기의 page_graph 에는 **교차-앱 병합 오염**이
+  남아 있다(수집기 `AGENTS.md` 「알려진 한계」). **이 데이터로 낸 학습 결과를 코퍼스 품질의 근거로 쓰지 마라.**
+  또한 `--stage1-ratio` 기본값 0.95 를 164행에 적용해 **test 가 9개**다 — 통계적으로 무의미하므로
+  실제 학습 전에 비율을 다시 정하라.
+- **`scripts/stage1_train.sh` 는 개발용 맥에서 실행되지 않는다** — `_common.sh` 가 `CONDA_PREFIX`(conda env
+  `implicit-world-modeling`)와 **bash 4+** 를 요구하고, `LlamaFactory/` 도 체크아웃에 없다. **DRY_RUN 조차
+  안 된다.** 이 스크립트들은 **원격 리눅스 GPU 박스** 전용이다. 맥에서 검증 가능한 최대치는 **정적 관통
+  확인**(jsonl 스키마 + 이미지 경로 해석 + `python -m implicit_world_modeling.gen_configs --check`)이다.
 
 ---
 

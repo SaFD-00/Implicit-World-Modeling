@@ -521,6 +521,9 @@ CLI 의 YAML-커버 파라미터는 기본값이 `None`(= "CLI 에서 지정 안
 | `screen_matching` | `element_diff_max` | 같은 page 로 볼 최대 상이 element-line 수 (`diff` 모드, 기본 5) |
 | `screen_matching` | `element_jaccard_min` | 같은 page 로 볼 최소 element-line Jaccard (`jaccard` 모드, 기본 0.5) |
 | `screen_matching` | `page_pixel_diff_threshold` | PAGE 병합을 확정하는 pixel 게이트 차이 픽셀 비율 (기본 0.3) |
+| `screen_matching` | `canvas_merge` | 두 화면이 **모두 canvas**(지도/사진/게임 등 전면 인터랙티브 드로잉 표면)일 때 element-line 을 **텍스트-blind** 로 비교하고 pixel 게이트를 abstain 시켜 병합 — S-9(지도 파편화) 후보 수정. `true`\|`false`. **기본 `false` — 안전하지 않아 미출하**: 지도가 아닌 내비 드로어(앱 메인 허브)·턴바이턴 추적 화면까지 병합하고 카디널리티 복원으로도 못 고쳐진다. **S-9 는 열려 있다**; 실험 arm 외엔 켜지 마라("알려진 한계" 참조) |
+| `screen_matching` | `canvas_min_area_frac` | 어떤 **leaf** clickable(또는 long-clickable) 노드가 화면 면적의 이 비율 이상을 덮으면 그 화면을 "canvas" 로 판정 (bounds 기반, class 기반 아님; osmand 지도 표면은 0.97). 기본 0.7 |
+| `screen_matching` | `package_guard` | BM25 병합을 후보 page 가 **현재 화면과 같은 package 로 mint 된 경우로만** 허용 — 런처/홈 프레임이 앱 page 로 흡수되는 교차 병합 차단. 전체 병합 경로에 적용. 어느 쪽 package 든 미상이면 abstain(fail-open). `true`\|`false`, 기본 `true` |
 
 ### MC_* 환경변수
 
@@ -553,6 +556,9 @@ YAML 위, CLI 아래 레이어. 각 변수는 대응 키를 타입 변환해 덮
 | `MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX` | `screen_matching.element_diff_max` | int |
 | `MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN` | `screen_matching.element_jaccard_min` | float |
 | `MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD` | `screen_matching.page_pixel_diff_threshold` | float |
+| `MC_SCREEN_MATCHING_CANVAS_MERGE` | `screen_matching.canvas_merge` | bool (`true/1/yes/on`) |
+| `MC_SCREEN_MATCHING_CANVAS_MIN_AREA_FRAC` | `screen_matching.canvas_min_area_frac` | float |
+| `MC_SCREEN_MATCHING_PACKAGE_GUARD` | `screen_matching.package_guard` | bool (`true/1/yes/on`) |
 | `MC_CONFIG_PATH` | (YAML 파일 경로 자체) | path — 대체 yaml 위치 지정 |
 
 ### `config.py` API
