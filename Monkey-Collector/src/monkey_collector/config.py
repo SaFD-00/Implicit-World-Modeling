@@ -37,6 +37,7 @@ _BUILTIN_DEFAULTS: dict = {
         "budget_mode": "time",
         "max_duration": "2h",
         "signal_timeout_sec": 12.0,
+        "poke_delay_sec": 1.5,
         "max_action_repeats": 8,
         "max_steps_without_new_page": 98,
     },
@@ -89,6 +90,12 @@ class CollectionConfig:
     # Per-signal wait before a stuck episode escalates (nudge → force-relaunch).
     # Env: MC_COLLECTION_SIGNAL_TIMEOUT_SEC. See recovery.MAX_SIGNAL_TIMEOUTS.
     signal_timeout_sec: float = 12.0
+    # Silence (seconds) inside one signal wait after which the server pokes the
+    # client with CAPTURE (up to recovery.MAX_POKES_PER_WAIT times). The pokes
+    # are carved out of signal_timeout_sec, so the total wait is unchanged. Env:
+    # MC_COLLECTION_POKE_DELAY_SEC. 0 or negative — or >= signal_timeout_sec —
+    # disables poking (single full-timeout wait).
+    poke_delay_sec: float = 1.5
     # Repeat-action circuit breaker (D2): max times the same
     # (page_key, action_type, element_index) may execute on a page before the
     # next attempt breaks out via back/relaunch. Env:
@@ -273,6 +280,7 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_COLLECTION_BUDGET_MODE",                "collection",      "budget_mode",               "str"),
         ("MC_COLLECTION_MAX_DURATION",               "collection",      "max_duration",              "str"),
         ("MC_COLLECTION_SIGNAL_TIMEOUT_SEC",         "collection",      "signal_timeout_sec",        "float"),
+        ("MC_COLLECTION_POKE_DELAY_SEC",             "collection",      "poke_delay_sec",            "float"),
         ("MC_COLLECTION_MAX_ACTION_REPEATS",         "collection",      "max_action_repeats",        "int"),
         ("MC_COLLECTION_MAX_STEPS_WITHOUT_NEW_PAGE", "collection",      "max_steps_without_new_page", "int"),
         ("MC_LLM_INPUT_MODE",                        "llm",             "input_mode",                "str"),
@@ -338,8 +346,10 @@ def _from_raw(raw: dict) -> RunConfig:
             max_duration_sec=parse_duration(coll.get("max_duration", "2h")),
             signal_timeout_sec=signal_timeout_sec,
             # No non-positive fallback here (unlike signal_timeout_sec above):
-            # a 0-or-negative value is the documented way to DISABLE the D2/D3
-            # guards (tests/experiments), so it is a valid input, not an error.
+            # a 0-or-negative value is the documented way to DISABLE poking and
+            # the D2/D3 guards (tests/experiments), so it is a valid input, not
+            # an error.
+            poke_delay_sec=float(coll.get("poke_delay_sec", 1.5)),
             max_action_repeats=int(coll.get("max_action_repeats", 8)),
             max_steps_without_new_page=int(coll.get("max_steps_without_new_page", 98)),
         ),

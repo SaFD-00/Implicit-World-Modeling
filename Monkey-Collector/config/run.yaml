@@ -9,7 +9,8 @@
 # Experiment runs sweep several keys. Canonical git default: exploration.strategy=BFS,
 # collection.max_steps=1500, collection.action_delay_ms=1500,
 # collection.budget_mode=time, collection.max_duration=2h,
-# collection.signal_timeout_sec=12, collection.max_action_repeats=8,
+# collection.signal_timeout_sec=12, collection.poke_delay_sec=1.5,
+# collection.max_action_repeats=8,
 # collection.max_steps_without_new_page=98, llm.element_extraction=false,
 # screen_matching.luminance_prefilter=true, screen_matching.persist_filtered=true,
 # screen_matching.bm25_top_k=5, screen_matching.element_criterion=diff,
@@ -49,6 +50,15 @@ collection:
   # 1-2, force-relaunch on the 3rd (recovery.MAX_SIGNAL_TIMEOUTS), so worst-case
   # one stuck episode waits signal_timeout_sec×3. Env: MC_COLLECTION_SIGNAL_TIMEOUT_SEC
   signal_timeout_sec: 12
+  # Silence (seconds) inside one signal wait after which the server pokes the
+  # client with a CAPTURE request (up to recovery.MAX_POKES_PER_WAIT = 2 times).
+  # The client only pushes a frame when the accessibility service sees a change,
+  # so a settled screen that fired no event stays silent for the whole timeout
+  # window even though it has a frame to give. The pokes are carved OUT of
+  # signal_timeout_sec, so the total wait — and the escalation timing above — is
+  # unchanged. 0 or negative (or >= signal_timeout_sec) disables poking.
+  # Env: MC_COLLECTION_POKE_DELAY_SEC
+  poke_delay_sec: 1.5
   # Repeat-action circuit breaker: max times the same (page, action, element)
   # may execute on a page before the next attempt breaks out via back/relaunch,
   # killing the fruitless page ping-pong behind R2 volume-not-diversity. Counter

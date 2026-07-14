@@ -24,6 +24,7 @@ class CollectionServer:
 
     Protocol (Server → App):
       action_json + \\r\\n           = Action command
+      {"type": "CAPTURE"}           = Capture the current screen now (poke)
     """
 
     def __init__(
@@ -114,6 +115,16 @@ class CollectionServer:
         Tells the app to stop the current collection session.
         """
         return self.send_action({"type": "SESSION_END"})
+
+    def send_capture_request(self) -> bool:
+        """Ask the client to capture and send the current screen right now.
+
+        The client normally pushes a frame only when the accessibility service
+        observes a change, so a screen that settled without firing an event
+        leaves the loop waiting out its full signal timeout. Poking it makes the
+        client answer with an ``X`` (or ``N``) it already had.
+        """
+        return self.send_action({"type": "CAPTURE"})
 
     def send_start(self, package: str) -> bool:
         """Tell the connected client to begin collecting *package*.

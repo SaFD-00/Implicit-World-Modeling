@@ -179,6 +179,7 @@ Server -> App (newline-delimited JSON):
 
 - `{"type":"START","package":"<pkg>"}`: 서버가 다음으로 수집할 앱을 지정. 클라이언트는 `startCollection` 을 트리거하고 `P` 메시지로 같은 pkg 를 회신한다.
 - `{"type":"SESSION_END"}`: 현재 세션 종료 요청. 클라이언트는 `stopCollection` 을 수행하고 `F` 회신 후 소켓을 닫은 뒤 즉시 새 소켓으로 자동 재접속한다.
+- `{"type":"CAPTURE"}`: 현재 화면을 지금 캡처해 보내라는 요청(poke). 클라이언트는 접근성 이벤트가 발생할 때만 프레임을 push 하므로, 이벤트 없이 안정된 화면은 줄 프레임이 있는데도 `signal_timeout_sec` 창 내내 침묵한다. 서버는 `collection.poke_delay_sec` 만큼 침묵이 이어지면 CAPTURE 를 보내 프레임을 당겨온다 (`collection_loop._wait_signal_with_pokes`, 한 대기당 최대 `recovery.MAX_POKES_PER_WAIT`=2 회). poke 는 `signal_timeout_sec` 창을 쪼개 쓰므로 총 대기 시간과 timeout escalation 시점은 불변이다.
 
 `CollectionServer` 는 signal queue 를 사용해 최신 signal 기준으로 collection loop 를 진행한다.
 

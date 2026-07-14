@@ -152,6 +152,25 @@ class TestSendSessionEnd:
         assert srv.send_session_end() is False
 
 
+class TestSendCaptureRequest:
+    def test_sends_capture(self, srv):
+        # Wire contract with the Android client's CAPTURE handler: the payload
+        # type is exactly "CAPTURE", newline-delimited like every other command.
+        mock_socket = MagicMock()
+        srv._client = mock_socket
+        result = srv.send_capture_request()
+        assert result is True
+        data = mock_socket.sendall.call_args[0][0]
+        assert data.endswith(b"\r\n")
+        decoded = json.loads(data.decode("utf-8").strip())
+        assert decoded["type"] == "CAPTURE"
+
+    def test_no_client(self, srv):
+        # A poke at a disconnected client is a no-op, not an error: the caller
+        # (_wait_signal_with_pokes) keeps waiting either way.
+        assert srv.send_capture_request() is False
+
+
 class TestResetForNewSession:
     def test_clears_state(self, srv):
         sentinel_client = MagicMock()

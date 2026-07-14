@@ -17,6 +17,7 @@ from monkey_collector.pipeline.recovery import (
     MAX_EXTERNAL_APP_RETRIES,
     MAX_EXTERNAL_REINITS,
     MAX_NO_CHANGE_RETRIES,
+    MAX_POKES_PER_WAIT,
     MAX_SAME_PAGE_STEPS,
     MAX_SIGNAL_TIMEOUTS,
     MAX_TIMEOUT_REINITS,
@@ -175,6 +176,44 @@ def _has_budget(
     return state.step < state.max_step
 
 
+def _wait_signal_with_pokes(
+    collector: Collector, state: CollectionState
+) -> tuple[str, str | None, dict | None] | None:
+    """Wait for the next signal, poking a silent client along the way.
+
+    The client pushes a frame only when the accessibility service observes a
+    change, so a screen that settled without firing an event stays silent for
+    the whole ``xml_timeout`` window even though it *has* a frame to give. Here
+    we slice that window: after ``poke_delay`` of silence, send a CAPTURE and
+    keep waiting (up to MAX_POKES_PER_WAIT times), then wait out the remainder.
+
+    The slices sum to exactly ``xml_timeout``, so a client that never answers
+    times out at the same moment it always did — the timeout counter and the
+    MAX_SIGNAL_TIMEOUTS escalation are untouched. ``poke_delay <= 0`` (disabled)
+    or ``>= xml_timeout`` (no room to poke) takes the single-wait legacy path.
+    A failed send (no client) is ignored: the wait continues either way.
+    """
+    timeout = collector.xml_timeout
+    delay = collector.poke_delay
+    if delay <= 0 or delay >= timeout:
+        return collector.server.get_latest_signal(timeout=timeout)
+
+    waited = 0.0
+    for poke in range(MAX_POKES_PER_WAIT):
+        if waited + delay >= timeout:
+            break
+        signal = collector.server.get_latest_signal(timeout=delay)
+        if signal is not None:
+            return signal
+        waited += delay
+        logger.info(
+            f"Step {state.step}: no signal for {waited:.1f}s — poking client "
+            f"({poke + 1}/{MAX_POKES_PER_WAIT})"
+        )
+        collector.server.send_capture_request()
+    return collector.server.get_latest_signal(timeout=timeout - waited)
+
+
 def run_collection_loop(
     collector: Collector,
     state: CollectionState,
@@ -216,7 +255,7 @@ def run_collection_loop(
     ):
         state.idle_iterations += 1
         try:
-            result = collector.server.get_latest_signal(timeout=collector.xml_timeout)
+            result = _wait_signal_with_pokes(collector, state)
 
             if result is None:
                 state.timeout_count += 1
@@ -315,6 +354,15 @@ def _handle_no_change(
     package: str,
 ) -> bool:
     """Handle a no-change signal. Returns True if session should end."""
+    # A permission dialog fires no accessibility event, so it used to surface
+    # only as a signal timeout — which is where the adb grant lives. Now that a
+    # poked client answers quickly (usually with this no_change), that timeout
+    # branch may never be reached, and an ungranted dialog would instead be
+    # mistaken for "the last element did nothing": excluded, retried, backed out
+    # of. Grant it here first; a non-dialog foreground costs one adb call.
+    if _try_grant_permission_via_adb(collector, state):
+        return False
+
     state.no_change_retries += 1
     logger.info(
         f"Step {state.step}: no visual change "

@@ -15,6 +15,9 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import androidx.core.app.NotificationCompat
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicInteger
 
 class CollectorService : AccessibilityService() {
 
@@ -24,6 +27,13 @@ class CollectorService : AccessibilityService() {
         private const val MIN_CAPTURE_INTERVAL_MS = 3000L
         private const val NOTIFICATION_CHANNEL_ID = "MonkeyCollector_Channel"
         private const val NOTIFICATION_ID = 1
+
+        // A CAPTURE poke that lands right after we sent a frame is a crossed-wire
+        // race (the server's poke timer fired while our frame was still on the
+        // network), not a real request for state — drop it. Kept well under the
+        // server's poke delay so a poke that follows a *dropped* frame still gets
+        // answered.
+        private const val POKE_SUPPRESS_RECENT_SEND_MS = 800L
 
         private val EXCLUDED_PACKAGES = setOf(
             "com.android.systemui",
@@ -61,12 +71,21 @@ class CollectorService : AccessibilityService() {
     private var tcpClient: TcpClient? = null
     private var targetPackage: String = ""
     private var currentActivityName: String = ""
-    private var stepCount: Int = 0
+    private val stepCount = AtomicInteger(0)
     private var lastEventTime: Long = 0
     private var consecutiveBackCount: Int = 0
     private var isCollecting: Boolean = false
     @Volatile private var lastCaptureTime: Long = 0
     private var screenStabilizer: ScreenStabilizer? = null
+
+    // CAPTURE poke state: lets the server pull the screen when an action produced
+    // no accessibility event (otherwise the client stays silent and the server
+    // burns its whole step timeout waiting).
+    //
+    // The frame-tracking half of this state (last sent XML hash / send time) lives
+    // in TcpClient, which updates it under the same lock that writes the frame —
+    // see TcpClient.sendFrame.
+    private val captureInFlight = AtomicInteger(0)
 
     // Standby loop state: keeps a TCP connection to the server so the server
     // can push START messages whenever it wants the client to begin collecting.
@@ -181,6 +200,7 @@ class CollectorService : AccessibilityService() {
         consecutiveBackCount = 0
 
         Thread {
+            captureInFlight.incrementAndGet()
             try {
                 // Step 1: Wait for screen to stabilize (visual bitmap comparison)
                 val stabilizer = screenStabilizer
@@ -205,43 +225,141 @@ class CollectorService : AccessibilityService() {
 
                 // Step 2.5: First screen detection
                 val isFirstScreen = if (stabilizer != null) {
-                    if (stepCount == 0) stabilizer.saveFirstScreen()
+                    if (stepCount.get() == 0) stabilizer.saveFirstScreen()
                     stabilizer.isFirstScreen()
                 } else {
                     false
                 }
 
-                // Step 3: Take screenshot
-                val bitmap = ScreenCapture.takeSync(this)
-
-                // Step 4: Dump XML (existing logic)
-                val xml = XmlDumper.dumpNodeTree(root)
-
-                // Step 5: Send data with return value check
-                if (bitmap != null) {
-                    val screenshotSent = tcpClient?.sendScreenshot(bitmap) ?: false
-                    if (!screenshotSent) {
-                        Log.w(TAG, "Failed to send screenshot at step $stepCount")
-                    }
-                    bitmap.recycle()
-                }
-
-                val activityAtCapture = currentActivityName
-                val xmlSent = tcpClient?.sendXml(xml, topPackage, activityAtCapture, targetPackage, isFirstScreen) ?: false
-                if (!xmlSent) {
-                    Log.w(TAG, "Failed to send XML at step $stepCount")
-                }
-
-                stepCount++
-                lastCaptureTime = System.currentTimeMillis()
-                Log.d(TAG, "Step $stepCount captured for $topPackage")
+                captureAndSendFrame(root, topPackage, isFirstScreen)
 
             } catch (e: Exception) {
                 Log.e(TAG, "Capture error: ${e.message}")
             } finally {
                 try { root.recycle() } catch (_: Exception) {}
+                captureInFlight.decrementAndGet()
             }
         }.start()
+    }
+
+    /**
+     * Screenshot + XML dump + send, shared by the accessibility-event path and
+     * the CAPTURE poke path. Never recycles [root] — the caller owns it.
+     *
+     * [precomputedXml] lets the poke path reuse the dump it already made to
+     * decide whether the screen changed at all.
+     */
+    private fun captureAndSendFrame(
+        root: AccessibilityNodeInfo,
+        topPackage: String,
+        isFirstScreen: Boolean,
+        precomputedXml: String? = null,
+    ) {
+        // Step 3: Take screenshot
+        val bitmap = ScreenCapture.takeSync(this)
+
+        // Step 4: Dump XML (existing logic)
+        val xml = precomputedXml ?: XmlDumper.dumpNodeTree(root)
+
+        // Step 5: Send screenshot + XML as one atomic pair, so an overlapping
+        // capture can never interleave its frames between this frame's S and X.
+        val activityAtCapture = currentActivityName
+        val result = tcpClient?.sendFrame(
+            bitmap, xml, topPackage, activityAtCapture, targetPackage, isFirstScreen
+        )
+        bitmap?.recycle()
+
+        if (bitmap != null && result?.screenshotSent != true) {
+            Log.w(TAG, "Failed to send screenshot at step ${stepCount.get()}")
+        }
+        if (result?.xmlSent != true) {
+            Log.w(TAG, "Failed to send XML at step ${stepCount.get()}")
+        }
+        // The sent-frame hash/timestamp are recorded by TcpClient.sendFrame while
+        // it still holds the write lock — recording them here would let two
+        // overlapping captures write them in the opposite order from the wire.
+
+        val step = stepCount.incrementAndGet()
+        lastCaptureTime = System.currentTimeMillis()
+        Log.d(TAG, "Step $step captured for $topPackage")
+    }
+
+    /**
+     * Answer a server CAPTURE poke: report the current screen without waiting
+     * for an accessibility event. Runs on the reader thread, so it only does
+     * cheap guard checks here and hands the capture to a worker thread.
+     *
+     * Deliberately independent of [screenStabilizer] (which is null whenever
+     * MediaProjection was not granted) and of the event path's debounce state.
+     */
+    private fun handleCaptureRequest() {
+        if (!isCollecting) {
+            Log.d(TAG, "CAPTURE poke ignored: not collecting")
+            return
+        }
+        if (tcpClient?.isConnected() != true) {
+            Log.d(TAG, "CAPTURE poke ignored: TCP not connected")
+            return
+        }
+        if (captureInFlight.get() > 0) {
+            Log.d(TAG, "CAPTURE poke ignored: capture already in flight")
+            return
+        }
+        // Lock-free volatile read: this runs on the reader thread, which must not
+        // block behind an in-flight frame write.
+        val sinceLastFrame = System.currentTimeMillis() - (tcpClient?.lastFrameSentAt ?: 0L)
+        if (sinceLastFrame < POKE_SUPPRESS_RECENT_SEND_MS) {
+            Log.d(TAG, "CAPTURE poke ignored: frame sent ${sinceLastFrame}ms ago")
+            return
+        }
+
+        Thread {
+            captureInFlight.incrementAndGet()
+            var root: AccessibilityNodeInfo? = null
+            try {
+                val topResult = getTopInteractableRoot()
+                if (topResult == null) {
+                    // Nothing to report, but the server must not be left hanging.
+                    Log.d(TAG, "CAPTURE poke: no interactable window, sending N")
+                    tcpClient?.sendNoChange()
+                    return@Thread
+                }
+                val (topPackage, topRoot) = topResult
+                root = topRoot
+
+                if (targetPackage.isNotEmpty() &&
+                    topPackage != targetPackage &&
+                    topPackage !in EXCLUDED_PACKAGES
+                ) {
+                    // Let the server drive recovery; don't duplicate the event
+                    // path's back-press/relaunch logic.
+                    Log.d(TAG, "CAPTURE poke: external app $topPackage, sending E")
+                    tcpClient?.sendExternalApp(topPackage, targetPackage)
+                    return@Thread
+                }
+
+                val xml = XmlDumper.dumpNodeTree(topRoot)
+                if (md5Hex(xml) == tcpClient?.lastSentXmlHash) {
+                    Log.d(TAG, "CAPTURE poke: no XML change, sending N")
+                    tcpClient?.sendNoChange()
+                    return@Thread
+                }
+
+                Log.d(TAG, "CAPTURE poke: XML changed, sending frame")
+                captureAndSendFrame(topRoot, topPackage, isFirstScreen = false, precomputedXml = xml)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "CAPTURE poke error: ${e.message}")
+            } finally {
+                try { root?.recycle() } catch (_: Exception) {}
+                captureInFlight.decrementAndGet()
+            }
+        }.start()
+    }
+
+    private fun md5Hex(s: String): String {
+        val bytes = MessageDigest.getInstance("MD5").digest(s.toByteArray(StandardCharsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 
     override fun onInterrupt() {
@@ -269,7 +387,7 @@ class CollectorService : AccessibilityService() {
     ) {
         targetPackage = targetPkg
         currentActivityName = ""
-        stepCount = 0
+        stepCount.set(0)
         consecutiveBackCount = 0
 
         // Start foreground service (required before MediaProjection on API 29+)
@@ -297,10 +415,15 @@ class CollectorService : AccessibilityService() {
         // otherwise open a fresh socket (kept for API symmetry).
         val client = existingClient ?: TcpClient(serverIp, serverPort)
         tcpClient = client
+        // Safe to reset here: isCollecting stays false until the connect thread
+        // below flips it, and both capture paths are gated on isCollecting, so no
+        // capture can be running against this client yet.
+        client.resetFrameTracking()
         client.setOnSessionEnd {
             Log.i(TAG, "Server ended session, stopping collection")
             Handler(Looper.getMainLooper()).post { stopCollection() }
         }
+        client.setOnCaptureRequest { handleCaptureRequest() }
         Thread {
             val connected = client.isConnected() || client.connect()
             if (connected) {
@@ -332,7 +455,7 @@ class CollectorService : AccessibilityService() {
         // Stop foreground
         stopForeground(STOP_FOREGROUND_REMOVE)
 
-        Log.i(TAG, "Collection stopped. Steps: $stepCount")
+        Log.i(TAG, "Collection stopped. Steps: ${stepCount.get()}")
     }
 
     /**

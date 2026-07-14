@@ -26,6 +26,7 @@ class TestStaleSignalClearedAtStart:
         collector = MagicMock()
         collector.server = server
         collector.xml_timeout = 1
+        collector.poke_delay = 0.0  # no poking: single full-timeout wait
 
         state = CollectionState(step=0, max_step=5)
         run_collection_loop(collector, state, "com.test.app")

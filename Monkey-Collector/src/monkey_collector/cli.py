@@ -117,6 +117,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         max_steps=cfg.collection.max_steps,
         action_delay=cfg.collection.action_delay_ms / 1000.0,
         xml_timeout=cfg.collection.signal_timeout_sec,
+        poke_delay=cfg.collection.poke_delay_sec,
         budget_mode=cfg.collection.budget_mode,
         max_duration_sec=cfg.collection.max_duration_sec,
         max_action_repeats=cfg.collection.max_action_repeats,

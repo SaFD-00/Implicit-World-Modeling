@@ -51,6 +51,7 @@ class Collector:
         max_steps: int = 1500,
         action_delay: float = 1.0,
         xml_timeout: float = 12.0,
+        poke_delay: float = 1.5,
         budget_mode: str = "steps",
         max_duration_sec: int = 0,
         max_action_repeats: int = 8,
@@ -71,6 +72,10 @@ class Collector:
         self.max_steps = max_steps
         self.action_delay = action_delay
         self.xml_timeout = xml_timeout
+        # Silence inside one signal wait before the server pokes the client with
+        # CAPTURE; carved out of xml_timeout, so the total wait is unchanged.
+        # 0/negative or >= xml_timeout disables poking.
+        self.poke_delay = poke_delay
         self.budget_mode = budget_mode
         self.max_duration_sec = max_duration_sec
         # D2/D3 loop guards (repeat-action circuit breaker + plateau early-stop).

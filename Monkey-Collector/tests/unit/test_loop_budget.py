@@ -52,6 +52,7 @@ class TestLoopDeadlineTermination:
         collector = MagicMock()
         collector.server = server
         collector.xml_timeout = 1
+        collector.poke_delay = 0.0  # no poking: single full-timeout wait
         collector.action_delay = 0
 
         state = CollectionState(

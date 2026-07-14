@@ -47,6 +47,13 @@ REINIT_FORGIVE_STEPS = 15
 # wait at 12s×3=36s before the reinit cycle kicks in (nudge on timeouts 1-2,
 # relaunch on the 3rd).
 MAX_SIGNAL_TIMEOUTS = 3
+# Times the server pokes a silent client (CAPTURE) inside ONE signal wait. The
+# client only pushes a frame when the accessibility service sees a change, so a
+# settled screen that fired no event leaves the loop silent for the whole
+# signal_timeout_sec window. The pokes are carved OUT of that same window
+# (collection_loop._wait_signal_with_pokes), so the total wait — and therefore
+# the MAX_SIGNAL_TIMEOUTS escalation timing above — is unchanged.
+MAX_POKES_PER_WAIT = 2
 
 
 def tap_random_fallback(adb: AdbClient) -> None:

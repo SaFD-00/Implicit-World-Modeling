@@ -65,6 +65,7 @@ def test_builtin_defaults_no_yaml():
     assert cfg.collection.budget_mode == "time"
     assert cfg.collection.max_duration_sec == 7200
     assert cfg.collection.signal_timeout_sec == 12.0
+    assert cfg.collection.poke_delay_sec == 1.5
     assert cfg.collection.max_action_repeats == 8
     assert cfg.collection.max_steps_without_new_page == 98
     assert cfg.llm.input_mode == "api"
@@ -464,6 +465,32 @@ def test_cli_signal_timeout_override():
     cfg = load_run_config(path=NONEXISTENT)
     cfg = merge_with_cli_args(cfg, _full_args(signal_timeout=20.0))
     assert cfg.collection.signal_timeout_sec == 20.0
+
+
+# ── poke_delay_sec (YAML + env; non-positive is the documented disable) ──
+
+def test_yaml_poke_delay_overrides_builtin(tmp_path):
+    path = _write_yaml(tmp_path, "collection:\n  poke_delay_sec: 3\n")
+    cfg = load_run_config(path=path)
+    assert cfg.collection.poke_delay_sec == 3.0
+
+
+def test_env_poke_delay_coercion(monkeypatch):
+    monkeypatch.setenv("MC_COLLECTION_POKE_DELAY_SEC", "0.5")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.collection.poke_delay_sec == 0.5
+
+
+def test_non_positive_poke_delay_is_preserved(tmp_path):
+    # Unlike signal_timeout_sec, a non-positive poke_delay_sec is NOT clamped:
+    # it is the documented way to disable poking, so it must survive intact.
+    path = _write_yaml(tmp_path, "collection:\n  poke_delay_sec: 0\n")
+    cfg = load_run_config(path=path)
+    assert cfg.collection.poke_delay_sec == 0.0
+
+    neg = _write_yaml(tmp_path, "collection:\n  poke_delay_sec: -1\n")
+    cfg2 = load_run_config(path=neg)
+    assert cfg2.collection.poke_delay_sec == -1.0
 
 
 # ── CLI: budget-mode / duration resolution (D2) ──

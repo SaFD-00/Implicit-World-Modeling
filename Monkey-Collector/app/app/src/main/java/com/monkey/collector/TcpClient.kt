@@ -9,6 +9,7 @@ import java.io.IOException
 import java.io.InputStreamReader
 import java.net.Socket
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import org.json.JSONObject
 
 class TcpClient(
@@ -27,9 +28,36 @@ class TcpClient(
     private var readerThread: Thread? = null
     private var onSessionEnd: (() -> Unit)? = null
     private var onStart: ((String) -> Unit)? = null
+    private var onCaptureRequest: (() -> Unit)? = null
 
     @Volatile
     private var connected = false
+
+    /**
+     * Frame-tracking state for the CAPTURE-poke decision, owned by this class so
+     * it can be updated *inside* [sendFrame]'s [writeLock] section.
+     *
+     * Both fields are written only while the lock is held, so their write order
+     * is the wire order. They are read lock-free (volatile) on purpose: the
+     * [onCaptureRequest] callback runs on the reader thread, and making it wait
+     * for [writeLock] would stall SESSION_END/CAPTURE handling behind a large
+     * in-flight JPEG. The reader can therefore see state that is at most one
+     * in-progress send stale — and a stale read only ever costs a duplicate
+     * frame, never a mispaired one.
+     */
+    @Volatile
+    var lastSentXmlHash: String? = null
+        private set
+
+    @Volatile
+    var lastFrameSentAt: Long = 0L
+        private set
+
+    /** Clear frame-tracking state at the start of a collection session. */
+    fun resetFrameTracking() {
+        lastSentXmlHash = null
+        lastFrameSentAt = 0L
+    }
 
     fun setOnSessionEnd(callback: () -> Unit) {
         onSessionEnd = callback
@@ -37,6 +65,16 @@ class TcpClient(
 
     fun setOnStart(callback: (String) -> Unit) {
         onStart = callback
+    }
+
+    /**
+     * Register the handler for server CAPTURE pokes.
+     *
+     * The callback runs on the reader thread, so it MUST return immediately —
+     * any screen capture work belongs on a thread the callback spawns.
+     */
+    fun setOnCaptureRequest(callback: () -> Unit) {
+        onCaptureRequest = callback
     }
 
     fun connect(): Boolean {
@@ -70,6 +108,9 @@ class TcpClient(
      * - {"type": "START", "package": "<pkg>"} — server requests the app to
      *   begin collecting the given package.
      * - {"type": "SESSION_END"} — server requests the app to stop collection.
+     * - {"type": "CAPTURE"} — server heard nothing back after an action and
+     *   asks for the current screen state; the client replies with N, E or S+X
+     *   without waiting for an accessibility event.
      */
     private fun startReaderThread() {
         readerThread = Thread {
@@ -94,6 +135,10 @@ class TcpClient(
                             "SESSION_END" -> {
                                 Log.i(TAG, "Received SESSION_END from server")
                                 onSessionEnd?.invoke()
+                            }
+                            "CAPTURE" -> {
+                                Log.d(TAG, "Received CAPTURE from server")
+                                onCaptureRequest?.invoke()
                             }
                             else -> Log.d(TAG, "Unknown server message: $line")
                         }
@@ -133,39 +178,71 @@ class TcpClient(
 
     fun isConnected(): Boolean = connected
 
-    fun sendScreenshot(bitmap: Bitmap): Boolean {
-        if (!connected) return false
-        return try {
-            val baos = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, baos)
-            val imageBytes = baos.toByteArray()
+    /** Per-frame outcome: the S and X halves can succeed independently. */
+    data class FrameSendResult(val screenshotSent: Boolean, val xmlSent: Boolean)
 
-            synchronized(writeLock) {
-                val out = dos ?: return false
-                out.writeByte('S'.code)
-                out.write("${imageBytes.size}\n".toByteArray(StandardCharsets.UTF_8))
-                out.write(imageBytes)
-                out.flush()
+    /**
+     * Send one capture as an atomic screenshot + XML pair.
+     *
+     * Both frames are written inside a *single* [writeLock] section on purpose.
+     * Captures can overlap: the accessibility-event path spawns a capture thread
+     * on every debounce-passing event without checking whether one is already in
+     * flight, and the server CAPTURE poke can spawn one too. If each frame took
+     * the lock separately, two overlapping captures A and B could interleave on
+     * the wire as S(A) S(B) X(B) X(A) — the server pairs the newest screenshot
+     * with the next XML, so it would attach A's pixels to B's tree. Holding the
+     * lock across both frames guarantees the server sees complete, ordered pairs.
+     *
+     * The bitmap is *not* recycled here — the caller owns it.
+     */
+    fun sendFrame(
+        bitmap: Bitmap?,
+        xml: String,
+        topPackage: String,
+        activityName: String,
+        targetPackage: String,
+        isFirstScreen: Boolean = false
+    ): FrameSendResult {
+        if (!connected) return FrameSendResult(false, false)
+
+        // JPEG encoding is slow and touches no wire state: keep it out of the lock.
+        var imageBytes: ByteArray? = null
+        if (bitmap != null) {
+            try {
+                val baos = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, baos)
+                imageBytes = baos.toByteArray()
+            } catch (e: IOException) {
+                Log.e(TAG, "sendFrame screenshot compression failed: ${e.message}")
+                connected = false
+                return FrameSendResult(false, false)
+            } catch (e: Exception) {
+                // Degrade to XML-only: the connection is still usable.
+                Log.e(TAG, "sendFrame screenshot error: ${e.message}")
             }
-            Log.d(TAG, "Screenshot sent: ${imageBytes.size} bytes")
-            true
-        } catch (e: IOException) {
-            Log.e(TAG, "sendScreenshot failed: ${e.message}")
-            connected = false
-            false
-        } catch (e: Exception) {
-            Log.e(TAG, "sendScreenshot error: ${e.message}")
-            false
         }
-    }
+        val img = imageBytes
 
-    fun sendXml(xml: String, topPackage: String, activityName: String, targetPackage: String, isFirstScreen: Boolean = false): Boolean {
-        if (!connected) return false
-        return try {
+        var screenshotSent = false
+        var xmlSent = false
+        try {
             val xmlBytes = xml.toByteArray(StandardCharsets.UTF_8)
+            // Hashing is pure CPU work: do it before taking the lock, but keep the
+            // *store* inside the lock so "recorded hash == last xml on the wire"
+            // can never be reordered by two overlapping sends.
+            val xmlHash = md5Hex(xml)
 
             synchronized(writeLock) {
-                val out = dos ?: return false
+                val out = dos ?: return FrameSendResult(false, false)
+
+                if (img != null) {
+                    out.writeByte('S'.code)
+                    out.write("${img.size}\n".toByteArray(StandardCharsets.UTF_8))
+                    out.write(img)
+                    out.flush()
+                    screenshotSent = true
+                }
+
                 out.writeByte('X'.code)
                 out.write("$topPackage\n".toByteArray(StandardCharsets.UTF_8))
                 out.write("$activityName\n".toByteArray(StandardCharsets.UTF_8))
@@ -174,17 +251,30 @@ class TcpClient(
                 out.write("${xmlBytes.size}\n".toByteArray(StandardCharsets.UTF_8))
                 out.write(xmlBytes)
                 out.flush()
+                xmlSent = true
+
+                // Still holding writeLock: the frame is on the wire, so record it
+                // now. A later sendFrame cannot overtake this store.
+                lastSentXmlHash = xmlHash
+                lastFrameSentAt = System.currentTimeMillis()
             }
-            Log.d(TAG, "XML sent: ${xmlBytes.size} bytes (top=$topPackage, activity=$activityName)")
-            true
+            Log.d(
+                TAG,
+                "Frame sent: screenshot=${img?.size ?: 0} bytes, xml=${xmlBytes.size} bytes " +
+                    "(top=$topPackage, activity=$activityName)"
+            )
         } catch (e: IOException) {
-            Log.e(TAG, "sendXml failed: ${e.message}")
+            Log.e(TAG, "sendFrame failed: ${e.message}")
             connected = false
-            false
         } catch (e: Exception) {
-            Log.e(TAG, "sendXml error: ${e.message}")
-            false
+            Log.e(TAG, "sendFrame error: ${e.message}")
         }
+        return FrameSendResult(screenshotSent, xmlSent)
+    }
+
+    private fun md5Hex(s: String): String {
+        val bytes = MessageDigest.getInstance("MD5").digest(s.toByteArray(StandardCharsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 
     fun sendExternalApp(topPackage: String, targetPackage: String): Boolean {
