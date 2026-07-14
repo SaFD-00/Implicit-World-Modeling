@@ -10,9 +10,10 @@
 
 - **패키지/소비**: 시스템 `com.android.providers.contacts` provider → Simple Contacts(`com.simplemobiletools.contacts.pro`) + Google Contacts 공용.
 - **저장방식**: provider-content. **직접 sqlite3 금지** — display_name 계산·aggregation 우회 시 UI 에 이름 안 뜸. 반드시 `content insert`.
+- **⚠️ provider-레벨 시드 — 앱 설치 여부와 무관하게 항상 실행됨(실측 확인)**: 아래 가드는 다른 레시피의 `has X && { ... }` 패턴과 달리 **삽입 블록을 감싸지 않는다** — `has A || has B || true` 는 `|| true` 때문에 항상 exit 0 이 되고, 그 결과값이 버려진 채 다음 줄로 그대로 진행된다. 즉 Simple Contacts Pro 가 미설치여도 시스템 provider(및 미리 설치돼 있던 Google Contacts)에 연락처 5건이 삽입된다. 의도적으로 provider-레벨 시드(카탈로그 앱 설치와 무관하게 항상 채움)이므로 두고, 이 사실만 명시한다 — Calendar(아래 §3)처럼 앱 미설치 시 자연 skip 을 원하면 `has com.simplemobiletools.contacts.pro && { ... }` 로 바꿔라.
 
 ```bash
-has com.simplemobiletools.contacts.pro || has com.google.android.contacts || true
+has com.simplemobiletools.contacts.pro || has com.google.android.contacts || true   # 항상 true — 게이트 아님, provider-레벨 시드 표시용
 CDB=/data/data/com.android.providers.contacts/databases/contacts2.db
 if ! adb -s "$SER" shell "content query --uri content://com.android.contacts/raw_contacts --where \"display_name='Alice Johnson'\"" 2>/dev/null | grep -q display_name; then
   addc(){ # $1 given  $2 family  $3 phone

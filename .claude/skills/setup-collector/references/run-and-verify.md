@@ -35,19 +35,22 @@ uv run monkey-collect run --apps <pkg...|all> --steps N --port 12345 \
 
 | 조건 | 임계값 | 동작 |
 |------|--------|------|
-| signal timeout 연속 | `max_timeouts=5` | → force-stop + relaunch (재초기화). 재초기화 3회 초과 시 세션 종료 |
-| external app 연속 | `MAX_EXTERNAL_APP_RETRIES=10` | → `recover()` + 카운터 리셋 (재초기화). 재초기화 3회 초과 시 세션 종료 |
+| signal timeout 연속 | `MAX_SIGNAL_TIMEOUTS=3` | → force-stop + relaunch (재초기화). 재초기화 **20**회 초과 시 세션 종료 |
+| external app 연속 | `MAX_EXTERNAL_APP_RETRIES=10` | → `recover()` + 카운터 리셋 (재초기화). 재초기화 **10**회 초과 시 세션 종료 |
 | no-change 연속 | `MAX_NO_CHANGE_RETRIES=3` | → back press (세션 유지) |
 | same page 연속 | `MAX_SAME_PAGE_STEPS=5` | → back press (세션 유지) |
 | empty UI 연속 | `MAX_EMPTY_UI_RETRIES=2` | → back press (세션 유지) |
 | max_steps 도달 | `--steps` (기본 1500) | → 세션 종료 (정상) |
 | `F` (finish) 신호 | client 가 보냄 | → 세션 종료 (정상) |
 
-**재초기화 로직** (`collection_loop.py`):
-- timeout 5연속 → `force_stop(pkg)` + `launch_app(pkg)` + `timeout_count=0` → `reinit_timeout_count += 1`
-  - `reinit_timeout_count > MAX_TIMEOUT_REINITS(3)` 이면 세션 종료
+> **⚠️ 실제 코드 상수(`recovery.py`)는 20/10 — "3회 초과 시 종료"는 과거 값**: `MAX_TIMEOUT_REINITS=20`, `MAX_EXTERNAL_REINITS=10` 이다(코드 주석에 과거 `MAX_TIMEOUT_REINITS=3` budget이 2~4분 만에 소진돼 정상 세션까지 죽이던 이력이 남아 있음 — budget-loop-fix 의 일부로 상향됐고 문서만 갱신 안 된 상태였다). 로그의 `external app reinit (N/10)` 표시는 버그가 아니라 이 실제 상수를 그대로 찍은 것.
+
+**재초기화 로직** (`recovery.py`/`collection_loop.py`):
+- timeout 3연속(`MAX_SIGNAL_TIMEOUTS`) → `force_stop(pkg)` + `launch_app(pkg)` + `timeout_count=0` → `reinit_timeout_count += 1`
+  - `reinit_timeout_count > MAX_TIMEOUT_REINITS(20)` 이면 세션 종료
 - external app 10회 → `explorer.recover(pkg)` + `external_app_count=0` → `reinit_external_count += 1`
-  - `reinit_external_count > MAX_EXTERNAL_REINITS(3)` 이면 세션 종료
+  - `reinit_external_count > MAX_EXTERNAL_REINITS(10)` 이면 세션 종료
+- `REINIT_FORGIVE_STEPS=15`: reinit 이후 진짜 진전이 이 스텝만큼 쌓이면 해당 reinit 카운터를 용서(리셋) — 정상 세션이 반복적인 일시 정지로 예산을 다 쓰지 않게 함.
 
 ## 알려진 실패모드 ↔ 적용된 수정
 

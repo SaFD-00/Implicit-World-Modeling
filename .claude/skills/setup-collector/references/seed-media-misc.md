@@ -42,7 +42,7 @@ has code.name.monkey.retromusic && {
 ## 2. OpenTracks (운동 기록)
 
 - **패키지**: `de.dennisguse.opentracks`. `…/databases/database.db`, 테이블 `tracks`.
-- **스키마 요점**: `uuid` BLOB **UNIQUE** → `X'HEX'`(32 hex). 시간=ms. `numpoints=0` 허용. `name` 고유.
+- **스키마 요점(⚠️ 버전 드리프트 실측, v4.27.2/versionCode 6682 기준)**: 구버전 문서에 있던 `category`/`numpoints`/`totaldistance`/`totaltime`/`movingtime`/`avgspeed`/`avgmovingspeed`/`icon` 컬럼은 **더 이상 존재하지 않는다**. 실제 컬럼(`.schema tracks` 로 실측): `uuid,name,description,activity_type,activity_type_localized,time_offset,time_start,time_stop,duration_total,duration_moving,distance,speed_max,altitude_min,altitude_max,altitude_gain,altitude_loss`. `uuid` BLOB **UNIQUE** → `X'HEX'`(32 hex). 시간(`time_*`)=ms epoch, 기간(`duration_*`)=ms. `name` 고유(sentinel).
 
 ```bash
 has de.dennisguse.opentracks && {
@@ -51,15 +51,15 @@ has de.dennisguse.opentracks && {
   adb -s "$SER" shell am force-stop $PKG
   if [ "$(adb -s "$SER" shell "sqlite3 $DB \"SELECT COUNT(*) FROM tracks WHERE name='Morning Run';\"" | tr -d '\r')" = "0" ]; then
     adb -s "$SER" shell "sqlite3 $DB" <<'SQL'
-INSERT INTO tracks (name,description,category,activity_type,starttime,stoptime,numpoints,totaldistance,totaltime,movingtime,avgspeed,avgmovingspeed,maxspeed,minelevation,maxelevation,elevationgain,icon,uuid,elevationloss,starttime_offset) VALUES
-('Morning Run','5 km run at the park','running','running',1782900000000,1782901500000,0,5000.0,1500000,1500000,3.33,3.33,4.5,10.0,25.0,15.0,NULL,X'A1B2C3D4E5F60011223344556677AA01',12.0,0),
-('Scenic Bike Tour','Lakeside loop','road biking','road biking',1782990000000,1782993600000,0,15000.0,3600000,3600000,4.17,4.17,8.0,5.0,40.0,35.0,NULL,X'A1B2C3D4E5F60011223344556677AA02',30.0,0),
-('Evening Walk','Neighborhood stroll','walking','walking',1783080000000,1783081200000,0,2000.0,1200000,1200000,1.67,1.67,2.2,8.0,12.0,4.0,NULL,X'A1B2C3D4E5F60011223344556677AA03',4.0,0);
+INSERT INTO tracks (uuid,name,description,activity_type,activity_type_localized,time_offset,time_start,time_stop,duration_total,duration_moving,distance,speed_max,altitude_min,altitude_max,altitude_gain,altitude_loss) VALUES
+(X'A1B2C3D4E5F60011223344556677AA01','Morning Run','5 km run at the park','running','Running',0,1782900000000,1782901500000,1500000,1500000,5000.0,4.5,10.0,25.0,15.0,12.0),
+(X'A1B2C3D4E5F60011223344556677AA02','Scenic Bike Tour','Lakeside loop','biking','Road biking',0,1782990000000,1782993600000,3600000,3600000,15000.0,8.0,5.0,40.0,35.0,30.0),
+(X'A1B2C3D4E5F60011223344556677AA03','Evening Walk','Neighborhood stroll','walking','Walking',0,1783080000000,1783081200000,1200000,1200000,2000.0,2.2,8.0,12.0,4.0,4.0);
 SQL
   fi
 }
 ```
-- **검증(API33)**: tracks 3행(Morning Run/Scenic Bike Tour/Evening Walk).
+- **검증(v4.27.2/API33)**: tracks 3행(Morning Run/Scenic Bike Tour/Evening Walk), sentinel `name='Morning Run'` 확인.
 
 ---
 
