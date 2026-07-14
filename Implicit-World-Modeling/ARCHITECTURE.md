@@ -212,37 +212,39 @@ python scripts/filter_long_samples.py --dataset AC_EXP03 --threshold 24576 --rep
 
 `resolve_gpu_policy(gpu_type, nproc, size_class, ds_name, mode)` → `per_device_train_batch_size` / `gradient_accumulation_steps` / `deepspeed`. **이 세 값은 `lf_registry` 에 없다.**
 
-**허용 매트릭스** (밖이면 `ValueError` → 학습 진입 전 중단). **batch 도 deepspeed 도 `(GPU_TYPE, size_class)` 쌍으로 갈린다 — GPU 종류만 보면 안 된다:**
+**허용 매트릭스** (밖이면 `ValueError` → 학습 진입 전 중단). **batch 도 deepspeed 도 `(GPU_TYPE, size_class, mode)` 3 축으로 갈린다 — GPU 종류만 보면 안 된다:**
 
-| GPU_TYPE | 허용 nproc | size_class | `per_device_train_batch_size` | 좌표 실험군 (EXP03/04/05) | deepspeed |
-|---|---|---|---|---|---|
-| RTX5090 (32GB) | {1, 2} | 7-9B / 3-4B | 1 | 1 (이미 최소 — 추가 축소 불가) | **offload** |
-| A100 / H100 (80GB) | {1, 2, 4, 8} | 7-9B | 2 | **1** (`_HALF_BATCH_DATASETS` 반감) | **offload** |
-| A100 / H100 (80GB) | {1, 2, 4, 8} | **3-4B** | **2** | **2** (반감 **면제**) | **no-offload** |
+| GPU_TYPE | 허용 nproc | size_class | mode | `per_device_train_batch_size` | 좌표 실험군 (EXP03/04/05) | deepspeed |
+|---|---|---|---|---|---|---|
+| RTX5090 (32GB) | {1, 2} | 7-9B / 3-4B | full / lora | 1 | 1 (이미 최소 — 추가 축소 불가) | **offload** |
+| A100 / H100 (80GB) | {1, 2, 4, 8} | **7-9B** | **full** | 2 | **1** (`_HALF_BATCH_DATASETS` 반감) | **offload** |
+| A100 / H100 (80GB) | {1, 2, 4, 8} | **7-9B** | **lora** | **2** | **2** (반감 **면제**) | **no-offload** |
+| A100 / H100 (80GB) | {1, 2, 4, 8} | **3-4B** | full / lora | **2** | **2** (반감 **면제**) | **no-offload** |
 
-마지막 행이 유일한 no-offload 경로다 (`_is_large_mem_small_model`). 80GB 에 3-4B 는 optimizer state 를 GPU 에 올려도 들어가므로, offload 를 끄고 half-batch 예외도 면제한다 — 두 결정이 같은 실측(함정 7)에서 나오므로 코드도 한 술어로 함께 판정한다.
+아래 두 행이 no-offload 경로다 (`_is_no_offload_combo`): **80GB × (3-4B 이거나 lora)**. 그 조합은 optimizer state 를 GPU 에 올려도 들어가므로 offload 를 끄고 half-batch 예외도 면제한다 — 두 결정이 같은 메모리 실측(함정 7)에서 나오므로 코드도 한 술어로 함께 판정한다. **남는 offload 경로는 `7-9B × full` 과 RTX5090 전부** 뿐이며, 이 둘을 가르는 것은 정확히 optimizer state 의 크기다 (lora 는 어댑터만 학습 → 작다, full 7B 는 모델 상태만 GPU 당 ~77 GiB → 확정 OOM).
 
 **global batch 불변식:**
 ```
 per_device_train_batch_size × gradient_accumulation_steps × NPROC_PER_NODE == GLOBAL_BATCH_SIZE (64)
 gradient_accumulation_steps = 64 / (per_device × nproc)      ← resolve_gpu_policy 가 역계산
 ```
-좌표 실험군의 half-batch 도, 80GB×3-4B 의 반감 면제도 grad_accum 재계산으로 보정돼 **`GLOBAL_BATCH=64` 가 유지된다** — 어느 GPU 조합에서 돌리든 EXP01 과 global batch 가 같아 비교가 공정하다 (예: A100×2 × 3-4B × EXP05 → `pdbs 2 × ga 16 × 2 = 64`). 위 표의 모든 조합이 64 로 나누어떨어져 silent rounding 이 없다 (`tests/test_gpu_policy.py` 가 160 조합 전수를 고정). `_common.sh::resolve_overrides` 도 주입 직전에 `pdbs × ga × nproc == 64` 를 한 번 더 검증한다. RTX5090 은 per_device 가 이미 최소(1) 라 추가 축소가 불가능하다 → ZeRO-3 offload + gradient_checkpointing 에 의존 (OOM 시 NPROC↑).
+좌표 실험군의 half-batch 도, no-offload 조합의 반감 면제도 grad_accum 재계산으로 보정돼 **`GLOBAL_BATCH=64` 가 유지된다** — 어느 GPU 조합·GPU 대수에서 돌리든 EXP01 과 global batch 가 같아 비교가 공정하다 (예: A100×2 × 3-4B × EXP05 → `pdbs 2 × ga 16 × 2 = 64`). 위 표의 모든 조합이 64 로 나누어떨어져 silent rounding 이 없다 (`tests/test_gpu_policy.py` 가 160 조합 전수를 고정). `_common.sh::resolve_overrides` 도 주입 직전에 `pdbs × ga × nproc == 64` 를 한 번 더 검증한다. RTX5090 은 per_device 가 이미 최소(1) 라 추가 축소가 불가능하다 → ZeRO-3 offload + gradient_checkpointing 에 의존 (OOM 시 NPROC↑).
 
-> ⚠️ **함정 7 — offload 는 `(GPU_TYPE, size_class)` 쌍으로 갈린다. "80GB 면 무조건 offload 불필요" 도, "언제나 offload" 도 둘 다 틀리다.**
-> `resolve_gpu_policy` 는 **(A100|H100) × 3-4B** 에서만 `ds_z3_config.json` (no-offload) 을, 그 밖의 모든 조합에서는 `ds_z3_offload_config.json` 을 반환한다.
+> ⚠️ **함정 7 — offload 는 `(GPU_TYPE, size_class, mode)` 3 축으로 갈린다. "80GB 면 무조건 offload 불필요" 도, "언제나 offload" 도 둘 다 틀리다.**
+> `resolve_gpu_policy` 는 **(A100|H100) × (3-4B 이거나 lora)** 에서 `ds_z3_config.json` (no-offload) 을, 그 밖의 조합 — **7-9B × full** 과 **RTX5090 전부** — 에서는 `ds_z3_offload_config.json` 을 반환한다.
 >
 > **끄는 근거** (2026-07-14 실측 — EXP05 stage1 full FT / qwen2.5-vl-3b / A100×2):
-> 1. offload 를 켜면 **165 s/step** → 2094 step 에 **약 4 일**. GPU util 은 97 % 인데 메모리는 80GB 중 **23~26 GB** 만 쓰고, 두 GPU 전력이 **135 W 대 378 W** 로 벌어진다 — 계산이 아니라 CPU↔GPU 전송이 step 을 지배한다는 신호.
-> 2. 3-4B 는 optimizer state 를 GPU 에 올려도 들어간다: 파라미터 3.09 B 의 fp32 master + Adam m/v 를 2 GPU 로 샤딩하면 GPU 당 ~25 GB, 여기에 위 activation/logits 23~26 GB 를 더해도 80 GB 안이다.
+> 1. offload 를 켜면 **165 s/step** → 2094 step 에 **약 4 일**. GPU util 은 97 % 인데 메모리는 80GB 중 **23~26 GB** 만 쓰고, 두 GPU 전력이 **135 W 대 378 W** 로 벌어진다 — 계산이 아니라 CPU↔GPU 전송이 step 을 지배한다는 신호. 끄면 **138 s/step**, 메모리 64~73 GB.
+> 2. **3-4B** 는 optimizer state 를 GPU 에 올려도 들어간다: 파라미터 3.09 B 의 fp32 master + Adam m/v 를 2 GPU 로 샤딩하면 GPU 당 ~25 GB, 여기에 위 activation/logits 를 더해도 80 GB 안이다.
+> 3. **lora** 는 size_class 무관으로 끈다 — 학습 대상이 어댑터뿐이라 optimizer state 가 base weight 대비 무시할 만큼 작다 (7-9B lora 포함).
 >
 > **켜야 하는 근거** (아래 둘은 여전히 offload 다):
-> 3. **7-9B**: A100/H100 에서 offload 를 빼면 **EXP05 7B full FT 는 확정 OOM** (모델 상태 fp32 param+grad+Adam m/v 만 GPU 당 ~77 GiB). **OOM peak 을 지배하는 항은 lm_head logits** (시퀀스 길이 × vocab) 이며 파라미터 샤딩이나 GPU 증설로 줄어들지 않는다 — "GPU 가 많으니 괜찮을 것" 은 성립하지 않는다.
-> 4. **RTX5090 (32GB)**: 모델 크기와 무관하게 offload 없이는 들어가지 않는다.
+> 4. **7-9B × full**: A100/H100 에서 offload 를 빼면 **EXP05 7B full FT 는 확정 OOM** (모델 상태 fp32 param+grad+Adam m/v 만 GPU 당 ~77 GiB). **OOM peak 을 지배하는 항은 lm_head logits** (시퀀스 길이 × vocab) 이며 파라미터 샤딩이나 GPU 증설로 줄어들지 않는다 — "GPU 가 많으니 괜찮을 것" 은 성립하지 않는다. **3 이 lora 를 풀어준다고 full 까지 풀리지 않는다** — 둘을 가르는 것이 정확히 optimizer state 의 크기다.
+> 5. **RTX5090 (32GB)**: 모델 크기·모드와 무관하게 offload 없이는 들어가지 않는다.
 >
-> **GPU 종류만 보고 갈리는 분기 (`if GPU_TYPE == "RTX5090": …`) 는 여전히 금지된 패턴이다.** 예전 노트북 Cell 10 이 그 패턴이었고, RTX5090 이 아닌 조합 전부가 no-offload 죽은 기본값으로 조용히 divergence 했다 (7-9B 까지 포함해서 — 그래서 위험했다). 지금 분기는 **size_class 를 함께 보고**, 각 조합이 (1)~(4) 의 실측에 묶여 있다. 회귀 방지: `tests/test_gpu_policy.py::test_a100_7b_stays_offload_gpu_type_alone_does_not_flip_it`.
+> **GPU 종류만 보고 갈리는 분기 (`if GPU_TYPE == "RTX5090": …`) 는 여전히 금지된 패턴이다.** 예전 노트북 Cell 10 이 그 패턴이었고, RTX5090 이 아닌 조합 전부가 no-offload 죽은 기본값으로 조용히 divergence 했다 (**7-9B full 까지 포함해서 — 그래서 위험했다**). 지금 분기는 **size_class 와 mode 를 함께 보고**, 각 조합이 (1)~(5) 의 메모리 실측에 묶여 있다. 회귀 방지: `tests/test_gpu_policy.py::test_a100_7b_full_stays_offload_gpu_type_alone_does_not_flip_it` · `::test_a100_7b_lora_is_no_offload_but_full_is_not`.
 >
-> `DEEPSPEED_NO_OFFLOAD` / `--allow-no-offload` 는 **정책이 offload 를 켜는 조합(7-9B / RTX5090)에서 강제로 끄는 opt-out** 이다 (미실측 경고 동반). 80GB × 3-4B 는 이 플래그 없이도 기본이 no-offload 다.
+> `DEEPSPEED_NO_OFFLOAD` / `--allow-no-offload` 는 **정책이 offload 를 켜는 조합(7-9B full / RTX5090)에서 강제로 끄는 opt-out** 이다 (미실측 경고 동반). 80GB × (3-4B | lora) 는 이 플래그 없이도 기본이 no-offload 다.
 >
 > 파생: `_common.sh` 의 CUDA/nvcc 가드는 offload 여부와 무관하게 **항상** 건다 — 정책상 offload 를 쓰는 조합(7-9B / RTX5090)이 CPUAdam JIT 빌드를 타기 때문이다. 80GB×3-4B 처럼 offload 를 끄는 경로에서는 불필요하지만, 가드는 조합을 모른 채 source 시점에 돌므로 그대로 통과시켜야 한다. 탈출구: `LF_CUDA_GUARD_SKIP=1`. `CUDA_HOME` 이 torch 와 다른 cu 버전이면 여기서 막힌다 (`CUDA_HOME=<cu12.8 toolkit>` 로 지정).
 
