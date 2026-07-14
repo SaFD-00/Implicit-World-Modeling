@@ -42,7 +42,7 @@ flowchart TD
   CAP --> SRV[Python Server: consume latest signal, parse XML]
   SRV --> SM[ScreenMatcher: BM25 unique-page matching LLM-free]
   SM -->|pending: no interactable| SKIP[no page node, no observation]
-  SM -->|page_key| EXP[LLMGuidedExplorer: select action]
+  SM -->|page_key| EXP[CoverageGuidedExplorer: select action]
   EXP --> ADB[ADB execute action]
   ADB --> LOG[events.jsonl: frame_index / page_key / observation_num]
   LOG --> EV
@@ -217,7 +217,7 @@ flowchart TD
 """,
     ),
     SlideSpec(
-        title="LLMGuidedExplorer: select_action 4단계",
+        title="CoverageGuidedExplorer: select_action 4단계",
         bullets=[
             "진행 중 navigation이 있으면 queued step을 현재 화면에서 다시 매칭해 실행한다.",
             "현재 화면에 미탐색 action이 있으면 그중 하나를 고르고 long_touch는 후순위다.",
@@ -260,20 +260,18 @@ flowchart LR
         title="LLM 사용처",
         bullets=[
             "공용 LLMClient는 OpenRouter Chat Completions와 기본 모델 qwen/qwen3.7-plus를 쓴다.",
-            "기본 on 사용처는 input-text 생성이고, 앱 설명을 프롬프트에 함께 넣는다.",
-            "element 추출은 opt-in 기본 off이며 name·description·parameters·indexes를 한 번에 뽑는다.",
+            "런타임 LLM 사용처는 input-text 생성 하나이고, 앱 설명을 프롬프트에 함께 넣는다.",
+            "OPENROUTER_API_KEY가 없으면 입력은 random으로 degrade한다.",
             "BM25 기반 page 식별 자체는 LLM-free라서 key가 없어도 dedup 흐름은 유지된다.",
         ],
         notes=[
             "근거: §2 llm, §2 screen_matching.",
-            "LLM은 입력 생성과 element enrichment 두 곳만 쓰고 page identity는 비LLM이라는 점이 핵심이다.",
+            "LLM은 입력 생성 한 곳만 쓰고 page identity는 비LLM이라는 점이 핵심이다.",
         ],
         mermaid="""\
 flowchart TD
   CLIENT[LLMClient\nOpenRouter Chat Completions\nqwen/qwen3.7-plus] --> TXT[input-text generation]
-  CLIENT --> EXT[element extraction opt-in]
   TXT --> PROMPT[App under test context]
-  EXT --> ELEM[name/description/parameters\n element_index/key_element_index]
   BM25[BM25 unique-page matching] --> PAGE[page_key]
   BM25 -. LLM-free .-> PAGE
 """,

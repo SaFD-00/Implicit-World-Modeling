@@ -32,7 +32,7 @@
 - `pytest -q tests/unit` (외부 의존 없음, 빠름)
 - `pytest -q tests/integration` (ADB / TCP / subprocess mock)
 - `pytest -q tests/unit/test_cli.py tests/integration/test_collector.py tests/unit/test_storage.py`
-- `pytest -q tests/unit/test_llm_client.py tests/unit/test_element_extractor.py tests/unit/test_text_generator.py` (LLM 클라이언트 / element 추출 / 입력 생성)
+- `pytest -q tests/unit/test_llm_client.py tests/unit/test_text_generator.py` (LLM 클라이언트 / 입력 텍스트 생성)
 - `pytest -q tests/unit/test_bm25.py tests/unit/test_element_lines.py tests/unit/test_screen_matcher.py tests/unit/test_rehydrate.py tests/unit/test_luminance.py tests/unit/test_config.py` (BM25 unique-page matching + 재개 rehydration)
 - `pytest -q tests/unit/test_app_catalog.py tests/integration/test_installed_sync.py tests/unit/test_run_resume.py tests/unit/test_session_manager.py tests/unit/test_reset.py`
 - `pytest -q tests/unit/test_page_graph.py tests/unit/test_page_graph_matching.py tests/unit/test_converter.py` (page graph 재구성 + world-modeling 변환)
@@ -123,21 +123,17 @@
     - 새 APK 가 추가되면 `python -m catalog.extract_activities` 로 갱신한다(이 재생성은 필터를 거치지 않은 raw 사전을 다시 만들 뿐, 필터는 항상 `ActivityCatalog` 조회 시점에 적용된다).
   - [`src/monkey_collector/pipeline/reset.py`](./src/monkey_collector/pipeline/reset.py): 수집 데이터 삭제 스코프 해소(`all` / `packages`)와 `shutil.rmtree` 실행. 순수 함수 (`resolve_targets`, `delete_targets`).
 - 완료 앱 스킵 로직은 [`src/monkey_collector/cli.py`](./src/monkey_collector/cli.py) 의 `_resolve_run_packages` / `_load_completed_packages` 에 있다. `metadata.completed_at` 이 채워진 앱은 기본적으로 큐에서 제외되고, `--force` 로 우회한다. 이 규약이 바뀌면 `tests/unit/test_run_resume.py` 를 함께 업데이트한다.
-- 액션 선택 로직은 [`src/monkey_collector/pipeline/exploration/`](./src/monkey_collector/pipeline/exploration) (LLM-Explorer 포팅: `LLMGuidedExplorer` + `Explorer` Protocol, `SemanticState`/`Memory`/`TransitionGraph`/`Navigator`/`ActionMapper`) 와 그 단위
-  테스트(`tests/unit/test_semantic_state.py`·`test_memory_unexplored.py`·`test_transition_graph_nav.py`·`test_navigator.py`·`test_action_mapper.py`, `tests/integration/test_llm_guided_explorer.py`) 를 함께 본다.
-  - 커버리지는 `(page_key, element_signature, action_type)` 단위로 추적하고, `ElementExtractor` 의 element family 로 탐색 공간을 압축하며, `TransitionGraph` 최단경로로 미탐색 화면까지 navigation 한다.
+- 액션 선택 로직은 [`src/monkey_collector/pipeline/exploration/`](./src/monkey_collector/pipeline/exploration) (LLM-Explorer 알고리즘 포팅, 런타임 LLM 미호출: `CoverageGuidedExplorer` + `Explorer` Protocol, `SemanticState`/`Memory`/`TransitionGraph`/`Navigator`/`ActionMapper`) 와 그 단위
+  테스트(`tests/unit/test_semantic_state.py`·`test_memory_unexplored.py`·`test_transition_graph_nav.py`·`test_navigator.py`·`test_action_mapper.py`, `tests/integration/test_coverage_guided_explorer.py`) 를 함께 본다.
+  - 커버리지는 `(page_key, element_signature, action_type)` 단위로 추적하고, `TransitionGraph` 최단경로로 미탐색 화면까지 navigation 한다.
   - page 식별(`page_key`)은 [`pipeline/screen_matching/`](./src/monkey_collector/pipeline/screen_matching) 의 `ScreenMatcher`(**BM25 unique-page matching**, Mobile3M 메커니즘, **LLM-free**)가 결정하며, 이 `page_key` 가 page_graph 노드와 탐색 abstract page 를 모두 좌우한다 — 매칭 흐름(pre-filter → element-line serialize → BM25 top-K → conjunctive verify)·pixel 게이트·`persist_filtered`·rehydrate 메커니즘은 [ARCHITECTURE.md](./ARCHITECTURE.md) §2(screen_matching) 참조.
   - screen_matching 을 바꾸면 `tests/unit/test_bm25.py`·`test_element_lines.py`·`test_screen_matcher.py`·`test_rehydrate.py`·`test_luminance.py`·`test_config.py`(+`test_ui_attributes.py`) 를 함께 본다.
   - 하이퍼파라미터(`bm25_top_k`/`element_criterion`/`element_diff_max`/`element_jaccard_min`/`page_pixel_diff_threshold` 등)는 `screen_matching` config(builtin+yaml+env+CLI 4단계)로 조정한다 — 키 목록은 [ARCHITECTURE.md](./ARCHITECTURE.md) §7 참조.
 - LLM 통합은 [`src/monkey_collector/llm/client.py`](./src/monkey_collector/llm/client.py) 의 공용 `LLMClient` (OpenRouter Chat Completions, 기본 `qwen/qwen3.7-plus`, env `OPENROUTER_API_KEY`/`OPENROUTER_BASE_URL`/`OPENROUTER_MODEL`) 하나로 모인다.
-  - 두 소비자가 이를 공유한다: 텍스트 입력 생성 [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py) (random fallback 유지; `Collector._run_session` 이 세션마다 `set_app_context()` 로 현재 앱 설명 — `catalog/apps.csv` 의 `AppJob.description`, 미등록 앱은 package_id 폴백 — 을 프롬프트에 `App under test:` 줄로
-    주입) 와 element 추출 [`llm/element_extractor.py`](./src/monkey_collector/llm/element_extractor.py) (단일 호출로 `name`/`description`/`parameters`/`element_index`/`key_element_index` 를 함께; `ScreenMatcher` 가 소비).
+  - 유일한 런타임 소비자는 텍스트 입력 생성 [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py) 이다 (random fallback 유지; `Collector._run_session` 이 세션마다 `set_app_context()` 로 현재 앱 설명 — `catalog/apps.csv` 의 `AppJob.description`, 미등록 앱은 package_id 폴백 — 을 프롬프트에 `App under test:` 줄로 주입).
   - provider/모델을 바꾸려면 `client.py`, `.env.example`, [`cost_tracker.py`](./src/monkey_collector/domain/cost_tracker.py) 의 `MODEL_PRICING` 을 함께 본다.
-  - element 추출은 `--element-extraction on` 일 때 `xml/{step}_elements.json`(각 element 의 `name`/`description`/`parameters`/`element_index`/`key_element_index`) 으로 저장하며, expand(남은 UI 재추출)로 화면당 LLM 1~3회를 쓰되 구조 지문 pre-filter 로 exact 재방문은 0회, interactable 0개 로딩/스플래시 화면은 pending 으로 거부해
-    0회다(빈 page blackhole 차단).
-  - 이 in-loop 추출 호출은 `chat()` 의 per-call override(`max_tokens`/`timeout`/`max_retries`)로 bound 된다 — 상수 위치는 `element_extractor.py` 상단(`_EXTRACT_MAX_TOKENS`/`_EXTRACT_TIMEOUT`/`_EXTRACT_MAX_RETRIES`), 값·근거는 [ARCHITECTURE.md](./ARCHITECTURE.md) 참조.
-  - 추출/매칭 실패(truncation/timeout 포함)는 수집 흐름을 깨지 않는다(빈 결과로 degrade).
-  - 비용은 `cost.csv` 의 `agent` 컬럼(`text_generator` / `element_extractor`)으로 구분된다.
+  - `OPENROUTER_API_KEY` 가 없으면 입력 텍스트 생성은 random 으로 degrade 하며 수집 흐름을 깨지 않는다. page 식별(`ScreenMatcher`)은 LLM 무관이라 그대로 동작한다.
+  - 비용은 `cost.csv` 의 `agent` 컬럼(현재 `text_generator`)에 기록된다.
 - 세션 저장 형식은 [`src/monkey_collector/storage.py`](./src/monkey_collector/storage.py) 가 기준이다.
   - `DataWriter` 는 두 root 로 나뉜다 — `data/{package}/pages/{page_key}/{observation_num}/` (영속, `save_observation`/`save_page_knowledge` 는 `is_new_observation` 일 때만 새로 씀) 와 `runtime/{package}/` (휘발성: metadata/events/cost/coverage).
   - 세션 재개(resume)는 `session_manager.rehydrate_session` → `screen_matching/rehydrate.py` 가 `data/{package}/pages/` 를 다시 읽어 `ScreenMatcher` 지식과 `state.page_graph` 를 모두 복원한다.
