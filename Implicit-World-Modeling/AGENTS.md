@@ -57,6 +57,11 @@
   `implicit-world-modeling`)와 **bash 4+** 를 요구하고, `LlamaFactory/` 도 체크아웃에 없다. **DRY_RUN 조차
   안 된다.** 이 스크립트들은 **원격 리눅스 GPU 박스** 전용이다. 맥에서 검증 가능한 최대치는 **정적 관통
   확인**(jsonl 스키마 + 이미지 경로 해석 + `python -m implicit_world_modeling.gen_configs --check`)이다.
+  - **MC 브리지 end-to-end 실행은 보류됐다 (사용자 결정, 2026-07-14 — 지금은 핸드오프만).** 배선·정적 관통은
+    확인됐으니 남은 것은 원격 GPU 박스에서 `stage1_train.sh --dataset MC` 를 실제로 한 번 돌려보는 것뿐이다.
+    경로: `setting:claude-code-remote` 로 원격 서버에 붙거나 `scripts/remote_launch.sh`. **먼저 `--stage1-ratio`
+    를 낮춰라**(위 test=9 문제). 실행 전 osmand 오염·교차-앱 병합 잔여를 감안하면 이 데이터는 배선 검증용이지
+    코퍼스 품질 판정용이 아니다.
 
 ---
 
