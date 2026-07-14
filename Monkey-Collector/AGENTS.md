@@ -43,6 +43,19 @@
 - 저장 포맷을 바꾸면 converter, page-map, regenerate, `rehydrate.py`, `config.py`(`data_dir`/`runtime_dir`), `pipeline/reset.py`, 테스트를 함께 갱신해야 한다.
 - action 이벤트의 `page_key`/`observation_num` 이 실제 화면 파일 위치(`data/{package}/pages/{page_key}/{observation_num}/`, 둘 다 0-based 정수·zero-pad 없음)를 가리키는 **조인 키**다 — converter 와 `build_graph_from_new_layout` 이 이걸로 화면을 찾는다. `frame_index` 는 정렬용 단조 카운터(`DataWriter.next_frame_index()`)일 뿐 파일 인덱스가 아니다(화면 파일은 `observation_num` 이 키이고, pending 프레임이나 `persist_filtered` off 재사용 관측은 파일이 없을 수 있어 frame_index 와 1:1 이 아니다). `state.step` 은 **정상 action 경로에서만** `+1` 한다 — signal timeout·no_change·empty-UI 대기·keyboard/permission/system/stale 같은 비-action 반복에서 step 을 올리면 `step` 이 frame_index 와 어긋나 정렬이 깨진다(이게 과거 정렬 버그의 원인이었다). step 증가 지점이나 page_key/observation_num 주입·조인을 바꾸면 converter·page-map·`build_graph_from_new_layout`·테스트를 함께 검토하라.
 
+## 알려진 한계 (의도적으로 수용)
+
+- **F2 poke 의 spurious `N` — 라벨 오귀속 (수용됨, 2026-07-14)**: 서버 pull(F2)의 CAPTURE poke 는 액션 후
+  1.5s 에 발화한다. 그 시점까지 화면 변화가 아직 렌더링되지 않았으면 클라이언트는 XML 해시가 같아
+  `N`(no_change)을 보내고, 서버는 이를 "액션 무효"로 확정 해석한다 — element 를 exclude 하고 retry 를 쏘며
+  `state.last_action` 을 덮어쓴다. 그 결과 뒤늦게 도착한 원래 액션의 효과가 retry 액션에 **오귀속**된다.
+  실측상 명백한 오판은 스텝의 1% 미만이다 — 전체 수치는
+  [`.claude/handoff/f2-server-pull-results.md`](./.claude/handoff/f2-server-pull-results.md) 의 "결함 6" 절을 보라.
+  2-poke 합의(판정 시점 1.5s→3.0s, 관측 최대 렌더 지연 2.779s 초과)로 고칠 수 있으나 매 run 에 약
+  +65~75s(900s 의 7~8%) 의 **상시 예산세**가 붙어 <1% 라벨 노이즈보다 비싸다고 판단, **고치지 않기로
+  결정했다**. 이 결정을 뒤집으려면 예산세 실측부터 다시 하라. 이 코퍼스를 IWM 학습에 쓸 때 이 라벨
+  노이즈가 있음을 인지할 것.
+
 ## 효과 측정 프로토콜 (수집기 변경의 효과를 판정할 때)
 
 수집기 변경(가드·탐색정책·임계값)의 효과를 수치로 판정하려면 **반드시** 아래를 따른다. 이 프로토콜 없이 뽑은 비교는 confound 로 오염돼 인과 해석이 불가하다 — 과거에 실제로 "다양성 +78%" 를 fix 효과로 오귀속했다가 전면 정정한 사례가 있다.
