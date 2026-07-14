@@ -132,7 +132,8 @@ monkey-collect run --apps all --input-mode random
 - 한 세션이 끝나면 서버가 `SESSION_END` 를 보내 클라이언트를 정리하고, Android 는 `F` 회신 후 새 소켓으로 자동 재접속한다. 서버는 이 fresh 소켓을 그대로 유지하고 다음 앱으로 `START` 를 송신한다. 이때 이전 세션의 `F`(finish) 회신이 신호 큐에 남을 수 있어, `run_collection_loop` 는 시작 시 큐를 비운다 — 비우지 않으면 새 세션이 stale finish 를 읽고 0-step 으로 끝나며 큐의 다음 앱들까지 연쇄로 0-step 된다. 큐 소비(`get_latest_signal`)는 연속된 `xml` 프레임만 latest 로 collapse 하고 `external_app`/`finish`/`no_change` 제어 신호는 드롭하지 않으므로(뒤이은 `xml` 에 덮이지 않음), 세션 내 external app 복구·정상 종료 신호가 유실되지 않는다.
 - **세션 종료 조건**은 `budget_mode`(기본 `time`)로 정한다 — `time` 이면 앱당 벽시계 `max_duration`(기본 `2h`) 경과까지, `steps` 면 `max_steps`(기본 1500) action 까지 탐색한다. CLI `--budget-mode`, 또는 `--steps`/`--duration` 중 준 쪽으로 모드를 추론한다(`--duration` 형식: `2h`/`120m`/`7200s`/맨숫자=초). 어느 예산이든 만료 시 루프가 **정상 종료**해 `finalize_session` 이 `completed_at` 을 채운다(프로세스를 kill 하지 않으므로 데이터 유실 없음 — 과거 `completed_at:null` 은 kill 증상이었다). resume 는 매 실행 fresh full 예산(누적 경과시간은 저장하지 않음).
 - 큐 구성 시 `runtime/{pkg}/metadata.json` 의 `completed_at` 이 채워진 앱은 **완료로 판정되어 스킵**. `--force` 로 우회하거나, 중단된(미완료) 세션은 `completed_at` 이 `null` 이라 자동으로 resume 된다(재개 시 `data/{pkg}/pages/` 로부터 page 지식도 함께 복원).
-- **재초기화(reinit)**: signal timeout 5연속 또는 external app 10회 도달 시 세션을 종료하는 대신, target app 을 force-stop + relaunch 하고 카운터를 초기화해 탐색을 재개한다. 재초기화는 각각 최대 3회까지 허용되며, 초과 시 세션이 종료된다.
+- **서버 pull (`CAPTURE` poke)**: 클라이언트는 접근성 이벤트가 떴을 때만 프레임을 push 하므로, 액션 후 이벤트가 안 뜨면 **줄 프레임이 있는데도** signal 대기 창 내내 침묵한다. 서버는 `collection.poke_delay_sec`(기본 1.5s) 만큼 침묵이 이어지면 `CAPTURE` 를 보내 프레임을 당겨온다(한 대기당 최대 2회). 클라이언트는 XML 해시를 비교해 바뀌었으면 프레임을, 같으면 `N` 을, 타깃 이탈이면 `E` 를 답한다. poke 는 `signal_timeout_sec` 창을 **쪼개 쓰므로** 총 대기 시간과 아래 재초기화 escalation 시점은 바뀌지 않는다.
+- **재초기화(reinit)**: signal timeout `MAX_SIGNAL_TIMEOUTS`(3) 연속 또는 external app `MAX_EXTERNAL_APP_RETRIES`(10) 회 도달 시 세션을 종료하는 대신, target app 을 force-stop + relaunch 하고 카운터를 초기화해 탐색을 재개한다. 재초기화 한도는 `MAX_TIMEOUT_REINITS`(20) / `MAX_EXTERNAL_REINITS`(10) 이며, 초과 시 세션이 종료된다. 상수 정본은 `src/monkey_collector/pipeline/recovery.py`.
 - **open_app 기록**: external app 복구가 타깃 앱을 실제로 재실행하면 그 재실행을 `open_app` 액션으로 `events.jsonl` 에 **이탈(excursion) 당 1회** 기록한다(`{"action_type":"open_app", "package", "app_name", "transition":false, "trigger":"external_recovery", "from_package"}`). 이 open_app 은 복구 동작이지 의도된 화면 전이가 아니므로 page graph·탐색 전이·world-modeling 변환 어디에도 navigation 으로 쓰이지 않는다(`transition:false`).
 
 ## 설정 (`config/run.yaml`)
@@ -149,11 +150,11 @@ monkey-collect run --apps all --input-mode random
 `config/run.yaml` 섹션:
 
 - `exploration.strategy`: `DFS` | `BFS` | `GREEDY` (canonical 기본 `BFS`)
-- `collection.{budget_mode, max_duration, max_steps, seed, action_delay_ms, port, output_dir}` (`budget_mode` 기본 `time`, `max_duration` 기본 `2h`)
+- `collection.{budget_mode, max_duration, max_steps, seed, action_delay_ms, poke_delay_sec, port, data_dir, runtime_dir}` (`budget_mode` 기본 `time`, `max_duration` 기본 `2h`, `poke_delay_sec` 기본 `1.5`)
 - `llm.{input_mode, element_extraction}`
 - `screen_matching.{luminance_prefilter, luminance_threshold, screenshot_diff_threshold, luminance_low_res_width, persist_filtered, bm25_top_k, element_criterion, element_diff_max, element_jaccard_min, page_pixel_diff_threshold}`
 
-대응 환경변수: `MC_EXPLORATION_STRATEGY`, `MC_COLLECTION_BUDGET_MODE`, `MC_COLLECTION_MAX_DURATION`, `MC_COLLECTION_MAX_STEPS`, `MC_COLLECTION_SEED`, `MC_COLLECTION_ACTION_DELAY_MS`, `MC_COLLECTION_PORT`, `MC_COLLECTION_OUTPUT_DIR`, `MC_LLM_INPUT_MODE`, `MC_LLM_ELEMENT_EXTRACTION`, `MC_SCREEN_MATCHING_LUMINANCE_PREFILTER`, `MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD`, `MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD`, `MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH`, `MC_SCREEN_MATCHING_PERSIST_FILTERED`, `MC_SCREEN_MATCHING_BM25_TOP_K`, `MC_SCREEN_MATCHING_ELEMENT_CRITERION`, `MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX`, `MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN`, `MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD`, 그리고 대체 yaml 을 가리키는 `MC_CONFIG_PATH`.
+대응 환경변수: `MC_EXPLORATION_STRATEGY`, `MC_COLLECTION_BUDGET_MODE`, `MC_COLLECTION_MAX_DURATION`, `MC_COLLECTION_MAX_STEPS`, `MC_COLLECTION_SEED`, `MC_COLLECTION_ACTION_DELAY_MS`, `MC_COLLECTION_POKE_DELAY_SEC`, `MC_COLLECTION_PORT`, `MC_COLLECTION_DATA_DIR`, `MC_COLLECTION_RUNTIME_DIR`, `MC_LLM_INPUT_MODE`, `MC_LLM_ELEMENT_EXTRACTION`, `MC_SCREEN_MATCHING_LUMINANCE_PREFILTER`, `MC_SCREEN_MATCHING_LUMINANCE_THRESHOLD`, `MC_SCREEN_MATCHING_SCREENSHOT_DIFF_THRESHOLD`, `MC_SCREEN_MATCHING_LUMINANCE_LOW_RES_WIDTH`, `MC_SCREEN_MATCHING_PERSIST_FILTERED`, `MC_SCREEN_MATCHING_BM25_TOP_K`, `MC_SCREEN_MATCHING_ELEMENT_CRITERION`, `MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX`, `MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN`, `MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD`, 그리고 대체 yaml 을 가리키는 `MC_CONFIG_PATH`.
 
 ### 탐색 전략 (DFS / BFS / GREEDY)
 
