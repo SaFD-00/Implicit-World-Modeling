@@ -15,8 +15,8 @@
   어디에도 존재하지 않았다 (전역 탐색 확인). 전 실험군을 생성한다.
 * ``if GPU_TYPE == "RTX5090": _ds_path = ...offload...`` swap — 삭제.
   offload 는 GPU 종류만으로 갈리지 않는다 — ``resolve_gpu_policy`` 가
-  ``(gpu_type, size_class)`` 쌍으로 판정한다 ((A100|H100) × 3-4B 만 no-offload,
-  7-9B 와 RTX5090 은 offload).
+  ``(gpu_type, size_class, mode)`` 3 축으로 판정한다 ((A100|H100) × (3-4B 이거나
+  lora) 는 no-offload, ``7-9B × full`` 과 RTX5090 은 offload).
 * ``_PER_DEVICE_BS_BY_SIZE`` / ``_derive_grad_accum`` / half-batch 예외 — 삭제.
   batch/grad_accum/deepspeed 세 값은 전부 ``resolve_gpu_policy`` 가 준다.
 

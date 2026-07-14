@@ -112,9 +112,9 @@ unset _PRE_ENV_GPU_TYPE _PRE_ENV_NPROC
 # cu 버전 nvcc (예: 13.x) 가 잡히는 사고를 막는다.
 #
 # 예전에는 이 가드를 GPU_TYPE == RTX5090 일 때만 적용했다 — "다른 GPU 는 offload 를 안 쓴다"
-# 는 전제였는데 그건 틀렸다. scripts/gpu_policy.py 는 (A100|H100) × 3-4B 에서만 offload 를
-# 끄고, 7-9B 와 RTX5090 에는 여전히 offload 를 준다 (A100/H100 에서 offload 를 빼면 EXP05
-# 7B full FT 가 확정 OOM). 즉 A100/H100 도 조합에 따라 CPUAdam JIT 경로를 탄다.
+# 는 전제였는데 그건 틀렸다. scripts/gpu_policy.py 는 (A100|H100) × (3-4B 이거나 lora) 에서만
+# offload 를 끄고, 7-9B × full 과 RTX5090 에는 여전히 offload 를 준다 (A100/H100 에서 7B
+# full FT 의 offload 를 빼면 확정 OOM). 즉 A100/H100 도 조합에 따라 CPUAdam JIT 경로를 탄다.
 # 가드는 source 시점에 돌아 아직 model/dataset 조합을 모르므로 **항상** 건다 — no-offload
 # 조합에서는 불필요하지만, 여기서 막히면 학습이 시작조차 못 하므로 통과시켜야 한다.
 # LF_CUDA_GUARD_SKIP=1 로 우회 가능 (CPUAdam 이 미리 빌드돼 있는 이미지 등).
