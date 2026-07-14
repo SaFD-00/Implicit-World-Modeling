@@ -277,32 +277,45 @@ def test_registry_has_no_gpu_fields() -> None:
                 assert "gradient_accumulation_steps" not in cfg[stage_key]
 
 
-def test_deepspeed_offload_splits_by_size_class_on_a100() -> None:
-    """offload 가 **(gpu_type, size_class) 쌍**으로 갈리는지의 행동 증명.
+def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
+    """offload 가 **(gpu_type, size_class, mode) 3 축**으로 갈리는지의 행동 증명.
 
     노트북은 ``GPU_TYPE == "RTX5090"`` 일 때만 offload 로 swap 했다 — GPU 종류만 보는
-    그 분기가 남아 있다면 A100 의 **7-9B** 생성물까지 non-offload 로 넘어간다 (= 확정
-    OOM). A100 에서 3-4B 만 no-offload 로 갈리고 7-9B 는 offload 를 유지하는지 본다.
+    그 분기가 남아 있다면 A100 의 **7-9B full** 생성물까지 non-offload 로 넘어간다
+    (= 확정 OOM). A100 에서 (3-4B | lora) 만 no-offload 로 갈리고 **7-9B full 은
+    offload 를 유지**하는지 본다.
 
-    size tier 는 파일명이 아니라 ``_MODEL_CONFIG[*]["size"]`` (SSoT) 에서 읽는다.
+    size tier 는 파일명이 아니라 ``_MODEL_CONFIG[*]["size"]`` (SSoT) 에서 읽고,
+    mode 는 경로의 ``stage{1,2}_<mode>`` 세그먼트에서 읽는다.
     """
     small_models = {m for m, cfg in _MODEL_CONFIG.items() if cfg["size"] == "3-4B"}
     assert small_models, "_MODEL_CONFIG 에 3-4B tier 모델이 없다 — 이 테스트의 전제가 깨졌다"
 
     a100 = generate_all(gpu_type="A100", nproc=2)
     assert set(a100) == set(generate_all())
+
+    seen_7b_full_offload = False
+    seen_7b_lora_no_offload = False
+
     for rel, content in a100.items():
         # rel = "IWM-<DS>/stage{1,2}_<mode>/<MODEL_SHORT>_<variant>.yaml"
+        parts = Path(rel).parts
         stem = Path(rel).name
         is_small = any(stem.startswith(f"{m}_") for m in small_models)
+        # stage2 (= stage2_<mode>) 와 stage1_<mode> 모두 두 번째 세그먼트에 mode 가 있다.
+        is_lora = "lora" in parts[1] if len(parts) > 1 else False
 
-        if is_small:
-            # 80GB × 3-4B → no-offload + half-batch 면제 → 전 DS 에서 pdbs=2, ga=16.
+        if is_small or is_lora:
+            # 80GB × (3-4B | lora) → no-offload + half-batch 면제 → 전 DS 에서 pdbs=2, ga=16.
             assert EXPECTED_DS_NO_OFFLOAD in content, rel
             assert "per_device_train_batch_size: 2" in content, rel
             assert "gradient_accumulation_steps: 16" in content, rel
+            if not is_small:
+                seen_7b_lora_no_offload = True
         else:
+            # 7-9B × full → offload 유지 (없으면 확정 OOM).
             assert EXPECTED_DS in content, rel
+            seen_7b_full_offload = True
             # A100 base pdbs=2 → ga=16. 단 EXP03/04/05 는 half-batch → pdbs=1, ga=32.
             if rel.startswith(("IWM-AC_EXP03/", "IWM-AC_EXP04/", "IWM-AC_EXP05/")):
                 assert "per_device_train_batch_size: 1" in content, rel
@@ -310,6 +323,10 @@ def test_deepspeed_offload_splits_by_size_class_on_a100() -> None:
             else:
                 assert "per_device_train_batch_size: 2" in content, rel
                 assert "gradient_accumulation_steps: 16" in content, rel
+
+    # 두 갈래가 실제로 코퍼스에 존재해야 이 테스트가 의미를 갖는다 (vacuous pass 방지).
+    assert seen_7b_full_offload, "7-9B × full 생성물이 없다 — offload 유지 경로가 검증되지 않았다"
+    assert seen_7b_lora_no_offload, "7-9B × lora 생성물이 없다 — no-offload 경로가 검증되지 않았다"
 
 
 def test_generated_count(generated: dict[str, str]) -> None:

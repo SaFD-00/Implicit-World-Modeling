@@ -72,20 +72,22 @@ def test_matrix_has_160_cases():
     assert len(ALL_CASES) == 160
 
 
-# --- 1. 핵심 불변식: offload 는 (gpu_type, size_class) 로만 갈린다 -------------
+# --- 1. 핵심 불변식: offload 는 (gpu_type, size_class, mode) 로 갈린다 ---------
 
-# 80GB GPU × 3-4B — 유일한 no-offload 정책 경로.
+# 80GB GPU 에서 (3-4B | lora) 는 no-offload. 남는 offload 경로는 7-9B×full 과 RTX5090.
 LARGE_MEM_GPUS = {"A100", "H100"}
 
 
-def _expects_no_offload(gpu_type: str, size_class: str) -> bool:
-    return gpu_type in LARGE_MEM_GPUS and size_class == "3-4B"
+def _expects_no_offload(gpu_type: str, size_class: str, mode: str) -> bool:
+    if gpu_type not in LARGE_MEM_GPUS:
+        return False
+    return size_class == "3-4B" or mode == "lora"
 
 
 @pytest.mark.parametrize("gpu_type,nproc,size_class,ds_name,mode", ALL_CASES)
 def test_offload_split_across_full_matrix(gpu_type, nproc, size_class, ds_name, mode):
     policy = resolve_gpu_policy(gpu_type, nproc, size_class, ds_name, mode)
-    if _expects_no_offload(gpu_type, size_class):
+    if _expects_no_offload(gpu_type, size_class, mode):
         assert policy.offload is False
         assert policy.deepspeed == DEEPSPEED_NO_OFFLOAD
     else:
@@ -107,10 +109,30 @@ def test_a100x2_3b_exp05_full_is_no_offload_and_unhalved():
     assert policy.warnings == []  # 정책 경로 — 미실측 경고가 붙으면 안 된다
 
 
-def test_a100_7b_stays_offload_gpu_type_alone_does_not_flip_it():
+def test_a100_7b_lora_is_no_offload_but_full_is_not():
+    """7-9B 는 mode 로 갈린다 — lora 는 끄고, full 은 켠다.
+
+    둘을 가르는 것은 optimizer state 의 크기다: lora 는 어댑터만 학습하므로
+    GPU 에 올려도 되지만, full 은 모델 상태만 GPU 당 ~77 GiB 라 확정 OOM 이다.
+    """
+    lora = resolve_gpu_policy("A100", 2, "7-9B", "AndroidControl_EXP05", "lora")
+    assert lora.offload is False
+    assert lora.deepspeed == DEEPSPEED_NO_OFFLOAD
+    assert lora.per_device_train_batch_size == 2  # half-batch 면제
+    assert lora.gradient_accumulation_steps == 16
+    assert lora.warnings == []
+
+    full = resolve_gpu_policy("A100", 2, "7-9B", "AndroidControl_EXP05", "full")
+    assert full.offload is True
+    assert full.deepspeed == DEEPSPEED_OFFLOAD
+    assert full.per_device_train_batch_size == 1  # half-batch 유지
+    assert full.gradient_accumulation_steps == 32
+
+
+def test_a100_7b_full_stays_offload_gpu_type_alone_does_not_flip_it():
     """GPU 종류만 보고 offload 를 끄던 과거 설계로의 회귀 방지.
 
-    같은 A100 이라도 7-9B 는 offload 를 유지해야 한다 (없으면 EXP05 7B full FT 확정 OOM).
+    같은 A100 이라도 7-9B × full 은 offload 를 유지해야 한다 (없으면 확정 OOM).
     """
     policy = resolve_gpu_policy("A100", 2, "7-9B", "AndroidControl_EXP01", "full")
     assert policy.deepspeed == DEEPSPEED_OFFLOAD
@@ -118,12 +140,6 @@ def test_a100_7b_stays_offload_gpu_type_alone_does_not_flip_it():
     assert policy.offload is True
     assert policy.per_device_train_batch_size == 2
     assert policy.gradient_accumulation_steps == 16
-
-    # EXP05(긴 시퀀스) × 7-9B 는 half-batch 예외가 그대로 살아 있다.
-    halved = resolve_gpu_policy("A100", 2, "7-9B", "AndroidControl_EXP05", "full")
-    assert halved.offload is True
-    assert halved.per_device_train_batch_size == 1
-    assert halved.gradient_accumulation_steps == 32
 
 
 # --- 2. pdbs x ga x nproc == 64 — 전 케이스 ----------------------------------
@@ -154,12 +170,12 @@ def test_half_batch_rule_concrete(gpu_type, expected_base, expected_half):
 
 
 def test_half_batch_rule_general():
-    """긴 시퀀스 실험군은 pdbs 를 절반으로 — 단 80GB × 3-4B 는 면제 (안 깎인다)."""
+    """긴 시퀀스 실험군은 pdbs 를 절반으로 — 단 no-offload 조합은 면제 (안 깎인다)."""
     for gpu_type, nproc in GPU_COMBOS:
         for size_class in SIZE_CLASSES:
             for mode in MODES:
                 base = resolve_gpu_policy(gpu_type, nproc, size_class, "AndroidControl_EXP01", mode)
-                exempt = _expects_no_offload(gpu_type, size_class)
+                exempt = _expects_no_offload(gpu_type, size_class, mode)
                 expected = (
                     base.per_device_train_batch_size
                     if exempt
@@ -180,18 +196,29 @@ def test_half_batch_rule_general():
                     )
 
 
-# --- 4. mode 불변성: full/lora 의 (pdbs, ga, deepspeed) 트리오 동일 -----------
+# --- 4. mode 축: 80GB × 7-9B 에서만 full ≠ lora ------------------------------
 
 
 @pytest.mark.parametrize("gpu_type,nproc", GPU_COMBOS)
 @pytest.mark.parametrize("size_class", SIZE_CLASSES)
 @pytest.mark.parametrize("ds_name", DS_NAMES)
-def test_mode_invariance(gpu_type, nproc, size_class, ds_name):
+def test_mode_only_matters_for_large_mem_7b(gpu_type, nproc, size_class, ds_name):
+    """mode 는 **80GB × 7-9B** 에서만 트리오를 가른다 (lora → no-offload).
+
+    그 밖의 조합(RTX5090 전부, 80GB × 3-4B)에서는 full 과 lora 가 같은
+    (pdbs, ga, deepspeed) 를 받아야 한다 — mode 가 새는 분기가 없는지 고정한다.
+    """
     full = resolve_gpu_policy(gpu_type, nproc, size_class, ds_name, "full")
     lora = resolve_gpu_policy(gpu_type, nproc, size_class, ds_name, "lora")
     full_trio = (full.per_device_train_batch_size, full.gradient_accumulation_steps, full.deepspeed)
     lora_trio = (lora.per_device_train_batch_size, lora.gradient_accumulation_steps, lora.deepspeed)
-    assert full_trio == lora_trio
+
+    mode_splits = gpu_type in LARGE_MEM_GPUS and size_class == "7-9B"
+    if mode_splits:
+        assert lora.offload is False and full.offload is True
+        assert full_trio != lora_trio
+    else:
+        assert full_trio == lora_trio
 
 
 # --- 5. baseline no-op: RTX5090x2 는 전 size_class/ds/mode 에서 pdbs=1,ga=32 ---
