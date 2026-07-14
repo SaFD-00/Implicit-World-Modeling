@@ -8850,31 +8850,6 @@
     "source": "PlayStore",
     "sub_category": "Real Estate"
   },
-  "com.simplemobiletools.calendar.pro": {
-    "activities": [
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.EventActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.EventTypePickerActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.MainActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.ManageEventTypesActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.SelectTimeZoneActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.SettingsActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.SnoozeReminderActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.SplashActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.TaskActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.WidgetDateConfigureActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.WidgetListConfigureActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.calendar.pro.activities.WidgetMonthlyConfigureActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.commons.activities.AboutActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.commons.activities.ContributorsActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.commons.activities.CustomizationActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.commons.activities.FAQActivity",
-      "com.simplemobiletools.calendar.pro/com.simplemobiletools.commons.activities.LicenseActivity"
-    ],
-    "app_name": "Calendar",
-    "category": "Productivity",
-    "source": "F-Droid",
-    "sub_category": "Calendar"
-  },
   "com.simplemobiletools.musicplayer": {
     "activities": [
       "com.simplemobiletools.musicplayer/com.simplemobiletools.commons.activities.AboutActivity",

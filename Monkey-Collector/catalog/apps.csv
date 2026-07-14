@@ -27,7 +27,7 @@ Productivity,Tasks,TickTick,com.ticktick.task,PlayStore,Medium,Task manager + ca
 Productivity,Tasks,Tasks.org,org.tasks,F-Droid,Medium,Open-source task manager,true
 Productivity,Tasks,Todoist,com.todoist,PlayStore,Medium,Popular task manager,false
 Productivity,Calendar,Google Calendar,com.google.android.calendar,PlayStore,High,Calendar + event management,true
-Productivity,Calendar,Simple Calendar,com.simplemobiletools.calendar.pro,F-Droid,High,Open-source calendar,true
+Productivity,Calendar,Simple Calendar,com.simplemobiletools.calendar.pro,F-Droid,High,Open-source calendar,false
 Productivity,Email,Gmail,com.google.android.gm,PlayStore,High,Email client,true
 Productivity,Email,K-9 Mail,com.fsck.k9,F-Droid,High,Open-source email client,false
 Productivity,Email,Microsoft Outlook,com.microsoft.office.outlook,PlayStore,Medium,Email + calendar,false
@@ -39,7 +39,7 @@ Communication,Messaging,WhatsApp,com.whatsapp,PlayStore,High,Popular messaging,f
 Communication,Social,Reddit,com.reddit.frontpage,PlayStore,Medium,Forum-style social media,false
 Communication,Social,Mastodon,org.joinmastodon.android,F-Droid,Medium,Decentralized social network,false
 Communication,Phone,Contacts,com.google.android.contacts,PlayStore,Medium,Contact management,true
-Communication,Phone,Simple Contacts,com.simplemobiletools.contacts.pro,F-Droid,Medium,Open-source contacts,true
+Communication,Phone,Simple Contacts,com.simplemobiletools.contacts.pro,F-Droid,Medium,Open-source contacts,false
 Media,Video,YouTube,com.google.android.youtube,PlayStore,High,Video streaming; search/browse,true
 Media,Video,VLC,org.videolan.vlc,F-Droid,High,Video player; file browser,true
 Media,Video,NewPipe,org.schabi.newpipe,F-Droid,Medium,YouTube frontend; open-source,false
@@ -48,7 +48,7 @@ Media,Music,YouTube Music,com.google.android.apps.youtube.music,PlayStore,Medium
 Media,Music,Retro Music,code.name.monkey.retromusic,F-Droid,High,Local music player; rich UI,true
 Media,Music,Metro,io.github.nicehash.metro,F-Droid,Medium,Music player,false
 Media,Photo,Google Photos,com.google.android.apps.photos,PlayStore,High,Photo gallery + editing,true
-Media,Photo,Simple Gallery,com.simplemobiletools.gallery.pro,F-Droid,High,Open-source gallery,true
+Media,Photo,Simple Gallery,com.simplemobiletools.gallery.pro,F-Droid,High,Open-source gallery,false
 Media,Photo,Snapseed,com.niksoftware.snapseed,PlayStore,Medium,Photo editing,false
 Media,Reading,Google Play Books,com.google.android.apps.books,PlayStore,Medium,E-book reader,false
 Media,Reading,Librera Reader,com.foobnix.pdf.reader,F-Droid,Medium,Document/book reader,false
