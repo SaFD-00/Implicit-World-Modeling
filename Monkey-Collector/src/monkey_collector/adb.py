@@ -10,8 +10,8 @@ from loguru import logger
 # Monkey-Collector is locked to this AVD. `AdbClient` resolves its emulator
 # serial at construction time and prefixes every adb invocation with
 # `-s <serial>`, so other emulators or real devices attached at the same
-# time are ignored.
-REQUIRED_AVD_NAME = "Pixel6-2"
+# time are ignored. Default `Pixel6-2`, overridable via env `MC_AVD`.
+REQUIRED_AVD_NAME = os.environ.get("MC_AVD", "Pixel6-2")
 
 # Characters that need escaping for adb shell input text
 _SPECIAL_CHARS = re.compile(r'([\\\"\'`\s&|;<>()$!~{}*?#])')
@@ -83,9 +83,9 @@ class AdbClient:
     """Wrapper for ADB shell commands, locked to a single AVD.
 
     On construction, resolves the emulator serial of ``REQUIRED_AVD_NAME``
-    (``Pixel6-2``) and prefixes every adb invocation with
-    ``-s <serial>``. If the AVD is not currently running, construction
-    fails with a ``RuntimeError``.
+    (default ``Pixel6-2``, overridable via env ``MC_AVD``) and prefixes
+    every adb invocation with ``-s <serial>``. If the AVD is not currently
+    running, construction fails with a ``RuntimeError``.
     """
 
     def __init__(self):
