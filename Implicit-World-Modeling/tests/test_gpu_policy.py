@@ -2,9 +2,14 @@
 
 10 GPU 조합(RTX5090×{1,2}, A100×{1,2,4,8}, H100×{1,2,4,8}) × size_class 2
 × ds 4종(AndroidControl_EXP01 + EXP03/04/05) × mode 2 = 160 케이스 전수를
-파라미터라이즈하며, 특히 ``deepspeed`` 가 항상 offload config 로 끝나는
-불변식(과거 조건부 설계였다면 non-offload 였을 A100×EXP01×full 케이스 포함)을
-명시적으로 고정한다.
+파라미터라이즈하며, offload 분기가 **(gpu_type, size_class) 쌍**으로만 갈리는
+불변식을 명시적으로 고정한다:
+
+- (A100 | H100) × 3-4B → no-offload + half-batch 예외 면제 (pdbs 안 깎임)
+- 그 밖의 모든 조합    → offload
+
+GPU 종류만 보고 갈리던 과거 설계(노트북 Cell 10 의 ``if GPU_TYPE == "RTX5090"``)
+로의 회귀를 막기 위해, A100 × **7-9B** 는 여전히 offload 라는 것도 함께 고정한다.
 
 Run:
     pytest tests/test_gpu_policy.py -v
@@ -67,27 +72,58 @@ def test_matrix_has_160_cases():
     assert len(ALL_CASES) == 160
 
 
-# --- 1. 핵심 불변식: deepspeed 는 언제나 offload -----------------------------
+# --- 1. 핵심 불변식: offload 는 (gpu_type, size_class) 로만 갈린다 -------------
+
+# 80GB GPU × 3-4B — 유일한 no-offload 정책 경로.
+LARGE_MEM_GPUS = {"A100", "H100"}
+
+
+def _expects_no_offload(gpu_type: str, size_class: str) -> bool:
+    return gpu_type in LARGE_MEM_GPUS and size_class == "3-4B"
 
 
 @pytest.mark.parametrize("gpu_type,nproc,size_class,ds_name,mode", ALL_CASES)
-def test_always_offload_across_full_matrix(gpu_type, nproc, size_class, ds_name, mode):
+def test_offload_split_across_full_matrix(gpu_type, nproc, size_class, ds_name, mode):
     policy = resolve_gpu_policy(gpu_type, nproc, size_class, ds_name, mode)
-    assert policy.offload is True
-    assert policy.deepspeed == DEEPSPEED_OFFLOAD
-    # 기본 경로에서는 어떤 조합도 non-offload 를 반환하지 않는다 (opt-out 전용 별도 assert).
-    assert policy.deepspeed != DEEPSPEED_NO_OFFLOAD
+    if _expects_no_offload(gpu_type, size_class):
+        assert policy.offload is False
+        assert policy.deepspeed == DEEPSPEED_NO_OFFLOAD
+    else:
+        assert policy.offload is True
+        assert policy.deepspeed == DEEPSPEED_OFFLOAD
 
 
-def test_flipped_case_a100x2_exp01_full_is_offload():
-    """조건부 설계(GPU_TYPE == "RTX5090" 일 때만 offload)였다면 non-offload 였을
-    케이스를 명시 회귀로 고정한다. 노트북 Cell 10 이 정확히 이 버그를 갖고 있었다."""
+def test_a100x2_3b_exp05_full_is_no_offload_and_unhalved():
+    """이 정책의 동기가 된 실측 케이스 (EXP05 stage1 full FT / qwen2.5-vl-3b / A100×2).
+
+    offload 를 켜면 165 s/step (약 4 일) 이었다. no-offload + half-batch 면제로
+    pdbs=2 / ga=16 이 되며, global batch 64 는 그대로 유지된다.
+    """
+    policy = resolve_gpu_policy("A100", 2, "3-4B", "AndroidControl_EXP05", "full")
+    assert policy.offload is False
+    assert policy.deepspeed.endswith("ds_z3_config.json")
+    assert policy.per_device_train_batch_size == 2
+    assert policy.gradient_accumulation_steps == 16
+    assert policy.warnings == []  # 정책 경로 — 미실측 경고가 붙으면 안 된다
+
+
+def test_a100_7b_stays_offload_gpu_type_alone_does_not_flip_it():
+    """GPU 종류만 보고 offload 를 끄던 과거 설계로의 회귀 방지.
+
+    같은 A100 이라도 7-9B 는 offload 를 유지해야 한다 (없으면 EXP05 7B full FT 확정 OOM).
+    """
     policy = resolve_gpu_policy("A100", 2, "7-9B", "AndroidControl_EXP01", "full")
     assert policy.deepspeed == DEEPSPEED_OFFLOAD
     assert policy.deepspeed.endswith("ds_z3_offload_config.json")
     assert policy.offload is True
     assert policy.per_device_train_batch_size == 2
     assert policy.gradient_accumulation_steps == 16
+
+    # EXP05(긴 시퀀스) × 7-9B 는 half-batch 예외가 그대로 살아 있다.
+    halved = resolve_gpu_policy("A100", 2, "7-9B", "AndroidControl_EXP05", "full")
+    assert halved.offload is True
+    assert halved.per_device_train_batch_size == 1
+    assert halved.gradient_accumulation_steps == 32
 
 
 # --- 2. pdbs x ga x nproc == 64 — 전 케이스 ----------------------------------
@@ -118,11 +154,17 @@ def test_half_batch_rule_concrete(gpu_type, expected_base, expected_half):
 
 
 def test_half_batch_rule_general():
+    """긴 시퀀스 실험군은 pdbs 를 절반으로 — 단 80GB × 3-4B 는 면제 (안 깎인다)."""
     for gpu_type, nproc in GPU_COMBOS:
         for size_class in SIZE_CLASSES:
             for mode in MODES:
                 base = resolve_gpu_policy(gpu_type, nproc, size_class, "AndroidControl_EXP01", mode)
-                expected = max(1, base.per_device_train_batch_size // 2)
+                exempt = _expects_no_offload(gpu_type, size_class)
+                expected = (
+                    base.per_device_train_batch_size
+                    if exempt
+                    else max(1, base.per_device_train_batch_size // 2)
+                )
                 for half_ds in (
                     "AndroidControl_EXP03",
                     "AndroidControl_EXP04",
@@ -334,8 +376,9 @@ def test_cli_format_json_all_fields():
     )
     assert result.returncode == 0
     payload = json.loads(result.stdout)
-    assert payload["deepspeed"] == DEEPSPEED_OFFLOAD
-    assert payload["offload"] is True
+    # H100 × 3-4B → 정책상 no-offload.
+    assert payload["deepspeed"] == DEEPSPEED_NO_OFFLOAD
+    assert payload["offload"] is False
     assert payload["per_device_train_batch_size"] == 2
     assert payload["gradient_accumulation_steps"] == 8
 
