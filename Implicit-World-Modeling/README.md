@@ -39,7 +39,7 @@ GPU_TYPE=A100 NPROC_PER_NODE=4 bash scripts/stage1_train.sh --model qwen2.5-vl-7
 |---|---|
 | `HF_TOKEN` | HF Hub push / fallback pull. `--no-hf-upload` 로 merge 하고 로컬 merged dir 로 eval 하면 불필요 |
 | `NPROC_PER_NODE` · `GPU_TYPE` | GPU 트리오 (batch / grad_accum / deepspeed) 결정. 허용 조합은 [ARCHITECTURE §2 "GPU 정책"](./ARCHITECTURE.md#2-모델-설정) — 밖이면 학습 진입 전 중단 |
-| `REMOTE_*` · `IWM_*` | `scripts/remote_launch.sh` 원격 제출용 (**UNVALIDATED — 실행 이력 0**) |
+| `REMOTE_*` · `IWM_*` | `scripts/remote_launch.sh` 원격 제출용 — 실행 이력·검증 상태는 아래 "EXP05 는 로컬에서 학습할 수 없다" 절 참고 |
 
 > **GPU 를 바꿔도 YAML 을 재생성하지 않는다** — 위 예시처럼 환경변수만 주면 된다. 왜 그런지는 [ARCHITECTURE §2 함정 8](./ARCHITECTURE.md#2-모델-설정).
 

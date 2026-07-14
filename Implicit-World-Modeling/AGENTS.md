@@ -27,7 +27,7 @@
 2. **좌표 실험군에 다른 family 모델을 쓰지 마라** (EXP03/04 ↔ EXP05 는 좌표 규약이 정반대다). 이건 문서 규약이 아니라 **코드 가드**다 — `DATASET_MODEL_ELIGIBILITY` 가 정본이고 `require_model_eligible()` 이 학습 진입 전에 `exit 1` 한다. [§2 자격 매트릭스 · 함정 2/3](./ARCHITECTURE.md#2-모델-설정)
 3. **"visual token 수가 같으니 괜찮다" 는 틀렸다.** 두 family 는 token 수가 같아도 **리사이즈된 이미지의 실제 픽셀 크기가 다르다** → 절대 픽셀 좌표 데이터를 다른 family 에 먹이면 grounding 만 조용히 깨진다. [§2 함정 4](./ARCHITECTURE.md#2-모델-설정)
 4. **budget 일치 규칙**: **데이터가 전제한 리사이즈 픽셀 크기**와 학습·평가 `image_max_pixels` 는 반드시 **같은 budget** 에서 나와야 한다 (EXP05 = 1,605,632 → 840×1876). 어긋나면 좌표계 전체가 무효다. 우리 budget 은 Qwen 공식 기본값이 아니라 의도적 override 이며, **데이터 생성 스크립트에는 budget 인자가 없다** (좌표는 원천 jsonl 에 이미 박혀 온다). [§2 함정 5](./ARCHITECTURE.md#2-모델-설정)
-5. **offload 분기를 `GPU_TYPE` 만 보고 짜지 마라 — `(GPU_TYPE, size_class, mode)` 3 축이다.** **(A100|H100) × (3-4B 이거나 lora)** 는 offload 를 끄고 half-batch 반감도 면제한다 (→ `pdbs=2`). **`7-9B × full` 과 RTX5090 전부는 여전히 offload** 다 — 7B full 은 offload 를 빼면 확정 OOM 이고, **lora 가 풀린다고 full 까지 풀리지 않는다** (둘을 가르는 것은 optimizer state 의 크기다). 옛 `if GPU_TYPE == "RTX5090": …` 처럼 GPU 종류만 보는 분기는 `7-9B × full` 까지 no-offload 로 넘겨 조용히 OOM 내므로 **되살리지 마라.** `--allow-no-offload` 는 offload 를 켜는 조합에서 강제로 끄는 opt-out 이다. [§2 함정 7](./ARCHITECTURE.md#2-모델-설정)
+5. **offload 분기를 `GPU_TYPE` 만 보고 짜지 마라 — `(GPU_TYPE, size_class, mode)` 3 축이다.** 옛 `if GPU_TYPE == "RTX5090": …` 처럼 GPU 종류만 보는 분기를 **되살리지 마라** — `7-9B × full` 까지 no-offload 로 넘겨 조용히 OOM 낸다. `--allow-no-offload` 는 offload 를 켜는 조합에서 강제로 끄는 opt-out 이다. 조합별 매트릭스와 메모리 실측 근거는 [§2 GPU 정책 · 함정 7](./ARCHITECTURE.md#2-모델-설정).
 6. **하드웨어가 바뀌어도 YAML 을 재생성하지 마라.** 커밋 YAML 은 GPU-불변 baseline 이고, GPU 트리오는 **런타임 override** 로 주입된다 (`GPU_TYPE=… NPROC_PER_NODE=… bash scripts/stage1_train.sh …`). [§2 함정 8](./ARCHITECTURE.md#2-모델-설정)
 7. **`cutoff_len` 을 내리지 마라.** 좌표 실험군에서 내리면 multimodal RoPE position 길이 초과로 **첫 step 에서 크래시**한다. 사전 필터 `--threshold` 와 학습 cutoff 는 같은 기준으로 묶여 있다. [§2 함정 6](./ARCHITECTURE.md#2-모델-설정)
 8. **EXP05 에 diff loss v1 을 쓰지 마라.** v1 builder 는 `index` 속성을 필수 요구하는데 EXP05 HTML 에는 그 속성이 없다 → **에러 없이** 전 토큰이 baseline 으로 방치돼 diff loss 가 무력화된다. v2 (`*_v2.py`) 를 쓴다. [§3 함정 9](./ARCHITECTURE.md#3-데이터와-설정-계약)
@@ -44,24 +44,16 @@
 
 - **`scripts/tmux_*.sh` 를 커맨드로 제시하지 마라.** `.gitignore` 대상이라 저장소에 존재하지 않는다 — 실행은 `scripts/stage{1,2}_{train,merge,eval}.sh` 를 직접 호출한다. [§4 함정 16](./ARCHITECTURE.md#4-파이프라인-컴포넌트)
 - `docs/EXP05_DIFF_LOSS_PLAN.md`, `docs/research/gui-exploration-world-model.md` 는 **삭제됐다** — 링크하지 마라.
-- **`MC` (MonkeyCollection) 데이터셋은 배선만 있고 검증된 학습 데이터가 아니다 (2026-07-14).** 레지스트리
-  (`lf_registry.py` `"MonkeyCollection"`) · `dataset_info.json` (`IWM-MC_stage1_{train,test}`) ·
-  `configs/train/IWM-MC/` · `split_data.py --dataset MC` 는 **전부 이전부터 존재**했으나, 이 파이프는
-  2026-07-14 에 **처음 실행됐다**. 현재 `data/MonkeyCollection/` 의 164 examples(train 155 / test 9)는
-  Monkey-Collector 의 **실험 잔여물**(musicplayer + calendar)이며 **프로덕션 코퍼스가 아니다** —
-  osmand 는 page 지문 오염(S-9)으로 의도적으로 제외했고, 수집기의 page_graph 에는 **교차-앱 병합 오염**이
-  남아 있다(수집기 `AGENTS.md` 「알려진 한계」). **이 데이터로 낸 학습 결과를 코퍼스 품질의 근거로 쓰지 마라.**
-  또한 `--stage1-ratio` 기본값 0.95 를 164행에 적용해 **test 가 9개**다 — 통계적으로 무의미하므로
-  실제 학습 전에 비율을 다시 정하라.
+- **`MC` (MonkeyCollection) 데이터셋은 배선만 검증됐고 프로덕션 코퍼스가 아니다** — 이 데이터 학습 결과를
+  코퍼스 품질의 근거로 쓰지 마라. 실제 학습 전 `--stage1-ratio` 재조정이 선행돼야 한다. 데이터 상태·오염
+  경위는 [ARCHITECTURE §3 "MC 데이터 상태"](./ARCHITECTURE.md#3-데이터와-설정-계약).
 - **`scripts/stage1_train.sh` 는 개발용 맥에서 실행되지 않는다** — `_common.sh` 가 `CONDA_PREFIX`(conda env
   `implicit-world-modeling`)와 **bash 4+** 를 요구하고, `LlamaFactory/` 도 체크아웃에 없다. **DRY_RUN 조차
   안 된다.** 이 스크립트들은 **원격 리눅스 GPU 박스** 전용이다. 맥에서 검증 가능한 최대치는 **정적 관통
   확인**(jsonl 스키마 + 이미지 경로 해석 + `python -m implicit_world_modeling.gen_configs --check`)이다.
   - **MC 브리지 end-to-end 실행은 보류됐다 (사용자 결정, 2026-07-14 — 지금은 핸드오프만).** 배선·정적 관통은
     확인됐으니 남은 것은 원격 GPU 박스에서 `stage1_train.sh --dataset MC` 를 실제로 한 번 돌려보는 것뿐이다.
-    경로: `setting:claude-code-remote` 로 원격 서버에 붙거나 `scripts/remote_launch.sh`. **먼저 `--stage1-ratio`
-    를 낮춰라**(위 test=9 문제). 실행 전 osmand 오염·교차-앱 병합 잔여를 감안하면 이 데이터는 배선 검증용이지
-    코퍼스 품질 판정용이 아니다.
+    경로: `setting:claude-code-remote` 로 원격 서버에 붙거나 `scripts/remote_launch.sh`.
 
 ---
 

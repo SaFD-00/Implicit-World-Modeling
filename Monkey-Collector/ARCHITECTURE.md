@@ -81,7 +81,7 @@
     - coverage 기록에 쓰는 activity 는 `collection_loop._resolve_coverage_activity` 가 판별한다 — a11y `activity_name` 이 declared activity 이면(`is_declared` = `_total_set` 멤버십) 그대로 신뢰(adb 미호출), 아니면(다수 프레임에서 generic `.../android.view.ViewGroup` 로 보고돼 coverage 가 고착되던 케이스)
       `adb.get_current_activity()`(topResumedActivity, bounded 5s)로 실제 foreground activity 를 해석해 그 값을 기록한다.
     - matcher/page_graph/save_observation/event 는 원래 a11y `activity_name` 을 그대로 유지(구조적 dedup 불변).
-  - [`cost_tracker.py`](./src/monkey_collector/domain/cost_tracker.py): LLM 비용 추적 CSV. `agent` 컬럼으로 호출 주체(`text_generator` / `screen_grouper`) 구분.
+  - [`cost_tracker.py`](./src/monkey_collector/domain/cost_tracker.py): LLM 비용 추적 CSV. `agent` 컬럼으로 호출 주체(`text_generator` / `element_extractor`) 구분.
   - [`page_graph.py`](./src/monkey_collector/domain/page_graph.py): 페이지 그래프 생성.
     - live 수집은 `get_or_create_page_by_match`(ScreenMatcher 의 `page_key` → 노드)로, 오프라인 재구성은 두 갈래다 — `pages/` 가 있는 세션은 `build_graph_from_new_layout`(events.jsonl 의 `page_key`/`observation_num` 을 직접 읽는 **정확한** 재구성, 구조 근사 불필요)로, `pages/` 없이 구형 flat `xml/` 만 있는
       마이그레이션 이전 세션은 기존 `build_graph_from_session`(activity+Jaccard 구조 근사)으로 degrade 한다.
@@ -169,7 +169,7 @@
     - [`constants.py`](./src/monkey_collector/pipeline/exploration/constants.py): 엔진 튜닝 상수(LLM-Explorer 원본 값 보존).
   - [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py): random 또는 공용 `LLMClient` 기반 입력 텍스트 생성. `set_app_context()` 로 세션마다 현재 앱 설명을 받아 LLM 프롬프트에 `App under test:` 줄로 주입(`Collector._run_session` 이 호출, csv 미등록 앱은 package_id 폴백). random 전략에선 no-op.
 - 인프라 모듈 (monkey_collector/ 직속)
-  - [`adb.py`](./src/monkey_collector/adb.py): ADB wrapper. 상단 상수 `REQUIRED_AVD_NAME = "Pixel6-2"` 에 맞춰 `adb devices` + `emu avd name` 으로 해당 AVD 의 emulator serial 을 해석하고, 이후 모든 명령에 `-s <serial>` 을 prefix 한다. 다중 디바이스 환경에서도 단일 AVD 만 쓰도록 강제.
+  - [`adb.py`](./src/monkey_collector/adb.py): ADB wrapper. 상단 상수 `REQUIRED_AVD_NAME`(기본값 `"Pixel6-2"`, env `MC_AVD` 로 오버라이드 가능) 에 맞춰 `adb devices` + `emu avd name` 으로 해당 AVD 의 emulator serial 을 해석하고, 이후 모든 명령에 `-s <serial>` 을 prefix 한다. 다중 디바이스 환경에서도 단일 AVD 만 쓰도록 강제.
   - [`tcp_server.py`](./src/monkey_collector/tcp_server.py): TCP 서버와 signal queue (`CollectionServer`)
   - [`storage.py`](./src/monkey_collector/storage.py): `DataWriter` — 두 root(`data_dir`/`runtime_dir`) 로 분리된 세션 저장.
     - `save_observation`(observation 폴더 1개의 screenshot+XML 파생 4종+`elements.json` 을 한 번에 씀, 재사용 시 호출 안 함)·`save_page_knowledge`/`load_page_knowledge`(`page.json` 왕복)·`list_pages`/`list_observations`(디스크 리스팅이 ground truth — 재개 카운터의 근거)·`next_frame_index`(events.jsonl 정렬용 단조 카운터, 파일

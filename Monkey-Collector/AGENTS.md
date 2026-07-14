@@ -54,9 +54,9 @@
 
 프로토콜 본문은 아래 `## 효과 측정 프로토콜` 섹션이 정본이다. 헬퍼 계약:
 
-- `.claude/handoff/reset_app.sh` — 앱 리셋 + seed 보존 검증
-- `.claude/handoff/measure.sh` — 리셋 + 수집 1회 (steps SSoT 출력)
-- `.claude/handoff/instrument_p1.sh` — 위 + logcat + **산출물 아카이브**. ⚠️ **아카이브 없이 돌리면 다음 run 이 `data/<pkg>/` 를 덮어쓴다.**
+- `../.claude/handoff/reset_app.sh` — 앱 리셋 + seed 보존 검증
+- `../.claude/handoff/measure.sh` — 리셋 + 수집 1회 (steps SSoT 출력)
+- `../.claude/handoff/instrument_p1.sh` — 위 + logcat + **산출물 아카이브**. ⚠️ **아카이브 없이 돌리면 다음 run 이 `data/<pkg>/` 를 덮어쓴다.**
 
 ### 5. F2 on/off arm 구성 (server pull poke)
 
@@ -95,12 +95,12 @@
    - 깨지면: 하나라도 바꾸면 **가짜 전이**가 live page graph·routing memory·offline 재빌드/world-modeling 변환으로 샌다.
 9. **측정 불변식**
    - 계약: 매 run 앱 리셋 + arm 간 차이는 **코드(또는 문서화된 config 토글) 하나뿐** + seed 보존.
-   - 깨지면: confound 로 오염돼 인과 해석이 불가하다 — 과거 "다양성 +78%" 오귀속 사례. 헬퍼: `.claude/handoff/reset_app.sh`.
+   - 깨지면: confound 로 오염돼 인과 해석이 불가하다 — 과거 "다양성 +78%" 오귀속 사례. 헬퍼: `../.claude/handoff/reset_app.sh`.
 
 ## 어디를 수정해야 하는가
 
-- CLI 옵션이나 서브커맨드를 바꾸면 [`src/monkey_collector/cli.py`](./src/monkey_collector/cli.py) 와 [`tests/test_cli.py`](./tests/test_cli.py) 를 함께 수정한다.
-  - ADB 는 `AdbClient()` 를 인자 없이 생성하며, 내부에서 `Pixel6-2` 라는 이름의 AVD 를 자동 탐색해 해당 emulator serial 로 모든 명령을 고정한다 (상수 `REQUIRED_AVD_NAME` 은 [`src/monkey_collector/adb.py`](./src/monkey_collector/adb.py) 상단에 하드코드).
+- CLI 옵션이나 서브커맨드를 바꾸면 [`src/monkey_collector/cli.py`](./src/monkey_collector/cli.py) 와 [`tests/unit/test_cli.py`](./tests/unit/test_cli.py) 를 함께 수정한다.
+  - ADB 는 `AdbClient()` 를 인자 없이 생성하며, 내부에서 `Pixel6-2` 라는 이름의 AVD 를 자동 탐색해 해당 emulator serial 로 모든 명령을 고정한다 (상수 `REQUIRED_AVD_NAME` 은 [`src/monkey_collector/adb.py`](./src/monkey_collector/adb.py) 상단, 기본값 `Pixel6-2` 이며 env `MC_AVD` 로 오버라이드 가능).
   - AVD 이름을 바꿔야 한다면 이 상수와 관련 문서 / 테스트를 함께 수정한다.
 - 수집 루프 동작은 [`src/monkey_collector/pipeline/collector.py`](./src/monkey_collector/pipeline/collector.py), [`src/monkey_collector/pipeline/collection_loop.py`](./src/monkey_collector/pipeline/collection_loop.py), [`src/monkey_collector/pipeline/session_manager.py`](./src/monkey_collector/pipeline/session_manager.py) 가 기준이다.
   - activity coverage 분모와 분자 후보 집합은 `session_manager._resolve_declared_activities` 가 결정한다 — catalog hit 이면 (`allow_dynamic_total=False`) 분모 고정 + `unique_visited` 는 catalog set 안의 activity 만 카운트, miss 면 dumpsys 폴백 + WARNING 로그 + legacy 동적 확장.
@@ -122,47 +122,33 @@
     - 각 엔트리는 `activities` 외에 `aliases`(`<activity-alias>` name→targetActivity 맵; androguard `get_activities()` 는 alias 를 반환하지 않으므로 manifest lxml 트리에서 element 단위로 추출)를 담는다 — alias 방문은 target 으로 해석돼 분자에만 반영되고 분모(`activities`)는 고정, target 이 필터 대상이면 alias 도 함께 드롭된다.
     - 새 APK 가 추가되면 `python -m catalog.extract_activities` 로 갱신한다(이 재생성은 필터를 거치지 않은 raw 사전을 다시 만들 뿐, 필터는 항상 `ActivityCatalog` 조회 시점에 적용된다).
   - [`src/monkey_collector/pipeline/reset.py`](./src/monkey_collector/pipeline/reset.py): 수집 데이터 삭제 스코프 해소(`all` / `packages`)와 `shutil.rmtree` 실행. 순수 함수 (`resolve_targets`, `delete_targets`).
-- 완료 앱 스킵 로직은 [`src/monkey_collector/cli.py`](./src/monkey_collector/cli.py) 의 `_resolve_run_packages` / `_load_completed_packages` 에 있다. `metadata.completed_at` 이 채워진 앱은 기본적으로 큐에서 제외되고, `--force` 로 우회한다. 이 규약이 바뀌면 `tests/test_run_resume.py` 를 함께 업데이트한다.
+- 완료 앱 스킵 로직은 [`src/monkey_collector/cli.py`](./src/monkey_collector/cli.py) 의 `_resolve_run_packages` / `_load_completed_packages` 에 있다. `metadata.completed_at` 이 채워진 앱은 기본적으로 큐에서 제외되고, `--force` 로 우회한다. 이 규약이 바뀌면 `tests/unit/test_run_resume.py` 를 함께 업데이트한다.
 - 액션 선택 로직은 [`src/monkey_collector/pipeline/exploration/`](./src/monkey_collector/pipeline/exploration) (LLM-Explorer 포팅: `LLMGuidedExplorer` + `Explorer` Protocol, `SemanticState`/`Memory`/`TransitionGraph`/`Navigator`/`ActionMapper`) 와 그 단위
   테스트(`tests/unit/test_semantic_state.py`·`test_memory_unexplored.py`·`test_transition_graph_nav.py`·`test_navigator.py`·`test_action_mapper.py`, `tests/integration/test_llm_guided_explorer.py`) 를 함께 본다.
   - 커버리지는 `(page_key, element_signature, action_type)` 단위로 추적하고, `ElementExtractor` 의 element family 로 탐색 공간을 압축하며, `TransitionGraph` 최단경로로 미탐색 화면까지 navigation 한다.
-  - page 식별(`page_key`)은 [`pipeline/screen_matching/`](./src/monkey_collector/pipeline/screen_matching) 의 `ScreenMatcher`(**BM25 unique-page matching**, Mobile3M 메커니즘)가 결정하며, 이 `page_key` 가 page_graph 노드와 탐색 abstract page 를 모두 좌우한다(matcher 없으면 `structure_str` fallback — matcher 는
-    `element_extraction`·`luminance_prefilter` 가 **모두 off** 일 때만 부재).
-  - 흐름: 구조 지문 pre-filter(exact 재방문) + interactable 0개 pending 거부 → `element_lines.serialize_element_lines`(encoded XML → element-line 문서, `index`/`bounds` 제거) → `bm25.Bm25Index.top_k`(후보 K개) → **conjunctive verify**(element 기준 `|A△B|<element_diff_max` 또는 Jaccard, **AND** pixel 게이트
-    `luminance_diff < page_pixel_diff_threshold`) → 첫 통과 후보 `BM25_MERGE`, 없으면 `NEW`.
-  - **LLM-free** — LLM element 추출은 옵션 enrichment(새 page 의 `families`)일 뿐, off 여도 BM25 matching·page/observation dedup 이 유지된다(그땐 `families=[]`).
+  - page 식별(`page_key`)은 [`pipeline/screen_matching/`](./src/monkey_collector/pipeline/screen_matching) 의 `ScreenMatcher`(**BM25 unique-page matching**, Mobile3M 메커니즘, **LLM-free**)가 결정하며, 이 `page_key` 가 page_graph 노드와 탐색 abstract page 를 모두 좌우한다 — 매칭 흐름(pre-filter → element-line serialize → BM25 top-K → conjunctive verify)·pixel 게이트·`persist_filtered`·rehydrate 메커니즘은 [ARCHITECTURE.md](./ARCHITECTURE.md) §2(screen_matching) 참조.
   - screen_matching 을 바꾸면 `tests/unit/test_bm25.py`·`test_element_lines.py`·`test_screen_matcher.py`·`test_rehydrate.py`·`test_luminance.py`·`test_config.py`(+`test_ui_attributes.py`) 를 함께 본다.
-  - **pixel 게이트**([`screen_matching/luminance.py`](./src/monkey_collector/pipeline/screen_matching/luminance.py), BT.601 luma, 순수 PIL)는 후보 병합을 픽셀로 확정하며, PAGE 식별과 별개로 page 확정 후엔 그 page 소유 observation 만 보는 `_page_luminance_lookup`(`_record_observation`, 더 빡빡한 `screenshot_diff_threshold`)이 **어떤
-    observation 과 같은지**를 판단해 재사용/신규 할당을 결정한다 — `ScreenMatch.observation_num`/`is_new_observation` 으로 나가며, `is_new_observation` 일 때만 `DataWriter.save_observation` 이 새 파일을 쓴다.
-  - `persist_filtered`(기본 on)면 구조 prefilter 재방문·BM25 merge dedup 도 새 `observation_num` 을 받아 저장된다(per-visit 체인, page 정체성 불변).
-  - 지문 자체(`PageKnowledge.luminance_features`)와 `element_lines`/BM25 코퍼스는 재개 시 `screen_matching/rehydrate.py` 가 `page.json`·`screenshot.png`(legacy 는 `raw.xml`)로부터 복원한다.
-  - 하이퍼파라미터(`bm25_top_k`/`element_criterion`/`element_diff_max`/`element_jaccard_min`/`page_pixel_diff_threshold` + 기존 luminance/persist 토글)는 `screen_matching` config 의 6-place 패턴(`config.py` + `run.yaml` + `MC_SCREEN_MATCHING_*` env + `cli.py` 플래그)으로 조정한다.
+  - 하이퍼파라미터(`bm25_top_k`/`element_criterion`/`element_diff_max`/`element_jaccard_min`/`page_pixel_diff_threshold` 등)는 `screen_matching` config(builtin+yaml+env+CLI 4단계)로 조정한다 — 키 목록은 [ARCHITECTURE.md](./ARCHITECTURE.md) §7 참조.
 - LLM 통합은 [`src/monkey_collector/llm/client.py`](./src/monkey_collector/llm/client.py) 의 공용 `LLMClient` (OpenRouter Chat Completions, 기본 `qwen/qwen3.7-plus`, env `OPENROUTER_API_KEY`/`OPENROUTER_BASE_URL`/`OPENROUTER_MODEL`) 하나로 모인다.
   - 두 소비자가 이를 공유한다: 텍스트 입력 생성 [`text_generator.py`](./src/monkey_collector/pipeline/text_generator.py) (random fallback 유지; `Collector._run_session` 이 세션마다 `set_app_context()` 로 현재 앱 설명 — `catalog/apps.csv` 의 `AppJob.description`, 미등록 앱은 package_id 폴백 — 을 프롬프트에 `App under test:` 줄로
     주입) 와 element 추출 [`llm/element_extractor.py`](./src/monkey_collector/llm/element_extractor.py) (단일 호출로 `name`/`description`/`parameters`/`element_index`/`key_element_index` 를 함께; `ScreenMatcher` 가 소비).
   - provider/모델을 바꾸려면 `client.py`, `.env.example`, [`cost_tracker.py`](./src/monkey_collector/domain/cost_tracker.py) 의 `MODEL_PRICING` 을 함께 본다.
   - element 추출은 `--element-extraction on` 일 때 `xml/{step}_elements.json`(각 element 의 `name`/`description`/`parameters`/`element_index`/`key_element_index`) 으로 저장하며, expand(남은 UI 재추출)로 화면당 LLM 1~3회를 쓰되 구조 지문 pre-filter 로 exact 재방문은 0회, interactable 0개 로딩/스플래시 화면은 pending 으로 거부해
     0회다(빈 page blackhole 차단).
-  - 이 in-loop 추출 호출은 `chat()` 의 per-call override 로 bound 된다 — `max_tokens=6000`(runaway 생성이 메인 루프를 블록하지 않게 상한, 정상 화면 1000~4600 토큰은 truncate 안 함) + `timeout=60s` + `max_retries=1`; 상수는 `element_extractor.py` 상단(`_EXTRACT_MAX_TOKENS`/`_EXTRACT_TIMEOUT`/`_EXTRACT_MAX_RETRIES`).
+  - 이 in-loop 추출 호출은 `chat()` 의 per-call override(`max_tokens`/`timeout`/`max_retries`)로 bound 된다 — 상수 위치는 `element_extractor.py` 상단(`_EXTRACT_MAX_TOKENS`/`_EXTRACT_TIMEOUT`/`_EXTRACT_MAX_RETRIES`), 값·근거는 [ARCHITECTURE.md](./ARCHITECTURE.md) 참조.
   - 추출/매칭 실패(truncation/timeout 포함)는 수집 흐름을 깨지 않는다(빈 결과로 degrade).
   - 비용은 `cost.csv` 의 `agent` 컬럼(`text_generator` / `element_extractor`)으로 구분된다.
 - 세션 저장 형식은 [`src/monkey_collector/storage.py`](./src/monkey_collector/storage.py) 가 기준이다.
   - `DataWriter` 는 두 root 로 나뉜다 — `data/{package}/pages/{page_key}/{observation_num}/` (영속, `save_observation`/`save_page_knowledge` 는 `is_new_observation` 일 때만 새로 씀) 와 `runtime/{package}/` (휘발성: metadata/events/cost/coverage).
   - 세션 재개(resume)는 `session_manager.rehydrate_session` → `screen_matching/rehydrate.py` 가 `data/{package}/pages/` 를 다시 읽어 `ScreenMatcher` 지식과 `state.page_graph` 를 모두 복원한다.
 - XML 파싱 규약은 [`src/monkey_collector/xml/ui_tree.py`](./src/monkey_collector/xml/ui_tree.py), [`src/monkey_collector/xml/structured_parser.py`](./src/monkey_collector/xml/structured_parser.py) 를 본다.
-- Android 측 전환 감지와 TCP 프로토콜은 [`CollectorService.kt`](./app/app/src/main/java/com/monkey/collector/CollectorService.kt), [`ScreenStabilizer.kt`](./app/app/src/main/java/com/monkey/collector/ScreenStabilizer.kt), [`TcpClient.kt`](./app/app/src/main/java/com/monkey/collector/TcpClient.kt) 에 있다.
-  - 두 가지 안정성 규약을 깨지 마라: ① `CollectorService.EXCLUDED_PACKAGES` 의 `gms`/`gsf`/`vending`(Google 로그인·Play 핸드오프를 외부앱으로 처리 — 빠지면 외부앱 재실행 스톰), 서버측 짝은 [`pipeline/screen_guard.py`](./src/monkey_collector/pipeline/screen_guard.py) 의 `SYSTEM_PACKAGES`.
-  - ② `ScreenStabilizer.startCaptureSession` 의 MediaProjection **토큰 단발성** 처리(reuse-guard + `createVirtualDisplay` try/catch graceful-degrade) — 빠지면 2세션째 `SecurityException` 으로 client 프로세스 사망 → signal timeout 연쇄.
+- Android 측 전환 감지와 TCP 프로토콜은 [`CollectorService.kt`](./app/app/src/main/java/com/monkey/collector/CollectorService.kt), [`ScreenStabilizer.kt`](./app/app/src/main/java/com/monkey/collector/ScreenStabilizer.kt), [`TcpClient.kt`](./app/app/src/main/java/com/monkey/collector/TcpClient.kt) 에 있다 — 안정성 규약(외부앱 제외 목록 짝맞춤, MediaProjection 토큰 단발성)은 불변식 1·2 참조.
   - **클라이언트(.kt) 수정은 APK 재빌드(JDK 17)·재설치해야 디바이스에 반영**된다.
-- 환경 셋업/검증은 `/setup-collector` 스킬([`/.claude/skills/setup-collector/`](../.claude/skills/setup-collector))이 자동화한다(AVD·APK·client 빌드[JDK17]·접근성·prefs·MediaProjection·Google 로그인·더미데이터 시드·검증; **초기화 시 1회, 멱등**).
-  - client 빌드는 AGP 8.2 → **JDK 17 필수**(`JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew :app:assembleDebug`, APK `app/app/build/outputs/...`).
-  - Google 자격증명은 커밋 금지 — `Monkey-Collector/.secrets.local`(gitignore)에서만 읽는다.
+- 환경 셋업/검증(`/setup-collector` 스킬, JDK17 client 빌드, Google 자격증명 정책)은 위 「환경 셋업 & 평가 방법 → 1. 셋업」과 동일 — 세부는 그쪽을 본다.
 
 ## 작업 시 주의점
 
-- 세션은 두 root 로 나뉜다 — `data/{package}/`(영속: pages/observations, page_graph)와 `runtime/{package}/`(휘발성: metadata, events, cost/coverage).
-  - 둘 다 패키지명 기준이며 timestamp 기반 새 디렉토리를 만들지 않는다.
-  - 세션 재개는 두 root 모두에서 지식을 복원한다(`ScreenMatcher` + `state.page_graph`) — 한쪽만 지우고 재시작하면(`--new-session`) 남은 쪽에서 지식이 다시 rehydrate 되어 "새 세션"이 되지 않으므로, `--new-session`/`reset` 은 반드시 두 root 를 함께 지운다.
+- 세션은 두 root 로 나뉜다 — `data/{package}/`(영속)와 `runtime/{package}/`(휘발성). `--new-session`/`reset` 은 반드시 두 root 를 함께 지운다(불변식 7) — 메커니즘은 [ARCHITECTURE.md](./ARCHITECTURE.md) §4~§5 참조.
 - 기본 동작은 같은 앱 패키지의 기존 세션을 이어서 저장하는 것이다. `run` 커맨드의 `--new-session` 은 해당 앱 한 개만 초기화한다. 더 넓은 범위 삭제는 `monkey-collect reset` 을 사용한다.
 - App -> Server signal 이름 `P`, `S`, `X`, `E`, `N`, `F` 와 Server -> App 제어 메시지 (`{"type":"START","package":...}`, `{"type":"SESSION_END"}`) 계약을 깨지 마라. Android 측 `CollectorService.beginStandby` 루프가 이 계약에 의존한다.
 - 세션 전환 핸드셰이크: `SESSION_END` → 클라이언트 `F` 회신 + 소켓 close → 클라이언트 한 번 자동 재접속.
@@ -185,14 +171,11 @@
   - ③ D3 plateau 조기 종료(`CollectionState.steps_since_new_page`/`no_progress_stop`): 실제-액션 스텝이 `collector.max_steps_without_new_page`(기본98 = 아카이브 최대 productive gap 49 의 2 배, U3a) 동안 신규 page 0 이면 앱 포화로 clean-stop → finalize 가 `completed_at` 을 채워 예산을 다음 앱으로 넘긴다(재수집은 --force).
   - 두 임계값은 `collection.max_action_repeats`/`collection.max_steps_without_new_page` 4-place(config.py builtin defaults + `CollectionConfig` + `_from_raw` + env) + run.yaml + `Collector.__init__`(cli.py 전달)로 노출되며 0 이하면 가드 비활성.
   - 두 카운터는 신규 page 시 리셋(진행 시 용서, 5e2254e).
-- external 복구가 타깃 앱을 재실행하면 `open_app` 액션을 events.jsonl 에 excursion 당 1회 기록한다(`collection_loop._record_open_app`, `DataWriter.log_open_app`).
-  - 이 open_app 은 **navigation 전이가 아니다** — 복구 시 `state.last_action` 클리어(live graph) + `explorer._last_record` 클리어(routing memory) + 이벤트 `transition: false`(offline `_load_events` 재빌드·world-modeling converter)로 3중 격리한다.
+- external 복구가 타깃 앱을 재실행하면 `open_app` 액션을 events.jsonl 에 excursion 당 1회 기록한다(`collection_loop._record_open_app`, `DataWriter.log_open_app`) — 3중 격리 메커니즘은 불변식 8 및 [ARCHITECTURE.md](./ARCHITECTURE.md) §4 참조.
   - `return_to_app`/`recover` 의 `bool` 반환(launch 여부)·이 격리·`transition` 표식 중 하나라도 바꾸면 open_app 이 가짜 전이로 샐 수 있으니 함께 검토하라.
 - `src/monkey_collector/__init__.py` 의 공개 export 를 바꾸면 패키지 사용 코드와 문서도 같이 갱신한다.
 - 저장 포맷을 바꾸면 converter, page-map, regenerate, `rehydrate.py`, `config.py`(`data_dir`/`runtime_dir`), `pipeline/reset.py`, 테스트를 함께 갱신해야 한다.
-- action 이벤트의 `page_key`/`observation_num` 이 실제 화면 파일 위치(`data/{package}/pages/{page_key}/{observation_num}/`, 둘 다 0-based 정수·zero-pad 없음)를 가리키는 **조인 키**다 — converter 와 `build_graph_from_new_layout` 이 이걸로 화면을 찾는다.
-  - `frame_index` 는 정렬용 단조 카운터(`DataWriter.next_frame_index()`)일 뿐 파일 인덱스가 아니다(화면 파일은 `observation_num` 이 키이고, pending 프레임이나 `persist_filtered` off 재사용 관측은 파일이 없을 수 있어 frame_index 와 1:1 이 아니다).
-  - `state.step` 은 **정상 action 경로에서만** `+1` 한다 — signal timeout·no_change·empty-UI 대기·keyboard/permission/system/stale 같은 비-action 반복에서 step 을 올리면 `step` 이 frame_index 와 어긋나 정렬이 깨진다(이게 과거 정렬 버그의 원인이었다).
+- action 이벤트의 `page_key`/`observation_num` 이 실제 화면 파일 위치를 가리키는 **조인 키**다(`frame_index`/`step` 은 조인 키가 아님, `step` 증가 규칙은 불변식 6) — 스키마는 [ARCHITECTURE.md](./ARCHITECTURE.md) §5 참조.
   - step 증가 지점이나 page_key/observation_num 주입·조인을 바꾸면 converter·page-map·`build_graph_from_new_layout`·테스트를 함께 검토하라.
 
 ## 알려진 한계 (의도적으로 수용)
@@ -202,7 +185,7 @@
   `N`(no_change)을 보내고, 서버는 이를 "액션 무효"로 확정 해석한다 — element 를 exclude 하고 retry 를 쏘며
   `state.last_action` 을 덮어쓴다. 그 결과 뒤늦게 도착한 원래 액션의 효과가 retry 액션에 **오귀속**된다.
   실측상 명백한 오판은 스텝의 1% 미만이다 — 전체 수치는
-  [`.claude/handoff/f2-server-pull-results.md`](./.claude/handoff/f2-server-pull-results.md) 의 "결함 6" 절을 보라.
+  [`../.claude/handoff/f2-server-pull-results.md`](../.claude/handoff/f2-server-pull-results.md) 의 "결함 6" 절을 보라.
   2-poke 합의(판정 시점 1.5s→3.0s, 관측 최대 렌더 지연 2.779s 초과)로 고칠 수 있으나 매 run 에 약
   +65~75s(900s 의 7~8%) 의 **상시 예산세**가 붙어 <1% 라벨 노이즈보다 비싸다고 판단, **고치지 않기로
   결정했다**. 이 결정을 뒤집으려면 예산세 실측부터 다시 하라. 이 코퍼스를 IWM 학습에 쓸 때 이 라벨
@@ -241,7 +224,7 @@
 
 수집기 변경(가드·탐색정책·임계값)의 효과를 수치로 판정하려면 **반드시** 아래를 따른다. 이 프로토콜 없이 뽑은 비교는 confound 로 오염돼 인과 해석이 불가하다 — 과거에 실제로 "다양성 +78%" 를 fix 효과로 오귀속했다가 전면 정정한 사례가 있다.
 
-- **앱 상태 리셋 (매 run 마다)**: 측정 run 시작 전 대상 앱을 **동일한 clean state 로 되돌린다**. 이전 run 이 만든 변경(생성된 레시피·바뀐 설정·캐시된 뷰)이 다음 run 으로 흘러 confound 가 된다. 헬퍼: [`.claude/handoff/reset_app.sh`](./.claude/handoff/reset_app.sh).
+- **앱 상태 리셋 (매 run 마다)**: 측정 run 시작 전 대상 앱을 **동일한 clean state 로 되돌린다**. 이전 run 이 만든 변경(생성된 레시피·바뀐 설정·캐시된 뷰)이 다음 run 으로 흘러 confound 가 된다. 헬퍼: [`../.claude/handoff/reset_app.sh`](../.claude/handoff/reset_app.sh).
   - **user app**(musicplayer/broccoli/osmand): `adb uninstall` **후** `install -r -g catalog/apks/<pkg>.apk`. `install -r` 단독은 앱 데이터를 보존하므로 리셋이 되지 않는다 — uninstall 이 필수다.
   - **system app**(`com.google.android.calendar` = `/product/app/CalendarGooglePrebuilt`): uninstall 불가 → `pm clear` 가 동등한 데이터 리셋이다.
   - **seed 코퍼스는 리셋 후에도 동일해야 한다**(검증됨): musicplayer 의 데모 mp3 3곡은 공유 저장소(`/sdcard/Music`)라 uninstall 에 생존하고, calendar 의 seed 이벤트 25건은 **별도 priv-app** 인 `com.android.providers.calendar` DB 에 있어 앱 `pm clear` 에 생존한다.
@@ -253,7 +236,7 @@
   - baseline arm 은 `git worktree` 로 격리해 돌린다.
   - `env | grep MC_` 가 비어 있어야 한다(env override 가 treatment 를 덮는다).
   - `data_dir`/`runtime_dir` 는 CWD-상대(`storage.py`)라 worktree arm 과 메인 arm 은 서로 다른 트리에 쓴다 — cross-arm 덮어쓰기는 없다.
-- **디바이스**: `emulator-5556` 고정 (`adb.py` 의 `REQUIRED_AVD_NAME='Pixel6-2'` 하드코드). 다른 AVD 를 쓰면 그 자체가 새 confound 다.
+- **디바이스**: `emulator-5556` 고정 (`adb.py` 의 `REQUIRED_AVD_NAME` 기본값 `'Pixel6-2'`, env `MC_AVD` 로 오버라이드 가능하나 측정 arm 간 AVD 혼용 금지). 다른 AVD 를 쓰면 그 자체가 새 confound 다.
 
 ### ⚠️ 함정 1 — provider-backed 앱은 앱 리셋으로 오염이 안 지워진다 (iter6 실측)
 

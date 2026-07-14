@@ -13,7 +13,7 @@
 
 ## 현재 상태 (2026-07-14)
 
-- **Monkey-Collector**: 통제 ablation 결과 budget-loop 가드(D1/D2/D3)의 다양성 이득은 **노이즈와 구별되지 않으며**, 예산의 **44~56% 가 signal timeout 대기에서 소진**되는 것이 진짜 병목으로 드러났다. D3 임계값은 데이터 기반으로 150 → 98 재보정. → [iter6 통제 ablation 보고](./Monkey-Collector/.claude/analysis/2026-07-14_04-05-29_iter6-controlled-ablation/README.md) · [DEVLOG](./docs/DEVLOG.md)
+- **Monkey-Collector**: 통제 ablation 결과 budget-loop 가드(D1/D2/D3)의 다양성 이득은 **노이즈와 구별되지 않으며**, 예산의 **44~56% 가 signal timeout 대기에서 소진**되는 것이 진짜 병목으로 드러났다. D3 임계값은 데이터 기반으로 150 → 98 재보정. → [iter6 통제 ablation 보고](./.claude/analysis/2026-07-14_04-05-29_iter6-controlled-ablation/README.md) · [DEVLOG](./docs/DEVLOG.md)
 
 ## 핵심 아이디어 — 2-stage 파이프라인 (메인 프로젝트)
 

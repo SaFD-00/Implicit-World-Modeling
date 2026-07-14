@@ -326,6 +326,26 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
 - **EXP04 미러**: EXP03 와 **동일 멤버십·좌표 표현**, 프롬프트만 업그레이드 (action space `scroll(direction, point)` → `swipe(start, end)`, role 문구 "represented as html-style XML", `[SWIPE]` 규칙). **EXP04 pool ⊆ EXP03 pool** 이라 멤버십 drift 가 없다.
 - **EXP05 미러**: 절대 픽셀 좌표. 출력 이미지 경로는 EXP01 의 `AndroidControl/images/...` 재사용 (source 의 `myset/images/...` 는 매칭 키 추출용).
 
+### MC 데이터 상태 (2026-07-14 — 프로덕션 코퍼스 아님)
+
+레지스트리 (`lf_registry.py` `"MonkeyCollection"`) · `dataset_info.json` (`IWM-MC_stage1_{train,test}`) ·
+`configs/train/IWM-MC/` · `split_data.py --dataset MC` 는 **전부 이전부터 존재**했으나, 이 파이프는
+2026-07-14 에 **처음 실행됐다**. 현재 `data/MonkeyCollection/` 의 164 examples (train 155 / test 9) 는
+Monkey-Collector 의 **실험 잔여물** (musicplayer + calendar) 이며 **프로덕션 코퍼스가 아니다** — osmand 는
+page 지문 오염 (S-9) 으로 의도적으로 제외했고, 수집기의 page_graph 에는 **교차-앱 병합 오염**이 남아 있다
+(수집기 `AGENTS.md` 「알려진 한계」). **이 데이터로 낸 학습 결과를 코퍼스 품질의 근거로 쓰지 마라** (규칙:
+[AGENTS.md](./AGENTS.md) 「인용 금지」). 또한 `--stage1-ratio` 기본값 0.95 를 164 행에 적용하면 **test 가
+9 개**뿐이라 통계적으로 무의미하므로 실제 학습 전에 비율을 다시 정해야 한다.
+
+**MC 브리지 end-to-end 실행은 보류됐다 (사용자 결정, 2026-07-14 — 지금은 핸드오프만).** 배선·정적 관통은
+확인됐으니 남은 것은 원격 GPU 박스에서 `stage1_train.sh --dataset MC` 를 실제로 한 번 돌려보는 것뿐이다.
+경로: `setting:claude-code-remote` 로 원격 서버에 붙거나 `scripts/remote_launch.sh`. 맥에서 검증 가능한
+최대치는 **정적 관통 확인** (jsonl 스키마 + 이미지 경로 해석) 이다 — `stage1_train.sh` 자체는 `_common.sh`
+가 요구하는 `CONDA_PREFIX` (conda env) · bash 4+ 와 체크아웃에 없는 `LlamaFactory/` 때문에 맥에서
+실행되지 않는다.
+
+행수 재확인: `wc -l data/MonkeyCollection/*.jsonl`
+
 ### 분할 규칙 (`scripts/split_data.py`)
 
 - **App partition** (`compute_app_partition`, 원본 `episodes_meta.jsonl` 기준): Stage 2 행 수를 budget 으로 `(id_apps, ood_apps)` 를 **한 번** 계산하고 Stage 1 이 같은 partition 을 재사용한다. → **Stage 2 OOD 앱은 Stage 1 train 에 한 번도 등장하지 않는다** (world-modeling 이 OOD 앱을 보지 못함). EXP02~05 는 EXP01 산출 멤버십을 미러하므로 이 partition 을 그대로 승계한다 (별도 계산 없음).
