@@ -11,6 +11,8 @@ Implicit-World-Modeling/outputs
 Implicit-World-Modeling/LlamaFactory/
 Implicit-World-Modeling/unsloth/
 Monkey-Collector/app_candidates.csv
+# 수집/진단 스크래치 (타임스탬프 디렉토리 — 재사용 아님, git status 오염 방지)
+Monkey-Collector/_*/
 
 # Cache (HuggingFace models, Python tooling, ML logs)
 **/.cache/
