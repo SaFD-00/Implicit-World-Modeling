@@ -5,8 +5,8 @@
 #             REMOTE_SUBMIT_CMD 로 주입하고, run spec 스키마는 configs/remote/run.template.yaml 을
 #             교체하면 바뀐다. 플랫폼을 갈아타도 이 코드는 그대로다.
 #
-# UNVALIDATED: 이 스크립트는 제출 CLI 가 없는 머신에서 작성됐다. 검증된 것은 렌더(치환) 경로뿐이며,
-#              제출 커맨드의 플래그/스키마는 실제로 실행해 확인하지 않았다.
+# UNVALIDATED 스캐폴드 — 실행 이력 0 (2026-07-13 감사 확인). 검증된 것은 렌더(치환) 경로뿐이며,
+#              제출 커맨드의 플래그/스키마는 실제로 실행해 확인하지 않았다. EXP05 원격 학습 계획용으로 보존.
 #
 # 사용법:
 #   bash scripts/remote_launch.sh --dry-run            # 렌더 결과를 stdout 으로 출력하고 종료 (제출 안 함)

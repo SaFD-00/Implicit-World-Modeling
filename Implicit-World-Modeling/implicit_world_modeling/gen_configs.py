@@ -71,8 +71,6 @@ RECONSTRUCTED_HEADER = (
     "실제 학습 설정과 다를 수 있음\n"
 )
 
-STAGE2_VARIANTS = ("base", "world-model-full", "world-model-lora")
-
 
 def _deepspeed_field(policy: GpuPolicy) -> str:
     """gpu_policy 의 repo-root 상대경로를 YAML 의 LF-root 상대경로로 변환."""
@@ -94,12 +92,7 @@ def render_stage1(cfg: dict, mode: str, policy: GpuPolicy) -> str:
     s1 = cfg[f"stage1_{mode}"]
     mcfg = cfg["model_config"]
 
-    save_steps_line = (
-        f"save_steps: {s1['save_steps']}\n" if s1["save_strategy"] == "steps" else ""
-    )
     ds_line = f"deepspeed: {_deepspeed_field(policy)}\n"
-    optim_line = f"optim: {s1['optim']}\n" if s1.get("optim") else ""
-    seed_line = f"seed: {s1['seed']}\n" if s1.get("seed") is not None else ""
 
     # diff loss: stage1 config 에 플래그가 있으면 (AC_EXP02 / AC_EXP05) method 에 주입.
     diff_loss_line = (
@@ -150,7 +143,7 @@ media_dir: ../data
 output_dir: {output_dir}
 logging_steps: 1
 save_strategy: {s1["save_strategy"]}
-{save_steps_line}save_total_limit: 5
+save_total_limit: 5
 plot_loss: true
 overwrite_output_dir: true
 
@@ -163,7 +156,7 @@ lr_scheduler_type: {s1["lr_scheduler_type"]}
 warmup_ratio: {s1["warmup_ratio"]}
 weight_decay: {s1["weight_decay"]}
 max_grad_norm: {s1["max_grad_norm"]}
-{optim_line}{seed_line}bf16: true
+bf16: true
 gradient_checkpointing: true
 {ds_line}ddp_timeout: 18000000
 # resume_from_checkpoint: true
@@ -181,11 +174,6 @@ def render_stage2(cfg: dict, mode: str, policy: GpuPolicy) -> dict[str, str]:
     s2 = cfg["stage2"]
     mcfg = cfg["model_config"]
 
-    save_steps_line = (
-        f"save_steps: {s2['save_steps']}\n" if s2["save_strategy"] == "steps" else ""
-    )
-    optim_line = f"optim: {s2['optim']}\n" if s2.get("optim") else ""
-    seed_line = f"seed: {s2['seed']}\n" if s2.get("seed") is not None else ""
     ds_line = f"deepspeed: {_deepspeed_field(policy)}\n"
 
     if mode == "full":
@@ -197,7 +185,7 @@ def render_stage2(cfg: dict, mode: str, policy: GpuPolicy) -> dict[str, str]:
             f"freeze_vision_tower: {str(mcfg['freeze_vision_tower']).lower()}"
         )
         # Full FT 는 LoRA 대비 lr 을 낮춰 안정화.
-        lr_value = s2.get("full_lr", 1.5e-5)
+        lr_value = 1.5e-5
     else:
         method_block = (
             "### method\n"
@@ -233,7 +221,7 @@ media_dir: ../data
 output_dir: {{output_dir}}
 logging_steps: 1
 save_strategy: {s2["save_strategy"]}
-{save_steps_line}save_total_limit: 5
+save_total_limit: 5
 plot_loss: true
 overwrite_output_dir: true
 
@@ -246,7 +234,7 @@ lr_scheduler_type: {s2["lr_scheduler_type"]}
 warmup_ratio: {s2["warmup_ratio"]}
 weight_decay: {s2["weight_decay"]}
 max_grad_norm: {s2["max_grad_norm"]}
-{optim_line}{seed_line}bf16: true
+bf16: true
 gradient_checkpointing: true
 {ds_line}ddp_timeout: 18000000
 # resume_from_checkpoint: true

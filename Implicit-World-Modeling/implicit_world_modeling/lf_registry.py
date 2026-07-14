@@ -50,16 +50,11 @@ LF_ROOT = os.path.join(BASE_DIR, "LlamaFactory")
 #   family 별 factor 에 따라 max_pixels = max_tokens × factor² 로 환산.
 #   Qwen2/2.5-VL  (factor 28): 2048 → 1,605,632
 #   Qwen3-VL/3.5  (factor 32): 2048 → 2,097,152
+#
+# max_tokens/merged_tokens_at_1080x2400/vertical_retention 은 provenance 전용
+# (코드가 읽지 않음) — max_pixels 유도 근거, ARCHITECTURE.md §2 참조.
 # ============================================================
-QWEN2_VL_CONFIG = {
-    "max_pixels": 1_605_632,  # 2048 x 28²
-    "min_pixels": 3_136,  # 4 x 28²
-    "factor": 28,
-    "max_tokens": 2048,
-    "merged_tokens_at_1080x2400": 510,
-    "vertical_retention": 0.782,
-}
-QWEN2_5_VL_CONFIG = {  # Qwen2-VL 과 동일
+QWEN2_5_VL_CONFIG = {  # factor 28
     "max_pixels": 1_605_632,
     "min_pixels": 3_136,
     "factor": 28,
@@ -501,17 +496,6 @@ _SIZE_CONFIG_AC = {
         "stage2": {},
     },
 }
-
-# ============================================================
-# === Model ordering for execution cells ===
-# ============================================================
-MODEL_ORDER = [
-    ("qwen3-vl-8b", "Qwen3-VL-8B"),
-    ("qwen3-vl-4b", "Qwen3-VL-4B"),
-    ("qwen2.5-vl-7b", "Qwen2.5-VL-7B"),
-    ("qwen2.5-vl-3b", "Qwen2.5-VL-3B"),
-]
-DS_ORDER = [("MC", "MonkeyCollection")]
 
 # size-tier 를 적용하는 DS (MC 는 미적용).
 _TIERED_DS_PREFIX = "AndroidControl_EXP"

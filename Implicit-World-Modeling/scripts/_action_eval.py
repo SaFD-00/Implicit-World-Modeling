@@ -112,17 +112,6 @@ def _norm(s):
 
 
 # ── Step Accuracy 채점 ───────────────────────────────────────────────────
-_FIELD_MATCH_TYPES = {
-    "navigate_back",
-    "navigate_home",
-    "wait",
-    "finish",
-    "click",
-    "long_press",
-    "scroll",
-    "open_app",
-    "input_text",
-}
 
 
 def _atype(action):

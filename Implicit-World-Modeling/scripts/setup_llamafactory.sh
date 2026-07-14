@@ -142,7 +142,6 @@ if [[ "$HEAD_SHA" != "$LF_PIN" ]]; then
              "원격이 올바른지 확인하라: git -C '$LF_DIR' remote -v"
   fi
   git -C "$LF_DIR" checkout --quiet --detach "$LF_PIN"
-  HEAD_SHA="$(git -C "$LF_DIR" rev-parse HEAD)"
 fi
 say "[ok]    HEAD == pin ($LF_PIN)"
 

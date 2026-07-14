@@ -1,164 +1,145 @@
 # AGENTS.md
 
-`Implicit-World-Modeling/` 프로젝트에서 작업하는 에이전트를 위한 작업 지침. 사용자 가이드는 [`README.md`](./README.md), 시스템 레퍼런스는 [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+`Implicit-World-Modeling/` 에서 작업하는 에이전트를 위한 **규칙** 문서.
 
-## 현재 코드 기준 요약
+> **이 문서는 수치를 싣지 않는다.** 좌표계·image budget·GPU 매트릭스·하이퍼파라미터·메트릭 정의·산출물 레이아웃의 정본은 [`ARCHITECTURE.md`](./ARCHITECTURE.md) 하나뿐이다. 여기에는 **"무엇을 하면 안 되는가 / 어디를 고쳐야 하는가"** 만 있고 근거는 전부 §N 링크다. 사용법은 [`README.md`](./README.md), 현재 상태는 [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
-- 실행 엔트리포인트는 단일 노트북 [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 와 [`scripts/`](./scripts) 다. 노트북은 conda env (`implicit-world-modeling`, `pip install -e ".[llamafactory]"`) 를 전제로 한다.
-- **4 개 Vision-Language 모델**: `Qwen/Qwen3-VL-8B-Instruct` (`template=qwen3_vl_nothink`, 7-9B tier), `Qwen/Qwen3-VL-4B-Instruct` (`template=qwen3_vl_nothink`, **3-4B tier**), `Qwen/Qwen2.5-VL-7B-Instruct` (`template=qwen2_vl`, 7-9B tier), `Qwen/Qwen2.5-VL-3B-Instruct` (`template=qwen2_vl`, **3-4B tier**).
-- **실험군별 모델 전용성은 하드 제약이다 — 어기면 grounding 이 조용히 깨진다** (에러 없이 성능만 떨어진다): EXP03/EXP04 (0–1000 정규화 좌표) 는 **Qwen3-VL 계열 전용** (`qwen3-vl-4b`/`qwen3-vl-8b`), EXP05 (절대 픽셀 좌표) 는 **Qwen2.5-VL 계열 전용** (`qwen2.5-vl-3b`/`qwen2.5-vl-7b`) — 즉 **EXP05 는 Qwen3-VL 계열 (`qwen3-vl-4b`/`qwen3-vl-8b`) 배제**. 이 전용성은 **family 자격**이지 학습 이력이 아니다 (`qwen3-vl-4b` 는 레지스트리에 등록돼 있을 뿐 아직 학습된 적이 없다). 이유는 Qwen family 의 native 좌표 규약이 세대별로 반전되고 (Qwen2.5-VL = 절대 픽셀, Qwen3-VL = 0–1000 정규화), factor 도 다르기 (28 vs 32) 때문이다. **좌표 규약·image budget·리사이즈 결과의 정본 (수치·표·근거) 은 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2** — 이 문서는 규칙만 싣는다. **이 제약은 이제 코드가 강제한다** — `implicit_world_modeling/lf_registry.py::DATASET_MODEL_ELIGIBILITY` 가 정본이고, `scripts/_common.sh::require_model_eligible` 이 학습 진입 전에 중단시킨다 (`gen_configs` 도 자격 밖 조합의 YAML 을 만들지 않는다). 2026-07-13 까지 `qwen3-vl-8b × EXP05` 가 "as-trained 보존" 예외로 남아 있었으나, 그 조합은 **한 번도 학습된 적이 없어** 보존할 것이 없었고 (image budget 도 2097152 vs 데이터의 1605632 로 불일치) 자격에서 제거하고 YAML 도 삭제했다. (사용자 요청의 "Qwen2.5-VL-3B/8B 모두" 에서 **8B 는 `qwen2.5-vl-7b` 로 해석** — Qwen2.5-VL family 에 8B 체크포인트가 없고, 유일한 8B 인 `qwen3-vl-8b` 는 factor·좌표 규약 이중 mismatch 로 EXP05 부적합.)
-- **6 학습 데이터셋 + 1 평가 전용 벤치마크**: AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, MC 가 학습 대상, MB 는 평가 전용. AC (AndroidControl) 자체는 학습/평가 entry 가 아니라 AC_EXP01~AC_EXP05 의 **원본 source 자산** (이미지 + 원본 jsonl + `episodes_meta.jsonl`) 으로만 보존된다. AC_EXP01 는 Stage 1 ratio mix (state_pred:action_pred = 3:7, 5:5, 7:3) 3 종을 sweep 해 별개의 가중치를 산출하고, **Stage 2 도 같은 ratio sweep 으로 활성** — Stage 1 ratio merged 를 base 로 같은 stage2 데이터 (`implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl`) 를 학습. stage2 데이터 자체는 ratio 와 무관 (3 ratio 공유) 이며, ratio 차원은 **stage1 → stage2 base 계보** 로만 흐른다. `_STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04", "AndroidControl_EXP05"}` 라 AC_EXP01 는 Stage 1/2 모두 파이프라인에 참여하고 MC · **AC_EXP04** · **AC_EXP05** 만 Stage 1 전용이다. **AC_EXP04** (`AndroidControl_EXP04`) 는 좌표(point) 표현 실험군 **AC_EXP03** (AC_EXP01 ratio73 멤버십의 좌표 미러) 의 **stage1 프롬프트 업그레이드** 변형으로, EXP03 과 동일 `(episode, step)` 멤버십·좌표 표현을 유지하고 action space `scroll(direction,point)`→`swipe(start,end)`, role 문구 "represented as html-style XML", `[SWIPE]` 규칙만 다르다. **Stage 1 전용 dual-task** (state+action) 로만 학습·평가하고 **Stage 2 는 보류** — dataset_info stage1 5 키만 등록, stage2 YAML/등록/eval 은 없다. **AC_EXP05** (`AndroidControl_EXP05`) 는 **AndroidWorld 해상도 정렬 실험군** 으로, AC_EXP01 ratio73 멤버십을 절대 픽셀 좌표로 미러 (`scripts/mirror_experiment.py --experiment exp05`) 한 것이다 — **Qwen2.5-VL 전용**, Stage 1 전용 dual-task, cutoff 24576, half-batch, diff loss v2, **Stage 2 보류** (EXP04 와 동일 — stage1 5 키만 등록). 상세는 아래 "EXP05 실험군 작업 시".
-- **모든 stage 의 흐름은 `train → merge → eval`** 로 통일. eval 은 **로컬 `outputs/.../merged/.../epoch-{E}/` 가 있으면 그것을 우선 사용하고, 없을 때만 HF Hub merged repo 를 pull** (`_common.sh::resolve_eval_model_path`) — `--no-hf-upload` 로 local merge 만 한 경우와 HF push 후 다른 머신에서 재실행하는 경우 모두 동작한다.
-- **GPU 정책의 단일 진실원은 [`scripts/gpu_policy.py`](./scripts/gpu_policy.py)** (`resolve_gpu_policy`): `(GPU_TYPE, NPROC_PER_NODE, size_class, dataset, mode)` → `per_device_train_batch_size` / `gradient_accumulation_steps` / `deepspeed` 세 값을 결정한다. 허용 매트릭스는 **RTX5090 {1,2} · A100 80GB {1,2,4,8} · H100 80GB {1,2,4,8}** 이고 전 조합에서 `GLOBAL_BATCH_SIZE=64` 가 유지된다 (허용 밖 조합은 학습 진입 전 중단). **deepspeed 는 GPU 종류와 무관하게 항상 `ds_z3_offload_config.json`** — A100/H100 에서 offload 를 빼면 EXP05 7B full FT 는 모델상태만 GPU 당 ~77 GiB 로 확정 OOM 이다 (`ds_z3_config.json` (no-offload) 은 as-trained 74/74 YAML 중 **한 번도 쓰인 적 없는 죽은 기본값**이었다). 조건부 offload 분기 (`if GPU_TYPE == "RTX5090"` 류) 를 되살리지 말 것.
-- **커밋된 학습 YAML 은 GPU-불변 baseline** (RTX5090×2 프로필: `per_device=1`, `grad_accum=32`) 이고, 다른 GPU 조합은 **런타임 override** 로 주입한다 (`llamafactory-cli train cfg.yaml key=value`, LF `hparams/parser.py` 의 OmegaConf merge). 호출 시점에 지정: `GPU_TYPE=A100 NPROC_PER_NODE=4 bash scripts/stage1_train.sh ...` — **하드웨어가 바뀌어도 YAML 을 재생성하지 않는다.**
-- 모델 레지스트리는 두 곳에 있다: [`implicit_world_modeling/lf_registry.py`](./implicit_world_modeling/lf_registry.py) 의 `_MODEL_CONFIG` (레지스트리 SSoT) 와 `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS`. 두 곳을 동시에 수정해야 한다.
-- 모델 family 별 image budget 은 `lf_registry.py` 의 `MODEL_FAMILY_CONFIG` (factor / max_tokens / min_tokens) 와 `_DATASET_CONFIG[ds]["image_overrides"]` 의 token 단위 override 로 관리된다. 모든 학습 DS 는 family default `max_tokens=2048` 을 쓴다 — **Qwen3-VL (factor 32) → `max_pixels` 2,097,152, Qwen2.5-VL (factor 28) → 1,605,632** (둘 다 dataset override 없음). 평가는 `TRAIN_DATASET` 으로 동일 budget 적용. **주의 — 두 family 는 visual token 수가 2,010 개로 같지만 리사이즈되는 이미지 픽셀 크기가 다르다** (840×1876 vs 960×2144). 토큰 수가 같다고 절대 픽셀 좌표 데이터를 다른 family 에 쓰면 grounding 이 조용히 깨진다. 표·계산 근거는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2 "모델 family 별 image budget".
-- 학습 / export 는 conda env 에 editable 설치된 `LlamaFactory/` clone + `llamafactory-cli` 가 수행. LF 워킹트리 부트스트랩은 **[`scripts/setup_llamafactory.sh`](./scripts/setup_llamafactory.sh) 한 커맨드** 로 통일돼 있다 (`bash scripts/setup_llamafactory.sh --install --verify` — clone → pin `99464b3d034fd19fa73486f05e3b64b963e1b423` → `patches/llamafactory/*.patch` 적용 → editable 설치 → 검증; 멱등).
-- 평가 (`scripts/stage{1,2}_eval.sh`) 는 `vllm_infer.py` 가 HF 표준 safetensors / PEFT adapter 를 그대로 로드.
-- [`implicit_world_modeling/`](./implicit_world_modeling) 패키지에는 **레지스트리 SSoT (`lf_registry.py`) 와 학습 YAML 생성기 (`gen_configs.py`)** 가 있다 (예전에는 배포용 스텁이었다). 학습·평가 실행 로직 자체는 여전히 `scripts/` 와 노트북에 있다.
-- **데이터셋 역할 분리**:
-  - 학습 대상 DS: `AndroidControl_EXP01` (AC_EXP01), `AndroidControl_EXP02` (AC_EXP02), `MonkeyCollection` (MC). `AndroidControl` (AC) 은 EXP01/EXP02 의 source 자산으로만 사용 (학습/평가 entry 아님). 좌표 표현 파생 실험군 **AC_EXP04** (`AndroidControl_EXP04`) 는 AC_EXP03 의 stage1 프롬프트 업그레이드 변형으로 **Stage 1 전용** 학습 대상이다 (Stage 2 보류; 데이터는 `scripts/mirror_experiment.py --experiment exp04` 가 EXP03 와 동일 멤버십으로 산출).
-  - `MobiBench` (MB) 는 **평가 전용 벤치마크**. 학습/merge 스크립트에서 `--dataset MB` 는 `parse_args` 에서 거절된다.
-  - MC 와 **AC_EXP04** 는 Stage 1 전용 (`_STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04", "AndroidControl_EXP05"}`) — MC 는 Stage 2 데이터 자체가 없고, AC_EXP04 는 Stage 2 를 보류해 stage2 데이터/등록 키를 만들지 않는다 (stage2 도입 시 `_STAGE1_ONLY` 에서 AC_EXP04 제거). AC_EXP01 는 Stage 2 도 활성 — `split_data.py::run_ac3_split` 이 Stage 1 action_pred app partition 을 그대로 재사용해 `implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl` (15K/3K/3K) 까지 만들고, stage2 학습은 ratio 별 Stage 1 merged 를 base 로 같은 stage2 데이터를 그대로 사용.
-  - **AC_EXP01 는 dual-task** (`_DUAL_TASK_TEST` flag, Stage 1 한정): Stage 1 은 `state_pred` (Stage1 채점, `_hungarian_eval.py`) + `action_pred` (Stage2 채점, `_action_eval.py`) 두 task 를 비율 (3:7, 5:5, 7:3) 로 혼합한 train + (id, ood) × (state, action) 4 test. ratio 별로 **별개의 학습 가중치** 가 산출되며 (`AC_EXP01_ratio37`, `AC_EXP01_ratio55`, `AC_EXP01_ratio73`) HF slug 도 ratio 별 (`ac-exp01-ratio37-` 등). Stage 2 는 dual-task 가 아니라 일반 action prediction (id/ood 2 파일) 이며 ratio 차원은 stage1 → stage2 계보로만 흐른다. 평가 sweep 은 단일 ratio (`--exp01-ratio ratio55` 기본). `--dataset AC_EXP01` 는 ratio 3 종을 자동 expand (`--exp01-ratios ratio55,ratio73` 로 부분 실행).
-  - **AC_EXP04 도 dual-task** (`_DUAL_TASK_TEST`, Stage 1 한정): EXP01/EXP02/EXP03 와 **동일 분기** 로 `state_pred` + `action_pred` 두 task 를 각각 채점하는 Stage 1 eval 을 받는다. 단 `_STAGE1_ONLY` 에 속해 Stage 2 (및 ratio·계보 차원 일체) 는 없다 — EXP04 는 EXP03 의 stage1 프롬프트 업그레이드만 비교하는 실험군이다.
-  - 평가 스크립트는 `--train-dataset {AC_EXP01|AC_EXP02|MC}` + `--eval-datasets AC_EXP01,AC_EXP02,MC,MB` 로 학습 DS 와 평가 DS 를 분리. Stage 2 eval 은 `AC_EXP01 | AC_EXP02` (MC 미지원 — 데이터 없음). AC_EXP01 는 `--exp01-ratio` 로 학습 모델 ratio 를 단일 지정.
+## 제1원칙
 
-## 어디를 수정해야 하는가
+**코드가 진실원천이고 문서는 피고다.** 문서 서술이 코드와 어긋나면 코드가 옳다 — 문서를 고쳐라. SSoT 는 네 파일이다:
+
+| 대상 | 정본 |
+|---|---|
+| 모델·데이터셋·자격·하이퍼파라미터 | `implicit_world_modeling/lf_registry.py` |
+| 학습 YAML | `implicit_world_modeling/gen_configs.py` (`--write` / `--check`) |
+| batch / grad_accum / deepspeed | `scripts/gpu_policy.py` |
+| shell 경로·가드·추론 커맨드 | `scripts/_common.sh` |
+
+**파생 수치를 문서에 손으로 쓰지 마라** (YAML 개수, 데이터 행수, 등록 키 개수, 모델 개수, 테스트 케이스 수). 드리프트하면 문서가 거짓말이 된다 — 아래 "검증 커맨드" 를 가리켜라.
+
+---
+
+## 하드 제약 — 어기면 **에러 없이** 조용히 깨진다
+
+각 줄이 규칙이고, 근거·수치는 링크에 있다.
+
+1. **LF working tree 를 in-place 수정하지 마라.** `LlamaFactory/` 는 gitignore 된 clone 이라 재클론 한 번에 증발한다 → `patches/llamafactory/` 에 `.patch` 를 추가한다. [§0 함정 1](./ARCHITECTURE.md#0-runtime-stack)
+2. **좌표 실험군에 다른 family 모델을 쓰지 마라** (EXP03/04 ↔ EXP05 는 좌표 규약이 정반대다). 이건 문서 규약이 아니라 **코드 가드**다 — `DATASET_MODEL_ELIGIBILITY` 가 정본이고 `require_model_eligible()` 이 학습 진입 전에 `exit 1` 한다. [§2 자격 매트릭스 · 함정 2/3](./ARCHITECTURE.md#2-모델-설정)
+3. **"visual token 수가 같으니 괜찮다" 는 틀렸다.** 두 family 는 token 수가 같아도 **리사이즈된 이미지의 실제 픽셀 크기가 다르다** → 절대 픽셀 좌표 데이터를 다른 family 에 먹이면 grounding 만 조용히 깨진다. [§2 함정 4](./ARCHITECTURE.md#2-모델-설정)
+4. **budget 일치 규칙**: **데이터가 전제한 리사이즈 픽셀 크기**와 학습·평가 `image_max_pixels` 는 반드시 **같은 budget** 에서 나와야 한다 (EXP05 = 1,605,632 → 840×1876). 어긋나면 좌표계 전체가 무효다. 우리 budget 은 Qwen 공식 기본값이 아니라 의도적 override 이며, **데이터 생성 스크립트에는 budget 인자가 없다** (좌표는 원천 jsonl 에 이미 박혀 온다). [§2 함정 5](./ARCHITECTURE.md#2-모델-설정)
+5. **조건부 offload 분기 (`if GPU_TYPE == "RTX5090": …`) 를 되살리지 마라.** deepspeed 는 GPU 무관 **항상 offload** 다 — "80GB 면 offload 불필요" 는 틀린 추론이다. `DEEPSPEED_NO_OFFLOAD` / `--allow-no-offload` 는 테스트 전용 opt-out (프로덕션 호출자 0 건). [§2 함정 7](./ARCHITECTURE.md#2-모델-설정)
+6. **하드웨어가 바뀌어도 YAML 을 재생성하지 마라.** 커밋 YAML 은 GPU-불변 baseline 이고, GPU 트리오는 **런타임 override** 로 주입된다 (`GPU_TYPE=… NPROC_PER_NODE=… bash scripts/stage1_train.sh …`). [§2 함정 8](./ARCHITECTURE.md#2-모델-설정)
+7. **`cutoff_len` 을 내리지 마라.** 좌표 실험군에서 내리면 multimodal RoPE position 길이 초과로 **첫 step 에서 크래시**한다. 사전 필터 `--threshold` 와 학습 cutoff 는 같은 기준으로 묶여 있다. [§2 함정 6](./ARCHITECTURE.md#2-모델-설정)
+8. **EXP05 에 diff loss v1 을 쓰지 마라.** v1 builder 는 `index` 속성을 필수 요구하는데 EXP05 HTML 에는 그 속성이 없다 → **에러 없이** 전 토큰이 baseline 으로 방치돼 diff loss 가 무력화된다. v2 (`*_v2.py`) 를 쓴다. [§3 함정 9](./ARCHITECTURE.md#3-데이터와-설정-계약)
+9. **`scripts/diff_loss/` 의 v1 4 파일을 삭제하지 마라. 데드 코드가 아니다** — EXP02 데이터의 유일한 생성기이고, v1 의 경계 비대칭 버그도 EXP02 재현성 보존을 위해 **의도적으로 고치지 않는다.** [§3 함정 10](./ARCHITECTURE.md#3-데이터와-설정-계약)
+10. **diff loss 가중치를 만질 때 baseline skip 과 action-uniform 분기를 함께 보라.** baseline 을 `wmap["UNCHANGED"]` 에서 유도하지 않으면 diff 토큰이 baseline 에 방치되고, action 샘플의 uniform 분기가 빠지면 "diff 없음 → 전부 최저 가중치" 로 잘못 처리된다. [§3 함정 11](./ARCHITECTURE.md#3-데이터와-설정-계약)
+11. **`configs/lf_dataset/dataset_info.json` 은 커밋된 정본이다 — 런타임에 쓰지 마라.** LF 안의 `data/dataset_info.json` 을 변조하던 방식은 재클론에 증발해서 은퇴했다. [§3 함정 13](./ARCHITECTURE.md#3-데이터와-설정-계약)
+12. **JSONL 의 `images` 값은 `{DATASET_NAME}/images/...` prefix 를 유지하고, `--dataset_dir` 에는 절대경로를 넘겨라.** prefix 가 빠지면 `Image.open()` 이 cwd 기준으로 풀려 실패하고, 상대 `--dataset_dir` 은 HF datasets 캐시 오염으로 `FileNotFoundError` 를 낸다. [§3 함정 15](./ARCHITECTURE.md#3-데이터와-설정-계약)
+13. **EXP05 bbox 채점은 pred 가 GT 와 같은 절대 픽셀 공간임을 가정한다.** 모델이 다른 좌표 공간으로 답하면 채점이 조용히 전부 오답이 된다. [§6 함정 18](./ARCHITECTURE.md#6-메트릭)
+14. **YAML 이 있다고 돌릴 수 있는 게 아니다.** 가드는 YAML 유무가 아니라 **dataset_info 등록 여부**를 본다 (`require_yaml` 이 내부에서 `require_dataset_registered` 를 호출한다 — [§3 함정 14](./ARCHITECTURE.md#3-데이터와-설정-계약)). EXP03/04 YAML 은 as-trained 가 아니라 **생성기 재구성본**이다 — [§7 함정 20](./ARCHITECTURE.md#7-중요한-운영-제약).
+15. **EXP05 는 로컬에서 학습할 수 없다** (OOM + 수일 단위 소요, 실측). 본 학습은 원격 A100/H100 — 단 제출 스크립트는 **UNVALIDATED** 다. [§7 함정 19](./ARCHITECTURE.md#7-중요한-운영-제약)
+16. **`SMOKE=1` override 의 따옴표를 살려라.** OmegaConf 가 따옴표 없는 값을 boolean 으로 파싱해 HF 가 죽는다. [§4 함정 17](./ARCHITECTURE.md#4-파이프라인-컴포넌트)
+
+### 인용 금지 (유령 참조)
+
+- **`scripts/tmux_*.sh` 를 커맨드로 제시하지 마라.** `.gitignore` 대상이라 저장소에 존재하지 않는다 — 실행은 `scripts/stage{1,2}_{train,merge,eval}.sh` 를 직접 호출한다. [§4 함정 16](./ARCHITECTURE.md#4-파이프라인-컴포넌트)
+- `docs/EXP05_DIFF_LOSS_PLAN.md`, `docs/research/gui-exploration-world-model.md` 는 **삭제됐다** — 링크하지 마라.
+
+---
+
+## ⚠ EXP04 — 손대기 전에 반드시 읽어라
+
+**EXP04 데이터의 좌표계가 문서 전제와 모순된다 (2026-07-13 실측, 미해결).** 규칙:
+
+- **"EXP04 는 0–1000 정규화" 라고 다시 쓰지 마라** — 실측과 어긋난다 (거짓).
+- **동시에 "원본 픽셀이 EXP04 의 스펙" 이라고 못박지도 마라** — EXP03 의 프롬프트만 바꾼 변형이라 **데이터 생성 버그일 공산이 크다.**
+- 선결 순서: **좌표 규약 확정 → (원천 확보 후) 재빌드 → dataset_info 등록.** 등록부터 하지 마라.
+
+현재 무엇이 막혀 있는가 (**상태**) 는 [`../docs/ROADMAP.md`](../docs/ROADMAP.md) 를 본다 — 규칙은 하드 제약 14 (YAML 이 있다고 돌릴 수 있는 게 아니다) 가 이미 커버한다.
+
+실측값·상세는 [ARCHITECTURE §2 경고 블록](./ARCHITECTURE.md#2-모델-설정). 모델 자격 서술 자체는 코드가 데이터 내용과 무관하게 강제하므로 유효하다 — 흔들리는 것은 자격의 *근거로 적힌 좌표계 전제*다.
+
+---
+
+## 어디를 고쳐야 하는가
 
 ### 모델 추가
-1. `implicit_world_modeling/lf_registry.py` 의 `_MODEL_CONFIG` 에 모델 항목 추가 (필드: `model_id`, `short_name`, `template`, `size` (`"7-9B"` / `"3-4B"` 2 단 tier), image-pixel 은 `_img_cfg(short)` 헬퍼로 family config 에서 자동 주입 — 같은 모듈의 `MODEL_FAMILY_CONFIG` 에 먼저 등록하지 않으면 `_img_cfg` 가 `KeyError` 를 낸다).
-2. `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS` 에 동일 항목 추가.
-3. 새 family 라면 `lf_registry.py` 의 `MODEL_FAMILY_CONFIG` 에 image budget 추가 (`factor` / `max_tokens` / `min_tokens`). family default 는 `max_tokens=2048`, `min_tokens=4`. `scripts/_common.sh::build_infer_cmd` 의 template 분기 (factor / mm_min) 도 함께 갱신.
-4. `python -m implicit_world_modeling.gen_configs --write` 로 학습 YAML 재생성 → Stage 1 YAML **full / lora 두 벌**, Stage 2 YAML **full / lora 두 벌 × {base, world-model-full, world-model-lora}** 가 `configs/train/IWM-{DS}/` 아래에 생성된다 (생성물은 git 에 커밋한다; `--check` 는 커밋본과 대조만 하는 CI 게이트). shell 스크립트의 `--stage1-mode`, `--stage2-mode` 로 full/lora 분기.
+
+1. **새 family 라면 `lf_registry.py::MODEL_FAMILY_CONFIG` 를 먼저** 등록한다 — 코드가 실제로 읽는 키는 **`max_pixels` / `min_pixels`** (`_img_cfg` 가 이 둘을 읽는다) 와 **`factor`** (`build_configs` 의 image_overrides token→px 환산용) 다. 순서를 어기면 `_img_cfg` 가 `KeyError` 를 낸다. **`min_tokens` 는 이 dict 의 키가 아니다** (`image_overrides` 전용 override 키다 — 아래 "새 데이터셋 추가" 참조). 스키마 표: [§2 image budget](./ARCHITECTURE.md#2-모델-설정)
+2. `lf_registry.py::_MODEL_CONFIG` 에 항목 추가 (`model_id` · `short_name` · `template` · `size` tier). image-pixel 값은 `_img_cfg(short)` 가 family config 에서 **자동 주입**하므로 손으로 쓰지 않는다.
+3. `scripts/_common.sh` 의 `MODEL_ID` / `MODEL_TEMPLATE` / `ALL_MODELS` 에 **동일 항목** 추가 — **레지스트리는 두 곳이다. 동시에 고쳐야 한다.**
+4. 새 family 라면 `_common.sh::build_infer_cmd` 의 template 분기 (factor / mm_min / thinking 플래그) 도 갱신한다.
+5. 좌표 실험군에서 쓰려면 `lf_registry.py::DATASET_MODEL_ELIGIBILITY` 에 넣어야 한다. **넣지 않아 학습이 막히는 것은 정상 동작이다** (하드 제약 2) — 좌표 규약이 맞는지 먼저 확인하고 넣어라.
+6. `python -m implicit_world_modeling.gen_configs --write` 로 YAML 재생성 → **생성물을 커밋한다.**
+7. 문서는 **[ARCHITECTURE §2 모델 레지스트리 표](./ARCHITECTURE.md#2-모델-설정) 한 곳만** 갱신한다 — README·AGENTS 에는 모델 목록이 없다 (README 는 `_MODEL_CONFIG` 를 출력하는 확인 커맨드만 싣는다).
 
 ### 하이퍼파라미터 수정
-- AC_EXP01 / AC_EXP02 는 `_SIZE_CONFIG_AC[size].stage{1, 1_lora, 2}` 로 **7-9B / 3-4B 2 단 tier** 공유값 관리하나, **현재 두 tier 모두 세 키가 빈 dict** 이라 dataset baseline 을 그대로 쓴다 (EXP01/EXP02 실측 어댑터와 동일조건 보존). 정본: Stage 1 LoRA `8/16 @1.0e-5 dropout0.05`, Stage 2 LoRA `32/64 dropout0.1 @5.0e-5`. `_MODEL_CONFIG[model].hparam_overrides` 는 모델별 delta 전용. lr / warmup / LoRA rank / dropout 은 `_MODEL_CONFIG` 에 직접 쓰지 말고 `_DATASET_CONFIG` baseline (또는 `_SIZE_CONFIG_AC` tier) 에서 바꾼다.
-- MC 는 tier 미적용 — dataset baseline + per-model override 만 적용.
-- MB 는 평가 전용이라 학습 하이퍼파라미터 해석에서 제외.
-- merge 순서 (단일 진실원: `lf_registry.py` 의 `build_configs()` / `CONFIGS`): `_DATASET_CONFIG` baseline → `_SIZE_CONFIG_AC[size]` (AC_EXP01 ~ AC_EXP05 일 때만 — MC 는 미적용) → `hparam_overrides`. 단 `per_device_train_batch_size` / `gradient_accumulation_steps` / `deepspeed` 세 값은 이 레지스트리에 **없다** — `scripts/gpu_policy.py` 가 YAML 생성 시점에 주입한다. 전체 표는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
 
-### Notebook 실행 순서나 YAML 생성 흐름
-- [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 와 [`scripts/stage1_*.sh`](./scripts/stage1_train.sh) / [`scripts/stage2_*.sh`](./scripts/stage2_train.sh) 를 함께 맞춘다.
-- 학습 YAML 은 `python -m implicit_world_modeling.gen_configs --write` 가 `configs/train/` 에 생성한다 (Stage 1 / Stage 2 동시, git 커밋 대상). **Merge YAML 은 사전 생성하지 않는다** — `stage{1,2}_merge.sh` 가 runtime 에 임시 YAML 을 만든다.
-- 노트북 Section 3 / 4 / 6 / 7 은 **단일 변형 walkthrough** 다 — Section 3 / 4 는 `qwen3-vl-8b` + `--stage1-mode full`, Section 6 / 7 은 `qwen3-vl-8b` + `--stage2-mode lora`. 다른 모델 / 모드 / DS 는 cell 을 추가하지 말고 shell 인자 (`--model`, `--stage1-mode`, `--stage2-mode`, `--dataset`) 만 바꿔 실행한다 (모델 레지스트리는 `_common.sh::MODELS`). `--dataset` 은 명시적 선택 필수 (`--dataset all` 은 지원하지 않음). Section 5 / 8 의 평가 cell (variant matrix · plot) 은 그대로 유지한다.
+- **`_MODEL_CONFIG` 에 lr / warmup / LoRA rank / dropout 을 직접 쓰지 마라.** `hparam_overrides` 는 **모델별 delta 전용**이다 → 값은 `_DATASET_CONFIG[ds].stage{1,2}` baseline 에서 바꾼다.
+- `_SIZE_CONFIG_AC` (size tier) 는 **의도적으로 비어 있다** — EXP01/EXP02 실측 어댑터와의 동일조건 비교를 보존하기 위해서다. 채우면 그 비교가 깨진다.
+- merge 순서 (dataset baseline → size tier → model delta) 와 실제 값 표: [§2 하이퍼파라미터](./ARCHITECTURE.md#2-모델-설정).
+- **Stage 2 full 의 lr 은 `_DATASET_CONFIG` 가 아니라 `gen_configs.render_stage2()` 안에 하드코드돼 있다** — 거기서 고친다.
+- **batch / grad_accum / deepspeed 는 레지스트리에 없다** → `scripts/gpu_policy.py`. 손대면 `GLOBAL_BATCH_SIZE` 불변식이 깨지지 않는지 `pytest tests/test_gpu_policy.py` 로 확인한다.
+- 고친 뒤 반드시 `gen_configs --write` + 커밋. 안 하면 `--check` 가 CI 에서 exit 1 한다.
 
-### 데이터 분할 규칙
-- [`scripts/split_data.py`](./scripts/split_data.py) 가 기준. AC_EXP01 / AC_EXP02 의 **source 는 항상 원본 `data/AndroidControl/`**, 산출물은 각각 `data/AndroidControl_EXP01/` / `data/AndroidControl_EXP02/` 로 쓰여진다 (`SOURCE_DIR` / `OUTPUT_DIR` 두 dict). MC 는 Stage 1 random split (메타 없음, 자동 fallback), MB 는 split 없음.
-- AC 원본 메타데이터: [`scripts/extract_androidcontrol_metadata.py`](./scripts/extract_androidcontrol_metadata.py) 가 `data/AndroidControl/episodes_meta.jsonl` 생성 (`pip install android-env` 별도 필요). 스크린샷은 [`scripts/extract_androidcontrol_images.py`](./scripts/extract_androidcontrol_images.py) 가 GCS REST API 로 `data/AndroidControl/images/` 에 pull.
-- AC_EXP01 분할: 선행으로 `python scripts/filter_long_samples.py --dataset AC_EXP01` 가 mm-expanded length > cutoff_len 샘플을 제거해 원본 `data/AndroidControl/` 안에 `implicit-world-modeling_stage1_{state,action}_filtered.jsonl` + `implicit-world-modeling_stage2_filtered.jsonl` (3 파일) 을 만든다 (Qwen3-VL `get_rope_index` broadcast 회피). `--image-max-pixels` 기본값 2097152 는 Qwen3-VL family (factor 32) 기준 — Qwen2/2.5-VL 학습 시 1605632 등으로 override 필요. `--skip-existing` 으로 누락된 source 만 처리 가능. 그 위에서 `split_data.py --dataset AC_EXP01 --exp01-ratios 7:3,3:7,5:5 --exp01-train-total 50000` 가 원본 `data/AndroidControl/` 에서 read → `data/AndroidControl_EXP01/` 에 `implicit-world-modeling_stage1_train_{3_7,5_5,7_3}.jsonl` 3 개 + task × split 4 test (`implicit-world-modeling_stage1_test_{id,ood}_{state,action}.jsonl`) 를 산출하고, 이어서 같은 (id_apps, ood_apps) partition 으로 Stage 2 split `implicit-world-modeling_stage2_{train,test_id,test_ood}.jsonl` (15K / 3K / 3K, action_type stratified) 까지 만든다. `state_pred` 는 random, `action_pred` / Stage 2 는 action-type stratified 샘플링.
+### 데이터 분할 · 새 데이터셋 추가
 
-### 좌표 표현 실험군 (EXP03/EXP04) 좌표계 규약
-EXP03·EXP04 의 좌표값은 **0–1000 정규화** 이며 **픽셀 좌표가 아니다** — XML 노드의 `bounds`/`point`, action 의 `point` (노드 속성 verbatim 복사, `[POINT]` / `[NO HALLUCINATION]` 강제) 전부. 원천은 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy.jsonl` (EXP03) 및 `*_xy_prompt-enhanced.jsonl` (EXP04). 규약 상세 (root div `[0,0][1000,1000]`, rescale 분모 999) 와 출처 링크는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
+- 분할 정본은 [`scripts/split_data.py`](./scripts/split_data.py) (AC_EXP01 전용; MC 는 random fallback). 좌표 파생 실험군은 [`scripts/mirror_experiment.py`](./scripts/mirror_experiment.py), EXP05 는 [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py) 가 정본이다. 계보·분할 규칙: [§3](./ARCHITECTURE.md#3-데이터와-설정-계약).
+- **App partition 을 재계산하지 마라** — Stage 2 budget 으로 한 번 계산한 `(id_apps, ood_apps)` 를 Stage 1 이 재사용해야 "OOD 앱은 Stage 1 train 에 한 번도 등장하지 않는다" 가 성립한다. 파생 실험군은 EXP01 멤버십을 미러할 뿐 별도 계산을 하지 않는다.
+- **AC_EXP01 split 은 `_filtered.jsonl` 만 입력으로 쓴다** (선행: `filter_long_samples.py`). 원본을 직접 먹이지 마라.
+- 새 DS 를 추가하면 **다음을 전부** 손대야 한다 (하나라도 빠지면 학습 진입 전에 죽거나 조용히 잘못 돈다):
+  - `lf_registry.py` — `_DATASET_CONFIG`, 세 **직교** 플래그 (`_STAGE1_ONLY` / `_DUAL_TASK_TEST` / `_SINGLE_TEST`), `_LONG_CUTOFF_DS`, `DATASET_MODEL_ELIGIBILITY`
+  - `scripts/gpu_policy.py` — `_HALF_BATCH_DATASETS` (좌표 실험군이면)
+  - `scripts/_common.sh` — `DS_PREFIX` / `HF_SLUG` / `DS_DATADIR`, `parse_args` · `parse_eval_args` 허용 목록, `build_infer_cmd` 의 cutoff 분기
+  - `configs/lf_dataset/dataset_info.json` — **등록 키 + 상대 심링크** (빠뜨리면 하드 제약 14)
+  - `scripts/filter_long_samples.py` · `scripts/eval_viewer.py` 인식
+  - `python -m implicit_world_modeling.gen_configs --write` → 커밋
+- image budget 이 family default 와 달라야 하면 `_DATASET_CONFIG[ds]["image_overrides"]` 에 **token 단위** (`{"max_tokens": N}`) 로 둔다 — 빌더가 family `factor²` 로 환산한다. 평가측 `build_infer_cmd` 도 같은 budget 을 쓰도록 함께 갱신한다 (하드 제약 4).
+- 채점기를 바꿔야 하면 **opt-in 플래그로** 추가한다 (EXP05 의 `--coord-mode` / `--match-mode` 가 선례) — 기존 실험군의 채점 결과는 불변이어야 한다.
 
-- **Qwen3-VL 계열 전용 실험군**: 이 0–1000 정규화는 **Qwen3-VL native 와 일치** 하지만 **Qwen2.5-VL native (절대 픽셀) 와는 어긋난다**. 이 mismatch 때문에 **EXP03/EXP04 는 Qwen3-VL 계열 (`qwen3-vl-4b`/`qwen3-vl-8b`) 만 학습·평가** 하고 픽셀 미러는 두지 않는다 (실제 학습 이력이 있는 것은 `qwen3-vl-8b` 뿐) — 좌표 표현(index→point) 효과는 동일 Qwen3-VL 계열 내 **EXP01 ratio73 대조군** 과 비교한다. **tmux 스케줄·eval_viewer 어디에도 Qwen2.5-VL 계열 (`qwen2.5-vl-3b`/`qwen2.5-vl-7b`) 을 EXP03/EXP04 대상으로 넣지 말 것.**
-- **EXP05 에는 이 정규화 규약을 적용하지 말 것**: EXP05 는 정반대 (절대 픽셀, Qwen2.5-VL 전용) 다 — 두 실험군의 좌표계를 섞지 않는다. 작업 규칙은 아래 "EXP05 실험군 작업 시", 수치·근거는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
+### GPU / 하드웨어 변경
 
-### EXP04 실험군 (EXP03 프롬프트 업그레이드, Stage 1 전용) 작업 시
-AC_EXP04 는 AC_EXP03 와 **동일한 `(episode, step)` 멤버십·좌표(point) 표현** 을 유지한 채 **stage1 프롬프트만 업그레이드** 한 변형이다 (action space `swipe(start,end)`, role 문구 "represented as html-style XML", `[SWIPE]` 규칙). EXP04 pool ⊆ EXP03 pool (멤버십 drift 0), EXP03 출력 대비 drop train 320 / stage1 전체 450.
+**아무것도 고치지 않는다.** 호출 시점 환경변수만 준다 (`GPU_TYPE` / `NPROC_PER_NODE` — `.env` 기본값보다 프로세스 환경값이 이긴다). 허용 밖 조합은 학습 진입 전에 거부된다. YAML 재생성 금지 (하드 제약 6). 매트릭스: [§2 GPU 정책](./ARCHITECTURE.md#2-모델-설정).
 
-- **데이터 산출**: [`scripts/mirror_experiment.py --experiment exp04`](./scripts/mirror_experiment.py) 가 source `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_prompt-enhanced.jsonl` 을 EXP01 ratio73 멤버십으로 미러해 `data/AndroidControl_EXP04/` 에 stage1 train (49,276) + test 6 종 (총 7 파일) 을 만든다. `split_data.py` 가 아니라 mirror 스크립트가 기준 (EXP03 와 동일 패턴).
-- **`scripts/_common.sh`**: `DS_PREFIX[AC_EXP04]=IWM-AC_EXP04`, `HF_SLUG[AC_EXP04]=ac-exp04-`, `DS_DATADIR[AC_EXP04]=AndroidControl_EXP04`, `parse_args` / `parse_eval_args` 의 허용 DS, `build_infer_cmd` 의 cutoff 분기 (`IWM-AC_EXP04*` → `cutoff_len 24576`, EXP03 와 동일) 에 모두 반영돼 있다.
-- **dual-task stage1 eval**: `stage1_eval.sh` 가 EXP01/EXP02/EXP03 와 **동일 분기** 로 state+action 두 task 를 각각 채점한다.
-- **stage1-only 가드**: `lf_registry.py` 의 `_DATASET_CONFIG` (+ `_STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04", "AndroidControl_EXP05"}`, `_DUAL_TASK_TEST` 에 AC_EXP04 포함, cutoff 24576 분기) 에 모두 등록하고, per-device batch 반감 (half-batch) 은 `scripts/gpu_policy.py` 의 `_HALF_BATCH_DATASETS` 에 등록한다. `filter_long_samples.py` · `eval_viewer.py` 도 AC_EXP04 를 stage1-only 로 인식. `configs/lf_dataset/dataset_info.json` 에는 **stage1 5 키만** 등록한다.
-- **YAML 은 생성기로 만든다**: EXP04 stage1 YAML 은 `python -m implicit_world_modeling.gen_configs --write` 가 `configs/train/IWM-AC_EXP04/` 에 생성하며 git 에 커밋돼 있다. (예전에는 "EXP03 stage1 YAML 을 복사하고 Cell 10 으로 재생성하지 말 것" 이었다 — 보호 대상이라던 EXP03/04 hand-fix YAML 은 **디스크 어디에도 존재하지 않았고** (2026-07-13 전역 탐색 0건), 사용자 확인 후 생성기로 재구성했다. 재구성분에는 `# [reconstructed 2026-07-13]` 헤더가 붙어 있다.) 실제 학습 대상은 **`qwen3-vl-8b` 단일 모델 (Qwen3-VL 전용 실험군)** stage1 LoRA, tmux [`scripts/tmux_exp04_stage1.sh`](./scripts/tmux_exp04_stage1.sh) (좌표계 mismatch 로 `qwen2.5-vl-7b` 는 제외).
-- **Stage 2 는 보류**: `stage2_eval.sh` 에는 AC_EXP04 를 **추가하지 않는다** (보류 주석만). stage2 도입 시 `_STAGE1_ONLY` 에서 AC_EXP04 를 제거하고 stage2 YAML/등록/eval 을 추가한다.
-- **git-ignored 범위**: `data/`, `outputs/`, `LlamaFactory/` 전체가 `.gitignore` 대상이라 EXP04 **데이터** 는 로컬 전용이다. 단 **YAML (`configs/train/IWM-AC_EXP04/`) 과 `dataset_info.json` (`configs/lf_dataset/`) 은 이제 git 에 커밋된다** — 예전처럼 LF 안에만 있어 재클론 한 번에 증발하지 않는다.
+### LlamaFactory 소스 수정
 
-### EXP05 실험군 (AndroidWorld 해상도 정렬, 절대 픽셀, Qwen2.5-VL 전용, Stage 1 전용) 작업 시
-AC_EXP05 는 AC_EXP01 ratio73 멤버십을 절대 픽셀 좌표로 미러한 AndroidWorld 해상도 정렬 실험군이다 — EXP03/EXP04 의 대칭 (정규화↔픽셀), **Qwen2.5-VL 계열 전용** (`qwen2.5-vl-3b`/`qwen2.5-vl-7b`; **Qwen3-VL 계열 `qwen3-vl-4b`/`qwen3-vl-8b` 는 배제** — 코드 가드 없음, 문서 규약이다). 좌표계·budget 수치는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
+working tree 를 직접 고치지 말고 `patches/llamafactory/` 에 `.patch` 를 추가한다 (하드 제약 1). `LlamaFactory/pyproject.toml` 은 **건드리지 않는다** — transformers pin 은 우리 `pyproject.toml` 의 `[project.optional-dependencies] llamafactory` 에서 값과 그 위 주석을 함께 바꾼다.
 
-- **budget 일치 규칙**: 데이터 생성 `--image-budget` 과 학습/평가 `image_max_pixels` 는 **반드시 같은 값** 이어야 한다. EXP05 는 둘 다 Qwen2.5-VL family default 라 자동 일치하지만, budget 을 만지면 좌표계 전체가 무효가 된다.
-- **데이터 산출**: [`scripts/mirror_experiment.py --experiment exp05`](./scripts/mirror_experiment.py) 가 source `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl` 을 EXP01 ratio73 멤버십으로 미러해 `data/AndroidControl_EXP05/` 에 stage1 train (**44,670**) + test 6 종 (총 7 파일, **60,717** 행) 을 만든다. **정본 빌드 경로는 [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py)** (mirror → diff-loss 가중치 → 원자 교체; sidecar `<train>.meta.json`). 소스는 Google Drive '0711_버젼' 의 raw `stage1_0711_{action,state}_pred.jsonl` 을 위 canonical 이름으로 배치한 것 (mirror 미도착 시 traceback 없이 안내 후 exit 1). 출력 이미지 경로는 EXP01 의 `AndroidControl/images/...` 재사용 (source 의 `myset/images/...` 는 매칭 키 추출용).
-- **`scripts/_common.sh`**: `DS_PREFIX[AC_EXP05]=IWM-AC_EXP05`, `HF_SLUG[AC_EXP05]=ac-exp05-`, `DS_DATADIR[AC_EXP05]=AndroidControl_EXP05`, `parse_args`/`parse_eval_args` 허용 DS, `build_infer_cmd` cutoff 분기 (`IWM-AC_EXP05*` → 24576) 에 반영. 모델 레지스트리에 `qwen2.5-vl-3b` (`Qwen/Qwen2.5-VL-3B-Instruct`, template `qwen2_vl`) 추가.
-- **diff loss 는 v2 를 써야 한다 (v1 금지)**: Stage 1 학습에 `use_diff_token_weighted_loss: true` 를 적용하되, AC_EXP02 가 쓰는 v1 (`scripts/diff_loss/{hungarian_metric,hungarian_diff,token_weight_builder,preprocess_dataset}.py`) 이 아니라 **v2** (동일 이름 + `_v2.py`) 를 쓴다 — v1 파일은 그대로 두고 v2 4파일을 병존시킨다 (EXP02 재현성 보존). **함정**: EXP05 HTML 에는 `index` 속성이 아예 없는데 (실측: index 0개, bounds 48개) v1 builder 는 `index="..."` 를 regex 로 필수 요구한다 → EXP05 에 v1 을 쓰면 **에러 없이** 모든 토큰이 baseline 으로 방치되어 diff loss 가 조용히 무력화된다. v1/v2 차이 표 (bounds 중심점 거리 cost, `MATCH_THRESHOLD`, `hungarian_pos` 등) 는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §3.
-- **신규 가중 체계의 운영 규칙**: EXP05 는 **diff 토큰 1.0배 / non-diff 토큰 0.25배** 다 (EXP02 는 2.0/1.0). intermediate action 예측 샘플은 diff 계산을 건너뛰고 **uniform 1.0** 을 준다 — 샘플 판별은 `images` 개수 (1개=state_pred, 2개=action_pred). 순효과·근거는 ARCHITECTURE §3.
-- **가중치 적용 함정**: `token_weight_builder` 의 baseline 이 `[1.0]*n_asst` 이고 `if weight == 1.0: continue` 로 기본값을 스킵하는 구조라, 신규 체계에서는 diff weight 가 바로 그 1.0 이라 스킵 때문에 diff 토큰이 baseline(0.25) 에 방치되는 함정이 있었다. v2 는 baseline 을 `wmap["UNCHANGED"]` 에서 유도하고 스킵 조건을 `if weight == base` 로 바꿔 해결했다. action 샘플에 uniform-1.0 분기가 빠지면 "diff 없음 → 전부 0.25" 로 잘못 처리되니 주의 (판별은 위와 동일하게 `images` 개수).
-- **YAML/실측**: EXP05 stage1 YAML 6 개 전부 `use_diff_token_weighted_loss: true` (`lf_registry.py` 가 SSoT). `token_weights` 는 train jsonl 인라인 필드라 `dataset_info.json` 컬럼 등록은 불필요 (`converter.py:226` 이 raw jsonl 에서 직접 읽음). train 실측 **44,670** 행 = state 31,221 + action 13,449, weight 값 분포는 state `{0.25, 1.0}` / action `{1.0}`.
-- **로컬 학습 불가 (실측)**: 로컬 2×RTX5090 에서 EXP05 3B Full FT 는 **CUDA OOM** (step 3 에서 8.92GiB 할당 실패) + **157~168 s/it → 총 97~104시간(약 4일)**. 원인은 `cutoff_len 24576` + `max_pixels 1,605,632` 의 비전 토큰으로 시퀀스가 극단적으로 길어진 것 + RTX5090 에 강제되는 ZeRO-3 CPU offload. **본 학습은 Vessl A100/H100 에서 수행한다** (저장소에 Vessl 파이프라인 스크립트는 없다 — 운영 지식).
-- **dual-task stage1 eval**: `stage1_eval.sh` 가 EXP01–04 와 동일 분기로 state+action 채점. `filter_long_samples.py`·`eval_viewer.py` 도 AC_EXP05 인식 (eval_viewer stage2 맵은 미추가 — stage1 전용).
-- **레지스트리 등록** (`lf_registry.py`): `_MODEL_CONFIG[qwen2.5-vl-3b]` (size `3-4B`), `_DATASET_CONFIG[AndroidControl_EXP05]`, `_DUAL_TASK_TEST`·`_STAGE1_ONLY` 등록, cutoff 24576 에 EXP05 포함. per-device batch 반감은 `scripts/gpu_policy.py` 의 `_HALF_BATCH_DATASETS` 가 담당한다. image budget 은 family 기본이라 `image_overrides` 불필요.
-- **YAML 생성기에 allowlist 는 없다**: 예전 `_YAML_GEN_DS = {"AndroidControl_EXP05"}` (EXP03/04 hand-fix 보호용) 는 **삭제됐다** — 지키려던 hand-fix YAML 이 실재하지 않았기 때문이다. `gen_configs` 는 전 실험군 162 YAML 을 결정론적으로 생성하며, `--check` 로 커밋본과의 drift 를 검출한다.
-- **Stage 2 보류** (EXP04 와 동일 — `stage2_eval.sh` 미추가, stage1 5 키만 등록) · **git-ignored 범위**: EXP05 **데이터** 는 로컬 전용이나 YAML (`configs/train/IWM-AC_EXP05/`) 과 `dataset_info.json` (`configs/lf_dataset/`) 은 커밋된다.
+### 노트북
 
-### Stage 1 평가
-- [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) 가 기준 (`score` 서브커맨드만 유지). single-pair (`--test/--pred`) 와 ID/OOD (`--test-id/--pred-id/--test-ood/--pred-ood`) 두 모드 지원 — ID/OOD 모드는 `hungarian_metrics.json` 에 `overall` / `in_domain` / `out_of_domain` 3 섹션 기록.
-- 흐름: **`train → merge → eval`** — `stage1_merge.sh` 가 모든 epoch 를 각각 local merge + HF push (`trainer_state.json.epoch` 파싱), `stage1_eval.sh` 가 `--train-dataset {AC_EXP01|AC_EXP02|MC}` / `--eval-datasets {AC_EXP01,AC_EXP02,MC,MB}` / `--variants` / `--epochs` 로 지정된 merged 모델 (local `outputs/.../merged/.../epoch-{E}/` 우선, 없으면 HF Hub `SaFD-00/{short}-{slug}world-model-stage1-{MODE}-epoch{E}`) 을 사용해 EVAL_DS 별 test JSONL 에 대해 `hungarian_metrics.json` 산출. 경로 해석은 `_common.sh::resolve_eval_model_path` 헬퍼에 단일화.
-- EVAL_DS 별 분기:
-  - **EVAL_DS=AC_EXP01 / AC_EXP02**: state_pred + action_pred **두 task 를 각각 독립 채점**. 각 task 가 (id, ood) 2 파일을 가지므로 inference 4 회 → state 산출 `on-{DS}-state/hungarian_metrics.json` (Stage1 채점, `_hungarian_eval.py`), action 산출 `on-{DS}-action/action_metrics.json` (Stage2 채점, `_action_eval.py`). without_open_app sibling 은 state branch 만 (action 채점기 미지원).
-  - **EVAL_DS=MC**: 단일 파일 `implicit-world-modeling_stage1_test.jsonl` (random split) → single-pair overall.
-  - **EVAL_DS=MB**: 단일 파일 `implicit-world-modeling_stage1.jsonl` (벤치마크 단일 파일) → single-pair overall.
-- 산출 경로: `outputs/{TRAIN_DS}/eval/{MODEL}/stage1_eval/{variant_path}[/epoch-{E}]/on-{EVAL_DS}/` (variant_path 는 CLI VARIANT 의 `world_model` → `world-model` 치환: 예 `full_world-model`, `lora_world-model`). 어떤 epoch 을 쓸지는 사용자가 결과를 보고 수동 결정 (자동 winner 선정 없음).
-- 재실행 시 marker (`hungarian_metrics.json`) 존재 unit 은 skip. 정본은 노트북 Section 5. 시각 비교는 [`scripts/eval_viewer.py`](./scripts/eval_viewer.py) — `--include EXP:MODEL` 다중 spec 으로 단일 EXP 자체 비교 와 EXP 간 동급 stage cross-compare 를 동일 CLI 로 처리하며, cross-compare 산출은 `outputs/_compare/stage{N}_eval/` 로 분리.
-- **without_open_app 자동 산출**: 각 `(variant, EVAL_DS)` 마다 정규 score 직후 추론 재실행 없이 `_hungarian_eval.py score --exclude-action open_app --filtered-test-dir data/{DATADIR} --filtered-pred-dir on-{EVAL_DS}-without-open_app/` 가 한 번 더 호출되어 GT `## Action.type=="open_app"` 행을 양쪽에서 동시 drop 한 메트릭 + 필터된 jsonl + `predict_results.json` 을 sibling `on-{EVAL_DS}-without-open_app/` 에 idempotent 저장. 정규 산출과 동일한 파일 구조 (섹션 수, `_id` / `_ood` 분리) 미러링. 필터 test JSONL 은 `data/{DATADIR}/{prefix}_stage1{,_test{_id,_ood}}_without_open_app.jsonl` 로 영구 저장 (idempotent 재사용). skip marker 별도라 정규/필터 각각 독립 idempotent.
-- **xy 좌표 스페이스 채점 (EXP05, opt-in)**: EXP05 는 액션 스페이스가 xy 좌표로 통일되어 GT 스키마가 `<action>{"action":"click","coordinate":[x,y]}</action>` (키가 `action`, 구 `action_type` 과 다름; swipe 는 `coordinate1`/`coordinate2`) 로 바뀐다. EXP01~04 채점을 불변으로 두기 위해 **opt-in 플래그** 로 구현했다 — `_action_eval.py --coord-mode {index,xy}` (기본 `index`), `_hungarian_eval.py --match-mode {index,pos}` (기본 `index`). `stage1_eval.sh` 는 **EVAL_DS=AC_EXP05 일 때만** 이 플래그들을 전달한다. xy 모드 규칙: click/long-press 는 pred 좌표가 GT 좌표가 속한 element 의 bbox 안이면 정답 (포함 element 가 없으면 오답 + `no_bbox_n` 으로 별도 집계), scroll/swipe 는 xy1→xy2 벡터의 주 방향(`|dx|>=|dy|` 이면 left/right, 아니면 up/down) 이 GT 와 일치하면 정답, input_text/type 은 좌표 무관. **알려진 제약**: bbox 채점은 pred 가 GT 와 같은 840×1876 절대 픽셀 공간임을 가정한다.
+**thin wrapper 다 — cell 을 추가하지 마라.** 정본 로직은 전부 코드에 있고, 다른 모델/모드/DS 는 shell 인자 (`--model` / `--dataset` / `--stage{1,2}-mode`) 만 바꿔 실행한다. 학습 YAML 생성은 노트북 소관이 아니다 (`gen_configs`). Merge YAML 은 사전 생성하지 않는다 (merge 스크립트가 runtime 에 만든다). Section 매핑: [§1 노트북](./ARCHITECTURE.md#1-실행-구조).
 
-### Stage 2 평가
-- [`scripts/_action_eval.py`](./scripts/_action_eval.py) 가 기준 (`score` 서브커맨드만 유지, single-pair / ID+OOD 모드 모두 제공). winner / `BEST_CHECKPOINT` 개념 제거.
-- 흐름: `stage2_train.sh → stage2_merge.sh → stage2_eval.sh`. TRAIN_DATASET 은 `AC_EXP01 | AC_EXP02` (MC 는 Stage 2 데이터 없음). AC_EXP01 는 `--exp01-ratio {r37|r55|r73}` 단일 ratio 로 학습 모델을 지정.
-- EVAL_DS 별 분기:
-  - **EVAL_DS=AC_EXP01 / AC_EXP02**: ID + OOD 두 test 파일 (`implicit-world-modeling_stage2_test_{id,ood}.jsonl`) 함께 추론 → `action_metrics.json` 에 `overall` / `in_domain` / `out_of_domain` 3 섹션.
-  - **EVAL_DS=MB**: 단일 파일 `implicit-world-modeling_stage2.jsonl` 1 회 추론 → single-pair `overall` 1 섹션.
-- HF 네이밍: base variant `SaFD-00/{short}-{slug}base-stage2-{MODE2}-epoch{E2}`, world-model variant `SaFD-00/{short}-{slug}world-model-stage1-{MODE1}-epoch{E1}-stage2-{MODE2}-epoch{E2}`. `{slug}` 는 AC_EXP01 ratio 별로 다름 (`ac-exp01-ratio37-/ac-exp01-ratio55-/ac-exp01-ratio73-`).
-- 산출 경로: `outputs/{OUT_DS}/eval/{MODEL}{SFX}/stage2_eval/{variant_path}[_from_{M1}-ep{E1}][/epoch-{E2}]/on-{EVAL_DS}/`. AC_EXP02 / MC 는 OUT_DS=TRAIN_DS, SFX=`""`. AC_EXP01 는 OUT_DS=`AndroidControl_EXP01`, SFX=`_ratio{37,55,73}` (variant_path 는 CLI VARIANT 의 `world_model` → `world-model` 치환).
-- Stage 2 world-model train/merge 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_${MODE1}_world-model/epoch-${N}/` 를 base 로 사용. 학습 결과는 `outputs/{OUT_DS}/{adapters,merged}/{MODEL}{SFX}_stage2_${MODE2}_world-model_from_${MODE1}-ep${N}/` 에 stage1 epoch 별 분리 저장 (stage2_train.sh 가 YAML `__STAGE1_EPOCH__` 플레이스홀더 sed 치환, `_common.sh::local_merged_epoch_dir` 가 stage1/stage2 양쪽에 ratio suffix 부여).
-- 재실행 시 marker (`action_metrics.json`) 존재 unit 은 variant × EVAL_DS 조합 별로 독립 skip.
-- 회귀 테스트: [`tests/test_action_eval.py`](./tests/test_action_eval.py) 52 케이스. 메트릭 정의는 [`ARCHITECTURE.md`](./ARCHITECTURE.md) §6.
+### 문서
 
-### shell 실행 공통 규약
-- `AC_EXP01` / `AC_EXP02` / `MC` / `MB` 매핑 (`DS_PREFIX` / `HF_SLUG` / `DS_DATADIR`), 모델 레지스트리 → [`scripts/_common.sh`](./scripts/_common.sh).
-- 학습/merge 스크립트는 `parse_args`, 평가 스크립트는 `parse_eval_args` (`--train-dataset` + `--eval-datasets`).
+**같은 사실을 두 문서가 서술하면 안 된다.** ARCHITECTURE 가 정본이고 나머지는 링크다 — README 는 사용법, AGENTS 는 규칙, ROADMAP 은 상태, `docs/CHANGELOG.md`·`docs/DEVLOG.md` 는 append-only 연대기다. 수치를 옮겨 적지 말고 §N 을 걸어라.
 
-### Python 의존성
-- [`pyproject.toml`](./pyproject.toml) 의 `[project.optional-dependencies] llamafactory` 가 실제 설치 기준. `transformers>=4.57.1,<4.58` (vllm 0.11.2 의 `transformers<5` 제약 + LlamaFactory 서브프로젝트 `!=4.57.0,<=5.2.0` 와의 교집합 중 Qwen3-VL processor 가 4.57+ 에서 도입됐으므로 `>=4.57.1`).
+---
 
-## 작업 시 주의점
+## 검증 커맨드
 
-- `LlamaFactory/` 내부 파일은 마지막 수단으로만 수정한다. 가능하면 노트북, local shell script, 학습 YAML (`configs/train/...`), 평가 helper 로 해결. LF 소스를 꼭 고쳐야 하면 **working tree 를 직접 만지지 말고 `patches/llamafactory/` 에 `.patch` 를 추가** 한다 (`setup_llamafactory.sh` 가 pin 위에 순서대로 적용하고 `MANIFEST.sha256` 로 검증한다) — LF 는 gitignore 된 서드파티라 in-place 수정은 재클론 한 번에 증발한다.
-- transformers 버전을 바꿀 때는 [`pyproject.toml`](./pyproject.toml) 의 `[project.optional-dependencies] llamafactory` pin 과 그 위 주석을 함께 수정한다. 현재 `>=4.57.1,<4.58` 로 고정. 서브프로젝트 (`LlamaFactory/pyproject.toml`) 는 건드리지 않는다.
-- 문서나 스크립트에서 `outputs/{DS}/{category}/...` 의 `{DS}` 는 `AndroidControl_EXP01` / `AndroidControl_EXP02` / `MC`. AC_EXP01 의 ratio (`ratio37/ratio55/ratio73`) 는 디렉토리가 아니라 그 아래 모델 디렉토리의 suffix 로 운반되며 (Stage 1: `{MODEL}_ratio{37,55,73}_stage1_{MODE}_world-model/`, Stage 2: `{MODEL}_ratio{37,55,73}_stage2_{MODE2}_{base|world-model_from_{MODE1}-ep{E1}}/`), 모든 ratio 산출물이 `outputs/AndroidControl_EXP01/` 단일 부모 아래에 모인다. `{category}` 는 `adapters | eval | merged`. `adapters/` 는 flat 네이밍, `merged/` 는 `{MODEL}{SFX}_{detail}/epoch-{E}/` 로 epoch 별 서브디렉토리 분리. `eval/` 은 `{MODEL}{SFX}/stage{1,2}_eval/.../epoch-{E}/` 중첩 (AC_EXP02 / MC 는 SFX=`""`, AC_EXP01 는 `_ratio{37,55,73}`). `BEST_CHECKPOINT` 파일은 더 이상 생성되지 않는다.
-- `data/` 아래 실제 디렉토리명은 `AndroidControl` (원본 source-only — EXP01/EXP02 가 read), `AndroidControl_EXP01`, `AndroidControl_EXP02`, `MonkeyCollection`, `MobiBench` (평가 전용). MobiBench 는 `implicit-world-modeling_stage{1,2}.jsonl` 두 단일 파일만.
-- eval script 에서 `vllm_infer.py` 호출 시 `--dataset_dir '$LF_DATASET_DIR'` (= `configs/lf_dataset`, **절대 경로**) 를 반드시 전달한다. 상대 경로 사용 시 HF datasets 캐시 오염으로 이미지 `FileNotFoundError` 가 발생할 수 있다.
-- vLLM `gpu_memory_utilization` 은 `_common.sh::build_infer_cmd` 의 기본 `0.80` 을 환경변수 `VLLM_GPU_MEM_UTIL` 로 호출 단위 override 한다. `build_infer_cmd` 가 `stage{1,2}_eval.sh` 양쪽에서 공통 호출되므로 stage1/2 모두 동일하게 적용 (예: `VLLM_GPU_MEM_UTIL=0.6 bash ./scripts/stage2_eval.sh ...`). 미설정 시 0.80 유지.
-- **dataset_info 는 커밋된 정본이다 (런타임에 쓰지 않는다)**: `configs/lf_dataset/dataset_info.json` 이 정본이고 MB 평가 엔트리도 그 안에 정적으로 들어 있다. `_common.sh::verify_dataset_info()` 는 source 시점에 정본의 존재·`IWM-MB_stage{1,2}` 키를 **검증만** 하고 없으면 죽는다 — 예전처럼 `LF_ROOT/data/dataset_info.json` 을 in-place 변조하지 않는다 (`ensure_eval_only_dataset_info()` 는 은퇴).
-- **JSONL `images` canonical prefix**: 모든 JSONL 의 `images` 필드는 `{DATASET_NAME}/images/...` 형태여야 한다. 이 contract 는 `configs/lf_dataset/{DATASET_NAME}` 상대 심링크 + `--dataset_dir $LF_DATASET_DIR` 조합과 맞물려 있어 prefix 가 없으면 `Image.open()` 이 cwd 기준으로 풀려 실패한다.
-- Stage 1/2 merge 는 `outputs/{DS}/adapters/.../checkpoint-*` 가 하나라도 없는 슬롯에서 `[WARN]` SKIP 한다 (`--model all` sweep 친화). 모든 epoch 을 순회해서 local merge + HF push.
-- Stage 2 train/merge (world-model variant) 는 `--stage1-epoch N` 으로 지정된 로컬 `outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_${STAGE1_MODE}_world-model/epoch-${N}/` 가 선행돼야 한다 (AC_EXP01 ratio variant 는 SFX=`_ratio{37,55,73}`). Stage 2 train 은 YAML 의 `model_name_or_path` 를 런타임에 sed 치환하므로 노트북 YAML 생성 시 placeholder 값 (HF id) 은 무시된다. Stage 2 eval 도 local merged dir 우선 사용 (`_common.sh::resolve_eval_model_path`), 없으면 HF Hub merged repo fallback. `--stage1-epoch` 값은 world-model 계보 식별자로 양쪽 (local dir suffix + HF repo 이름) 에 동일하게 주입된다.
-- merged 모델 경로 해석은 `_common.sh::resolve_eval_model_path` 단일 헬퍼 (kind=`stage1` | `stage2_base` | `stage2_world`) 가 담당하며, 내부에서 `local_merged_epoch_dir` + `hf_repo_id_stage{1,2}*` 를 조합한다.
-- [`scripts/stage1_train.sh`](./scripts/stage1_train.sh) 는 `FORCE_TORCHRUN=1 NNODES=1 NPROC_PER_NODE=${NPROC_PER_NODE}` 를 붙여 실행하지만, [`scripts/stage2_train.sh`](./scripts/stage2_train.sh) 는 의도적으로 torchrun prefix 를 붙이지 않는다. `NPROC_PER_NODE` 와 `GPU_TYPE` 은 `.env` 기본값 위에 **호출 시점 환경변수가 이긴다** (`_common.sh` 가 `.env` 를 읽기 전에 프로세스 환경값을 붙잡아 되돌린다): `GPU_TYPE=A100 NPROC_PER_NODE=4 bash scripts/stage1_train.sh ...`. `scripts/gpu_policy.py` 가 그 조합에서 `per_device_train_batch_size` / `gradient_accumulation_steps` / `deepspeed` 를 결정하고 `stage{1,2}_train.sh` 가 `llamafactory-cli train` 에 `key=value` 로 **런타임 주입** 해 global batch size 를 64 로 유지한다. **`.env` 나 GPU 조합을 바꿔도 YAML 을 재생성할 필요가 없다** (커밋 YAML 은 RTX5090×2 baseline 이고 override 가 그 위에 얹힌다). `NPROC_PER_NODE` 는 RTX5090 이면 `{1,2}`, A100/H100 이면 `{1,2,4,8}` 이어야 하고 `GPU_TYPE` 은 `{RTX5090, A100, H100}` 중 하나여야 하며 다른 값은 학습 진입 전에 거부된다.
-- [`scripts/split_data.py`](./scripts/split_data.py) 는 Stage 1 + Stage 2 분할을 모두 담당. **AC_EXP01**: 원본 `data/AndroidControl/` 의 `_filtered.jsonl` 에서 read → `episodes_meta.jsonl.primary_app` 기반 app-level ID/OOD split (Stage 1 ratio mix train + Stage 1 dual-task ID/OOD test + Stage 2 ID/OOD), 산출물은 `data/AndroidControl_EXP01/` 에 write. Stage 1↔Stage 2 partition 공유. **MC**: 메타 없음 → Stage 1 random split (`_train` / `_test`) 자동 fallback. MC 는 `_STAGE1_ONLY` 라 Stage 2 자동 skip. **MB**: split 미수행 (평가 전용). AC 원본 메타는 [`scripts/extract_androidcontrol_metadata.py`](./scripts/extract_androidcontrol_metadata.py), 스크린샷은 [`scripts/extract_androidcontrol_images.py`](./scripts/extract_androidcontrol_images.py) 가 생성한다 (모두 `data/AndroidControl/` 에 저장).
-- bash 자동화는 bash 4+ 전제.
-- shell script CLI 공통 플래그:
-  - **학습/merge (`stage{1,2}_{train,merge}.sh`)**: `--model MODEL --dataset {AC_EXP01|AC_EXP02|MC} --stage1-mode {full|lora} --exp01-ratios LIST`. `--dataset MB` 는 거절. `--dataset all` 은 지원하지 않음 (명시적 DS 선택 필수). `stage2_*`: `--stage2-mode {full|lora}` (기본 lora), `--stage1-epoch N` (world-model variant 전용). AC_EXP01 sweep 부분 실행은 `--exp01-ratios ratio55,ratio73`.
-  - **평가 (`stage{1,2}_eval.sh`)**: `--model MODEL --train-dataset {AC_EXP01|AC_EXP02|MC} --eval-datasets LIST --stage1-mode ... --stage2-mode ... --stage1-epoch N --epochs LIST --variants LIST --exp01-ratio {r37|r55|r73}`. `--eval-datasets` 는 콤마 구분, 허용 `AC_EXP01,AC_EXP02,MC,MB`, 기본값은 `--train-dataset` 단일값 (AC_EXP01 의 기본 eval 은 raw `AC_EXP01`). Stage 2 eval 은 `--train-dataset {AC_EXP01|AC_EXP02}` 만 (MC 미지원). AC_EXP01 학습 모델 평가는 ratio 정확히 1 개 (`--exp01-ratio ratio55` 기본).
-    - Stage 1 variants: `base`, `full_world_model`, `lora_world_model`.
-    - Stage 2 variants: `base`, `full_base`, `lora_base`, `full_world_model`, `lora_world_model`.
+숫자를 문서에서 읽지 말고 여기서 확인한다.
 
-## 빠른 검증 포인트
+```bash
+# 레지스트리/정책 ↔ 커밋 YAML 정합 (byte 대조 + orphan 검출). orphan 도 실패다.
+python -m implicit_world_modeling.gen_configs --check
 
-- `pytest tests/test_action_eval.py -q` — 52 케이스 (parse / field_match / 집계 / ID-OOD aggregation / single-pair overall)
-- `bash scripts/stage{1,2}_{train,merge,eval}.sh --help` — 모든 플래그 표기 확인
-- `python scripts/split_data.py --dataset MonkeyCollection --help` (MC: Stage 2 자동 skip)
-- `bash scripts/stage1_train.sh --dataset MB 2>&1` — 거절 메시지 확인
-- HF naming 단위 검증:
-  ```bash
-  source scripts/_common.sh && parse_args
-  hf_repo_id_stage1 qwen3-vl-8b AC_EXP02 full 3
-  # → SaFD-00/qwen3-vl-8b-ac-exp02-world-model-stage1-full-epoch3
-  hf_repo_id_stage2_world_model qwen3-vl-8b AC_EXP02 full 3 lora 1
-  # → SaFD-00/qwen3-vl-8b-ac-exp02-world-model-stage1-full-epoch3-stage2-lora-epoch1
-  ```
-- `rg "BEST_CHECKPOINT" scripts/ tests/` — 비어야 함
-- `rg '"transformers[^"]*,<[5-9]' pyproject.toml` — 비어야 함 (실제 dependency pin 이 5.x 이상을 허용하면 안 됨; 산문의 `` `transformers<5` `` 언급은 double-quote 가 없어 매칭 제외). 정본 pin 은 `>=4.57.1,<4.58`.
-- GPU 정책 검증: `pytest tests/test_gpu_policy.py -q` (전 조합 매트릭스 + always-offload 불변식) · `pytest tests/test_gen_configs.py -q`
-- 커밋 YAML drift 검증: `python -m implicit_world_modeling.gen_configs --check` — 레지스트리/정책과 `configs/train/**` 162 YAML 이 일치해야 함
-- LF 부트스트랩 검증: `bash scripts/setup_llamafactory.sh --verify` (pin + 패치 적용 상태 표)
+# 자격·등록 실태
+python -c "from implicit_world_modeling.lf_registry import eligible_models as e; print(e('AndroidControl_EXP05'))"
+python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'));print(sorted(d))"
 
-## 문서 동기화 원칙
+# 테스트
+pytest tests/test_gpu_policy.py tests/test_gen_configs.py -q          # GPU 매트릭스 + always-offload 불변식
+pytest tests/test_action_eval.py tests/test_action_eval_xy.py -q      # Stage 2 채점 (index / xy 모드)
+pytest tests/test_diff_loss_v2.py tests/test_diff_loss_double_ce.py tests/test_mirror_experiment.py -q
 
-- README 는 사용자 실행 순서 기준, ARCHITECTURE 는 실제 디렉토리/산출물 기준, AGENTS 는 "어디를 수정?" 기준으로 유지한다.
-- 노트북 section 순서가 바뀌면 README 와 ARCHITECTURE 의 section mapping 도 같이 갱신.
-- shell script 전제조건이 바뀌면 README, ARCHITECTURE, AGENTS 를 함께 수정.
-- 모델을 추가하면 `lf_registry.py` 의 `_MODEL_CONFIG`, `_common.sh` 모델 레지스트리, README 모델 테이블, ARCHITECTURE 모델 레지스트리 테이블을 모두 갱신하고 `gen_configs --write` 로 YAML 을 재생성해 커밋한다.
-- 새 family 추가 시 `lf_registry.py` 의 `MODEL_FAMILY_CONFIG` 에 `factor` / `max_tokens` / `min_tokens` 명시 (`max_pixels = max_tokens × factor²`, `min_pixels = min_tokens × factor²`). family default 는 `max_tokens=2048`, `min_tokens=4`. `scripts/_common.sh::build_infer_cmd` 의 template 분기 (factor / mm_min) 도 함께 갱신.
-- 새 dataset 의 image budget 이 family default 와 달라야 하면 `_DATASET_CONFIG[ds]["image_overrides"]` 에 token 단위로 둔다 (`{"max_tokens": N}`) — 빌더가 family `factor²` 로 환산. 평가측은 `scripts/_common.sh::build_infer_cmd` 의 `TRAIN_DATASET` 분기를 갱신해 학습 DS 와 동일 budget 사용.
+# LF 부트스트랩 (pin + 패치 적용 상태)
+bash scripts/setup_llamafactory.sh --verify
+
+# CLI 계약 — nvcc/CUDA 가드는 _common.sh 의 source 시점에 돌아 parse_args 에 도달하기도 전에 exit 1 한다.
+# 학습 머신 (nvcc 가 torch 와 같은 cu 버전) 이 아니면 --help 조차 안 나오므로 가드를 우회한다.
+LF_CUDA_GUARD_SKIP=1 bash scripts/stage1_train.sh --help
+LF_CUDA_GUARD_SKIP=1 bash scripts/stage1_train.sh --dataset MB 2>&1   # 거절돼야 정상 (MB 는 평가 전용)
+
+# transformers pin 이 5.x 를 허용하면 안 된다 (비어야 함)
+rg '"transformers[^"]*,<[5-9]' pyproject.toml
+```
