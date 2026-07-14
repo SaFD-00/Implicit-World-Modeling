@@ -3,6 +3,20 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-14 — Implicit-World-Modeling: GPU 정책 3축 분기 — 80GB 에서 (3-4B | lora) 는 DeepSpeed offload 를 끈다 (6커밋)
+
+EXP05 stage1 world modeling full FT(`qwen2.5-vl-3b`, A100×2)를 돌리다 **offload 자체가 병목**임을 실측하고, `gpu_policy.py` 의 "deepspeed 는 GPU 무관 **항상 offload**" 불변식을 `(gpu_type, size_class, mode)` **3축 분기**(`_is_no_offload_combo`)로 교체했다. 커밋 `291b26a`·`202fec3`·`b9ccf6e`·`17113f2`·`1f3a827`·`da8ccd2` (6건), 7 files +263 −86. 상세는 [revise 기록](../.claude/devlog/2026-07-14_02-15-00_gpu-policy-no-offload-3axis.md), 정본 매트릭스는 [§2 GPU 정책 · 함정 7](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정).
+
+- **증상 — GPU 가 놀고 있었다**: offload 를 켠 채로는 **165 s/step**(2094 step → 약 4 일)인데 GPU 메모리는 80GB 중 **23~26 GB** 만 쓰고 두 GPU 전력이 **135 W 대 378 W** 로 벌어졌다. 병목이 계산이 아니라 **CPU↔GPU 전송**이라는 신호 — 한쪽 GPU 가 파라미터·optimizer state 를 기다리며 놀고 있었다.
+- **무엇이 과했나**: "항상 offload" 의 근거는 **7B full FT 는 offload 를 빼면 확정 OOM**(모델 상태만 GPU 당 ~77 GiB)이라는 실측이다. 이 명제는 **7-9B 에 대해 여전히 참**이지만, **3-4B·lora 에까지 일반화한 것이 과했다.** 두 갈래를 가르는 것은 정확히 **optimizer state 의 크기**다.
+- **연 것 / 열지 않은 것**: 80GB(A100/H100) × **3-4B**(full·lora 무관)와 80GB × **lora**(size_class 무관)는 offload 를 끄고 half-batch 반감도 **면제**(`pdbs=2`/`ga=16`). **`7-9B × full` 과 RTX5090 전부는 offload 유지.** `GLOBAL_BATCH_SIZE=64` 불변식은 전 조합에서 유지된다. **lora 가 풀린다고 full 까지 풀리지 않는다** — 이 경계는 `test_a100_7b_lora_is_no_offload_but_full_is_not` 이 대조 고정한다. 같은 술어가 offload 와 half-batch 면제를 **함께** 판정하는 이유는 두 결정이 같은 메모리 실측에서 나오기 때문이다.
+- **결과 (실측)**: EXP05 3B full FT 가 **165 → 138 s/step**(약 16 % 단축), GPU 메모리 **23~26 → 64~73 GB**, 전력 불균형 해소. ETA 약 4 일 → **약 3.3 일**.
+- **한계 (정직한 천장)**: 이득이 **16 % 에 그쳤다.** 두 GPU 모두 util 100 % 로 실제 연산 중이므로 **남은 병목은 offload 가 아니라 시퀀스 길이 자체**(`cutoff_len 24576` + visual token 2,048개)와 `gradient_checkpointing` 재계산이다. `cutoff_len` 을 내리면 하드 제약 7, `image_max_pixels` 를 내리면 하드 제약 4 에 걸려 **정책으로는 더 줄일 수 없다.** 또한 `pdbs=2` 의 대가로 메모리 여유가 **~7 GB** 뿐이라 더 긴 시퀀스가 배치에 걸리면 **OOM 가능성이 남아 있다** (미해결, 감시 중).
+- 변경: `Implicit-World-Modeling/scripts/gpu_policy.py` · `implicit_world_modeling/gen_configs.py` · `scripts/_common.sh` · `tests/test_gpu_policy.py` · `tests/test_gen_configs.py`. 문서 정합: `Implicit-World-Modeling/ARCHITECTURE.md`(§2 GPU 정책 매트릭스 · 함정 7 · 함정 19) · `Implicit-World-Modeling/AGENTS.md`(하드 제약 5).
+- 검증: `pytest tests/ -q` **전체 통과**(실패 0, skip 9) · `gen_configs --check` OK — **커밋 YAML 은 불변**(RTX5090 baseline 이라 정책이 바뀌어도 재생성하지 않는다, 하드 제약 6) · `gpu_policy` 4조합 전부 global batch 64 · **실행 검증**: EXP05 3B full FT 재시작 → step 15/2094 진행(loss 0.1735, OOM 없음, 138 s/step).
+- 부수 발견(코드 변경 아님): 이 머신의 `/usr/local/cuda` 는 **13.0** 인데 torch 는 **cu12.8** 이라 `_common.sh` 의 CUDA 가드가 학습 진입을 막는다. 시스템 심링크를 건드리지 않고 conda env 의 cu12.8 toolkit 을 가리키는 shim 을 만들어 `CUDA_HOME` 으로 넘기면 통과한다.
+- **카테고리**: devlog
+
 ## 2026-07-14 — Monkey-Collector: iter6 통제 ablation — budget-loop fix 판정 + D3 임계값 재보정
 
 리셋 프로토콜 paired-arm ablation(pre-fix `6ff8e95` vs fix `fe12f46`, musicplayer+calendar, 900s × 4 run + 동일 코드 반복측정 1 run)으로 budget-loop fix(D1/D2/D3)가 실제로 무엇을 했는지 판정했다. 결론은 **fix의 다양성 이득이 노이즈와 구별되지 않는다**는 것이고, 그 과정에서 진짜 병목이 따로 드러났다. 상세는 [분석 보고](../Monkey-Collector/.claude/analysis/2026-07-14_04-05-29_iter6-controlled-ablation/README.md) · [revise 기록](../Monkey-Collector/.claude/devlog/2026-07-14_04-05-29_iter6-d3-recalibration.md).

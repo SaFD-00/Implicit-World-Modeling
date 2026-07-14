@@ -34,7 +34,7 @@ HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md
 | **AC_EXP02** | ✅ 완료 | diff loss **v1**. stage1+stage2 완료 |
 | **AC_EXP03** | ✅ 완료 | stage1+stage2 완료 — **단 자격 모순 1건 미판정** |
 | **AC_EXP04** | ⛔ **차단** | **3중 차단** — 좌표계 모순 · 재빌드 소스 부재 · 등록 0 키 |
-| **AC_EXP05** | ⛔ **차단** | 데이터는 빌드됨. **로컬 학습 불가 + 원격 UNVALIDATED + 데이터 쟁점 4건 미판정** |
+| **AC_EXP05** | 🔄 **학습 중** | stage1 full FT 가 **A100×2 에서 진행 중** (2026-07-14~). **데이터 쟁점 4건 미판정 · 완주 산출물 0** |
 | **MC** | ⬜ 미착수 | 데이터·등록·YAML 다 있고 자격 제한 없음 — 그냥 안 돌렸다 |
 | **MB** | ⬜ 미사용 | 평가 전용. `on-MB*` 산출물 0 |
 
@@ -60,14 +60,17 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 
 ---
 
-## ⛔ EXP05 — 차단 (데이터는 준비됨, 학습 경로가 없음)
+## 🔄 EXP05 — stage1 학습 중 (A100×2, 2026-07-14~)
 
 절대 픽셀 좌표 실험군. 자격 밖 모델은 **코드 가드가 막는다** — 매트릭스는 [§2 자격 매트릭스 · 함정 3](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정).
 
 - [x] **데이터 빌드 완료** — 0711 수정본 + diff loss **v2** 가중. 빌드 정본 [`scripts/build_exp05_data.py`](../Implicit-World-Modeling/scripts/build_exp05_data.py). 등록도 되어 있다.
 - [ ] **데이터 쟁점 4건 — 조병웅님 판정 대기 (본실험 전 선결)**: `wait` 액션 전량 퍼지 · train 축소 · action/state 키 대칭 붕괴 · **좌표 범위이탈**(OOD 평가셋 오염). 실측·상세는 [§3 EXP05 데이터 쟁점](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약).
-- [ ] **학습 — 로컬 불가 (실측).** OOM + 비현실적 소요시간. 근거 [§7 함정 19](../Implicit-World-Modeling/ARCHITECTURE.md#7-중요한-운영-제약). 로컬에 남은 건 OOM 로그(`trainer_log.jsonl.oom_0711.bak`) 뿐이고 **체크포인트는 0**.
-- [ ] **원격 실행 경로 확보** — 제출 스펙(`scripts/remote_launch.sh` + `configs/remote/run.template.yaml`)은 저장소에 있으나 **UNVALIDATED (실행 이력 0)** ([§4](../Implicit-World-Modeling/ARCHITECTURE.md#4-파이프라인-컴포넌트)). org/project/cluster + 데이터 업로드 방식 미정.
+  ⚠️ **아래 stage1 학습은 이 4건이 미판정인 채로 진행 중이다** — 판정 결과에 따라 산출물의 유효성이 달라질 수 있다.
+- [ ] **학습 — A100×2 에서 stage1 full FT 진행 중** (`qwen2.5-vl-3b`, 2026-07-14 재시작). GPU 정책이 80GB × 3-4B 에서 offload 를 끄면서 **138 s/step · ETA 약 3.3 일**이 됐다 (재시작 시점 확인값: step 15/2094, loss 0.1735, OOM 없음). 정책·실측 근거는 [§2 GPU 정책 · 함정 7](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정) · [§7 함정 19](../Implicit-World-Modeling/ARCHITECTURE.md#7-중요한-운영-제약).
+  - **아직 완주하지 않았다** — 체크포인트·HF 산출물 **0**. 메모리 여유가 **~7 GB** 뿐이라 **OOM 가능성이 남아 있다** (감시 중).
+  - **로컬 2×RTX5090 은 여전히 불가** (OOM + 비현실적 소요시간, [§7 함정 19](../Implicit-World-Modeling/ARCHITECTURE.md#7-중요한-운영-제약)). 로컬에 남은 건 OOM 로그(`trainer_log.jsonl.oom_0711.bak`) 뿐이다.
+- [ ] **원격 실행 경로 확보** — 제출 스펙(`scripts/remote_launch.sh` + `configs/remote/run.template.yaml`)은 저장소에 있으나 **UNVALIDATED (실행 이력 0)** ([§4](../Implicit-World-Modeling/ARCHITECTURE.md#4-파이프라인-컴포넌트)). org/project/cluster + 데이터 업로드 방식 미정. **위 A100×2 학습은 원격 제출 경로가 아니라 A100 머신에서 `scripts/stage1_train.sh` 를 직접 호출한 것이다** — 제출 스펙 검증과는 무관하다.
 - [ ] **평가** — xy 좌표 채점은 구현·배선 완료 (EXP05 일 때만 opt-in). 규칙과 함정은 [§6 xy 좌표 스페이스 채점](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭).
 
 HF 에 EXP05 산출물 0. Stage 2 는 `_STAGE1_ONLY`.
@@ -107,7 +110,7 @@ HF 에 EXP05 산출물 0. Stage 2 는 `_STAGE1_ONLY`.
 - **`qwen3-vl-4b`** — 2026-07-13 레지스트리 복원으로 EXP01–EXP04 **자격만** 생겼다. **학습·평가 이력 0.** 위 EXP01–03 완료 표시는 전부 `qwen3-vl-8b`·`qwen2.5-vl-7b` 기준이다. EXP05 는 자격 밖 ([§2 모델 레지스트리](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정)).
 - **MC (MonkeyCollection)** — stage1 전용. 데이터·등록·YAML 다 있고 자격 제한 없음. 산출물 0.
 - **MB (MobiBench)** — 평가 전용. 등록돼 있으나 `on-MB*` eval 산출물 0.
-- **Full FT 경로** — 현행 실험군(EXP01–05)에서 완주한 stage1 full FT 가 **없다** (전부 LoRA). EXP05 full FT 시도는 OOM 으로 죽었다.
+- **Full FT 경로** — 현행 실험군(EXP01–05)에서 **완주한** stage1 full FT 는 아직 **없다** (완료된 실험군은 전부 LoRA). EXP05 3B full FT 가 **A100×2 에서 처음으로 진행 중**이다 (위 EXP05 참조). 로컬 RTX5090 시도는 OOM 으로 죽었다.
 
 ---
 
@@ -116,7 +119,7 @@ HF 에 EXP05 산출물 0. Stage 2 는 `_STAGE1_ONLY`.
 - [x] 문서 트리오 정비 (README · ARCHITECTURE · AGENTS) + SSoT 재배치
 - [x] 2-stage 파이프라인 자동화 (`scripts/stage{1,2}_{train,merge,eval}.sh`)
 - [x] 학습 설정 정본화 — YAML 생성기(`gen_configs`) + 커밋된 `dataset_info.json` + 코드 가드(자격·등록)
-- [ ] **실험 매트릭스 완주** (모델 × 데이터셋 × {base / stage2 / stage1+stage2}) — EXP04·EXP05 차단, ratio55·`qwen3-vl-4b`·MC 공백
+- [ ] **실험 매트릭스 완주** (모델 × 데이터셋 × {base / stage2 / stage1+stage2}) — EXP04 차단, EXP05 stage1 학습 중, ratio55·`qwen3-vl-4b`·MC 공백
 - [ ] 결과 종합 및 논문화 (AAAI/ICLR 2027 트랙)
 - [ ] (추후) Obsidian 동기화 — Vault 있는 환경에서 `/project-sync init` 재실행
 
