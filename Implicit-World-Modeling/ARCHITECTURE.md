@@ -483,7 +483,7 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 
 - **`stage2_train.sh`** — YAML `…/stage2_${MODE2}/{MODEL}_{base,world-model-full,world-model-lora}.yaml`. 실행 env 는 **Stage 1 과 동일**하다 — `FORCE_TORCHRUN=1 NNODES=1 NPROC_PER_NODE=…` (`stage2_train.sh:101` ↔ `stage1_train.sh:43`). 유일한 차이는 stage1 만 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` 를 추가로 export 한다는 것뿐이다. world-model variant 는 local `merged/…/epoch-${N}/` 을 base 로 쓰도록 `model_name_or_path` 를 런타임 sed 치환하고 (그래서 YAML 의 HF id placeholder 는 무시된다), YAML 의 `__STAGE1_EPOCH__` 플레이스홀더가 `${N}` 으로 치환돼 결과가 `…_world-model_from_{M1}-ep{N}/` 로 분리 저장된다. 디렉토리 미존재 시 hard-fail.
 - **`stage2_merge.sh`** — Full FT 는 checkpoint 자체가 전체 모델 (adapter 블록 없음), LoRA 는 `model_name_or_path: {base}` + `adapter_name_or_path: {ckpt}` + `finetuning_type: lora`.
-- **`stage2_eval.sh`** — `--variants` 로 `base` / `{full|lora}_base` / `{full|lora}_world_model` 선택. EVAL_DS=AC_EXP01/02/03 은 ID+OOD 동시 추론 → 3 섹션, MB 는 single-pair 1 섹션. marker (`action_metrics.json`) 존재 unit 은 variant × EVAL_DS 별 독립 skip.
+- **`stage2_eval.sh`** — `--variants` 로 `base` / `{full|lora}_base` / `{full|lora}_world_model` 선택. EVAL_DS=AC_EXP01/02/03/05 는 ID+OOD 동시 추론 → 3 섹션, MB 는 single-pair 1 섹션. **AC_EXP05 는 xy 통일 액션 스페이스라 `_action_eval.py score --coord-mode xy` 로 채점**한다 (stage1_eval 의 EXP05 분기와 동일; 나머지 EXP 는 플래그 없이 index 채점). marker (`action_metrics.json`) 존재 unit 은 variant × EVAL_DS 별 독립 skip.
   - **`--epochs` 에 `0` 포함 (opt-in)**: `{full|lora}_world_model` 의 epoch-0 = stage2 미학습 베이스라인 (= stage1 merged 와 동일 모델). `{full|lora}_base` 는 stage1 계보가 없어 epoch-0 이 `base` 와 중복 → 경고 후 skip. 기본 `1,2,3` 에는 미포함.
 
 ### CLI 계약 — 어떤 인자가 무엇을 결정하는가

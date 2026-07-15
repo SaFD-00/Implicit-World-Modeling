@@ -45,13 +45,14 @@ TRAIN_DS="$TRAIN_DATASET"
 
 case "$TRAIN_DS" in
   # AC_EXP04 stage2 보류 — 데이터/등록 키 없음 (현재 *) 분기로 거부). 도입 시 case + 아래 에러문에 AC_EXP04 포함.
-  AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02|AC_EXP03) ;;
+  # AC_EXP05 = xy 통일 액션 스페이스 실험군 — action 채점 시 --coord-mode xy (run_variant_epoch_eval_on 참조).
+  AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02|AC_EXP03|AC_EXP05) ;;
   MC)
     echo "[!] Stage 2 는 MonkeyCollection(MC) 학습 데이터를 갖지 않습니다 (got '$TRAIN_DS')." >&2
-    echo "    --train-dataset 는 AC_EXP01 | AC_EXP02 | AC_EXP03 만 사용하세요." >&2
+    echo "    --train-dataset 는 AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP05 만 사용하세요." >&2
     exit 2 ;;
   *)
-    echo "[!] Stage 2 eval --train-dataset 는 AC_EXP01 | AC_EXP02 | AC_EXP03 만 지원합니다 (got '$TRAIN_DS')." >&2
+    echo "[!] Stage 2 eval --train-dataset 는 AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP05 만 지원합니다 (got '$TRAIN_DS')." >&2
     exit 2 ;;
 esac
 
@@ -75,6 +76,13 @@ run_variant_epoch_eval_on() {
   local datadir="${DS_DATADIR[$eval_ds]}"
   local eval_prefix="${DS_PREFIX[$eval_ds]}"
 
+  # AC_EXP05 는 xy 통일 액션 스페이스라 action 채점 모드가 다르다 (stage1_eval 과 동일).
+  # 나머지 EXP 는 플래그 없이 기존 index 채점 경로 그대로.
+  local action_mode_flag=""
+  if [[ "$eval_ds" == "AC_EXP05" ]]; then
+    action_mode_flag="--coord-mode xy"
+  fi
+
   # Single-test 데이터셋 (overall only): MB.
   if [[ "$eval_ds" == "MB" ]]; then
     local test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2.jsonl"
@@ -95,6 +103,7 @@ run_variant_epoch_eval_on() {
         python '$BASE_DIR/scripts/_action_eval.py' score \
           --test   '$test_jsonl' \
           --pred   '$out_dir/generated_predictions.jsonl' \
+          $action_mode_flag \
           --output '$out_dir/action_metrics.json'"
   else
     local test_id="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2_test_id.jsonl"
@@ -128,6 +137,7 @@ run_variant_epoch_eval_on() {
           --pred-id  '$out_dir/generated_predictions_id.jsonl' \
           --test-ood '$test_ood' \
           --pred-ood '$out_dir/generated_predictions_ood.jsonl' \
+          $action_mode_flag \
           --output   '$out_dir/action_metrics.json'"
   fi
 }
