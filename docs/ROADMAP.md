@@ -34,7 +34,7 @@ HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md
 | **AC_EXP02** | ✅ 완료 | diff loss **v1**. stage1+stage2 완료 |
 | **AC_EXP03** | ✅ 완료 | stage1+stage2 완료 — **단 자격 모순 1건 미판정** |
 | **AC_EXP04** | ⛔ **차단** | **3중 차단** — 좌표계 모순 · 재빌드 소스 부재 · 등록 0 키 |
-| **AC_EXP05** | 🔄 **학습 중** | stage1 full FT 가 **A100×2 에서 진행 중** (2026-07-14~). **데이터 쟁점 4건 미판정 · 완주 산출물 0** |
+| **AC_EXP05** | 🔄 **학습 중** | stage1 full FT **A100×2 진행 중** (2026-07-14~) · **stage2 도입** (2026-07-15 — YAML 12 + 등록 3키, `qwen2.5-vl-3b` LoRA E2E loop 진입). **데이터 쟁점 4건 미판정 · 완주 산출물 0** |
 | **MC** | ⬜ 미착수 | 데이터·등록·YAML 다 있고 자격 제한 없음 — 그냥 안 돌렸다 |
 | **MB** | ⬜ 미사용 | 평가 전용. `on-MB*` 산출물 0 |
 
@@ -72,8 +72,9 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
   - **로컬 2×RTX5090 은 여전히 불가** (OOM + 비현실적 소요시간, [§7 함정 19](../Implicit-World-Modeling/ARCHITECTURE.md#7-중요한-운영-제약)). 로컬에 남은 건 OOM 로그(`trainer_log.jsonl.oom_0711.bak`) 뿐이다.
 - [ ] **원격 실행 경로 확보** — 제출 스펙(`scripts/remote_launch.sh` + `configs/remote/run.template.yaml`)은 저장소에 있으나 **UNVALIDATED (실행 이력 0)** ([§4](../Implicit-World-Modeling/ARCHITECTURE.md#4-파이프라인-컴포넌트)). org/project/cluster + 데이터 업로드 방식 미정. **위 A100×2 학습은 원격 제출 경로가 아니라 A100 머신에서 `scripts/stage1_train.sh` 를 직접 호출한 것이다** — 제출 스펙 검증과는 무관하다.
 - [ ] **평가** — xy 좌표 채점은 구현·배선 완료 (EXP05 일 때만 opt-in). 규칙과 함정은 [§6 xy 좌표 스페이스 채점](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭).
+- [x] **Stage 2 도입 (2026-07-15)** — drive-download stage2 3개 jsonl(train 15000 / test_id 3000 / test_ood 3000)을 저장소 이미지 경로 관례로 변환(`myset/images/…` → `AndroidControl/images/episode_<6자리>_step_<S>.jpg`, `home.png` → `home.jpg` 주입)해 `dataset_info.json` 에 3키 등록하고, `_STAGE1_ONLY` 에서 EXP05 를 제거해 stage2 YAML **12개**(`stage2_full` 6 + `stage2_lora` 6, `qwen2.5-vl-{3b,7b}` × {base, world-model-full, world-model-lora})를 정식 생성했다. 빌드 정본 [`scripts/build_exp05_stage2_data.py`](../Implicit-World-Modeling/scripts/build_exp05_stage2_data.py). `qwen2.5-vl-3b` LoRA **E2E 학습 loop 진입 확인**(Num examples 15,000 · 3 epoch · 705 step · trainable 59.8M · finite loss) — **아직 완주 전, 체크포인트 0**. 상세는 [devlog 2026-07-15](../.claude/devlog/2026-07-15_08-51-11_exp05-stage2-apply.md). 산출 데이터·`home.jpg` 는 관례상 gitignored.
 
-HF 에 EXP05 산출물 0. Stage 2 는 `_STAGE1_ONLY`.
+HF 에 EXP05 산출물 0 — stage1·stage2 모두 아직 완주 전이다 (stage2 는 2026-07-15 도입, 위 참조).
 
 ---
 

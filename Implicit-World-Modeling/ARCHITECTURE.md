@@ -302,7 +302,7 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
      ├── AC_EXP02 = ratio73 train + diff loss v1 token_weights    (test/Stage2 는 EXP01 복사)
      ├── AC_EXP03 = ratio73 멤버십의 좌표(point) 미러             (mirror_experiment.py --experiment exp03)
      │      └── AC_EXP04 = EXP03 + stage1 프롬프트 업그레이드     (--experiment exp04, stage1-only)
-     └── AC_EXP05 = ratio73 멤버십의 절대 픽셀 미러 + diff loss v2 (build_exp05_data.py, stage1-only)
+     └── AC_EXP05 = ratio73 멤버십의 절대 픽셀 미러 + diff loss v2 (build_exp05_data.py; stage2 는 2026-07-15 별도 도입 → build_exp05_stage2_data.py)
 
   MonkeyCollection  = Stage 1 전용 (random split 0.95)
   MobiBench         = 평가 전용 (stage{1,2}.jsonl 단일 파일)
@@ -316,11 +316,11 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
 | AC_EXP02 | ✓ (diff loss 미적용) | EXP01 복사 (4) | index | **v1** (stage1) |
 | AC_EXP03 | ✓ | EXP01 좌표 미러 (4) | point | — |
 | **AC_EXP04** | ✗ `_STAGE1_ONLY` | EXP03 미러 + 프롬프트 (4 + without_open_app 2) | **§2 경고 참조** | — |
-| **AC_EXP05** | ✗ `_STAGE1_ONLY` | 4 + without_open_app 2 | **절대 픽셀 840×1876** | **v2** (stage1) |
+| **AC_EXP05** | ✓ (2026-07-15 도입) | 4 + without_open_app 2 | **절대 픽셀 840×1876** | **v2** (stage1) |
 | MC | ✗ (데이터 없음) | 단일 test | — | — |
 | MB | 평가 전용 | 단일 파일 | — | — |
 
-`_STAGE1_ONLY = {MonkeyCollection, AndroidControl_EXP04, AndroidControl_EXP05}` — Stage 2 YAML/등록/eval 을 전부 skip. `_DUAL_TASK_TEST` 는 AC_EXP01~EXP05 전부 (Stage 1 한정, §6). `_SINGLE_TEST = {MonkeyCollection}` — 세 플래그는 **직교**한다.
+`_STAGE1_ONLY = {MonkeyCollection, AndroidControl_EXP04}` — Stage 2 YAML/등록/eval 을 전부 skip (**EXP05 는 2026-07-15 stage2 도입으로 이 집합에서 제거됨**). `_DUAL_TASK_TEST` 는 AC_EXP01~EXP05 전부 (Stage 1 한정, §6). `_SINGLE_TEST = {MonkeyCollection}` — 세 플래그는 **직교**한다.
 
 - **EXP03 미러**: EXP01 ratio73 산출 파일을 한 줄씩 읽어 `(episode, step)` 키로 좌표 원천의 대응 레코드를 골라 **동일 순서로** write. UI 트리는 `index="N"` 대신 `bounds="[x1,y1][x2,y2]" point="[cx,cy]"`, 액션은 `point=[x,y]`. **본문만 좌표이고 이미지 경로는 EXP01 것을 채택**한다. 원천에 없는 키 (~0.8–1.7%) 는 제외 → EXP01 과 `(episode, step)` 1:1 대응이나 행 수는 소폭 작다.
 - **EXP04 미러**: EXP03 와 **동일 멤버십·좌표 표현**, 프롬프트만 업그레이드 (action space `scroll(direction, point)` → `swipe(start, end)`, role 문구 "represented as html-style XML", `[SWIPE]` 규칙). **EXP04 pool ⊆ EXP03 pool** 이라 멤버십 drift 가 없다.
@@ -421,7 +421,7 @@ cat data/AndroidControl_EXP05/implicit-world-modeling_stage1_train.jsonl.meta.js
 | AC_EXP01 | stage1 train (ratio 별) + dual-task test (id/ood × state/action) (**test 는 ratio 간 공유**) + stage2 (train/test_id/test_ood) |
 | AC_EXP02 / AC_EXP03 | stage1 train + dual-task test + stage2 (train/test_id/test_ood) |
 | **AC_EXP04** | **미등록 — 키가 하나도 없다. §2 경고 블록 참조.** |
-| AC_EXP05 | stage1 train + dual-task test. `_STAGE1_ONLY` 라 **stage2 키 없음** |
+| AC_EXP05 | stage1 train + dual-task test + **stage2 (train/test_id/test_ood)** (2026-07-15 등록, `_STAGE1_ONLY` 에서 제거) |
 | MC | `IWM-MC_stage1_{train,test}` (`_SINGLE_TEST`) |
 | MB | `IWM-MB_stage{1,2}` (평가 전용, 정적 등록) |
 
@@ -500,7 +500,7 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 | `--epochs` | merged sweep 대상 epoch. `0` 은 opt-in (위 Stage 2 참조) |
 | `--exp01-ratios` (학습 sweep) / `--exp01-ratio` (평가 단일) | AC_EXP01 의 `{SFX} = _ratio{37,55,73}` — ratio 는 데이터가 아니라 **계보**로 흐른다 (§3) |
 
-- **Stage 2 대상 DS 는 `_STAGE1_ONLY` 가 결정한다** (§3) — `MC` · `AC_EXP04` · `AC_EXP05` 는 **셋 다 `_STAGE1_ONLY`** 라 (MC 는 stage2 데이터 자체가 없다) Stage 2 YAML 이 생성되지 않고 `require_yaml` 에서 중단된다. 즉 Stage 2 는 `AC_EXP01 | AC_EXP02 | AC_EXP03` 뿐이다.
+- **Stage 2 대상 DS 는 `_STAGE1_ONLY` 가 결정한다** (§3) — `MC` · `AC_EXP04` 는 `_STAGE1_ONLY` 라 (MC 는 stage2 데이터 자체가 없다) Stage 2 YAML 이 생성되지 않고 `require_yaml` 에서 중단된다. 즉 Stage 2 는 `AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP05` 다 (**EXP05 는 2026-07-15 stage2 도입**).
 - 각 스크립트의 `--help` 가 플래그의 최종 정본이다.
 
 > ⚠️ **함정 16 — 유령 스크립트를 인용하지 마라.** tmux 실행 스케줄 같은 일회성 스크립트는 `.gitignore` 의 `scripts/tmux_*.sh` 로 **추적 제외**된다 (커밋 `0303167`). 저장소에 존재하지 않으므로 문서가 복붙 커맨드로 제시하면 안 된다 — 실행은 위 `stage{1,2}_*.sh` 를 직접 호출한다.
