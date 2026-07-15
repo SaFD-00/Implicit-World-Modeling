@@ -342,7 +342,7 @@ _DATASET_CONFIG = {
         },
     },
     # AC_EXP05 — AC_EXP01 ratio73 멤버십을 AndroidWorld 정렬 절대 픽셀 (840×1876) 로
-    # 미러한 실험군. Qwen2.5-VL 전용 (factor 28 family). Stage 2 는 보류 (_STAGE1_ONLY).
+    # 미러한 실험군. Qwen2.5-VL 전용 (factor 28 family). Stage 2 도입됨 (stage2 YAML 생성).
     "AndroidControl_EXP05": {
         "lf_subfolder": "IWM-AC_EXP05",
         "ds_prefix": "IWM-AC_EXP05",
@@ -365,7 +365,7 @@ _DATASET_CONFIG = {
             "lr_scheduler_type": "cosine",
             "use_diff_token_weighted_loss": True,  # Stage 1 diff loss (state-pred 가중)
         },
-        # Stage 2 보류 — _STAGE1_ONLY guard 로 등록/YAML 생성 skip.
+        # Stage 2 도입 — _STAGE1_ONLY 에서 제거, stage2 YAML 정식 생성.
         "stage2": {
             "lr": "5.0e-5",
             "epochs": 3,
@@ -424,8 +424,8 @@ _DATASET_CONFIG = {
     },
 }
 
-# EXP04/EXP05 stage2 보류 — 데이터 도입 시 제거.
-_STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04", "AndroidControl_EXP05"}
+# EXP04 stage2 보류 — 데이터 도입 시 제거. (EXP05 는 stage2 도입 완료.)
+_STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04"}
 
 # ID/OOD split 없이 `implicit-world-modeling_stage{1,2}_test.jsonl` 단일 파일을 쓰는 DS.
 # `_STAGE1_ONLY` 와 직교 — MC 는 Stage 1 만 + 단일 test.

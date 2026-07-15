@@ -225,9 +225,9 @@ def test_family_eligibility(generated: dict[str, str]) -> None:
 
 
 def test_stage2_only_for_stage2_datasets(generated: dict[str, str]) -> None:
-    """_STAGE1_ONLY (MC / EXP04 / EXP05) 는 stage2 YAML 을 만들지 않는다."""
+    """_STAGE1_ONLY (MC / EXP04) 는 stage2 YAML 을 만들지 않는다."""
     for rel in generated:
-        if rel.startswith(("IWM-MC/", "IWM-AC_EXP04/", "IWM-AC_EXP05/")):
+        if rel.startswith(("IWM-MC/", "IWM-AC_EXP04/")):
             assert "/stage2_" not in rel, rel
 
 
@@ -330,13 +330,13 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
 
 
 def test_generated_count(generated: dict[str, str]) -> None:
-    """as-trained 74 − 자격박탈 2 + 신규 88 = 160.
+    """as-trained 74 − 자격박탈 2 + 신규 100 = 172.
 
     개수를 하드코딩하지 않는다 — 자격 정의(DATASET_MODEL_ELIGIBILITY)의 결과이지
     독립적 사실이 아니기 때문이다. 자격을 바꾸면 개수는 따라 바뀌는 게 정상이고,
     이 테스트가 잡아야 할 것은 "생성기가 자격과 어긋나게 만드는가" 다.
     """
-    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 88
+    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 100
 
     # 생성된 모든 YAML 이 자격 집합 안에 있는가 (자격 밖 조합을 만들지 않는가)
     for rel in generated:
