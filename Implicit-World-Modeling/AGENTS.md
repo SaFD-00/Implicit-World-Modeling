@@ -38,6 +38,7 @@
 13. **EXP05 bbox 채점은 pred 가 GT 와 같은 절대 픽셀 공간임을 가정한다.** 모델이 다른 좌표 공간으로 답하면 채점이 조용히 전부 오답이 된다. [§6 함정 18](./ARCHITECTURE.md#6-메트릭)
 14. **YAML 이 있다고 돌릴 수 있는 게 아니다.** 가드는 YAML 유무가 아니라 **dataset_info 등록 여부**를 본다 (`require_yaml` 이 내부에서 `require_dataset_registered` 를 호출한다 — [§3 함정 14](./ARCHITECTURE.md#3-데이터와-설정-계약)). EXP03/04 YAML 은 as-trained 가 아니라 **생성기 재구성본**이다 — [§7 함정 20](./ARCHITECTURE.md#7-중요한-운영-제약).
 15. **EXP05 는 로컬에서 학습할 수 없다** (OOM + 수일 단위 소요, 실측). 본 학습은 원격 A100/H100 — 단 제출 스크립트는 **UNVALIDATED** 다. [§7 함정 19](./ARCHITECTURE.md#7-중요한-운영-제약)
+15b. **EXP06 = EXP05 의 비증강 Stage-2 대조군**이다 (좌표/budget/`--coord-mode xy` 규약을 EXP05 에서 승계). 단 `lf_registry` 에 **미등록**이라 모델 자격 코드 가드 (하드 제약 2) 가 EXP06 에는 **걸리지 않는다** — Qwen2.5-VL family 는 관례일 뿐이다 (eval un-defer 시 등록 예정). [§2 자격 매트릭스 각주](./ARCHITECTURE.md#2-모델-설정)
 16. **`SMOKE=1` override 의 따옴표를 살려라.** OmegaConf 가 따옴표 없는 값을 boolean 으로 파싱해 HF 가 죽는다. [§4 함정 17](./ARCHITECTURE.md#4-파이프라인-컴포넌트)
 
 ### 인용 금지 (유령 참조)
