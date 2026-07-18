@@ -48,6 +48,12 @@ class SemanticElement:
     allowed_actions: tuple[str, ...]
     center: tuple[int, int]
     desc: str
+    # Content-free structural identity (tag:type:WxH for encoded elements, the
+    # scroll signature for scrollables). Siblings that differ only by content
+    # (list rows, contacts, media items) share it, so C1 sibling effect-skip /
+    # C1b struct-novelty ranking can treat them as one structural group. Engine-
+    # internal only: never leaked into signature, page_key, or persisted output.
+    struct_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -132,13 +138,17 @@ def _extract_elements(
         if not actions:
             continue
         index = int(index_attr)
+        bounds = bounds_by_index.get(index, "")
+        left, top, right, bottom = parse_bounds(bounds)
+        struct_key = f"{node.tag}:{node.attrib.get('type', '')}:{right - left}x{bottom - top}"
         elements.append(
             SemanticElement(
                 index=index,
                 signature=_signature(node, index),
                 allowed_actions=actions,
-                center=_center(bounds_by_index.get(index, "")),
+                center=_center(bounds),
                 desc=_describe(node),
+                struct_key=struct_key,
             )
         )
     return tuple(elements)
@@ -155,13 +165,15 @@ def _extract_scrollables(raw_xml: str) -> tuple[SemanticElement, ...]:
     tree = UITree.from_xml_string(raw_xml)
     scrollables: list[SemanticElement] = []
     for offset, element in enumerate(tree.get_scrollable_elements()):
+        signature = f"scroll:{element.resource_id}:{element.short_class}"
         scrollables.append(
             SemanticElement(
                 index=-(offset + 1),
-                signature=f"scroll:{element.resource_id}:{element.short_class}",
+                signature=signature,
                 allowed_actions=(SCROLL,),
                 center=element.center,
                 desc=f"<scroll>{element.display_name}</scroll>",
+                struct_key=signature,
             )
         )
     return tuple(scrollables)

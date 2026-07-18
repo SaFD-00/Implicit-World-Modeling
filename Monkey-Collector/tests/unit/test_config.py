@@ -195,6 +195,65 @@ def test_mc_config_path_env_respected(tmp_path, monkeypatch):
     assert cfg.exploration.strategy == "DFS"
 
 
+# ── exploration sibling-skip / struct-novelty knobs (C1/C1b) ──
+
+def test_sibling_knobs_default_off():
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.exploration.sibling_skip is False
+    assert cfg.exploration.sibling_skip_threshold == 4
+    assert cfg.exploration.struct_novelty_rank is False
+
+
+def test_sibling_knobs_yaml_override(tmp_path):
+    path = _write_yaml(
+        tmp_path,
+        (
+            "exploration:\n"
+            "  sibling_skip: true\n"
+            "  sibling_skip_threshold: 7\n"
+            "  struct_novelty_rank: true\n"
+        ),
+    )
+    cfg = load_run_config(path=path)
+    assert cfg.exploration.sibling_skip is True
+    assert cfg.exploration.sibling_skip_threshold == 7
+    assert cfg.exploration.struct_novelty_rank is True
+
+
+def test_sibling_knobs_env_override(monkeypatch):
+    monkeypatch.setenv("MC_EXPLORATION_SIBLING_SKIP", "on")
+    monkeypatch.setenv("MC_EXPLORATION_SIBLING_SKIP_THRESHOLD", "6")
+    monkeypatch.setenv("MC_EXPLORATION_STRUCT_NOVELTY_RANK", "true")
+    cfg = load_run_config(path=NONEXISTENT)
+    assert cfg.exploration.sibling_skip is True
+    assert cfg.exploration.sibling_skip_threshold == 6
+    assert cfg.exploration.struct_novelty_rank is True
+
+
+def test_sibling_skip_threshold_below_one_yaml_coerces_to_default(tmp_path):
+    # A threshold < 1 would let a single firing saturate (count > threshold),
+    # defeating the "observed repeatedly then skip" intent — coerce back to 4.
+    for bad in ("0", "-1"):
+        path = _write_yaml(tmp_path, f"exploration:\n  sibling_skip_threshold: {bad}\n")
+        cfg = load_run_config(path=path)
+        assert cfg.exploration.sibling_skip_threshold == 4
+
+
+def test_sibling_skip_threshold_below_one_env_coerces_to_default(monkeypatch):
+    for bad in ("0", "-1"):
+        monkeypatch.setenv("MC_EXPLORATION_SIBLING_SKIP_THRESHOLD", bad)
+        cfg = load_run_config(path=NONEXISTENT)
+        assert cfg.exploration.sibling_skip_threshold == 4
+
+
+def test_sibling_skip_threshold_valid_values_pass_through(tmp_path):
+    # 1 (the floor) and larger positives must survive the guard untouched.
+    for good in (1, 4, 50):
+        path = _write_yaml(tmp_path, f"exploration:\n  sibling_skip_threshold: {good}\n")
+        cfg = load_run_config(path=path)
+        assert cfg.exploration.sibling_skip_threshold == good
+
+
 # ── strategy validation / normalisation ──
 
 def test_invalid_strategy_falls_back_to_greedy(tmp_path):

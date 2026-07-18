@@ -207,3 +207,60 @@ def test_reset_revives_text_guarantee(mock_adb):
     assert _drive(explorer, SIMPLE_XML, 1)[0].action_type == "input_text"
     explorer.reset()
     assert _drive(explorer, SIMPLE_XML, 1)[0].action_type == "input_text"
+
+
+# ── 5) C1b struct-novelty ranking (default OFF) ──
+
+
+def test_candidate_score_off_returns_legacy_two_tuple():
+    # struct_novelty_rank OFF (default): the score is the unchanged legacy
+    # (novelty, type_prior) 2-tuple — no extra tier, byte-identical to R1.
+    memory = Memory()
+    state = _state(SIMPLE_XML)
+    memory.record_state(state)
+    fab = state.find_by_signature("button::Add new")  # untried tap
+    score = _candidate_score(memory, state, fab, TOUCH)
+    assert score == (1, 3)  # novelty=1 (unseen), type_prior=3 (tap)
+    assert len(score) == 2
+
+
+def test_struct_novelty_prefers_unseen_structure_when_on():
+    # struct_novelty_rank ON adds a top tier. Exercising "button::Search" marks
+    # its structure (button::156x120) seen, so its still-unexplored sibling
+    # "button::Add new" (same struct, novelty still 1) is out-ranked by a fresh
+    # structure — isolating the struct_novelty tier since novelty ties at 1.
+    memory = Memory(struct_novelty_rank=True)
+    src = _state(SIMPLE_XML)
+    dst = _state(SIMPLE_XML, SETTINGS)
+    memory.record_state(src)
+    memory.record_state(dst)
+    search = src.find_by_signature("button::Search")
+    memory.record_transition(src, search.signature, TOUCH, dst)
+
+    seen_struct = src.find_by_signature("button::Add new")  # struct seen, sig unseen
+    fresh_struct = SemanticElement(
+        index=9,
+        signature="button::Never seen",
+        allowed_actions=(TOUCH,),
+        center=(0, 0),
+        desc="",
+        struct_key="button::999x999",  # never exercised
+    )
+    seen_score = _candidate_score(memory, src, seen_struct, TOUCH)
+    fresh_score = _candidate_score(memory, src, fresh_struct, TOUCH)
+    assert len(seen_score) == 3 and len(fresh_score) == 3
+    assert seen_score[0] == 0 and fresh_score[0] == 1  # struct_novelty tier
+    assert seen_score[1] == fresh_score[1] == 1  # novelty ties → struct decides
+    assert fresh_score > seen_score
+
+
+def test_struct_novelty_on_same_seed_is_deterministic(mock_adb):
+    # Enabling the ranking tier must not break the seed-42 determinism guarantee.
+    def _sequence():
+        explorer = CoverageGuidedExplorer(
+            mock_adb, config={"seed": 42, "struct_novelty_rank": True}
+        )
+        actions = _drive(explorer, SIMPLE_XML, 20)
+        return [(a.action_type, a.element_index) for a in actions]
+
+    assert _sequence() == _sequence()
