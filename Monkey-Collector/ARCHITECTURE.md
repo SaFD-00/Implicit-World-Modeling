@@ -42,14 +42,14 @@
   - external app 감지 및 client-side 복구. `EXCLUDED_PACKAGES` 에 systemui/permissioncontroller/`com.monkey.collector` 와 함께 **`com.google.android.gms`/`gsf`/`com.android.vending`** 를 포함해, Google 로그인·Play 핸드오프 화면을 "외부 앱(타깃 이탈)"으로 처리한다 — 미포함 시 sign-in 핸드오프에서 외부앱 재실행 스톰이 발생했다.
   - 서버 드리븐 standby 루프: TCP 연결을 유지하며 서버의 `START {package}` 수신 시 `startCollection` 트리거, `SESSION_END` 수신 시 `stopCollection` 수행
 - `ScreenStabilizer.kt`
-  - 저해상도 프레임 비교 / 안정화 대기 / 시각 변화 판정 / first screen 판정
+  - 저해상도 프레임 비교(정수 BT.601 luminance diff 기반) / 안정화 대기 / 시각 변화 판정 / first screen 판정
   - MediaProjection 기반 *stabilization* VirtualDisplay 관리.
     - **동의 토큰은 모던 Android 에서 단발성**이라 세션마다 재사용 시 `createVirtualDisplay` 가 `SecurityException` 을 던진다 → `startCaptureSession` 은 ① reuse-guard(이미 projection+display 가 있으면 early-return) ② acquire/`createVirtualDisplay` try/catch 로 감싸 실패 시 imageReader/projection 정리 후 **return(=stabilization
       없이 graceful-degrade)**.
     - 과거엔 이 예외가 uncaught 라 2번째 세션에서 **client 프로세스가 사망** → 핸드셰이크 desync + signal timeout 연쇄였다.
     - 캡처 본체는 `AccessibilityService.takeScreenshot` 이라 stabilization 이 degrade 돼도 수집은 계속된다.
 - `BitmapComparator.kt`
-  - 프레임 diff 계산
+  - 프레임 diff 계산 — 정수 BT.601 luminance(`Y=(R*77+G*150+B*29)>>8`) 로 두 프레임을 비교해 per-pixel `|ΔY|>10`(strict) 인 픽셀의 changed fraction 을 돌려준다. exact-RGBA 동일성 비교를 대체한 always-on 메트릭(knob·플래그·폴백 없음)으로, threshold `10` 은 서버 Stage-0 `pipeline/screen_matching/luminance.py`/`config.py`(`luminance_threshold=10`) 계열과 cross-consistent 하다. size 불일치는 fail-safe `1.0f`. (`computeFrameHash` 는 별개 — oscillation 용 equality 해시라 손대지 않는다)
 - `ScreenCapture.kt`
   - `AccessibilityService.takeScreenshot()` 래퍼
 - `XmlDumper.kt`
@@ -213,7 +213,7 @@ Collector.run_queue(packages)
 
 ```
 [push] Android AccessibilityEvent
-  -> ScreenStabilizer 안정화 판단
+  -> ScreenStabilizer 안정화 판단 (BT.601 luminance diff 기반)
   -> no-change 이면 N signal
   -> 외부 앱 감지면 E signal
   -> 변화가 있으면 screenshot + XML + metadata 전송
