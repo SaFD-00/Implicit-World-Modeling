@@ -7,7 +7,11 @@ anonymous auth).
 Output layout (compatible with /setup-emulator):
 
     Monkey-Collector/catalog/apks/{package_id}.apk   # base APK only
-    Monkey-Collector/catalog/apks/MISSING.md          # per-source failure log
+    Monkey-Collector/catalog/apks/MISSING.json        # cumulative ledger (source of truth)
+    Monkey-Collector/catalog/apks/MISSING.md          # rendered view of the ledger
+
+The ledger is cumulative: a partial run (``--only`` / ``--source``) updates only
+the packages inside its own scope and never drops out-of-scope records.
 
 Run:
 
@@ -18,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import shutil
 import subprocess
 import sys
@@ -42,9 +47,20 @@ DEFAULT_PLAYSTORE_ARCH = "arm64"
 GPLAYDL_TIMEOUT_SEC = 300
 HTTP_CHUNK_BYTES = 65536
 
+MISSING_JSON_NAME = "MISSING.json"
+MISSING_MD_NAME = "MISSING.md"
+MISSING_SCHEMA_VERSION = 1
+MISSING_ENTRY_KEYS = ("source", "reason", "first_seen", "last_seen")
+SYSTEM_REASON = "platform built-in, not downloadable"
+_MISSING_SECTIONS = ("F-Droid", "PlayStore", "System")
+
 
 class DownloadError(Exception):
-    """Download failed for a recorded reason (logged and added to MISSING.md)."""
+    """Download failed for a recorded reason (logged and added to the ledger)."""
+
+
+class LedgerError(Exception):
+    """The MISSING.json ledger could not be read (never silently reset)."""
 
 
 @dataclass
@@ -256,52 +272,163 @@ def partition_jobs(
     return fdroid, playstore, system
 
 
-def render_missing_md(
+# ── Missing-APK ledger ─────────────────────────────────────────────────────
+# MISSING.json is the source of truth; MISSING.md is a rendered view of it.
+# F-Droid drops apps from its index without notice, so the local APK cache is
+# the only defence and this ledger is the record of what is *not* cached. It
+# must therefore survive partial runs: a `--only`/`--source` invocation may
+# only touch packages inside its own scope.
+
+
+def empty_ledger() -> dict:
+    return {"schema_version": MISSING_SCHEMA_VERSION, "entries": {}, "last_run": {}}
+
+
+def load_missing_ledger(path: Path) -> dict:
+    """Read the cumulative ledger.
+
+    An absent file is normal (fresh ledger). A corrupt file raises
+    ``LedgerError``: silently falling back to an empty ledger would reproduce
+    the very clobber this ledger exists to prevent. Validation reaches into
+    every entry, not just the top level, because syntactically valid JSON with
+    a broken entry would otherwise pass here and only blow up in
+    ``update_missing_ledger`` — i.e. *after* the downloads have written files.
+    Repair is deliberately manual: no defaults are filled in.
+    """
+    if not path.exists():
+        return empty_ledger()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise LedgerError(f"{path}: not valid JSON ({exc})") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), dict):
+        raise LedgerError(f"{path}: unexpected shape (no 'entries' object)")
+    for package_id, entry in data["entries"].items():
+        if not isinstance(package_id, str):
+            raise LedgerError(f"{path}: entry key {package_id!r} is not a string")
+        if not isinstance(entry, dict):
+            raise LedgerError(
+                f"{path}: entry '{package_id}' is {type(entry).__name__}, expected an object"
+            )
+        for key in MISSING_ENTRY_KEYS:
+            if key not in entry:
+                raise LedgerError(f"{path}: entry '{package_id}' is missing '{key}'")
+            if not isinstance(entry[key], str):
+                raise LedgerError(
+                    f"{path}: entry '{package_id}' field '{key}' is "
+                    f"{type(entry[key]).__name__}, expected a string"
+                )
+    data.setdefault("schema_version", MISSING_SCHEMA_VERSION)
+    data.setdefault("last_run", {})
+    return data
+
+
+def update_missing_ledger(
+    ledger: dict,
     *,
-    abi: str,
-    playstore_arch: str,
-    total_targets: int,
-    downloaded: int,
-    skipped: int,
     results: list[DownloadResult],
-    system_skipped: list[AppJob],
-    generated_at: datetime | None = None,
-) -> str:
-    now = generated_at or datetime.now(timezone.utc)
-    failed = [r for r in results if r.status == "failed"]
-    by_source: dict[str, list[DownloadResult]] = {"F-Droid": [], "PlayStore": []}
-    for r in failed:
-        by_source.setdefault(r.source, []).append(r)
+    system_jobs: list[AppJob],
+    scope_ids: set[str],
+    apks_dir: Path,
+    now: datetime | None = None,
+) -> dict:
+    """Merge one run's outcome into the ledger, touching in-scope packages only."""
+    stamp = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    entries: dict[str, dict] = {k: dict(v) for k, v in (ledger.get("entries") or {}).items()}
 
-    lines: list[str] = []
-    lines.append("# Missing APKs")
-    lines.append("")
-    lines.append(f"- Generated: {now.isoformat(timespec='seconds')}")
-    lines.append(f"- Target ABI (F-Droid filter): `{abi}`")
-    lines.append(f"- PlayStore gplaydl arch: `{playstore_arch}`")
-    lines.append(f"- Total targets: {total_targets}")
-    lines.append(f"- Downloaded: {downloaded}")
-    lines.append(f"- Skipped (already present): {skipped}")
-    lines.append(f"- Failed: {len(failed)}")
-    lines.append(f"- System (skipped, not downloadable): {len(system_skipped)}")
+    def upsert(package_id: str, source: str, reason: str) -> None:
+        prev = entries.get(package_id) or {}
+        entries[package_id] = {
+            "source": source,
+            "reason": reason,
+            "first_seen": prev.get("first_seen") or stamp,
+            "last_seen": stamp,
+        }
+
+    for r in results:
+        if r.status == "failed" and r.package_id in scope_ids:
+            upsert(r.package_id, r.source, r.reason)
+
+    system_ids = {j.package_id for j in system_jobs}
+    for job in system_jobs:
+        upsert(job.package_id, "System", SYSTEM_REASON)
+
+    # Resolution. The ledger means "not held locally", not "last attempt
+    # failed" — any in-scope package whose APK exists at run end is dropped,
+    # which covers fresh downloads and already-present skips alike. System
+    # entries are never resolvable.
+    for package_id in sorted(scope_ids - system_ids):
+        if package_id in entries and (apks_dir / f"{package_id}.apk").exists():
+            del entries[package_id]
+
+    out = dict(ledger)
+    out["schema_version"] = MISSING_SCHEMA_VERSION
+    out["entries"] = entries
+    return out
+
+
+def render_missing_md(ledger: dict) -> str:
+    """Render the whole ledger; sections are omitted when empty."""
+    entries = ledger.get("entries") or {}
+    run = ledger.get("last_run") or {}
+    scope = run.get("scope") or {}
+    only = list(scope.get("only") or [])
+
+    by_source: dict[str, list[tuple[str, dict]]] = {}
+    for package_id, entry in entries.items():
+        by_source.setdefault(entry.get("source") or "Unknown", []).append((package_id, entry))
+
+    lines: list[str] = ["# Missing APKs", ""]
+    lines.append(f"- Generated: {run.get('generated', '')}")
+    lines.append(f"- Target ABI (F-Droid filter): `{run.get('abi', '')}`")
+    lines.append(f"- PlayStore gplaydl arch: `{run.get('playstore_arch', '')}`")
+    lines.append(
+        f"- Last run scope: source=`{scope.get('source', 'all')}`, "
+        f"only=`{','.join(only) if only else '(none)'}`"
+    )
+    lines.append(f"- Total targets: {run.get('total_targets', 0)}")
+    lines.append(f"- Downloaded: {run.get('downloaded', 0)}")
+    lines.append(f"- Skipped (already present): {run.get('skipped', 0)}")
+    lines.append(f"- Failed: {run.get('failed', 0)}")
+    lines.append(f"- Missing (ledger total): {len(entries)}")
     lines.append("")
 
-    for src in ("F-Droid", "PlayStore"):
-        items = by_source.get(src, [])
+    section_names = list(_MISSING_SECTIONS) + sorted(set(by_source) - set(_MISSING_SECTIONS))
+    for src in section_names:
+        items = sorted(by_source.get(src, []), key=lambda kv: kv[0])
         if not items:
             continue
         lines.append(f"## {src} ({len(items)})")
-        for r in items:
-            lines.append(f"- `{r.package_id}` — {r.reason}")
-        lines.append("")
-
-    if system_skipped:
-        lines.append(f"## System ({len(system_skipped)})")
-        for job in system_skipped:
-            lines.append(f"- `{job.package_id}` — platform built-in, not downloadable")
+        for package_id, entry in items:
+            first = (entry.get("first_seen") or "")[:10]
+            last = (entry.get("last_seen") or "")[:10]
+            lines.append(
+                f"- `{package_id}` — {entry.get('reason', '')} "
+                f"(first seen: {first}, last seen: {last})"
+            )
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        # A successful replace() already moved it; this only fires on failure,
+        # where a stale .tmp would otherwise linger next to the ledger.
+        tmp.unlink(missing_ok=True)
+
+
+def write_missing_outputs(apks_dir: Path, ledger: dict) -> tuple[Path, Path]:
+    """Persist the ledger (JSON first, then its rendered view)."""
+    json_path = apks_dir / MISSING_JSON_NAME
+    md_path = apks_dir / MISSING_MD_NAME
+    _atomic_write_text(json_path, json.dumps(ledger, indent=2, sort_keys=True) + "\n")
+    _atomic_write_text(md_path, render_missing_md(ledger))
+    return json_path, md_path
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -352,6 +479,15 @@ def main(argv: list[str] | None = None) -> int:
         for job in fdroid_jobs + playstore_jobs:
             print(f"{job.source}\t{job.package_id}")
         return 0
+
+    # Load before downloading: a corrupt ledger must abort the run before any
+    # file is written, rather than reset the record of what is missing.
+    try:
+        ledger = load_missing_ledger(apks_dir / MISSING_JSON_NAME)
+    except LedgerError as exc:
+        logger.error(f"refusing to run: {exc}")
+        logger.error("fix or delete the ledger by hand; no files were written")
+        return 2
 
     def needs_download(job: AppJob) -> bool:
         dest = apks_dir / f"{job.package_id}.apk"
@@ -404,19 +540,25 @@ def main(argv: list[str] | None = None) -> int:
     downloaded = sum(1 for r in results if r.status == "downloaded")
     failed = sum(1 for r in results if r.status == "failed")
 
-    missing_md = apks_dir / "MISSING.md"
-    missing_md.write_text(
-        render_missing_md(
-            abi=args.abi,
-            playstore_arch=args.playstore_arch,
-            total_targets=total,
-            downloaded=downloaded,
-            skipped=skipped,
-            results=results,
-            system_skipped=system_jobs,
-        ),
-        encoding="utf-8",
+    scope_ids = {j.package_id for j in fdroid_jobs + playstore_jobs + system_jobs}
+    ledger = update_missing_ledger(
+        ledger,
+        results=results,
+        system_jobs=system_jobs,
+        scope_ids=scope_ids,
+        apks_dir=apks_dir,
     )
+    ledger["last_run"] = {
+        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "abi": args.abi,
+        "playstore_arch": args.playstore_arch,
+        "scope": {"source": args.source, "only": sorted(only) if only else []},
+        "total_targets": total,
+        "downloaded": downloaded,
+        "skipped": skipped,
+        "failed": failed,
+    }
+    missing_json, missing_md = write_missing_outputs(apks_dir, ledger)
 
     print()
     print("=== download-apks summary ===")
@@ -425,6 +567,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"skipped:     {skipped}   (already present)")
     print(f"failed:      {failed}")
     print(f"system:      {len(system_jobs)}   (not downloadable)")
+    print(f"missing:     {len(ledger['entries'])} in ledger ({missing_json})")
     print(f"missing log: {missing_md}")
     return 0 if failed == 0 else 1
 

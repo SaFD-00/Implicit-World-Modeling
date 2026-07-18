@@ -382,7 +382,7 @@ Monkey-Collector/
 │
 ├── catalog/                          # 앱 카탈로그
 │   ├── apps.csv
-│   ├── apks/                         # *.apk + MISSING.md
+│   ├── apks/                         # *.apk + MISSING.json (누적 대장) + MISSING.md (렌더 뷰)
 │   ├── activities.json               # androguard 추출 manifest activity (coverage ground truth)
 │   ├── download_apks.py
 │   └── extract_activities.py         # apks/*.apk → activities.json
