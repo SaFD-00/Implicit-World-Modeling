@@ -228,3 +228,42 @@ def test_sibling_skip_flips_has_unvisited_to_false(mock_adb):
 
     # The last frontier action is now sibling-skipped → nothing unvisited.
     assert explorer.has_unvisited(tree, None) is False
+
+
+# ── telemetry: the hard skip must be observable (ablation validity gate) ──
+
+
+def test_skip_telemetry_counts_firings_and_starts_at_zero():
+    # The hard skip is otherwise silent. Without a counter an ablation cannot
+    # prove the ON arm ever diverged from the OFF arm.
+    memory = Memory(sibling_skip=True)
+    src = _state(SIMPLE_XML)
+    dst = _state(COMPLEX_XML, SETTINGS)
+    memory.record_state(src)
+    memory.record_state(dst)
+    assert memory.sibling_skips == 0
+
+    search = src.find_by_signature("button::Search")
+    for _ in range(5):
+        memory.record_transition(src, search.signature, TOUCH, dst)
+
+    # Building the frontier now hard-skips the saturated sibling, and the skip
+    # is counted rather than dropped silently.
+    _frontier_pairs(memory, src)
+    assert memory.sibling_skips > 0
+
+
+def test_skip_telemetry_stays_zero_when_knob_off():
+    # OFF arm must report exactly zero — that is what makes a non-zero count on
+    # the ON arm evidence of a real behavioural difference.
+    memory = Memory()
+    src = _state(SIMPLE_XML)
+    dst = _state(COMPLEX_XML, SETTINGS)
+    memory.record_state(src)
+    memory.record_state(dst)
+    search = src.find_by_signature("button::Search")
+    for _ in range(10):
+        memory.record_transition(src, search.signature, TOUCH, dst)
+
+    _frontier_pairs(memory, src)
+    assert memory.sibling_skips == 0

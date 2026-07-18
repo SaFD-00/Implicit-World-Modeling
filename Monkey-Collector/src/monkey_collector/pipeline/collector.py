@@ -227,6 +227,12 @@ class Collector:
             run_collection_loop(self, state, package)
         finally:
             finalize_session(self, session_id)
+            # C1 telemetry (observation only). Emitted before the next session's
+            # reset() discards this Memory, so an ablation can tell "under
+            # threshold" apart from "multi-destination, permanent non-skip".
+            memory = getattr(self.explorer, "_memory", None)
+            if memory is not None and hasattr(memory, "log_effect_summary"):
+                memory.log_effect_summary()
 
         logger.info(
             f"Session complete: {session_id} | "

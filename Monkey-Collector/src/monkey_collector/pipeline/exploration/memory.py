@@ -13,6 +13,8 @@ Core ideas preserved:
 
 from __future__ import annotations
 
+from loguru import logger
+
 from monkey_collector.pipeline.exploration.state import (
     LONG_TOUCH,
     TOUCH,
@@ -55,6 +57,14 @@ class Memory:
         self._sibling_skip = sibling_skip
         self._sibling_skip_threshold = sibling_skip_threshold
         self._struct_novelty_rank = struct_novelty_rank
+
+        # Telemetry (observation only — never read by exploration logic). The
+        # hard skip is otherwise silent, so an ablation cannot prove the ON arm
+        # actually differed from the OFF arm. Counts every skip event and logs
+        # the first one per group (this runs once per candidate per step, so
+        # per-event logging would flood).
+        self.sibling_skips: int = 0
+        self._sibling_skip_logged: set[tuple[str, str, str]] = set()
 
     # -- observation ----------------------------------------------------------
 
@@ -174,6 +184,47 @@ class Memory:
 
     # -- internals ------------------------------------------------------------
 
+    def log_effect_summary(self, top: int = 10) -> None:
+        """Log how close structural sibling groups came to saturating.
+
+        Telemetry only. Without it a session that never hard-skips is
+        uninterpretable: "no skip because groups stayed under the threshold"
+        and "no skip because every group reached two-or-more destinations"
+        (permanent non-skip BY DESIGN) look identical from the outside.
+
+        The effect log is populated regardless of the knobs, so this reports
+        the same diagnostic for an OFF session — i.e. how many groups WOULD
+        have saturated had the knob been on.
+        """
+        if not self._effect_counts:
+            logger.info("[C1] effect-log summary: empty (no attributed transitions)")
+            return
+        would_saturate = sum(
+            1
+            for key, count in self._effect_counts.items()
+            if count > self._sibling_skip_threshold and len(self._effects.get(key, set())) == 1
+        )
+        logger.info(
+            "[C1] effect-log summary: groups={} would_saturate={} skips_fired={} "
+            "threshold={} sibling_skip={}",
+            len(self._effect_counts),
+            would_saturate,
+            self.sibling_skips,
+            self._sibling_skip_threshold,
+            self._sibling_skip,
+        )
+        ranked = sorted(self._effect_counts.items(), key=lambda kv: kv[1], reverse=True)
+        for (page_key, struct_key, action), count in ranked[:top]:
+            dests = len(self._effects.get((page_key, struct_key, action), set()))
+            logger.info(
+                "[C1]   fired={} dests={} action={} page={} struct={}",
+                count,
+                dests,
+                action,
+                page_key,
+                struct_key,
+            )
+
     def _blocked_pairs(self, page_key: str) -> set[tuple[str, str]]:
         return self._explored.get(page_key, set()) | self._nav_failed.get(page_key, set())
 
@@ -192,7 +243,22 @@ class Memory:
         if not self._sibling_skip or not struct_key:
             return False
         key = (page_key, struct_key, action_type)
-        return (
+        saturated = (
             self._effect_counts.get(key, 0) > self._sibling_skip_threshold
             and len(self._effects.get(key, set())) == 1
         )
+        # Telemetry only — the return value above is already decided.
+        if saturated:
+            self.sibling_skips += 1
+            if key not in self._sibling_skip_logged:
+                self._sibling_skip_logged.add(key)
+                logger.info(
+                    "[C1] sibling skip fired: page={} struct={} action={} "
+                    "fired={} dest={}",
+                    page_key,
+                    struct_key,
+                    action_type,
+                    self._effect_counts.get(key, 0),
+                    next(iter(self._effects.get(key, set())), ""),
+                )
+        return saturated
