@@ -21,7 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Ported from computer-use-preview-for-mobile's Screen_Service.kt.
  * Captures low-resolution frames (100px wide) and compares consecutive
- * frames to detect when the screen has stopped changing (animations complete).
+ * frames via integer BT.601 luminance diff (BitmapComparator.compare) to
+ * detect when the screen has stopped changing (animations complete).
  */
 class ScreenStabilizer(
     private val screenWidth: Int,
@@ -31,7 +32,16 @@ class ScreenStabilizer(
     companion object {
         private const val TAG = "ScreenStabilizer"
         const val TARGET_WIDTH = 100
-        const val STABILITY_THRESHOLD = 0.015f   // 1.5% pixel difference (stricter)
+        // Fraction of pixels whose BT.601 luminance changed by > LUMINANCE_THRESHOLD
+        // (BitmapComparator now measures luminance diff, not exact RGBA). These
+        // fraction thresholds are deliberately kept unchanged: adding luminance
+        // tolerance only *removes* pixels from the changed count (|ΔY|≤10 no longer
+        // counts; nothing new is ever added), so it monotonically relaxes every
+        // decision — exactly the intended noise-desensitisation. Not adopting the
+        // reference's 0.02 either: this repo already runs a stricter streak
+        // (7 frames @300ms vs 3 @500ms), and changing metric + threshold together
+        // would make the resulting behaviour change unattributable (single variable).
+        const val STABILITY_THRESHOLD = 0.015f   // 1.5% luminance-changed fraction (stricter)
         const val FIRST_SCREEN_THRESHOLD = 0.05f // 5% — more lenient for first screen comparison
         const val REQUIRED_STABLE_FRAMES = 7     // 7 consecutive stable frames
         const val MAX_ATTEMPTS = 60              // ~19s max (1000ms initial + 60 × 300ms)

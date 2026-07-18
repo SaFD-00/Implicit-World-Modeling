@@ -1,20 +1,43 @@
 package com.monkey.collector
 
 import android.graphics.Bitmap
+import kotlin.math.abs
 
 /**
- * Compare two bitmaps to measure visual difference.
+ * Compare two low-resolution capture frames to measure visual difference.
  *
- * Ported from computer-use-preview-for-mobile's compareBitmapsKotlin().
- * Uses simple per-pixel RGBA comparison on low-resolution bitmaps.
+ * Ported from computer-use-preview-for-mobile's compareBitmapsKotlin(), but the
+ * original exact-RGBA equality check was replaced with an integer BT.601
+ * luminance comparison: each pixel is reduced to Y = (R*77 + G*150 + B*29) >> 8
+ * (77/150/29 over 256 ≈ the 0.299/0.587/0.114 BT.601 luma weights) and a pixel
+ * counts as changed only when its luminance differs by more than
+ * LUMINANCE_THRESHOLD. This makes the settle metric ignore sub-threshold
+ * rendering noise (single-LSB channel jitter) instead of tripping on it, and
+ * puts the client settle decision in the same family as the server-side Stage-0
+ * luminance prefilter (src/monkey_collector/pipeline/screen_matching/luminance.py).
+ * Always on: there is no knob, flag, or exact-RGBA fallback path.
  */
 object BitmapComparator {
 
     /**
-     * Compare two bitmaps and return the fraction of differing pixels.
+     * Per-pixel BT.601 luminance delta (0–255) above which a pixel is counted as
+     * changed. Value 10 matches the reference implementation and stays cross-
+     * consistent with the server-side Stage-0 primitive
+     * (src/monkey_collector/config.py: luminance_threshold = 10), so the client
+     * settle check and the server identical-page prefilter use the same tolerance.
+     */
+    const val LUMINANCE_THRESHOLD = 10
+
+    /**
+     * Compare two frames and return the fraction of perceptually-changed pixels.
      *
-     * @return 0.0f (identical) to 1.0f (completely different).
-     *         Returns 1.0f if dimensions don't match.
+     * Each pixel's integer BT.601 luminance is compared; a pixel counts as changed
+     * only when abs(yA - yB) > LUMINANCE_THRESHOLD (strict — a delta equal to the
+     * threshold does NOT count). Alpha is ignored, which is harmless because the
+     * frames are opaque captures, so no separate alpha handling is needed.
+     *
+     * @return 0.0f (no pixel changed beyond threshold) to 1.0f (every pixel changed).
+     *         Returns 1.0f if dimensions don't match (fail-safe: treat as changed).
      */
     fun compare(bitmapA: Bitmap, bitmapB: Bitmap): Float {
         if (bitmapA.width != bitmapB.width || bitmapA.height != bitmapB.height) {
@@ -33,7 +56,17 @@ object BitmapComparator {
 
         var diffCount = 0
         for (i in 0 until size) {
-            if (pixelsA[i] != pixelsB[i]) {
+            val a = pixelsA[i]
+            val b = pixelsB[i]
+            // Integer BT.601 luma: Y = (R*77 + G*150 + B*29) >> 8. Channel layout
+            // matches Bitmap.getPixels()/computeFrameHash (bits 16/8/0 = R/G/B).
+            val yA = (((a shr 16) and 0xFF) * 77 +
+                ((a shr 8) and 0xFF) * 150 +
+                (a and 0xFF) * 29) shr 8
+            val yB = (((b shr 16) and 0xFF) * 77 +
+                ((b shr 8) and 0xFF) * 150 +
+                (b and 0xFF) * 29) shr 8
+            if (abs(yA - yB) > LUMINANCE_THRESHOLD) {
                 diffCount++
             }
         }
