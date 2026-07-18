@@ -43,12 +43,18 @@ def _drive(explorer: CoverageGuidedExplorer, xml: str, steps: int) -> list:
 # ── 1) type_prior: tap outranks a text entry on the same screen ──
 
 
-def test_type_prior_touch_selected_before_set_text(mock_adb):
-    # SIMPLE_XML has both tap buttons (search/fab) and a SET_TEXT search field.
-    # The first pick must be a tap: touch has the highest type_prior.
+def test_type_prior_returns_after_text_guarantee_is_spent(mock_adb):
+    # SPEC CHANGE (W1 once-per-page SET_TEXT guarantee): the FIRST frontier pick
+    # on a screen with an editable field is now elevated to input_text so the
+    # corpus captures a typing→screen-change transition. The guarantee is
+    # one-shot, so pick 2 returns to normal type_prior ranking, where a tap
+    # (highest type_prior) outranks the now-spent search field.
+    #   Was: "first pick must be a tap" — that contract is intentionally
+    #   superseded by the guarantee and is retained here as pick 2's behaviour.
     explorer = _explorer(mock_adb)
-    first = _drive(explorer, SIMPLE_XML, 1)[0]
-    assert first.action_type == "tap"
+    picks = _drive(explorer, SIMPLE_XML, 2)
+    assert picks[0].action_type == "input_text"  # W1 guarantee fires first
+    assert picks[1].action_type == "tap"  # type_prior resumes once spent
 
 
 def test_type_prior_ordering_is_lexicographic():
@@ -148,3 +154,56 @@ def test_same_seed_yields_identical_action_sequence(mock_adb):
         return [(a.action_type, a.element_index) for a in actions]
 
     assert _sequence() == _sequence()
+
+
+# ── 4) W1 once-per-page SET_TEXT guarantee ──
+
+
+def test_frontier_first_pick_is_text_entry(mock_adb):
+    # W1: an editable screen must contribute a typing→screen-change transition,
+    # so the very first frontier pick is elevated to the field's input_text
+    # (despite SET_TEXT being the lowest type_prior).
+    explorer = _explorer(mock_adb)
+    first = _drive(explorer, SIMPLE_XML, 1)[0]
+    assert first.action_type == "input_text"
+
+
+def test_text_guarantee_is_one_shot_per_page(mock_adb):
+    # A single editable field yields exactly one input_text across a full
+    # session: elevated once, then never re-summoned — the field is explored and
+    # the page spent, and the non-root fallback presses back rather than
+    # re-tapping the search box.
+    explorer = _explorer(mock_adb)
+    types = [a.action_type for a in _drive(explorer, SIMPLE_XML, 12)]
+    assert types[0] == "input_text"
+    assert types.count("input_text") == 1
+
+
+def test_emit_marks_page_spent_and_suppresses_elevation(mock_adb):
+    # The guarantee is spent in _emit, not at elevation time: once ANY set_text
+    # is emitted for a page_key, _pick_unexplored stops elevating text on that
+    # page — even while an unexplored SET_TEXT candidate is still present.
+    explorer = _explorer(mock_adb)
+    explorer.set_screen_context(SIMPLE_XML, ACTIVITY, PACKAGE)
+    state = _state(SIMPLE_XML)
+    explorer._memory.record_state(state)
+
+    pick1 = explorer._pick_unexplored(state)
+    assert pick1[1] == SET_TEXT  # elevation fires on the fresh page
+
+    explorer._emit(state, *pick1)  # spends the guarantee via _emit
+    assert state.page_key in explorer._text_spent
+
+    # The field's SET_TEXT is still unexplored in memory, but the page is spent,
+    # so the next pick falls through to normal ranking (a tap outranks it).
+    pick2 = explorer._pick_unexplored(state)
+    assert pick2[1] == TOUCH
+
+
+def test_reset_revives_text_guarantee(mock_adb):
+    # reset() clears the spent-page set (and the per-session memory), so a fresh
+    # session re-guarantees the text entry on the same screen.
+    explorer = _explorer(mock_adb)
+    assert _drive(explorer, SIMPLE_XML, 1)[0].action_type == "input_text"
+    explorer.reset()
+    assert _drive(explorer, SIMPLE_XML, 1)[0].action_type == "input_text"

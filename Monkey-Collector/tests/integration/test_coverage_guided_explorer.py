@@ -89,6 +89,36 @@ def test_input_only_root_fallback_still_yields_action(mock_adb):
     assert "input_text" in fallback_types
 
 
+def test_fallback_set_text_also_spends_page_guarantee(mock_adb):
+    # W1: the once-per-page SET_TEXT *elevation* guard is spent in _emit, so a
+    # set_text emitted by the input-only *fallback* re-summon — not only by
+    # frontier elevation — also marks the page spent. This suppresses future
+    # re-elevation regardless of which path produced the text entry. It does NOT
+    # cap the absolute input_text count: an input-only fallback screen keeps
+    # emitting input_text by design (see test_input_only_root_fallback_*), and
+    # that only ever adds more text data — never keyboard-drift, since demotion
+    # fires the input solely when nothing else is actionable.
+    explorer = _explorer(mock_adb)
+    tree = _on_input_only_screen(explorer)
+
+    # Drain the frontier (step 1 elevates the field; the transition marking the
+    # field explored lands a step late, so drive a few steps to convergence).
+    for _ in range(3):
+        explorer.select_action(tree, is_root_screen=True)
+    assert explorer.has_unvisited(tree, None) is False
+    page_key = explorer._current_state.page_key
+    assert page_key in explorer._text_spent
+
+    # Clear the guard, then take one more step. The frontier is empty, so
+    # select_action falls through to _fallback, which re-selects the lone input
+    # (demotion-not-exclusion). Its set_text emission re-marks the page spent —
+    # i.e. the fallback path honours the guarantee, not only elevation.
+    explorer._text_spent.clear()
+    action = explorer.select_action(tree, is_root_screen=True)
+    assert action.action_type == "input_text"
+    assert page_key in explorer._text_spent
+
+
 def test_frontier_text_input_still_selected(mock_adb):
     # Cross-app regression guard: demotion lives only in _fallback. While the
     # frontier still has unexplored actions, the normal path (_pick_unexplored)

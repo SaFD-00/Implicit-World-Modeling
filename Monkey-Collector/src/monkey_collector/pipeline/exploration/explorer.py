@@ -165,6 +165,9 @@ class CoverageGuidedExplorer:
         self._current_state: SemanticState | None = None
         self._last_record: tuple[SemanticState, str, str] | None = None
 
+        # Pages (page_key) whose once-per-session SET_TEXT guarantee is spent.
+        self._text_spent: set[str] = set()
+
     # -- context & lifecycle --------------------------------------------------
 
     def set_screen_context(
@@ -198,6 +201,7 @@ class CoverageGuidedExplorer:
         self._page_key = ""
         self._current_state = None
         self._last_record = None
+        self._text_spent = set()
 
     # -- action selection -----------------------------------------------------
 
@@ -253,6 +257,19 @@ class CoverageGuidedExplorer:
         rank within the pool by the lexicographic ``_candidate_score``
         (novelty > type_prior); the seeded rng only breaks exact ties, so a
         fixed seed still yields a fully deterministic action sequence.
+
+        W1 once-per-page SET_TEXT guarantee: the first time a screen carrying an
+        editable field reaches the frontier, a text entry is elevated ahead of
+        the normal ranking. SET_TEXT is the lowest ``_TYPE_PRIOR`` and the rank
+        1 tap usually leaves the screen, so an editable page would otherwise be
+        abandoned before its ``input_text`` transition is ever collected. The
+        *elevation* is capped at one per ``page_key`` per session — marked in
+        :meth:`_emit`, so a set_text reached via navigation, fallback, or normal
+        ranking spends it too. (This caps the re-elevation, not the absolute
+        input_text count: an input-only ``_fallback`` screen still re-emits by
+        design, which only adds text data.) Trade-off: typing is pulled to the
+        start of a page's exploration; once spent the field is filtered out and
+        the remaining actions explore under the normal ranking.
         """
         candidates = [
             (element, action_type)
@@ -260,9 +277,20 @@ class CoverageGuidedExplorer:
         ]
         if not candidates:
             return None
+        # W1: elevate an unexplored text entry on the page's first frontier visit.
+        if state.page_key not in self._text_spent:
+            text = [c for c in candidates if c[1] == SET_TEXT]
+            if text:
+                return self._best_of(state, text)
         # Prefer non-long-press actions; long_touch is a low-value follow-up.
         primary = [c for c in candidates if c[1] != LONG_TOUCH]
         pool = primary or candidates
+        return self._best_of(state, pool)
+
+    def _best_of(
+        self, state: SemanticState, pool: list[tuple[SemanticElement, str]]
+    ) -> tuple[SemanticElement, str]:
+        """Highest ``_candidate_score`` choice in *pool*; seeded rng breaks exact ties."""
         scored = [
             (_candidate_score(self._memory, state, element, action_type), (element, action_type))
             for element, action_type in pool
@@ -318,6 +346,11 @@ class CoverageGuidedExplorer:
         action_type: str,
     ) -> Action:
         """Record the chosen action for later attribution and build it."""
+        if action_type == SET_TEXT:
+            # Spend the once-per-page text guarantee. Marked here (not at
+            # elevation time) so a set_text reached via navigation, fallback, or
+            # normal ranking also caps the page at one text entry per session.
+            self._text_spent.add(state.page_key)
         self._last_record = (state, element.signature, action_type)
         return self._action_mapper.to_domain_action(action_type, element, self._raw_xml)
 
