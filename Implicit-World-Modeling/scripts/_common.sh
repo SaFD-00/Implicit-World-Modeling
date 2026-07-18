@@ -167,6 +167,7 @@ declare -A DS_PREFIX=(
   [AC_EXP03]="IWM-AC_EXP03"
   [AC_EXP04]="IWM-AC_EXP04"
   [AC_EXP05]="IWM-AC_EXP05"
+  [AC_EXP06]="IWM-AC_EXP06"
   [MC]="IWM-MC"
 )
 declare -A HF_SLUG=(
@@ -178,6 +179,7 @@ declare -A HF_SLUG=(
   [AC_EXP03]="ac-exp03-"
   [AC_EXP04]="ac-exp04-"
   [AC_EXP05]="ac-exp05-"
+  [AC_EXP06]="ac-exp06-"
   [MC]="mc-"
 )
 declare -A DS_DATADIR=(
@@ -198,6 +200,8 @@ declare -A DS_DATADIR=(
   # AC_EXP05 = AC_EXP01 ratio73 멤버십의 절대 픽셀(840×1876, budget 1605632) 미러 — scripts/mirror_experiment.py --experiment exp05.
   # Qwen2.5-VL 전용. stage1 7종만, Stage 2 보류.
   [AC_EXP05]="AndroidControl_EXP05"
+  # AC_EXP06 = EXP05 계열(절대 픽셀 xy) 비증강 대조군, Stage 2 전용.
+  [AC_EXP06]="AndroidControl_EXP06"
   [MC]="MonkeyCollection"
 )
 
@@ -213,6 +217,7 @@ ds_outputs_code() {
     AC_EXP03) echo "AndroidControl_EXP03" ;;
     AC_EXP04) echo "AndroidControl_EXP04" ;;
     AC_EXP05) echo "AndroidControl_EXP05" ;;
+    AC_EXP06) echo "AndroidControl_EXP06" ;;
     *) echo "$1" ;;
   esac
 }
@@ -387,6 +392,7 @@ EOF
     AC_EXP03) DATASETS=(AC_EXP03) ;;
     AC_EXP04) DATASETS=(AC_EXP04) ;;
     AC_EXP05) DATASETS=(AC_EXP05) ;;
+    AC_EXP06) DATASETS=(AC_EXP06) ;;
     MC)       DATASETS=(MC) ;;
     AC_EXP01)
       DATASETS=()
@@ -513,7 +519,7 @@ EOF
     echo "Error: --train-dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC)." >&2; exit 2
   fi
   case "$train_arg" in
-    AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|MC) TRAIN_DATASET="$train_arg" ;;
+    AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|MC) TRAIN_DATASET="$train_arg" ;;
     AC_EXP01)
       # AC_EXP01 은 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
       # 미지정 시 ratio55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
@@ -550,7 +556,7 @@ EOF
     fi
     for _d in "${EVAL_DATASETS[@]}"; do
       case "$_d" in
-        AC_EXP01|AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|MC|MB) ;;
+        AC_EXP01|AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|MC|MB) ;;
         *) echo "Error: --eval-datasets item '$_d' invalid (use AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC | MB)." >&2; exit 2 ;;
       esac
     done
@@ -986,7 +992,7 @@ build_infer_cmd() {
   # 상향(잘림 0), 그 외는 8192. vLLM max_model_len = cutoff + max_new_tokens 증가 →
   # KV cache 메모리↑/throughput↓ (필요 시 VLLM_GPU_MEM_UTIL 로 보정).
   local infer_cutoff=8192
-  if [[ "$ds_name" == IWM-AC_EXP03* || "$ds_name" == IWM-AC_EXP04* || "$ds_name" == IWM-AC_EXP05* ]]; then
+  if [[ "$ds_name" == IWM-AC_EXP03* || "$ds_name" == IWM-AC_EXP04* || "$ds_name" == IWM-AC_EXP05* || "$ds_name" == IWM-AC_EXP06* ]]; then
     infer_cutoff=24576
   fi
   INFER_CMD="python scripts/vllm_infer.py \
