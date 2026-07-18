@@ -1,0 +1,162 @@
+{
+  "entries": {
+    "cc.dict": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "gplaydl rc=1: App not found: cc.dict",
+      "source": "PlayStore"
+    },
+    "com.android.settings": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "platform built-in, not downloadable",
+      "source": "System"
+    },
+    "com.androidfromhome.unitconverter": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: com.androidfromhome.unitconverter",
+      "source": "F-Droid"
+    },
+    "com.ethereal.openscan": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: com.ethereal.openscan",
+      "source": "F-Droid"
+    },
+    "com.foobnix.pdf.reader": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: com.foobnix.pdf.reader",
+      "source": "F-Droid"
+    },
+    "com.google.android.apps.flights": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "gplaydl rc=1: App not found: com.google.android.apps.flights",
+      "source": "PlayStore"
+    },
+    "com.google.android.dialer": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "platform built-in, not downloadable",
+      "source": "System"
+    },
+    "com.linguee.linguee": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "gplaydl rc=1: App not found: com.linguee.linguee",
+      "source": "PlayStore"
+    },
+    "com.simplemobiletools.calendar.pro": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: com.simplemobiletools.calendar.pro",
+      "source": "F-Droid"
+    },
+    "com.simplemobiletools.contacts.pro": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: com.simplemobiletools.contacts.pro",
+      "source": "F-Droid"
+    },
+    "com.simplemobiletools.gallery.pro": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: com.simplemobiletools.gallery.pro",
+      "source": "F-Droid"
+    },
+    "com.vistechprojects.magnifierplus": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "gplaydl rc=1: App not found: com.vistechprojects.magnifierplus",
+      "source": "PlayStore"
+    },
+    "com.x8bit.bitwarden": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: com.x8bit.bitwarden",
+      "source": "F-Droid"
+    },
+    "com.yummly.android": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "gplaydl rc=1: App not found: com.yummly.android",
+      "source": "PlayStore"
+    },
+    "de.grobox.stocktransportr": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: de.grobox.stocktransportr",
+      "source": "F-Droid"
+    },
+    "io.github.nicehash.metro": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: io.github.nicehash.metro",
+      "source": "F-Droid"
+    },
+    "io.homeassistant.companion.android": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: io.homeassistant.companion.android",
+      "source": "F-Droid"
+    },
+    "me.notion.notionso": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "gplaydl rc=1: Token expired \u2014 refreshing... |   Authenticated with profile: Google Pixel 9a | App not found: me.notion.notionso",
+      "source": "PlayStore"
+    },
+    "meditofoundation.medito": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: meditofoundation.medito",
+      "source": "F-Droid"
+    },
+    "org.dslul.openboard.inputmethod.latin": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: org.dslul.openboard.inputmethod.latin",
+      "source": "F-Droid"
+    },
+    "org.gnucash.android": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: org.gnucash.android",
+      "source": "F-Droid"
+    },
+    "org.lichess.mobileapp": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: org.lichess.mobileapp",
+      "source": "F-Droid"
+    },
+    "org.pixeldroid": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: org.pixeldroid",
+      "source": "F-Droid"
+    },
+    "wangdaye.com.geometricweather": {
+      "first_seen": "2026-07-14T09:32:35+00:00",
+      "last_seen": "2026-07-14T09:32:35+00:00",
+      "reason": "not in F-Droid index: wangdaye.com.geometricweather",
+      "source": "F-Droid"
+    }
+  },
+  "last_run": {
+    "abi": "arm64-v8a",
+    "downloaded": 0,
+    "failed": 22,
+    "generated": "2026-07-14T09:32:35+00:00",
+    "playstore_arch": "arm64",
+    "scope": {
+      "only": [],
+      "source": "all"
+    },
+    "skipped": 130,
+    "total_targets": 152
+  },
+  "schema_version": 1
+}
