@@ -166,6 +166,7 @@ monkey-collect run --apps all --input-mode random
 `config/run.yaml` 섹션:
 
 - `exploration.strategy`: `DFS` | `BFS` | `GREEDY` (canonical 기본 `BFS`)
+- `exploration.{sibling_skip, sibling_skip_threshold, struct_novelty_rank}`: 구조적 sibling 처리 knob. `sibling_skip`(C1) 은 같은 `(page, 구조, action)` 그룹이 `sibling_skip_threshold`(기본 `4`) 회 **초과** 발화했는데 도달 page 가 단 하나뿐이면 남은 형제 후보를 하드 스킵하고, `struct_novelty_rank`(C1b) 는 미관측 구조를 최우선 랭킹 tier 로 올린다(스킵 없음). **두 bool 모두 기본 `false`** — ablation 미실시라 `canvas_merge` 와 같이 실험 arm 전용이다. CLI 플래그는 없고 `MC_EXPLORATION_*` env 로만 덮어쓴다. 의미는 [ARCHITECTURE.md](./ARCHITECTURE.md) §3 참조
 - `collection.{budget_mode, max_duration, max_steps, seed, action_delay_ms, poke_delay_sec, port, data_dir, runtime_dir}` (`budget_mode` 기본 `time`, `max_duration` 기본 `2h`, `poke_delay_sec` 기본 `1.5`)
 - `llm.{input_mode}`
 - `screen_matching.{luminance_prefilter, luminance_threshold, screenshot_diff_threshold, luminance_low_res_width, persist_filtered, bm25_top_k, element_criterion, element_diff_max, element_jaccard_min, page_pixel_diff_threshold, canvas_merge, canvas_min_area_frac, package_guard}`

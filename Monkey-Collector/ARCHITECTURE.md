@@ -109,6 +109,7 @@
   - [`screen_guard.py`](./src/monkey_collector/pipeline/screen_guard.py): 화면 분류 가드(키보드/권한 다이얼로그/시스템·런처 화면).
     - `SYSTEM_PACKAGES` 에 `gms`/`gsf`/`vending`/launcher 를 포함해, 타깃 앱이 Google 로그인·Play 화면으로 drift 한 것을 "앱 이탈"로 판정(클라이언트 `EXCLUDED_PACKAGES` 와 이중 방어).
     - 권한 다이얼로그는 grant 우선 버튼 탐색으로 자동 처리.
+    - **미착수 계획(C2)**: blocking-screen 판정(현재 이 파일의 하드코드 키워드/패키지 목록)을 선언적 config 로 옮기는 안. U2(재현 대상 현상) 재현이 선행 조건이라 아직 착수 전이다.
   - [`screen_matching/`](./src/monkey_collector/pipeline/screen_matching): **BM25 unique-page matching** 엔진 (Mobile3M 메커니즘).
     - `ScreenMatcher` 가 화면마다 page 식별을 수행하고 그 `page_key` 가 page_graph 노드와 탐색 abstract page 를 모두 결정한다 — **LLM-free**.
     - `luminance_prefilter` 가 off 일 때만 matcher 가 없어 구조 지문 식별(`structure_str`)로 degrade(BM25 는 무의존이라 이 gating 은 보수적 유지일 뿐 필수는 아니다).
@@ -296,7 +297,7 @@ external app 이탈에서 복구 루프가 타깃 앱을 재실행할 때(아래
 매 step `select_action` 오케스트레이션:
 
 1. **진행 중 navigation** 이 있으면 큐의 다음 step 을 현재 화면에서 signature 로 재매칭해 실행.
-2. **현재 화면 미탐색** action 이 있으면 그중 하나를 선택(`long_touch` 후순위). 미탐색 후보는 uniform-random 이 아니라 lexicographic value-ranking `(novelty, type_prior)` 으로 뽑는다 — `_TYPE_PRIOR = {touch:3, scroll:2, select:1, set_text:0}`, 즉 새 page 를 열 확률이 높은 tap 을 우선하고 텍스트 입력을 최하위로 둔다. **예외(W1 once-per-page set_text elevation)**: 편집 필드가 있는 page 는 그 `page_key` 의 **첫 frontier 방문에서만** set_text 를 랭킹보다 위로 끌어올린다. set_text 는 최하위 prior 라 tap 이 먼저 화면을 떠나면 `input_text` 전이가 영영 수집되지 않는데, 이를 막아 stage1 world-model 이 "타이핑→화면 변화" 전이를 학습하게 한다. elevation 은 page 당 1회로 상한(배출 시점 `_emit` 에서 소진 마킹, navigation/fallback 경유 set_text 도 소진). keyboard-drift 방지용 `_fallback` 의 set_text 강등은 무관하게 보존된다.
+2. **현재 화면 미탐색** action 이 있으면 그중 하나를 선택(`long_touch` 후순위). 미탐색 후보는 uniform-random 이 아니라 lexicographic value-ranking `(novelty, type_prior)` 으로 뽑는다 — `_TYPE_PRIOR = {touch:3, scroll:2, select:1, set_text:0}`, 즉 새 page 를 열 확률이 높은 tap 을 우선하고 텍스트 입력을 최하위로 둔다. **예외(W1 once-per-page set_text elevation)**: 편집 필드가 있는 page 는 그 `page_key` 의 **첫 frontier 방문에서만** set_text 를 랭킹보다 위로 끌어올린다. set_text 는 최하위 prior 라 tap 이 먼저 화면을 떠나면 `input_text` 전이가 영영 수집되지 않는데, 이를 막아 stage1 world-model 이 "타이핑→화면 변화" 전이를 학습하게 한다. elevation 은 page 당 1회로 상한(배출 시점 `_emit` 에서 소진 마킹, navigation/fallback 경유 set_text 도 소진). keyboard-drift 방지용 `_fallback` 의 set_text 강등은 무관하게 보존된다. **구조적 sibling 효과-스킵(C1, `exploration.sibling_skip`, 기본 `false`)**: `SemanticElement.struct_key`(`{tag}:{type}:{정확 width}x{정확 height}`, label 제외 = 콘텐츠 무관이라 리스트 행/연락처/미디어처럼 모양은 같고 라벨만 다른 element 들이 한 구조로 묶인다)를 키로, `Memory` 는 knob 과 무관하게 **항상** 실효과 로그 `(page_key, struct_key, action_type) -> {도달한 page_key 집합}` + 발화 횟수를 적재한다. `sibling_skip` 이 ON 이고 같은 그룹이 `sibling_skip_threshold`(기본 `4`; YAML/env 값이 `1` 미만이면 경고 로그 후 `4` 로 강제 coerce)회 **초과** 발화했는데 도달한 page 가 **단 하나**뿐이면(두 개 이상 도달하면 영구 비-스킵) 남은 형제 후보를 `Memory.unexplored_actions`(스크롤 요소=음수 `index` 는 면제)에서 **하드 스킵**한다 — 이 메서드가 위 2번(로컬 프런티어)·3번(`Navigator.plan_to_unexplored` 전역 target 풀)·`has_unvisited`(§4 `MAX_SAME_PAGE_STEPS` 같은-page 조기 후퇴, §7 `max_steps_without_new_page` 포화 조기종료) 의 **단일 candidate 소스**라 스킵이 셋 모두로 전파돼 실제 예산을 절감한다. `TransitionGraph`(아래 참조)를 재사용하지 않는 이유는 그 그래프가 self-loop(구조 불변 전이)를 edge 로 담지 않기(`transition_graph.py`) 때문 — "같은 element 를 N 번 눌러도 화면이 안 바뀐다"는 사실 자체를 셀 수 없어 별도 효과 로그가 필요하다. **struct-novelty 랭킹(C1b, `exploration.struct_novelty_rank`, 기본 `false`)**: ON 이면 `_candidate_score` 가 `(struct_novelty, novelty, type_prior)` 3-tuple 로 확장돼 이 세션 어디서도 그 `struct_key`+action 이 아직 안 쓰인 element 를 최우선 랭킹 tier 로 올리고, OFF 면 기존 `(novelty, type_prior)` 그대로다. 두 knob 모두 **기본 OFF — ablation 미실시**: `canvas_merge`(§7)와 같은 톤으로 실험 arm 전용이며 통제 ablation 통과 전 기본 ON 승격 금지. **알려진 한계**: 효과 로그 적재는 `find_by_signature` 의 첫-매치를 쓰므로, 같은 signature(라벨 동일)인데 크기가 다른 드문 element 는 `struct_key` 를 오귀속할 수 있다 — struct_novelty_rank 랭킹에만 영향이고 C1 스킵의 정확성 자체는 무해하나, ON 승격(ablation) 전 재검토 대상이다.
 3. 없으면 **전역 미탐색** action 을 target 으로 골라 `TransitionGraph` 최단경로를 큐에 적재하고 첫 step 실행. **어느 target 을 고를지는 `exploration.strategy` (DFS/BFS/GREEDY) 가 결정한다** (아래 참조).
 4. 그래도 없으면 **back** 으로 후퇴 (첫/루트 화면에서는 앱 종료 방지를 위해 back 대신 화면 내 tap).
 
@@ -358,7 +359,9 @@ CLI/config 가 해소한 strategy 를 `cli.py` 가 `CoverageGuidedExplorer` 에 
   - 단 permissioncontroller `GrantPermissionsActivity` 는 **accessibility 이벤트를 안 내보내** 신호 없이 timeout 만 발생하므로, timeout 경로에서 `_try_grant_permission_via_adb` 가 adb 로 foreground 를 확인하고 `uiautomator dump` 한 뒤 **clickable 버튼만** 스캔해 "While using the app"(없으면 "Allow") 를 탭한다("Only this time"/"Don't
     allow" 는 deny-guard 로 회피).
   - 권한 미허용 화면을 relaunch 로 건너뛰지 않고 허용 후 탐색을 계속한다.
+  - **미착수 계획(C3)**: 권한 다이얼로그 밖의 일반 popup/dialog 도 부모(ancestor) 체이닝으로 식별해 같은 자동-허용/우회 처리를 일반화하는 안. 아직 조사 단계라 구현 전이다.
 - 세션 핸드셰이크에서 START 후 client `P`(package ACK)가 5초 내 없으면 `session_manager.receive_target_package` 가 abort(`None`) — 죽은 세션(클라이언트 크래시/stale 소켓)에 step 예산을 blind 소진하지 않고 다음 앱으로 넘어간다.
+- **D1 (uninstall+reinstall 복구): 의도적 비도입.** 클라이언트가 온보딩·시드 상태(앱 첫 실행 인트로 캐러셀 완주 등)에 의존해 수집을 시작하므로, 재설치는 그 전제 자체를 리셋해 버려 수집을 깨뜨린다 — 정본 복구 래더는 `relaunch_app_fallback`(force-stop + relaunch)이고, 그래도 안 되면 위 세션 handshake abort 로 다음 앱으로 넘어간다.
 
 ## 5. 저장 포맷
 
@@ -486,6 +489,9 @@ CLI 의 YAML-커버 파라미터는 기본값이 `None`(= "CLI 에서 지정 안
 | 섹션 | 키 | 설명 |
 | ---- | -- | ---- |
 | `exploration` | `strategy` | 탐색 전략 `DFS`\|`BFS`\|`GREEDY` (canonical 기본 `BFS`). navigate-target 선택 의미는 §3 참조 |
+| `exploration` | `sibling_skip` | 구조적 sibling 효과-스킵(C1) on/off. 기본 `false` — ablation 전 실험 arm 전용, `canvas_merge` 와 같은 톤으로 미출하. 의미는 §3 참조 |
+| `exploration` | `sibling_skip_threshold` | `sibling_skip` 이 그룹을 포화로 볼 발화 횟수 하한(이 값 초과 + 도달 page 단 하나일 때 스킵). 기본 `4`; `1` 미만이면 경고 후 `4` 로 강제 coerce |
+| `exploration` | `struct_novelty_rank` | struct-novelty 랭킹(C1b) on/off — 미관측 구조를 최우선 랭킹 tier 로 올린다(soft, 스킵 없음). 기본 `false`, `sibling_skip` 과 같은 실험-arm 전용 톤 |
 | `collection` | `budget_mode` | 세션 종료 조건 `time`\|`steps` (제품 기본 `time`). `time` = `max_duration` 경과까지, `steps` = `max_steps` action 까지(legacy). CLI `--budget-mode`, 또는 `--steps`/`--duration` 중 준 쪽으로 추론 |
 | `collection` | `max_duration` | `budget_mode=time` 일 때 벽시계 예산. 형식 `2h`\|`120m`\|`7200s`\|`7200`(맨숫자=초). 파싱 실패/음수는 경고 후 7200s 폴백 (기본 `2h`) |
 | `collection` | `max_steps` | `budget_mode=steps` 일 때 앱 세션당 최대 step 수 (기본 1500) |
@@ -518,6 +524,9 @@ YAML 위, CLI 아래 레이어. 각 변수는 대응 키를 타입 변환해 덮
 | 환경변수 | 대상 키 | 타입 |
 | -------- | ------- | ---- |
 | `MC_EXPLORATION_STRATEGY` | `exploration.strategy` | str (upper-case 정규화) |
+| `MC_EXPLORATION_SIBLING_SKIP` | `exploration.sibling_skip` | bool (`true/1/yes/on`) |
+| `MC_EXPLORATION_SIBLING_SKIP_THRESHOLD` | `exploration.sibling_skip_threshold` | int (`1` 미만은 config 단계에서 `4` 로 coerce) |
+| `MC_EXPLORATION_STRUCT_NOVELTY_RANK` | `exploration.struct_novelty_rank` | bool (`true/1/yes/on`) |
 | `MC_COLLECTION_BUDGET_MODE` | `collection.budget_mode` | str (`time`\|`steps`) |
 | `MC_COLLECTION_MAX_DURATION` | `collection.max_duration` | str (`2h`\|`120m`\|`7200s`\|`7200`; 파싱은 config 에서) |
 | `MC_COLLECTION_MAX_STEPS` | `collection.max_steps` | int |
