@@ -296,7 +296,7 @@ external app 이탈에서 복구 루프가 타깃 앱을 재실행할 때(아래
 매 step `select_action` 오케스트레이션:
 
 1. **진행 중 navigation** 이 있으면 큐의 다음 step 을 현재 화면에서 signature 로 재매칭해 실행.
-2. **현재 화면 미탐색** action 이 있으면 그중 하나를 선택(`long_touch` 후순위).
+2. **현재 화면 미탐색** action 이 있으면 그중 하나를 선택(`long_touch` 후순위). 미탐색 후보는 uniform-random 이 아니라 lexicographic value-ranking `(novelty, type_prior)` 으로 뽑는다 — `_TYPE_PRIOR = {touch:3, scroll:2, select:1, set_text:0}`, 즉 새 page 를 열 확률이 높은 tap 을 우선하고 텍스트 입력을 최하위로 둔다. **예외(W1 once-per-page set_text elevation)**: 편집 필드가 있는 page 는 그 `page_key` 의 **첫 frontier 방문에서만** set_text 를 랭킹보다 위로 끌어올린다. set_text 는 최하위 prior 라 tap 이 먼저 화면을 떠나면 `input_text` 전이가 영영 수집되지 않는데, 이를 막아 stage1 world-model 이 "타이핑→화면 변화" 전이를 학습하게 한다. elevation 은 page 당 1회로 상한(배출 시점 `_emit` 에서 소진 마킹, navigation/fallback 경유 set_text 도 소진). keyboard-drift 방지용 `_fallback` 의 set_text 강등은 무관하게 보존된다.
 3. 없으면 **전역 미탐색** action 을 target 으로 골라 `TransitionGraph` 최단경로를 큐에 적재하고 첫 step 실행. **어느 target 을 고를지는 `exploration.strategy` (DFS/BFS/GREEDY) 가 결정한다** (아래 참조).
 4. 그래도 없으면 **back** 으로 후퇴 (첫/루트 화면에서는 앱 종료 방지를 위해 back 대신 화면 내 tap).
 
