@@ -35,6 +35,7 @@ HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md
 | **AC_EXP03** | ✅ 완료 | stage1+stage2 완료 — **단 자격 모순 1건 미판정** |
 | **AC_EXP04** | ⛔ **차단** | **3중 차단** — 좌표계 모순 · 재빌드 소스 부재 · 등록 0 키 |
 | **AC_EXP05** | 🔄 **학습 중** | stage1 full FT **A100×2 진행 중** (2026-07-14~) · **stage2 도입** (2026-07-15 — YAML 12 + 등록 3키, `qwen2.5-vl-3b` LoRA E2E loop 진입). **데이터 쟁점 4건 미판정 · 완주 산출물 0** |
+| **AC_EXP06** | 🔄 **merge/업로드** | EXP05 **비증강(증강 X) Stage-2 대조군** (2026-07-18 — `AC_NOTAUG`에서 표준 네이밍으로 마이그레이션). stage2 학습 완료(`qwen2.5-vl-3b` LoRA base ep1/2/3) · merged 3에폭 HF 업로드(`SaFD-00/…ac-exp06-…epoch{1,2,3}`) · **eval 보류**(데이터 준비됨, 각 test 3000) · **lf_registry 미등록**(관례 — eval un-defer 시 후속) |
 | **MC** | ⬜ 미착수 | 데이터·등록·YAML 다 있고 자격 제한 없음 — 그냥 안 돌렸다 |
 | **MB** | ⬜ 미사용 | 평가 전용. `on-MB*` 산출물 0 |
 

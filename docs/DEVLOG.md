@@ -3,6 +3,18 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-18 — Implicit-World-Modeling: EXP06 (AndroidControl_EXP06) 등록 — EXP05 비증강 Stage-2 대조군 · NOTAUG→EXP06 마이그레이션 · 데이터 양식 정규화 · merged 3에폭 HF 업로드
+
+로컬에 커밋되지 않은 `AC_NOTAUG`(비증강 stage2 실험군)를 표준 `AC_EXP06`/`AndroidControl_EXP06` 네이밍으로 승격 등록했다. **EXP05(데이터 증강 O) vs EXP06(증강 X)** 비교가 목적이다. 학습은 이미 완료돼 있어(`qwen2.5-vl-3b` LoRA base, epoch 1/2/3) 재학습 없이 개명·정규화·merge·HF 업로드만 수행했다. **평가는 사용자 지시로 보류**(데이터는 준비됨). 협업 제약: 사용자 지시로 **fable·codex 미사용** → Advisor/Worker/검증 전부 `claude`/`opus`, tier-2 codex 대신 **tier-1 결정론 게이트를 오케스트레이터가 직접** 재실행해 승인.
+
+- **마이그레이션(U1, worker/opus)**: `scripts/_common.sh` 8곳(DS_PREFIX=`IWM-AC_EXP06`, HF_SLUG=`ac-exp06-`, DS_DATADIR=`AndroidControl_EXP06`, parse/eval case, build_infer_cmd cutoff 24576) + **`ds_outputs_code()` 신규 arm `AC_EXP06) echo "AndroidControl_EXP06"`** — NOTAUG는 이 함수에 항목이 없어 fallback `*) echo "$1"` 로 동작(그래서 학습이 `outputs/AC_NOTAUG/`에 씀). 표준 네이밍 채택 시 **이 arm이 없으면 merge가 `outputs/AC_EXP06/`를 찾다 못 찾아 조용히 skip**되는 load-bearing 지점이라 치환이 아닌 추가로 처리. `stage2_eval.sh` 2곳(`--coord-mode xy` 자동 주입), `dataset_info.json` 3키(`IWM-AC_EXP06_stage2_{train,test_id,test_ood}` + file_name), `configs/train/IWM-AC_EXP06/` dir + yaml(dataset/output_dir), `configs/lf_dataset/AndroidControl_EXP06` symlink, 물리 `data`/`outputs` `mv`(심볼릭 경유 atomic — 대체 불가능 adapter 4×119MB 보존 확인). **잔존 NOTAUG 토큰 0**, tier-1 검증(syntax·grep·ds_outputs_code 해석·dataset_info 파싱·adapter 무결성) 전항목 독립 재현 통과.
+- **데이터 양식 정규화**: EXP06 data가 심볼릭 indirection(`implicit-world-modeling_stage2_*.jsonl → stage2_*.jsonl`, 권한 0600)이라 EXP02/03/05 표준(canonical 실파일, 0644)과 어긋났다 → 심볼릭 제거 + `stage2_*.jsonl` → canonical 이름 rename + chmod 644. 내용 보존(15000/3000/3000 불변), dataset_info 경로 정상 해석. `.meta.json` sidecar는 EXP05 전용(EXP02/03도 없음)이라 미생성(provenance 부재 — 날조 금지).
+- **merge + HF 업로드 완료**: `outputs/AndroidControl_EXP06/adapters/…/checkpoint-{235,470,705}`(=ep1/2/3) → `stage2_merge.sh`(GPU 0, `export_device=cpu`)로 merged 3에폭 생성(`3 merged, 1 skipped, 0 failed` — skip은 world-model variant 미학습으로 인한 예상된 정상 분기) + `SaFD-00/qwen2.5-vl-3b-ac-exp06-base-stage2-lora-epoch{1,2,3}` 업로드. HF_TOKEN은 `.env`(계정 `SaFD-00`). 오케스트레이터가 `HfApi` 로 3 repo 독립 재검증(safetensors 포함, 각 16파일) — tier-1 통과.
+- **lf_registry 미등록**: EXP06는 `lf_registry.py::DATASET_MODEL_ELIGIBILITY`에 **미등록**이다(NOTAUG 선례 유지). merge 경로는 `require_model_eligible()`을 거치지 않아 미등록으로도 동작하며, Qwen2.5-VL/절대픽셀 자격은 **코드 가드가 아니라 관례**다. eval un-defer 시 등록 필요(cutoff 24576도 학습측은 hand-authored yaml, 평가측은 `build_infer_cmd`의 `IWM-AC_EXP06*` 분기에서 옴 — `_LONG_CUTOFF_DS`에는 없음).
+- **삭제**: 구 NOTAUG 학습/평가 로그 6개(`logs/notaug_*`, `*AC_NOTAUG*`, stale `.pid`) + 애드혹 런처(사용자 지시).
+- **문서(U3, worker/opus)**: 트리오 `Implicit-World-Modeling/{README,AGENTS,ARCHITECTURE}.md`에 EXP06 등록(자격 매트릭스·cutoff 표 행, 비증강 대조군 설명) — **진실성 제약**으로 EXP06 자격이 코드 가드로 강제된다고 서술하지 않고 "lf_registry 미등록/관례/`exit 1` 미강제"를 명시.
+- **미결**: (1) eval 보류 — 데이터 준비됨(test_id/ood 각 3000). **비교 방법론 미결정**: EXP05 vs EXP06을 동일 평가셋에서 볼지, 각자 비증강/증강 평가셋에서 볼지(현 런처는 각자 평가셋). (2) EXP06 `lf_registry` 정식 등록(eval un-defer 시).
+
 ## 2026-07-14 — Monkey-Collector: S-9 진단 성공·수정 실패 (canvas_merge 기본 OFF, S-9 열림) + package_guard(선재 결함 수정) + MC→IWM 브리지 정적 관통
 
 S-9(지도류 연속 캔버스의 page 지문 파편화)를 오프라인 리플레이로 전수 진단했다 — **원인 규명에는 성공했으나 안전한 수정에는 실패했다.** 부수로 발견한 패키지 교차 병합 선재 결함은 닫았고, 별도로 MC→IWM 학습 브리지가 코드 변경 0 으로 정적 관통했다. 상세는 [분석 보고](../.claude/analysis/2026-07-14_18-10-03_s9-diagnosis-and-bridge/README.md) · [revise 기록](../.claude/devlog/2026-07-14_18-10-03_s9-and-bridge.md).
