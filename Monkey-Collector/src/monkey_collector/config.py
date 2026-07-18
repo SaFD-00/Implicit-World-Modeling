@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 _BUILTIN_DEFAULTS: dict = {
     "exploration": {
         "strategy": "BFS",
+        "sibling_skip": False,
+        "sibling_skip_threshold": 4,
+        "struct_novelty_rank": False,
     },
     "collection": {
         "max_steps": 1500,
@@ -76,6 +79,12 @@ _DEFAULT_CONFIG_PATH = Path(__file__).parents[2] / "config" / "run.yaml"
 @dataclass
 class ExplorationConfig:
     strategy: str = "BFS"  # DFS | BFS | GREEDY
+    # Structural sibling effect-skip (C1) + struct-novelty ranking (C1b).
+    # DEFAULT OFF: staged in behind knobs for a controlled ablation before any
+    # promotion (canvas_merge precedent — experiment arm only, not corpus).
+    sibling_skip: bool = False
+    sibling_skip_threshold: int = 4
+    struct_novelty_rank: bool = False
 
 
 @dataclass
@@ -287,6 +296,9 @@ def _apply_env_overrides(raw: dict) -> dict:
     env_map: list[tuple[str, str, str, str]] = [
         # (env_var, section, field, type_hint)
         ("MC_EXPLORATION_STRATEGY",                  "exploration",     "strategy",                  "str_upper"),
+        ("MC_EXPLORATION_SIBLING_SKIP",              "exploration",     "sibling_skip",              "bool"),
+        ("MC_EXPLORATION_SIBLING_SKIP_THRESHOLD",    "exploration",     "sibling_skip_threshold",    "int"),
+        ("MC_EXPLORATION_STRUCT_NOVELTY_RANK",       "exploration",     "struct_novelty_rank",       "bool"),
         ("MC_COLLECTION_MAX_STEPS",                  "collection",      "max_steps",                 "int"),
         ("MC_COLLECTION_SEED",                       "collection",      "seed",                      "int"),
         ("MC_COLLECTION_ACTION_DELAY_MS",            "collection",      "action_delay_ms",            "int"),
@@ -343,6 +355,19 @@ def _from_raw(raw: dict) -> RunConfig:
 
     strategy = _normalize_strategy(expl.get("strategy", "BFS"), source="config")
 
+    # C1 sibling-skip threshold. Guards YAML and env alike (both flow through
+    # here): a group must be observed MORE than the threshold before it can
+    # saturate, so a threshold below 1 would let a single firing hard-skip its
+    # siblings — defeating the "repeatedly observed then skip" intent. Coerce
+    # such values back to the default (mirrors the signal_timeout_sec guard).
+    sibling_skip_threshold = int(expl.get("sibling_skip_threshold", 4))
+    if sibling_skip_threshold < 1:
+        logger.warning(
+            "sibling_skip_threshold %r < 1 — falling back to 4",
+            sibling_skip_threshold,
+        )
+        sibling_skip_threshold = 4
+
     signal_timeout_sec = float(coll.get("signal_timeout_sec", 12.0))
     if signal_timeout_sec <= 0:
         logger.warning(
@@ -352,7 +377,12 @@ def _from_raw(raw: dict) -> RunConfig:
         signal_timeout_sec = 12.0
 
     return RunConfig(
-        exploration=ExplorationConfig(strategy=strategy),
+        exploration=ExplorationConfig(
+            strategy=strategy,
+            sibling_skip=_coerce_bool(expl.get("sibling_skip", False)),
+            sibling_skip_threshold=sibling_skip_threshold,
+            struct_novelty_rank=_coerce_bool(expl.get("struct_novelty_rank", False)),
+        ),
         collection=CollectionConfig(
             max_steps=int(coll.get("max_steps", 1500)),
             seed=int(coll.get("seed", 42)),
