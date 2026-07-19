@@ -24,7 +24,7 @@
 ./.venv/bin/python -m pytest tests    # bare `python` 금지 (venv 밖 인터프리터를 잡는다)
 ```
 
-현재 기준선은 **859 passed** 다. 이 수가 줄면 회귀로 본다.
+현재 기준선은 **864 passed** 다. 이 수가 줄면 회귀로 본다.
 
 #### 빠른 검증 포인트
 
