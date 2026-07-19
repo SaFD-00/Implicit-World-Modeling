@@ -26,45 +26,30 @@ from monkey_collector.pipeline.exploration.transition_graph import TransitionGra
 # One unexplored candidate: the screen, the element, and the action to try.
 UnexploredAction = tuple[SemanticState, SemanticElement, str]
 
+# Firing count above which a single-destination structural group is reported as
+# "saturated" by the end-of-session diagnostic. DIAGNOSTIC OBSERVATION ONLY —
+# nothing in exploration reads this, so changing it cannot alter which actions
+# are explored; it only shifts where log_effect_summary draws its reporting line.
+SATURATION_PROBE_THRESHOLD = 4
+
 
 class Memory:
     """Tracks explored actions and the transition graph."""
 
-    def __init__(
-        self,
-        sibling_skip: bool = False,
-        sibling_skip_threshold: int = 4,
-        struct_novelty_rank: bool = False,
-    ) -> None:
+    def __init__(self) -> None:
         self._states: dict[str, SemanticState] = {}
         # page_key -> set of (element_signature, action_type)
         self._explored: dict[str, set[tuple[str, str]]] = {}
         self._nav_failed: dict[str, set[tuple[str, str]]] = {}
         self.transition_graph = TransitionGraph()
 
-        # Structural effect log (C1/C1b), keyed on (page_key, struct_key,
-        # action_type) so content-differing siblings (list rows, contacts, media)
-        # share a bucket: which distinct destination pages the action reached,
-        # how many times it fired, and every (struct_key, action_type) exercised
-        # anywhere this session. Loaded on EVERY transition regardless of the
-        # knobs below, so a knob may be flipped without a cold-start gap.
+        # Structural effect log, keyed on (page_key, struct_key, action_type) so
+        # content-differing siblings (list rows, contacts, media) share a bucket:
+        # which distinct destination pages the action reached and how many times
+        # it fired. Diagnostic instrumentation — loaded on EVERY transition and
+        # never read by action selection.
         self._effects: dict[tuple[str, str, str], set[str]] = {}
         self._effect_counts: dict[tuple[str, str, str], int] = {}
-        self._struct_seen: set[tuple[str, str]] = set()
-
-        # Knobs (default OFF; see config.exploration). C1 hard-skips a saturated
-        # sibling group from the frontier; C1b exposes struct-novelty for ranking.
-        self._sibling_skip = sibling_skip
-        self._sibling_skip_threshold = sibling_skip_threshold
-        self._struct_novelty_rank = struct_novelty_rank
-
-        # Telemetry (observation only — never read by exploration logic). The
-        # hard skip is otherwise silent, so an ablation cannot prove the ON arm
-        # actually differed from the OFF arm. Counts every skip event and logs
-        # the first one per group (this runs once per candidate per step, so
-        # per-event logging would flood).
-        self.sibling_skips: int = 0
-        self._sibling_skip_logged: set[tuple[str, str, str]] = set()
 
     # -- observation ----------------------------------------------------------
 
@@ -87,13 +72,12 @@ class Memory:
         self.transition_graph.add(from_state, element_signature, action_type, to_state)
         # Structural effect log: attribute this outcome to the element's
         # structure so siblings differing only by content share the bucket.
-        # Read-only w.r.t. coverage/graph/rng — never alters legacy behaviour.
+        # Read-only w.r.t. coverage/graph/rng — never alters exploration.
         element = from_state.find_by_signature(element_signature)
         if element is not None and element.struct_key:
             key = (from_state.page_key, element.struct_key, action_type)
             self._effects.setdefault(key, set()).add(to_state.page_key)
             self._effect_counts[key] = self._effect_counts.get(key, 0) + 1
-            self._struct_seen.add((element.struct_key, action_type))
 
     def mark_explored(
         self,
@@ -129,13 +113,6 @@ class Memory:
                 for action_type in element.allowed_actions:
                     if (element.signature, action_type) in blocked:
                         continue
-                    # C1: hard-skip a structural sibling once its group is proven
-                    # inert, so has_unvisited / early-stop see the real frontier.
-                    # Scrollables (negative index) are exempt. OFF ⇒ always False.
-                    if element.index >= 0 and self._sibling_saturated(
-                        state.page_key, element.struct_key, action_type
-                    ):
-                        continue
                     if action_type == LONG_TOUCH and not touch_done:
                         continue
                     candidates.append((state, element, action_type))
@@ -151,21 +128,6 @@ class Memory:
         """
         pair = (element_signature, action_type)
         return any(pair in explored for explored in self._explored.values())
-
-    def struct_explored_anywhere(self, struct_key: str, action_type: str) -> bool:
-        """True if this (struct_key, action_type) was exercised on any page.
-
-        Structural analogue of :meth:`explored_anywhere` for C1b: an untried
-        structure ranks above one already seen elsewhere. Empty struct_key never
-        matches. Reads only the effect log (real transitions), so it is always
-        populated even when the ranking knob is off.
-        """
-        return (struct_key, action_type) in self._struct_seen
-
-    @property
-    def struct_novelty_rank(self) -> bool:
-        """Whether C1b struct-novelty ranking is enabled (read by the explorer)."""
-        return self._struct_novelty_rank
 
     @property
     def root_page_key(self) -> str | None:
@@ -185,39 +147,39 @@ class Memory:
     # -- internals ------------------------------------------------------------
 
     def log_effect_summary(self, top: int = 10) -> None:
-        """Log how close structural sibling groups came to saturating.
+        """Log end-of-session structural effect statistics for the explored app.
 
-        Telemetry only. Without it a session that never hard-skips is
-        uninterpretable: "no skip because groups stayed under the threshold"
-        and "no skip because every group reached two-or-more destinations"
-        (permanent non-skip BY DESIGN) look identical from the outside.
+        Exploration diagnostics, not a feature knob: it answers "how repetitive
+        was this app's structure?" by reporting how many (page, structure,
+        action) groups fired repeatedly yet only ever reached ONE destination
+        page — the fingerprint of a long list whose rows all do the same thing —
+        against :data:`SATURATION_PROBE_THRESHOLD`. The per-group breakdown that
+        follows ranks the busiest structures with their destination fan-out.
 
-        The effect log is populated regardless of the knobs, so this reports
-        the same diagnostic for an OFF session — i.e. how many groups WOULD
-        have saturated had the knob been on.
+        This instrumentation is what the 2026-07-18 ablation used to show that
+        redundant sibling rows were not in fact eating the step budget. Nothing
+        here feeds action selection; the effect log is a pure observer.
         """
         if not self._effect_counts:
-            logger.info("[C1] effect-log summary: empty (no attributed transitions)")
+            logger.info("[effect-log] summary: empty (no attributed transitions)")
             return
         would_saturate = sum(
             1
             for key, count in self._effect_counts.items()
-            if count > self._sibling_skip_threshold and len(self._effects.get(key, set())) == 1
+            if count > SATURATION_PROBE_THRESHOLD
+            and len(self._effects.get(key, set())) == 1
         )
         logger.info(
-            "[C1] effect-log summary: groups={} would_saturate={} skips_fired={} "
-            "threshold={} sibling_skip={}",
+            "[effect-log] summary: groups={} would_saturate={} threshold={}",
             len(self._effect_counts),
             would_saturate,
-            self.sibling_skips,
-            self._sibling_skip_threshold,
-            self._sibling_skip,
+            SATURATION_PROBE_THRESHOLD,
         )
         ranked = sorted(self._effect_counts.items(), key=lambda kv: kv[1], reverse=True)
         for (page_key, struct_key, action), count in ranked[:top]:
             dests = len(self._effects.get((page_key, struct_key, action), set()))
             logger.info(
-                "[C1]   fired={} dests={} action={} page={} struct={}",
+                "[effect-log]   fired={} dests={} action={} page={} struct={}",
                 count,
                 dests,
                 action,
@@ -227,38 +189,3 @@ class Memory:
 
     def _blocked_pairs(self, page_key: str) -> set[tuple[str, str]]:
         return self._explored.get(page_key, set()) | self._nav_failed.get(page_key, set())
-
-    def _sibling_saturated(
-        self, page_key: str, struct_key: str, action_type: str
-    ) -> bool:
-        """True when a structural sibling group is proven inert (C1 hard-skip).
-
-        A group saturates once the same (page_key, struct_key, action_type) has
-        fired MORE than the threshold and every firing landed on a SINGLE
-        destination page — the fingerprint of a long list whose rows all do the
-        same thing. Two-or-more distinct destinations means the rows differ, so
-        the group never saturates (permanent non-skip). OFF (default) or an empty
-        struct_key never saturates.
-        """
-        if not self._sibling_skip or not struct_key:
-            return False
-        key = (page_key, struct_key, action_type)
-        saturated = (
-            self._effect_counts.get(key, 0) > self._sibling_skip_threshold
-            and len(self._effects.get(key, set())) == 1
-        )
-        # Telemetry only — the return value above is already decided.
-        if saturated:
-            self.sibling_skips += 1
-            if key not in self._sibling_skip_logged:
-                self._sibling_skip_logged.add(key)
-                logger.info(
-                    "[C1] sibling skip fired: page={} struct={} action={} "
-                    "fired={} dest={}",
-                    page_key,
-                    struct_key,
-                    action_type,
-                    self._effect_counts.get(key, 0),
-                    next(iter(self._effects.get(key, set())), ""),
-                )
-        return saturated

@@ -117,12 +117,6 @@ def _candidate_score(
       spuriously matched. The digit check keeps a real label like ``"@home"`` from
       being mistaken for a fallback.
     - ``type_prior`` per :data:`_TYPE_PRIOR` (tap > scroll > select > set_text).
-
-    C1b (``struct_novelty_rank``, default OFF): when enabled the tuple gains a
-    top-priority ``struct_novelty`` tier — 1 unless this element's structure
-    (``struct_key``) was already exercised for this action anywhere — so an
-    unseen structure is tried before a already-seen sibling shape. OFF returns
-    the legacy ``(novelty, type_prior)`` unchanged.
     """
     signature = element.signature
     last_segment = signature.rsplit(":", 1)[-1]
@@ -131,15 +125,7 @@ def _candidate_score(
         signature, action_type
     ) else 0
     type_prior = _TYPE_PRIOR.get(action_type, 0)
-    if not memory.struct_novelty_rank:
-        return (novelty, type_prior)
-    struct_novelty = (
-        0
-        if element.struct_key
-        and memory.struct_explored_anywhere(element.struct_key, action_type)
-        else 1
-    )
-    return (struct_novelty, novelty, type_prior)
+    return (novelty, type_prior)
 
 
 class CoverageGuidedExplorer:
@@ -161,13 +147,6 @@ class CoverageGuidedExplorer:
         # Traversal strategy (DFS | BFS | GREEDY) — only affects which unexplored
         # target the Navigator routes to; the route itself is always shortest-path.
         self._strategy = strategy.strip().upper()
-
-        # Structural sibling effect-skip (C1) / struct-novelty ranking (C1b),
-        # read once and retained so reset()'s Memory() rebuild keeps the knobs
-        # (default OFF; see config.exploration).
-        self._sibling_skip = bool(config.get("sibling_skip", False))
-        self._sibling_skip_threshold = int(config.get("sibling_skip_threshold", 4))
-        self._struct_novelty_rank = bool(config.get("struct_novelty_rank", False))
 
         # Per-session exploration state (rebuilt by reset()).
         self._memory = self._new_memory()
@@ -216,12 +195,8 @@ class CoverageGuidedExplorer:
         self._page_key = page_key
 
     def _new_memory(self) -> Memory:
-        """Build a Memory carrying this session's structural knobs (C1/C1b)."""
-        return Memory(
-            sibling_skip=self._sibling_skip,
-            sibling_skip_threshold=self._sibling_skip_threshold,
-            struct_novelty_rank=self._struct_novelty_rank,
-        )
+        """Build a fresh per-session Memory (shared by __init__ and reset())."""
+        return Memory()
 
     def reset(self) -> None:
         """Drop all per-session memory so each app session explores in isolation."""

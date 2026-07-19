@@ -90,9 +90,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         config={
             "seed": cfg.collection.seed,
             "action_delay_ms": cfg.collection.action_delay_ms,
-            "sibling_skip": cfg.exploration.sibling_skip,
-            "sibling_skip_threshold": cfg.exploration.sibling_skip_threshold,
-            "struct_novelty_rank": cfg.exploration.struct_novelty_rank,
         },
         strategy=cfg.exploration.strategy,
     )

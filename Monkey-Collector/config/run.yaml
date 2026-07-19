@@ -7,8 +7,6 @@
 # are CLI-only — not configurable here.
 #
 # Experiment runs sweep several keys. Canonical git default: exploration.strategy=BFS,
-# exploration.sibling_skip=false, exploration.sibling_skip_threshold=4,
-# exploration.struct_novelty_rank=false,
 # collection.max_steps=1500, collection.action_delay_ms=1500,
 # collection.budget_mode=time, collection.max_duration=2h,
 # collection.signal_timeout_sec=12, collection.poke_delay_sec=1.5,
@@ -28,34 +26,6 @@ exploration:
   #   DFS:    navigate to the deepest unexplored screen (deepest reachable screen first)
   # Env: MC_EXPLORATION_STRATEGY
   strategy: BFS
-  # --- Structural sibling handling (C1 / C1b) ---
-  # Long lists (files, contacts, media) expose every row as its own frontier
-  # element, so a 50-row list can burn 50 steps tapping siblings that all do the
-  # same thing. These two knobs close that gap by keying on an element's
-  # structure (tag:type:WxH) instead of its content.
-  #
-  # sibling_skip (C1): once the SAME (page, structure, action) has fired more
-  # than sibling_skip_threshold times and every firing landed on ONE destination
-  # page, the remaining siblings are HARD-skipped from the frontier — which also
-  # lets the has_unvisited / plateau early-stop see the real (smaller) frontier
-  # and reclaim budget. A group that reaches two-or-more distinct destinations is
-  # never skipped (permanent non-skip). Scrollables are exempt.
-  # Env: MC_EXPLORATION_SIBLING_SKIP
-  #
-  # ⚠️ DEFAULT OFF — NOT PROMOTED YET. Staged behind the knob for a controlled
-  # ablation before any default flip (same discipline as screen_matching.
-  # canvas_merge): turn on only for an experiment arm, never for corpus
-  # collection, until the ablation clears it.
-  sibling_skip: false
-  # Distinct firings of one (page, structure, action) above which the group may
-  # saturate (paired with the single-destination test above).
-  # Env: MC_EXPLORATION_SIBLING_SKIP_THRESHOLD
-  sibling_skip_threshold: 4
-  # struct_novelty_rank (C1b): add a top-priority ranking tier that prefers an
-  # element whose STRUCTURE has not been exercised for this action anywhere yet,
-  # over one whose sibling shape was already tried. Soft (ranking only, no skip).
-  # Same experiment-arm caveat as sibling_skip. Env: MC_EXPLORATION_STRUCT_NOVELTY_RANK
-  struct_novelty_rank: false
 
 collection:
   # Max steps per app session. Env: MC_COLLECTION_MAX_STEPS

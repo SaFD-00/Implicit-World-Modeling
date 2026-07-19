@@ -227,9 +227,10 @@ class Collector:
             run_collection_loop(self, state, package)
         finally:
             finalize_session(self, session_id)
-            # C1 telemetry (observation only). Emitted before the next session's
-            # reset() discards this Memory, so an ablation can tell "under
-            # threshold" apart from "multi-destination, permanent non-skip".
+            # Structural effect-log diagnostic — always on, no knob. Emitted
+            # before the next session's reset() discards this Memory. The
+            # getattr/hasattr guard is for explorer doubles that carry no
+            # Memory, NOT a feature switch.
             memory = getattr(self.explorer, "_memory", None)
             if memory is not None and hasattr(memory, "log_effect_summary"):
                 memory.log_effect_summary()
