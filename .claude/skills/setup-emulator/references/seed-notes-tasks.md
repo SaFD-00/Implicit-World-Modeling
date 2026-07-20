@@ -1,6 +1,6 @@
 # 더미 데이터 시드 — 노트 & 할 일 (Markor · Simple Notes · org.tasks · Joplin)
 
-공용 규약은 [seed-helpers.md](seed-helpers.md). `SER="${SERIAL:-emulator-5554}"`, `adb -s "$SER" root` 전제. 레시피는 setup-emulator(Pixel6/API36)에서 가져와 Monkey-Collector(Pixel6-2/API33)에서 재검증.
+공용 규약은 [seed-helpers.md](seed-helpers.md). `SER="${SERIAL:-emulator-5554}"`, `adb -s "$SER" root` 전제. 레시피는 MobileGPT-V2 의 `setup-emulator`(Pixel6/API36)에서 가져와 Monkey-Collector(Pixel6-2/API33)에서 재검증.
 
 > **MC 카탈로그**: Markor·org.tasks·Joplin 설치됨(검증 완료). Simple Notes 는 현재 미포함 → `has` 가드 자연 skip.
 

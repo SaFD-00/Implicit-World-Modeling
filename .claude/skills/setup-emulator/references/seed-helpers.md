@@ -1,6 +1,6 @@
 # 앱별 더미 데이터 시드 — 공용 규약 (§6-e)
 
-setup-collector §6-e 에서 explorable 앱에 소량(앱당 3~5건)의 더미 데이터를 넣어, collector 가 리스트/상세/편집 화면을 탐색할 콘텐츠를 확보한다. 모든 시더는 **venv-free**(plain adb: on-device `sqlite3` / `content insert` / `am` intent / `adb push` + MediaStore broadcast).
+setup-emulator §6-e 에서 explorable 앱에 소량(앱당 3~5건)의 더미 데이터를 넣어, collector 가 리스트/상세/편집 화면을 탐색할 콘텐츠를 확보한다. 모든 시더는 **venv-free**(plain adb: on-device `sqlite3` / `content insert` / `am` intent / `adb push` + MediaStore broadcast).
 
 이 파일은 모든 시더가 따르는 공용 규약이다. 앱별 명령은:
 - [seed-pim.md](seed-pim.md) — 연락처 · 시계 알람 · 캘린더 · SMS

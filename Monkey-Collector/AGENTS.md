@@ -13,7 +13,7 @@
 
 ### 1. 셋업 (초기화 시 1회, 멱등)
 
-- `/setup-collector` 스킬([`/.claude/skills/setup-collector/`](../.claude/skills/setup-collector))이 전 과정을 자동화한다 — AVD·APK·client 빌드·접근성·prefs·MediaProjection·Google 로그인·더미데이터 시드·검증.
+- `/setup-emulator` 스킬([`/.claude/skills/setup-emulator/`](../.claude/skills/setup-emulator))이 전 과정을 자동화한다 — AVD·APK·client 빌드·접근성·prefs·MediaProjection·Google 로그인·더미데이터 시드·검증.
 - **client 빌드는 AGP 8.2 → JDK 17 필수**: `JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew :app:assembleDebug` (APK 는 `app/app/build/outputs/...`).
 - **클라이언트(.kt) 수정은 APK 재빌드·재설치해야 디바이스에 반영된다** — 재설치를 빼먹으면 옛 APK 가 계속 돈다.
 - Google 자격증명은 `Monkey-Collector/.secrets.local`(gitignore)에서만 읽는다 — **커밋 금지**.
@@ -140,7 +140,7 @@
 - XML 파싱 규약은 [`src/monkey_collector/xml/ui_tree.py`](./src/monkey_collector/xml/ui_tree.py), [`src/monkey_collector/xml/structured_parser.py`](./src/monkey_collector/xml/structured_parser.py) 를 본다.
 - Android 측 전환 감지와 TCP 프로토콜은 [`CollectorService.kt`](./app/app/src/main/java/com/monkey/collector/CollectorService.kt), [`ScreenStabilizer.kt`](./app/app/src/main/java/com/monkey/collector/ScreenStabilizer.kt), [`TcpClient.kt`](./app/app/src/main/java/com/monkey/collector/TcpClient.kt) 에 있다 — 안정성 규약(외부앱 제외 목록 짝맞춤, MediaProjection 토큰 단발성)은 불변식 1·2 참조.
   - **클라이언트(.kt) 수정은 APK 재빌드(JDK 17)·재설치해야 디바이스에 반영**된다.
-- 환경 셋업/검증(`/setup-collector` 스킬, JDK17 client 빌드, Google 자격증명 정책)은 위 「환경 셋업 & 평가 방법 → 1. 셋업」과 동일 — 세부는 그쪽을 본다.
+- 환경 셋업/검증(`/setup-emulator` 스킬, JDK17 client 빌드, Google 자격증명 정책)은 위 「환경 셋업 & 평가 방법 → 1. 셋업」과 동일 — 세부는 그쪽을 본다.
 
 ## 작업 시 주의점
 

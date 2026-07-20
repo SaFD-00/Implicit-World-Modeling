@@ -1,6 +1,6 @@
 # 더미 데이터 시드 — 음악 & 기타 DB 앱 (RetroMusic · OpenTracks · Broccoli · Expense)
 
-공용 규약은 [seed-helpers.md](seed-helpers.md). `SER="${SERIAL:-emulator-5554}"`, `adb -s "$SER" root` 전제. 레시피는 setup-emulator(Pixel6/API36)에서 가져와 Monkey-Collector(Pixel6-2/API33)에서 재검증.
+공용 규약은 [seed-helpers.md](seed-helpers.md). `SER="${SERIAL:-emulator-5554}"`, `adb -s "$SER" root` 전제. 레시피는 MobileGPT-V2 의 `setup-emulator`(Pixel6/API36)에서 가져와 Monkey-Collector(Pixel6-2/API33)에서 재검증.
 
 > **MC 카탈로그**: RetroMusic·OpenTracks 설치됨(검증 완료). Broccoli·Expense 는 현재 미포함 → `has` 가드 자연 skip.
 

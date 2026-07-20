@@ -81,7 +81,7 @@ adb install -r -g app/app/build/outputs/apk/debug/app-debug.apk
 
 설치 후 디바이스에서 AccessibilityService 를 활성화하고(§ MainActivity 의 "Open Accessibility Settings"), "Save & Ready" 로 MediaProjection 동의를 한다. **재설치할 때마다 MediaProjection 동의를 다시 받아야 한다**(토큰 단발성). 단 캡처 본체는 AccessibilityService.takeScreenshot 라 미동의 시에도 크래시 없이 동작한다.
 
-> **전체 환경 셋업은 `/setup-collector` 스킬이 자동화**한다 — AVD 부팅·APK 다운로드/설치·client 빌드(JDK17)/설치·접근성·prefs·MediaProjection·Google 로그인·더미데이터 시드·검증을 멱등(초기화 시 1회)으로 수행한다.
+> **전체 환경 셋업은 `/setup-emulator` 스킬이 자동화**한다 — AVD 부팅·APK 다운로드/설치·client 빌드(JDK17)/설치·접근성·prefs·MediaProjection·Google 로그인·더미데이터 시드·검증을 멱등(초기화 시 1회)으로 수행한다.
 
 ## 빠른 시작
 

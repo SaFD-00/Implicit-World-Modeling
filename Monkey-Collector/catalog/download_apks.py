@@ -4,7 +4,7 @@ F-Droid uses the public HTTP API (https://f-droid.org/api/v1/packages/<pkg>).
 Play Store uses `gplaydl` v2 as a subprocess (Aurora Store token dispenser,
 anonymous auth).
 
-Output layout (compatible with /setup-emulator):
+Output layout (compatible with MobileGPT-V2's /setup-emulator):
 
     Monkey-Collector/catalog/apks/{package_id}.apk   # base APK only
     Monkey-Collector/catalog/apks/MISSING.json        # cumulative ledger (source of truth)

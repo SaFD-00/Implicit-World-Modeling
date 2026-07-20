@@ -1,6 +1,6 @@
 # 더미 데이터 시드 — PIM (연락처 · 시계 알람 · 캘린더 · SMS)
 
-공용 규약은 [seed-helpers.md](seed-helpers.md). `SER="${SERIAL:-emulator-5554}"`, `adb -s "$SER" root` 전제. 레시피는 setup-emulator(Pixel6/API36)에서 가져와 Monkey-Collector(Pixel6-2/API33)에서 재검증.
+공용 규약은 [seed-helpers.md](seed-helpers.md). `SER="${SERIAL:-emulator-5554}"`, `adb -s "$SER" root` 전제. 레시피는 MobileGPT-V2 의 `setup-emulator`(Pixel6/API36)에서 가져와 Monkey-Collector(Pixel6-2/API33)에서 재검증.
 
 > **MC 카탈로그**: 연락처(Simple Contacts)·Simple Calendar 는 설치됨(검증 완료). Simple Clock·Simple SMS 는 현재 카탈로그 미포함이라 `has` 가드로 자연 skip — 추가되면 아래 레시피가 그대로 동작한다.
 

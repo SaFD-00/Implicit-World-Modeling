@@ -22,7 +22,7 @@ argument-hint: "[--serial S]"
 |------|--------|------|
 | `--serial S` | (자동) | 대상 adb 시리얼. 미지정 시 `MobileGPT-V2-2` AVD 를 `adb devices` + `emu avd name` 으로 역추출 |
 
-**검증**: 대상 serial 을 못 찾으면(에뮬레이터 미부팅) → 중단하고 `setup-collector`(또는 `emulator -avd MobileGPT-V2-2`) 안내. client 미설치면 `run-as` 가 실패 → "client 미설치" 안내 후 종료.
+**검증**: 대상 serial 을 못 찾으면(에뮬레이터 미부팅) → 중단하고 `setup-emulator`(또는 `emulator -avd MobileGPT-V2-2`) 안내. client 미설치면 `run-as` 가 실패 → "client 미설치" 안내 후 종료.
 
 ## Target — canonical 기본값
 
@@ -51,7 +51,7 @@ if [ -z "$SERIAL" ]; then
     [ "$name" = "MobileGPT-V2-2" ] && { SERIAL="$serial"; break; }
   done < <(adb devices | sed '1d;/^$/d')
 fi
-[ -z "$SERIAL" ] && { echo "ERROR: MobileGPT-V2-2 emulator not found. Boot it (setup-collector) first."; exit 1; }
+[ -z "$SERIAL" ] && { echo "ERROR: MobileGPT-V2-2 emulator not found. Boot it (setup-emulator) first."; exit 1; }
 ```
 
 ### 2. 현재 값 확인 (멱등 체크)
