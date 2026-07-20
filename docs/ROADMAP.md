@@ -35,7 +35,7 @@ HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md
 | **AC_EXP03** | ✅ 완료 | stage1+stage2 완료 — **단 자격 모순 1건 미판정** |
 | **AC_EXP04** | ⛔ **차단** | **3중 차단** — 좌표계 모순 · 재빌드 소스 부재 · 등록 0 키 |
 | **AC_EXP05** | 🔄 **학습 중** | stage1 full FT **A100×2 진행 중** (2026-07-14~) · **stage2 도입** (2026-07-15 — YAML 12 + 등록 3키, `qwen2.5-vl-3b` LoRA E2E loop 진입). **데이터 쟁점 4건 미판정 · 완주 산출물 0** |
-| **AC_EXP06** | 🔄 **merge/업로드** | EXP05 **비증강(증강 X) Stage-2 대조군** (2026-07-18 — `AC_NOTAUG`에서 표준 네이밍으로 마이그레이션). stage2 학습 완료(`qwen2.5-vl-3b` LoRA base ep1/2/3) · merged 3에폭 HF 업로드(`SaFD-00/…ac-exp06-…epoch{1,2,3}`) · **eval 보류**(데이터 준비됨, 각 test 3000) · **lf_registry 미등록**(관례 — eval un-defer 시 후속) |
+| **AC_EXP06** | 🔄 **merge/업로드** | EXP05 **비증강(증강 X) Stage-2 대조군** (2026-07-18 — `AC_NOTAUG`에서 표준 네이밍으로 마이그레이션). **lf_registry 등록 완료**(2026-07-20 — `DATASET_MODEL_ELIGIBILITY`/`_STAGE2_ONLY`/`_LONG_CUTOFF_DS`/half-batch 편입, stage1 계보는 `stage1_hf_slug: "ac-exp05-"` override 로 EXP05 stage1 체크포인트를 그대로 잇는다). stage2 YAML **12종**(EXP05 stage2 매트릭스를 완전 미러 — base/world-model-full/world-model-lora × `qwen2.5-vl-{3b,7b}` × stage2 {full,lora}) 완성. `base` variant: 학습 완료(`qwen2.5-vl-3b` LoRA base ep1/2/3) · merged 3에폭 HF 업로드(`SaFD-00/…ac-exp06-…epoch{1,2,3}`). **world-model variant(EXP05 stage1 full/lora 계승) 는 YAML 만 있고 학습 이력 0** — `scripts/stage2_train.sh` 가 `ds_stage1_source` 로 EXP05 local merged 를 base 로 삼는다. **eval 보류**(데이터 준비됨, 각 test 3000). 남은 것 = world-model variant 학습·평가 실행 |
 | **MC** | ⬜ 미착수 | 데이터·등록·YAML 다 있고 자격 제한 없음 — 그냥 안 돌렸다 |
 | **MB** | ⬜ 미사용 | 평가 전용. `on-MB*` 산출물 0 |
 

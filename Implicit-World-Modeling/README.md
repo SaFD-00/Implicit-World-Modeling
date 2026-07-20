@@ -127,9 +127,16 @@ cat data/AndroidControl_EXP05/implicit-world-modeling_stage1_train.jsonl.meta.js
 
 ### AC_EXP06 — 비증강 대조군 (EXP05 대비, Stage 2 전용)
 
-EXP05 와 **동일한 절대 픽셀 xy 좌표/budget 계약** (840×1876, budget 1,605,632, Qwen2.5-VL family, factor 28, `cutoff_len` 24576) 을 승계하되 **데이터 증강을 적용하지 않은** 대조군이다 — "EXP05(증강 O) vs EXP06(증강 X)" 로 증강 효과를 본다. **Stage 2 전용** (stage2 train/test_id/test_ood 만 존재, stage1 없음). 학습 완료: qwen2.5-vl-3b LoRA base, epoch 1/2/3. merged 3 에폭 HF 업로드: `SaFD-00/qwen2.5-vl-3b-ac-exp06-base-stage2-lora-epoch{1,2,3}`. 평가 채점은 EXP05 처럼 `--coord-mode xy` (`stage2_eval.sh` 가 `AC_EXP06` 에 자동 주입).
+EXP05 와 **동일한 절대 픽셀 xy 좌표/budget 계약** (840×1876, budget 1,605,632, Qwen2.5-VL family, factor 28, `cutoff_len` 24576) 을 승계하되 **데이터 증강을 적용하지 않은** 대조군이다 — "EXP05(증강 O) vs EXP06(증강 X)" 로 증강 효과를 본다. **Stage 2 전용** (stage2 train/test_id/test_ood 만 존재, stage1 없음 — `lf_registry._STAGE2_ONLY` 가 stage1 YAML 렌더를 skip 한다). `base` variant 학습 완료: qwen2.5-vl-3b LoRA base, epoch 1/2/3. merged 3 에폭 HF 업로드: `SaFD-00/qwen2.5-vl-3b-ac-exp06-base-stage2-lora-epoch{1,2,3}`. 평가 채점은 EXP05 처럼 `--coord-mode xy` (`stage2_eval.sh` 가 `AC_EXP06` 에 자동 주입).
 
-> ⚠️ EXP06 은 `lf_registry.py::DATASET_MODEL_ELIGIBILITY` 에 **아직 미등록**이다 — Qwen2.5-VL/절대픽셀 기대는 **관례(convention)** 이며 `require_model_eligible()` 의 `exit 1` **코드 가드로 강제되지 않는다** (eval un-defer 시 등록 예정). merge 경로는 eligibility guard 를 거치지 않아 미등록 상태로 학습이 성공했다.
+`lf_registry.py::DATASET_MODEL_ELIGIBILITY` 에 **등록 완료**(EXP05 와 동일 자격 — Qwen2.5-VL 계열 전용, `require_model_eligible()` 이 코드로 강제). `world-model-{full,lora}` variant 는 base 로 쓸 stage1 체크포인트가 EXP06 자체엔 없어 **EXP05 stage1 을 그대로 승계**한다 (`stage1_hf_slug: "ac-exp05-"` + 셸 `ds_stage1_source()`; stage2 산출물 네이밍은 `ac-exp06-` 그대로). 예:
+
+```bash
+bash scripts/stage2_train.sh --model qwen2.5-vl-3b --dataset AC_EXP06 \
+  --stage1-mode full --stage1-epoch 3 --stage2-mode lora
+```
+
+이 커맨드의 `world-model-full` variant 는 `../outputs/AndroidControl_EXP05/merged/qwen2.5-vl-3b_stage1_full_world-model/epoch-3` 를 base 로 삼는다 (EXP06 자신의 stage1 이 아니라 EXP05 것 — DRY_RUN 로 확인됨).
 
 ### MC / MB
 

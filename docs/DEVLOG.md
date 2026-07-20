@@ -3,6 +3,25 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-20 — Implicit-World-Modeling: EXP06 을 lf_registry 에 정식 등록 — stage2 매트릭스 12종 완성, stage1 계보는 EXP05 승계
+
+바로 아래(2026-07-18) 엔트리가 "lf_registry 미등록(관례)" 로 남겨둔 미결 항목을 해소했다. 착수 전 `gen_configs --check` 를 HEAD(`22477f9`)에서 그대로 재실행해 실제로 깨져 있는지 먼저 확인했다 — **FAILED 였다**:
+
+```
+[orphan] IWM-AC_EXP06/stage2_lora/qwen2.5-vl-3b_base.yaml — 생성기가 만들지 않는 파일
+[!] gen_configs --check FAILED: 1 건 불일치 (생성 172 개 기준)
+```
+
+원인은 커밋 `beb67a8`(EXP06 최초 등록)가 `configs/train/IWM-AC_EXP06/stage2_lora/qwen2.5-vl-3b_base.yaml` 을 **손으로 커밋**했지만 `lf_registry.py::_DATASET_CONFIG`/`DATASET_MODEL_ELIGIBILITY` 에는 `AndroidControl_EXP06` 를 추가하지 않아서다 — 생성기 관점에서 그 DS 자체가 존재하지 않으니 파일이 orphan 이 됐다. `dataset_info.json` 등록·학습·merge·HF 업로드는 전부 레지스트리를 거치지 않는 경로(직접 커맨드 호출)라 이 불일치가 지금까지 드러나지 않았다.
+
+- **등록**: `_DATASET_CONFIG["AndroidControl_EXP06"]`(stage1/stage2 hparam dict, MC stage2-placeholder 대칭 패턴) + `DATASET_MODEL_ELIGIBILITY["AndroidControl_EXP06"] = frozenset(_QWEN2_5_VL_FAMILY)`(EXP05 와 동일 — 자격이 처음으로 **코드 가드**가 됐다, `require_model_eligible()` 의 `exit 1` 대상) + `_LONG_CUTOFF_DS`(24576) + `gpu_policy.py::_HALF_BATCH_DATASETS`.
+- **결정 — stage1-only 의 대칭**: EXP06 은 stage1 학습 데이터가 없다(원래도 없었다). `_STAGE1_ONLY`(MC/EXP04) 를 그대로 쓸 수 없는 이유는 그 집합이 "stage2 를 skip" 이지 지금 필요한 "stage1 을 skip" 과 반대라서다 → **`_STAGE2_ONLY = {"AndroidControl_EXP06"}`** 를 신설해 `gen_configs.py` 가 이 집합의 DS 는 stage1 YAML 렌더를 skip 하게 했다.
+- **결정 — stage1 참조와 stage2 산출물의 정체성을 분리한다**: world-model variant 는 base 로 쓸 stage1 체크포인트가 필요한데 EXP06 자체엔 없다. EXP05 것을 잇기로 하고, 이를 **두 계층**으로 나눠 구현했다 — (a) Python: `stage1_hf_slug: "ac-exp05-"` override 필드(기본은 `hf_slug` 자기 자신) → `hf_s1_model_{full,lora}` HF fallback repo id 조립에만 쓰인다. (b) 셸: `scripts/_common.sh::ds_stage1_source()`(`AC_EXP06 → AC_EXP05`, 그 외 identity) → `stage2_{train,merge,eval}.sh` 의 local merged 경로 조회·WARN 메시지 3곳에 관통. **stage2 산출물(어댑터/merged 디렉토리명·HF id)은 EXP06 정체성을 그대로 유지**한다 — `ds_stage1_source` 는 "stage1 을 어디서 찾을지"에만 관여하고 "stage2 결과를 어디에 쓸지"는 건드리지 않는다(둘을 섞으면 EXP06 산출물이 EXP05 이름으로 새는 사고가 난다).
+- **검증**: 신규 YAML 11개(기존 손학습 1개 + 11개 = stage2 매트릭스 12개: `qwen2.5-vl-{3b,7b}` × stage2 {full,lora} × {base, world-model-full, world-model-lora}) 생성 확인, `gen_configs --check` **exit 0 — 184 YAML 일치**(as-trained base.yaml byte 불변 확인), `pytest` **631 passed / 9 skipped**(신규 `test_exp06_stage2_only_and_exp05_lineage` + gpu_policy 200-case 매트릭스). DRY_RUN e2e: `bash scripts/stage2_train.sh --model qwen2.5-vl-3b --dataset AC_EXP06 --stage1-mode full --stage1-epoch 3 --stage2-mode lora` 가 `Stage 1 base = ../outputs/AndroidControl_EXP05/merged/qwen2.5-vl-3b_stage1_full_world-model/epoch-3` 출력 — stage1 은 EXP05 계보, `ds_outputs_code`/`ds_model_suffix` 도 `ds_stage1_source` 경유로 EXP05 기준 해석됨을 확인.
+- **알려진 선행 이슈(이번 변경과 무관)**: 이 환경에 `transformers` 미설치라 `tests/test_diff_loss_v2.py`·`test_diff_loss_double_ce.py` 는 collection ERROR(이전부터 존재하던 환경 제약, `pytest` 631 카운트에는 미포함).
+- **미결 해소**: 2026-07-18 엔트리와 아래 §의 "lf_registry 미등록" 서술은 이 등록으로 해소됐다 — 문서 트리오(README/AGENTS/ARCHITECTURE) + ROADMAP 의 해당 서술도 함께 갱신했다. eval 은 여전히 보류(사용자 지시, 미변경).
+- 변경: `implicit_world_modeling/{lf_registry,gen_configs}.py` · `scripts/{gpu_policy.py,_common.sh,stage2_train.sh,stage2_merge.sh,stage2_eval.sh}` · `tests/{test_gen_configs,test_gpu_policy}.py` · `configs/train/IWM-AC_EXP06/` YAML 11개 신규. 문서 정합: `docs/{ROADMAP,CHANGELOG}.md` · `Implicit-World-Modeling/{README,AGENTS,ARCHITECTURE}.md` — "lf_registry 미등록" 서술 소거.
+
 ## 2026-07-18 — Implicit-World-Modeling: EXP06 (AndroidControl_EXP06) 등록 — EXP05 비증강 Stage-2 대조군 · NOTAUG→EXP06 마이그레이션 · 데이터 양식 정규화 · merged 3에폭 HF 업로드
 
 로컬에 커밋되지 않은 `AC_NOTAUG`(비증강 stage2 실험군)를 표준 `AC_EXP06`/`AndroidControl_EXP06` 네이밍으로 승격 등록했다. **EXP05(데이터 증강 O) vs EXP06(증강 X)** 비교가 목적이다. 학습은 이미 완료돼 있어(`qwen2.5-vl-3b` LoRA base, epoch 1/2/3) 재학습 없이 개명·정규화·merge·HF 업로드만 수행했다. **평가는 사용자 지시로 보류**(데이터는 준비됨). 협업 제약: 사용자 지시로 **fable·codex 미사용** → Advisor/Worker/검증 전부 `claude`/`opus`, tier-2 codex 대신 **tier-1 결정론 게이트를 오케스트레이터가 직접** 재실행해 승인.
