@@ -38,6 +38,7 @@ from pathlib import Path
 from implicit_world_modeling.lf_registry import (
     _MODEL_CONFIG,
     _STAGE1_ONLY,
+    _STAGE2_ONLY,
     BASE_DIR,
     CONFIGS,
     eligible_models,
@@ -288,10 +289,13 @@ def generate_all(
                     ds_name=ds_name,
                     mode=mode,
                 )
-                rel = f"{subfolder}/stage1_{mode}/{model_key}_world-model.yaml"
-                out[rel] = render_stage1(cfg, mode, policy)
+                # Stage 1 학습 데이터가 없는 DS (EXP06) 는 stage1 렌더 skip —
+                # stage1 체크포인트는 다른 실험군 (EXP05) 것을 잇는다.
+                if ds_name not in _STAGE2_ONLY:
+                    rel = f"{subfolder}/stage1_{mode}/{model_key}_world-model.yaml"
+                    out[rel] = render_stage1(cfg, mode, policy)
 
-                # Stage 2 를 지원하지 않는 DS (MC / EXP04 / EXP05) 는 skip.
+                # Stage 2 를 지원하지 않는 DS (MC / EXP04) 는 skip.
                 if ds_name in _STAGE1_ONLY:
                     continue
                 for variant, content in render_stage2(cfg, mode, policy).items():

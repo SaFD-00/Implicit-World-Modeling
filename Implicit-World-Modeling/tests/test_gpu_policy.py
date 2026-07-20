@@ -1,7 +1,7 @@
 """Regression tests for scripts/gpu_policy.py — GPU 정책 SSoT.
 
 10 GPU 조합(RTX5090×{1,2}, A100×{1,2,4,8}, H100×{1,2,4,8}) × size_class 2
-× ds 4종(AndroidControl_EXP01 + EXP03/04/05) × mode 2 = 160 케이스 전수를
+× ds 5종(AndroidControl_EXP01 + EXP03/04/05/06) × mode 2 = 200 케이스 전수를
 파라미터라이즈하며, offload 분기가 **(gpu_type, size_class) 쌍**으로만 갈리는
 불변식을 명시적으로 고정한다:
 
@@ -37,7 +37,7 @@ from gpu_policy import (  # noqa: E402
 
 GPU_POLICY_PY = REPO / "scripts" / "gpu_policy.py"
 
-# --- 160-case matrix ---------------------------------------------------------
+# --- 200-case matrix ---------------------------------------------------------
 GPU_COMBOS = [
     ("RTX5090", 1),
     ("RTX5090", 2),
@@ -56,6 +56,7 @@ DS_NAMES = [
     "AndroidControl_EXP03",
     "AndroidControl_EXP04",
     "AndroidControl_EXP05",
+    "AndroidControl_EXP06",
 ]
 MODES = ["full", "lora"]
 
@@ -68,8 +69,8 @@ ALL_CASES = [
 ]
 
 
-def test_matrix_has_160_cases():
-    assert len(ALL_CASES) == 160
+def test_matrix_has_200_cases():
+    assert len(ALL_CASES) == 200
 
 
 # --- 1. 핵심 불변식: offload 는 (gpu_type, size_class, mode) 로 갈린다 ---------
@@ -154,7 +155,7 @@ def test_global_batch_size_invariant(gpu_type, nproc, size_class, ds_name, mode)
     )
 
 
-# --- 3. EXP03/04/05 절반 규칙 -------------------------------------------------
+# --- 3. EXP03/04/05/06 절반 규칙 -------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -164,7 +165,12 @@ def test_global_batch_size_invariant(gpu_type, nproc, size_class, ds_name, mode)
 def test_half_batch_rule_concrete(gpu_type, expected_base, expected_half):
     base = resolve_gpu_policy(gpu_type, 2, "7-9B", "AndroidControl_EXP01", "full")
     assert base.per_device_train_batch_size == expected_base
-    for half_ds in ("AndroidControl_EXP03", "AndroidControl_EXP04", "AndroidControl_EXP05"):
+    for half_ds in (
+        "AndroidControl_EXP03",
+        "AndroidControl_EXP04",
+        "AndroidControl_EXP05",
+        "AndroidControl_EXP06",
+    ):
         halved = resolve_gpu_policy(gpu_type, 2, "7-9B", half_ds, "full")
         assert halved.per_device_train_batch_size == expected_half
 
@@ -185,6 +191,7 @@ def test_half_batch_rule_general():
                     "AndroidControl_EXP03",
                     "AndroidControl_EXP04",
                     "AndroidControl_EXP05",
+                    "AndroidControl_EXP06",
                 ):
                     halved = resolve_gpu_policy(gpu_type, nproc, size_class, half_ds, mode)
                     assert halved.per_device_train_batch_size == expected, (

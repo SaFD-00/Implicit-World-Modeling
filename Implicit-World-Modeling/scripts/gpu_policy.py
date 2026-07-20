@@ -100,7 +100,12 @@ _BASE_PER_DEVICE_BS: dict[str, int] = {"RTX5090": 1, "A100": 2, "H100": 2}
 # 긴 시퀀스(좌표/절대픽셀 표현) 실험군은 메모리 압박이 커 per_device 를 절반으로 낮춘다.
 # 단 아래 _is_large_mem_small_model 조합은 offload 를 끄고도 여유가 있어 예외를 면제받는다.
 _HALF_BATCH_DATASETS: frozenset[str] = frozenset(
-    {"AndroidControl_EXP03", "AndroidControl_EXP04", "AndroidControl_EXP05"}
+    {
+        "AndroidControl_EXP03",
+        "AndroidControl_EXP04",
+        "AndroidControl_EXP05",
+        "AndroidControl_EXP06",
+    }
 )
 
 # 80GB GPU (A100/H100) 에서 offload 를 끄고 half-batch 예외도 면제하는 조합.
@@ -174,7 +179,7 @@ def resolve_gpu_policy(
     gpu_type : {"RTX5090", "A100", "H100"}
     nproc : RTX5090 은 {1,2}, A100/H100 은 {1,2,4,8} 만 허용.
     size_class : {"7-9B", "3-4B"}
-    ds_name : 데이터셋 키. ``AndroidControl_EXP03/04/05`` 는 긴 시퀀스 예외로
+    ds_name : 데이터셋 키. ``AndroidControl_EXP03/04/05/06`` 는 긴 시퀀스 예외로
         ``per_device_train_batch_size`` 를 절반으로 낮춘다 — 단 no-offload 조합은
         면제 (그 외 값은 자유 문자열).
     mode : {"full", "lora"}. ``size_class`` 와 함께 offload 를 가른다 —

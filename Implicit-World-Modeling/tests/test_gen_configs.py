@@ -219,6 +219,12 @@ def test_family_eligibility(generated: dict[str, str]) -> None:
         if rel.startswith("IWM-AC_EXP05/"):
             assert "qwen3-vl" not in rel, f"EXP05 에 Qwen3-VL 유입: {rel}"
 
+    # EXP06 (EXP05 의 stage2 비증강 대조군) — 계보상 EXP05 와 동일 자격.
+    assert eligible_models("AndroidControl_EXP06") == ["qwen2.5-vl-7b", "qwen2.5-vl-3b"]
+    for rel in generated:
+        if rel.startswith("IWM-AC_EXP06/"):
+            assert "qwen3-vl" not in rel, f"EXP06 에 Qwen3-VL 유입: {rel}"
+
     # EXP01/EXP02/MC — 등록 4 모델 전부.
     assert len(eligible_models("AndroidControl_EXP01_ratio37")) == 4
     assert len(eligible_models("MonkeyCollection")) == 4
@@ -229,6 +235,39 @@ def test_stage2_only_for_stage2_datasets(generated: dict[str, str]) -> None:
     for rel in generated:
         if rel.startswith(("IWM-MC/", "IWM-AC_EXP04/")):
             assert "/stage2_" not in rel, rel
+
+
+def test_exp06_stage2_only_and_exp05_lineage(generated: dict[str, str]) -> None:
+    """EXP06 은 stage2 만 만들고, world-model variant 는 EXP05 stage1 을 잇는다."""
+    exp06 = {rel: c for rel, c in generated.items() if rel.startswith("IWM-AC_EXP06/")}
+    assert len(exp06) == 12, sorted(exp06)  # 2 모델 × 2 모드 × 3 variant
+
+    # (a) stage1 YAML 은 만들지 않는다 (stage1 학습 데이터가 없다).
+    for rel in exp06:
+        assert "/stage1_" not in rel, rel
+
+    # (b)/(c) variant 별 model_name_or_path.
+    for rel, content in exp06.items():
+        stem = Path(rel).stem
+        model_short, variant = stem.split("_", 1)
+        if variant == "base":
+            expected = _MODEL_CONFIG[model_short]["model_id"]
+        else:
+            lineage = variant.rsplit("-", 1)[1]  # world-model-{full,lora}
+            expected = (
+                f"SaFD-00/{model_short}-ac-exp05-stage1-{lineage}-world-model"
+            )
+        assert f"model_name_or_path: {expected}\n" in content, rel
+
+    # base 는 소재 모델 그대로 (회귀 방어용 명시 단언).
+    assert (
+        "model_name_or_path: Qwen/Qwen2.5-VL-3B-Instruct\n"
+        in exp06["IWM-AC_EXP06/stage2_lora/qwen2.5-vl-3b_base.yaml"]
+    )
+    assert (
+        "model_name_or_path: Qwen/Qwen2.5-VL-7B-Instruct\n"
+        in exp06["IWM-AC_EXP06/stage2_full/qwen2.5-vl-7b_base.yaml"]
+    )
 
 
 def test_diff_loss_flag_only_exp02_exp05(generated: dict[str, str]) -> None:
@@ -317,7 +356,14 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
             assert EXPECTED_DS in content, rel
             seen_7b_full_offload = True
             # A100 base pdbs=2 → ga=16. 단 EXP03/04/05 는 half-batch → pdbs=1, ga=32.
-            if rel.startswith(("IWM-AC_EXP03/", "IWM-AC_EXP04/", "IWM-AC_EXP05/")):
+            if rel.startswith(
+                (
+                    "IWM-AC_EXP03/",
+                    "IWM-AC_EXP04/",
+                    "IWM-AC_EXP05/",
+                    "IWM-AC_EXP06/",
+                )
+            ):
                 assert "per_device_train_batch_size: 1" in content, rel
                 assert "gradient_accumulation_steps: 32" in content, rel
             else:
@@ -330,13 +376,14 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
 
 
 def test_generated_count(generated: dict[str, str]) -> None:
-    """as-trained 74 − 자격박탈 2 + 신규 100 = 172.
+    """as-trained 74 − 자격박탈 2 + 신규 112 = 184 (EXP06 stage2 12 개 포함).
 
     개수를 하드코딩하지 않는다 — 자격 정의(DATASET_MODEL_ELIGIBILITY)의 결과이지
     독립적 사실이 아니기 때문이다. 자격을 바꾸면 개수는 따라 바뀌는 게 정상이고,
     이 테스트가 잡아야 할 것은 "생성기가 자격과 어긋나게 만드는가" 다.
     """
-    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 100
+    # 신규 112 = 기존 확장 100 + EXP06 stage2 12 (2 모델 × 2 모드 × 3 variant).
+    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 112
 
     # 생성된 모든 YAML 이 자격 집합 안에 있는가 (자격 밖 조합을 만들지 않는가)
     for rel in generated:

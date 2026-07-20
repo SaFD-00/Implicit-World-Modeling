@@ -383,6 +383,52 @@ _DATASET_CONFIG = {
             "lr_scheduler_type": "cosine",
         },
     },
+    # AC_EXP06 — EXP05 의 stage2 비증강 대조군. stage1 데이터가 없고 (stage2-only,
+    # `_STAGE2_ONLY`), stage1 체크포인트는 EXP05 것을 그대로 잇는다
+    # (`stage1_hf_slug: "ac-exp05-"`). stage2 산출물 네이밍만 ac-exp06- 로 분기한다.
+    "AndroidControl_EXP06": {
+        "lf_subfolder": "IWM-AC_EXP06",
+        "ds_prefix": "IWM-AC_EXP06",
+        "output_prefix": "AndroidControl_EXP06/",
+        "hf_slug": "ac-exp06-",
+        # stage1 계보는 EXP05 것을 잇는다 — hf_s1_model_{full,lora} 조립에만 쓰인다.
+        "stage1_hf_slug": "ac-exp05-",
+        # stage2-only — 아래 stage1 dict 는 렌더되지 않는다 (`_STAGE2_ONLY`).
+        # build_configs 가 c["stage1"] 을 무조건 읽으므로 KeyError 방지용 placeholder다
+        # (MC 의 stage2 placeholder 와 대칭). diff loss 플래그는 넣지 않는다.
+        "stage1": {
+            "lr": "1.0e-5",
+            "epochs": 3,
+            "warmup_ratio": 0.03,
+            "save_strategy": "epoch",
+            "save_steps": None,
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 8,
+            "lora_alpha": 16,
+            "lora_dropout": 0.05,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+        },
+        "stage2": {
+            "lr": "5.0e-5",
+            "epochs": 3,
+            "warmup_ratio": 0.03,
+            "save_strategy": "epoch",
+            "save_steps": None,
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 32,
+            "lora_alpha": 64,
+            "lora_dropout": 0.1,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+        },
+    },
     "MonkeyCollection": {
         "lf_subfolder": "IWM-MC",
         "ds_prefix": "IWM-MC",
@@ -427,6 +473,10 @@ _DATASET_CONFIG = {
 # EXP04 stage2 보류 — 데이터 도입 시 제거. (EXP05 는 stage2 도입 완료.)
 _STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04"}
 
+# Stage 2 만 학습하는 DS (`_STAGE1_ONLY` 의 대칭). EXP06 은 EXP05 stage2 의 비증강
+# 대조군이라 stage1 학습 데이터가 아예 없고, stage1 체크포인트는 EXP05 것을 잇는다.
+_STAGE2_ONLY = {"AndroidControl_EXP06"}
+
 # ID/OOD split 없이 `implicit-world-modeling_stage{1,2}_test.jsonl` 단일 파일을 쓰는 DS.
 # `_STAGE1_ONLY` 와 직교 — MC 는 Stage 1 만 + 단일 test.
 _SINGLE_TEST = {"MonkeyCollection"}
@@ -468,6 +518,9 @@ DATASET_MODEL_ELIGIBILITY: dict[str, frozenset[str]] = {
     # 1605632 = Qwen2.5-VL-3B 기준). 돌아가긴 하지만 grounding 이 조용히 깨진다.
     # → 자격에서 제거하고 YAML 도 삭제했다. AGENTS.md 의 하드 제약과 코드를 일치시킨다.
     "AndroidControl_EXP05": frozenset(_QWEN2_5_VL_FAMILY),
+    # EXP06 은 EXP05 의 stage2 비증강 대조군이다 — 같은 절대 픽셀 좌표 표현을 쓰고
+    # stage1 체크포인트도 EXP05 것을 잇는다. 계보상 자격도 EXP05 와 같아야 한다.
+    "AndroidControl_EXP06": frozenset(_QWEN2_5_VL_FAMILY),
 }
 
 
@@ -505,6 +558,7 @@ _LONG_CUTOFF_DS = (
     "AndroidControl_EXP03",
     "AndroidControl_EXP04",
     "AndroidControl_EXP05",
+    "AndroidControl_EXP06",
 )
 
 
@@ -585,11 +639,14 @@ def build_configs() -> dict[str, dict[str, dict]]:
                 c["ds_s2_test_ood"] = f"{c['ds_prefix']}_stage2_test_ood"
                 c["ds_s2_test"] = c["ds_s2_test_id"]
 
+            # Stage 1 체크포인트 slug 는 기본적으로 hf_slug 와 같다. 다른 실험군의
+            # stage1 을 잇는 DS 만 "stage1_hf_slug" 로 override 한다 (EXP06 → ac-exp05-).
+            s1_slug = cfg.get("stage1_hf_slug", c["hf_slug"])
             c["hf_s1_model_full"] = (
-                f"SaFD-00/{mcfg['short_name']}-{c['hf_slug']}stage1-full-world-model"
+                f"SaFD-00/{mcfg['short_name']}-{s1_slug}stage1-full-world-model"
             )
             c["hf_s1_model_lora"] = (
-                f"SaFD-00/{mcfg['short_name']}-{c['hf_slug']}stage1-lora-world-model"
+                f"SaFD-00/{mcfg['short_name']}-{s1_slug}stage1-lora-world-model"
             )
             c["hf_s1_model"] = c["hf_s1_model_full"]
 
