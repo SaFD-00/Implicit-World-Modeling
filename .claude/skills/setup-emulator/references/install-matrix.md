@@ -20,6 +20,10 @@
 
 합계 = 36+4+1+10+80 = 131 (triage 데이터 행과 일치).
 
+> **2026-07-20 재분류 2건 — 버킷 합계는 불변**: `com.xatori.Plugshare` 가 navigable-candidate → **login-wall** 로, `com.eventbrite.attendee` 가 login-wall → **navigable-candidate(비멱등)** 로 서로 맞바뀌어 위 개수는 그대로 유효하다(navigable 36 / login-wall 4). 근거는 각 행의 notes 참조 — 둘 다 **초기화된 디바이스의 fresh install** 에서 실측한 것으로, 이전 triage 는 앞선 실행이 온보딩을 이미 소비한 상태에서 관측해 오분류했다. **온보딩 분류는 반드시 wipe 직후 fresh install 에서 판정할 것.**
+>
+> **비멱등(non-idempotent) 하위분류**: navigable 이라도 force-stop→재실행 시 게이트가 재출현해 **매 수집 세션마다 재우회가 필요한** 앱이 있다 — `com.eventbrite.attendee`(Cancel→No thanks), `com.chess`(게스트 세션 미존속), `troop.com.freedcam`("다시 보지 않기" 체크가 실제로 저장되지 않음). 수집 자동화에서 이들은 첫 스텝을 온보딩에 낭비한다.
+
 ## 앱 목록 (버킷별 정렬)
 
 | package_id | app_name | source | apk_cached | installs | launch_bucket | login_required | onboarding_ref | notes |
@@ -40,7 +44,7 @@
 | com.simplemobiletools.musicplayer | Simple Music Player | F-Droid | yes | yes | navigable-candidate | no | [app-first-run-batch2.md](app-first-run-batch2.md) |  |
 | com.thetrainline | Trainline | PlayStore | yes | yes | navigable-candidate | no | [app-first-run-batch2.md](app-first-run-batch2.md) | immersive-mode Got it dismiss only on this screen; post-dismiss unconfirmed |
 | com.wunderground.android.weather | Weather Underground | PlayStore | yes | yes | navigable-candidate | no | [app-first-run-batch2.md](app-first-run-batch2.md) | location permission dialog (I UNDERSTAND/TURN LOCATION OFF), no login |
-| com.xatori.Plugshare | PlugShare | PlayStore | yes | yes | navigable-candidate | no | [app-first-run-batch2.md](app-first-run-batch2.md) | GET STARTED welcome, no login gate seen yet |
+| com.xatori.Plugshare | PlugShare | PlayStore | yes | yes | **login-wall** | **yes** | [app-first-run-batch2.md](app-first-run-batch2.md) | **재분류(2026-07-20 fresh-install 실측)**: 이전 `navigable-candidate / "GET STARTED welcome, no login gate seen yet"` 는 오분류였다. 초기화된 디바이스에서는 "Location Accuracy" 시스템 다이얼로그 이후 곧바로 `SignInSignUpActivity`("Create a free account to access more.")가 뜨고, 전체 UI 덤프로 확인해도 skip/close/guest 경로가 **없다**(SIGN UP WITH GOOGLE/APPLE/EMAIL + "Already a member? Sign in" 뿐). BACK 은 앱을 종료시키고 재실행하면 동일 게이트가 재현된다. batch2.md 의 U2 노트가 인정하듯 그때의 "GET STARTED" 화면은 U1 triage 가 이미 소비한 뒤라 이 게이트를 관측하지 못했을 가능성이 높다. 수집 불가 |
 | de.danoeh.antennapod | AntennaPod | F-Droid | yes | yes | navigable-candidate | no | [app-first-run-batch2.md](app-first-run-batch2.md) |  |
 | de.dennisguse.opentracks | OpenTracks | F-Droid | yes | yes | navigable-candidate | no | [app-first-run.md](app-first-run.md) | documented |
 | de.markusfisch.android.binaryeye | Binary Eye | F-Droid | yes | yes | navigable-candidate | no | [app-first-run-batch2.md](app-first-run-batch2.md) | Simple/Advanced mode picker, no login |
@@ -60,7 +64,7 @@
 | org.videolan.vlc | VLC | F-Droid | yes | yes | navigable-candidate | no | [app-first-run.md](app-first-run.md) | documented |
 | org.wikipedia | Wikipedia | F-Droid | yes | yes | navigable-candidate | no | [app-first-run-batch2.md](app-first-run-batch2.md) | multi-step intro carousel, no login required |
 | troop.com.freedcam | FreeDCam | F-Droid | yes | yes | navigable-candidate | no | [app-first-run-batch2.md](app-first-run-batch2.md) | resolve-activity returns ResolverActivity (ambiguous); launched via freed.cam.ActivityFreeDcamMain directly |
-| com.eventbrite.attendee | Eventbrite | PlayStore | yes | yes | login-wall | yes |  | Continue with email/Facebook Social Sign In gate, no guest option seen; launch needs literal $ escaped in am start -n |
+| com.eventbrite.attendee | Eventbrite | PlayStore | yes | yes | **navigable-candidate (비멱등)** | no |  | **재분류(2026-07-20 실측)**: 이전 `login-wall / "no guest option seen"` 은 오분류였다. Social Sign In 화면 좌상단 **"Cancel"(X) → "No thanks"** 로 우회해 실제 이벤트 피드에 도달한다(이전 triage 가 Cancel 버튼을 놓쳤다). 단 **비멱등** — force-stop 후 재실행하면 게이트가 다시 떠서 매 수집 세션마다 재우회해야 한다. launch 시 `am start -n` 에 literal `$` 이스케이프 필요 |
 | com.nike.ntc | Nike Training Club | PlayStore | yes | yes | login-wall | yes |  | Join Us / Sign In only, no guest option seen |
 | com.nike.plusgps | Nike Run Club | PlayStore | yes | yes | login-wall | yes |  | Join Us / Sign In only, no guest option seen |
 | org.joinmastodon.android | Mastodon | F-Droid | yes | yes | login-wall | yes |  | server pick + Log in/Create account gate, no guest-browse option seen |
