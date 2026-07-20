@@ -34,15 +34,19 @@ SCRIPT_TAG="stage2_train_${STAGE2_MODE}_from_${STAGE1_MODE}"
 resolve_stage1_base() {
   # 반환: LF cwd 기준 상대경로 "../outputs/{OUT_DS}/merged/{MODEL}{SFX}_stage1_{MODE}_world-model/epoch-N".
   # AC_EXP01 ratio variant 는 OUT_DS=AndroidControl_EXP01, SFX=_ratio{37,55,73} 로 ratio 별 stage1 merged 를 가리킨다.
+  # ds_stage1_source 로 stage1 계보 소스 DS 를 해석한다 (예: AC_EXP06 → AC_EXP05,
+  # stage2 비증강 대조군은 EXP06 stage1 을 따로 학습하지 않고 EXP05 를 승계).
   local model_short="$1" ds="$2" mode="$3" epoch="$4"
-  local abs; abs="$(local_merged_epoch_dir stage1 "$model_short" "$ds" "$mode" "$epoch")"
+  local src; src="$(ds_stage1_source "$ds")"
+  local abs; abs="$(local_merged_epoch_dir stage1 "$model_short" "$src" "$mode" "$epoch")"
   if [ ! -d "$abs" ]; then
     echo "[!] Missing Stage 1 merged dir: $abs" >&2
-    echo "    먼저 stage1_train.sh + stage1_merge.sh 를 --stage1-mode ${mode} 로 돌리고, epoch-${epoch} 가 로컬에 있는지 확인하세요." >&2
+    echo "    (stage1 소스 DS: ${src}, from --dataset ${ds})" >&2
+    echo "    먼저 stage1_train.sh + stage1_merge.sh 를 --dataset ${src} --stage1-mode ${mode} 로 돌리고, epoch-${epoch} 가 로컬에 있는지 확인하세요." >&2
     return 1
   fi
-  local out_ds; out_ds="$(ds_outputs_code "$ds")"
-  local sfx;    sfx="$(ds_model_suffix "$ds")"
+  local out_ds; out_ds="$(ds_outputs_code "$src")"
+  local sfx;    sfx="$(ds_model_suffix "$src")"
   echo "../outputs/${out_ds}/merged/${model_short}${sfx}_stage1_${mode}_world-model/epoch-${epoch}"
 }
 

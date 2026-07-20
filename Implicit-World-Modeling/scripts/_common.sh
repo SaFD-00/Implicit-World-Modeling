@@ -222,6 +222,15 @@ ds_outputs_code() {
   esac
 }
 
+# DS 키 → stage1 계보 소스 DS. EXP06 은 stage1 을 학습하지 않고 EXP05 의
+# stage1 world-model 체크포인트를 잇는다 (stage2 비증강 대조군).
+ds_stage1_source() {
+  case "$1" in
+    AC_EXP06) echo "AC_EXP05" ;;
+    *) echo "$1" ;;
+  esac
+}
+
 # DS 키 → adapters/ + merged/ 의 모델 디렉토리 이름에 붙일 suffix.
 # AC_EXP01 ratio variant 만 _ratio{37,55,73} 을 갖고, 다른 DS 는 빈 문자열.
 ds_model_suffix() {

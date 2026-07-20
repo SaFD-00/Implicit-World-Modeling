@@ -190,7 +190,10 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         for EPOCH in "${EPOCHS[@]}"; do
           if [[ "$EPOCH" == "0" ]]; then
             # epoch-0 = stage2 미학습 = stage1 merged repo (stage2 mode 무관, 동일 모델).
-            HUB_ID=$(resolve_eval_model_path stage1 "$MODEL_SHORT" "$TRAIN_DS" "$STAGE1_MODE" "$STAGE1_EPOCH")
+            # ds_stage1_source 로 stage1 계보 소스 DS 를 해석 (예: AC_EXP06 → AC_EXP05,
+            # stage2 비증강 대조군은 EXP06 stage1 을 따로 학습하지 않고 EXP05 를 승계 —
+            # HF 폴백 id 도 자동으로 ac-exp05-...-stage1-... 이 된다).
+            HUB_ID=$(resolve_eval_model_path stage1 "$MODEL_SHORT" "$(ds_stage1_source "$TRAIN_DS")" "$STAGE1_MODE" "$STAGE1_EPOCH")
           else
             HUB_ID=$(resolve_eval_model_path stage2_world "$MODEL_SHORT" "$TRAIN_DS" \
               "$STAGE1_MODE" "$STAGE1_EPOCH" "$MODE2" "$EPOCH")
