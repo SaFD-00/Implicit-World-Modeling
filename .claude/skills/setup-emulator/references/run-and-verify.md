@@ -62,6 +62,12 @@ adb -s "$SERIAL" shell settings put secure accessibility_enabled 1
 
 그 다음 **1개 앱 · 소량 스텝으로 재연결을 먼저 검증**하고(`--apps <one> --steps 12`), 로그에 `Device connected` 가 뜨고 `data/<pkg>/page_graph.json` 이 생기는 것을 확인한 뒤에야 전수 실행을 재시작한다.
 
+> **⚠️ 게이트 실행 자체가 죽은 소켓을 다시 만든다 — 토글은 두 번 필요하다**: 위 검증용 1앱 실행이 끝나면 그 서버도 종료되므로 client 는 **또 죽은 소켓을 붙든다**. 게이트 직후 곧바로 전수 실행을 걸면 첫 세션부터 `did not connect` 로 실패한다(2026-07-20 실측). 순서는 반드시:
+>
+> 1. accessibility 토글 → 2. 게이트 1앱 검증 → 3. **accessibility 토글(재차)** → 4. 전수 실행
+>
+> 게이트가 남긴 세션(`data/<pkg>`, `runtime/<pkg>`)은 스텝수가 적은 불완전본이므로, 그 앱을 전수 실행 대상에 포함한다면 게이트 산출물을 지우고(`rm -rf`) 시작해 온전한 세션으로 대체되게 한다.
+
 > **모니터링 시 필수**: 장시간 실행을 감시할 때 필터에 **`did not connect` 와 `ended without result` 를 반드시 포함**할 것. 성공 신호(`Session complete:`)만 grep 하면 이 실패는 **완전한 침묵**으로 나타나 "진행 중"과 구분되지 않는다(2026-07-20 실측: 이 누락으로 33앱 사이클을 통째로 날렸다).
 
 ## 세션 종료 조건 & 재초기화
