@@ -18,17 +18,28 @@ Monkey-Collector client 의 화면 캡처는 **두 메커니즘**을 쓴다:
 ```bash
 adb -s "$SERIAL" shell appops set com.monkey.collector PROJECT_MEDIA allow 2>/dev/null
 adb -s "$SERIAL" shell am start -n com.monkey.collector/.MainActivity; sleep 3
-# "SAVE & READY" 좌표 잡아 탭
-B=$(adb -s "$SERIAL" exec-out uiautomator dump /dev/tty 2>/dev/null | tr '>' '>\n' | grep -i 'SAVE & READY' \
-    | sed -E 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/' | head -1)
-[ -n "$B" ] && { set -- $B; adb -s "$SERIAL" shell input tap $(( ($1+$3)/2 )) $(( ($2+$4)/2 )); }
+dumpui(){ adb -s "$SERIAL" exec-out uiautomator dump /dev/tty 2>/dev/null | sed 's/></>\n</g'; }
+bounds_of(){ grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | head -1 \
+             | sed -E 's/bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]"/\1 \2 \3 \4/'; }
+tap_bounds(){ [ -n "$1" ] || return 1; read -r x1 y1 x2 y2 <<< "$1"; adb -s "$SERIAL" shell input tap $(( (x1+x2)/2 )) $(( (y1+y2)/2 )); }
+
+# "SAVE & READY" 좌표 잡아 탭 (Button 한정 + 대소문자 구분 — 아래 주의 참조)
+tap_bounds "$(dumpui | grep 'class="android.widget.Button"' | grep 'text="SAVE &amp; READY"' | bounds_of)"
 sleep 2
 # 시스템 "Start now"(또는 "시작") 다이얼로그가 뜨면 탭 (appop 자동승인 시 안 뜸)
-B=$(adb -s "$SERIAL" exec-out uiautomator dump /dev/tty 2>/dev/null | tr '>' '>\n' | grep -iE 'text="(Start now|시작)"' \
-    | sed -E 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/' | head -1)
-[ -n "$B" ] && { set -- $B; adb -s "$SERIAL" shell input tap $(( ($1+$3)/2 )) $(( ($2+$4)/2 )); }
+tap_bounds "$(dumpui | grep -E 'text="(Start now|시작)"' | bounds_of)"
 adb -s "$SERIAL" shell input keyevent KEYCODE_HOME
 ```
+
+> **⚠️ uiautomator 파싱 3대 함정 (2026-07-20 Pixel6-2 실측으로 전부 발화 — 위 형태를 유지할 것)**
+>
+> | 함정 | 왜 깨지나 | 올바른 형태 |
+> |---|---|---|
+> | `tr '>' '>\n'` | `tr` 은 문자 1:1 치환이라 1문자→2문자 매핑 불가 → **no-op**. XML 이 한 줄로 남고 greedy `sed 's/.*bounds=…'` 가 그 줄 **마지막** bounds(`navigationBarBackground` `[0,2361][1080,2424]`)를 잡아 **내비바를 탭 → 런처로 튕김** | `sed 's/></>\n</g'` 로 노드 줄분리 후 `grep -oE 'bounds="…"'` |
+> | `grep -i 'SAVE & READY'` | 상태 라벨 `"Status: Configure server and tap Save & Ready"` 가 먼저 매치 → TextView 탭 | 대소문자 구분 + `class="android.widget.Button"` 한정 |
+> | `set -- $B` | zsh 는 unquoted 확장을 word-split 하지 않음 → `$1` 에 전체 문자열 → `bad math expression` | `read -r x1 y1 x2 y2 <<< "$B"` (bash/zsh 공통) |
+>
+> 화면은 **1080×2424** 이고 `y >= 2361` 은 내비게이션 바다 — 그 영역을 탭하면 안 된다.
 
 > **실측(Pixel6-2/API33)**: `appops … PROJECT_MEDIA allow` 가 설정돼 있으면 "Save & Ready" 후 **동의 다이얼로그 없이 자동 승인**되고 `"Ready. Server will launch target apps automatically."` 토스트 뜬 뒤 standby 진입. 다이얼로그가 뜨는 이미지/버전에선 "Start now" 탭이 필요.
 
