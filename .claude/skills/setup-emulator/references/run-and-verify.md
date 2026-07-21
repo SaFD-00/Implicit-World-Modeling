@@ -49,6 +49,8 @@ WARN  … collector:run_queue - Session N ended without result for <pkg>
 
 **원인**: 이전 서버 프로세스가 죽으면(크래시·`pkill`·인자 오류로 인한 예외 등) client 의 `CollectorService` 가 **죽은 소켓을 계속 붙들고 있어** 새로 뜬 서버에 재연결하지 않는다. 서버는 정상적으로 리슨 중이라 서버 쪽 로그만 보면 원인이 안 보인다.
 
+> **⚠️ 서버 재시작 없이 전수 실행 도중에도 자발적으로 발생한다(2026-07-21 실측)**: 한 `monkey-collect run` 프로세스가 24앱을 도는 중, 정상 완료된 세션(settings, 427스텝) 직후 다음 세션(files)부터 `did not connect` 로 빠지고 그 뒤가 전부 연쇄됐다. 서버는 죽지 않았고 client 프로세스(pid)·accessibility 도 살아 있었으며 crash 버퍼도 비어 있었다 — 긴 세션 도중 client↔서버 소켓이 한쪽만 끊긴(half-open) 상태로 추정된다. **감시 필터에 `did not connect` 를 넣어 2연속이면 즉시 중단**하고 아래 복구를 적용한다. client 가 살아 있으므로 `force-stop` 불필요, **accessibility 토글만으로 복구**된다. 이미 완료된 세션(page_graph 존재)은 안전하니, 미완료분만 추려 재개한다(§resume 목록).
+
 **복구 — accessibility off→on 토글**(client `force-stop` 불필요, 2026-07-20 실측 성공):
 
 ```bash
@@ -67,6 +69,10 @@ adb -s "$SERIAL" shell settings put secure accessibility_enabled 1
 > 1. accessibility 토글 → 2. 게이트 1앱 검증 → 3. **accessibility 토글(재차)** → 4. 전수 실행
 >
 > 게이트가 남긴 세션(`data/<pkg>`, `runtime/<pkg>`)은 스텝수가 적은 불완전본이므로, 그 앱을 전수 실행 대상에 포함한다면 게이트 산출물을 지우고(`rm -rf`) 시작해 온전한 세션으로 대체되게 한다.
+>
+> **⚠️ 게이트 앱은 "아직 수집 안 된 앱"으로 골라라 — 완료본을 덮어쓴다**: 게이트를 `--force` 로 돌리면 그 앱의 **기존 완료 데이터를 지우고** 8~14스텝짜리 얇은 세션으로 덮어쓴다(2026-07-21 실측: 56노드 settings 를 게이트로 써서 5노드로 클로버). 게이트는 아직 미수집인 앱(재개 목록의 첫 앱 등)으로 돌리거나, 부득이 완료본을 쓴다면 그 앱을 재수집 목록에 다시 넣어 온전본으로 되돌린다.
+>
+> **참고 — `com.android.settings` 는 이 환경에서 조기 finish 로 얇게 수집된다**: settings 탐색이 `com.google.android.settings.intelligence`(검색 서브프로세스)로 이탈하면 client 가 8스텝 부근에서 `finish` 신호를 보내 5노드 정도로 끝난다. 죽은 소켓·스톰이 아니라 앱 특성이므로 재수집해도 유사하다.
 
 > **모니터링 시 필수**: 장시간 실행을 감시할 때 필터에 **`did not connect` 와 `ended without result` 를 반드시 포함**할 것. 성공 신호(`Session complete:`)만 grep 하면 이 실패는 **완전한 침묵**으로 나타나 "진행 중"과 구분되지 않는다(2026-07-20 실측: 이 누락으로 33앱 사이클을 통째로 날렸다).
 
