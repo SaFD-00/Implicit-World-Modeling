@@ -255,6 +255,28 @@ class CoordIrrelevantTypes(unittest.TestCase):
         r = _single({"action": "navigate_home"}, {"action": "navigate_home"})
         self.assertTrue(r["step_correct"])
 
+    def test_terminate_type_only(self):
+        # EXP05/06 GT 는 종료 액션을 "terminate" 로 쓴다(구 스키마 "finish").
+        # status/answer 필드는 대조하지 않고 type 일치만으로 정답이어야 한다.
+        # 이 케이스가 누락돼 terminate(테스트셋의 18.6%)가 조용히 0점 처리됐었다.
+        r = _single(
+            {"action": "terminate", "status": "success", "answer": None},
+            {"action": "terminate", "status": "infeasible", "answer": None},
+        )
+        self.assertTrue(r["step_correct"])
+
+    def test_finish_type_only_still_supported(self):
+        # 구 스키마 "finish" 도 계속 type-only 로 통과해야 한다(하위 호환).
+        r = _single({"action": "finish"}, {"action": "finish"})
+        self.assertTrue(r["step_correct"])
+
+    def test_terminate_type_mismatch_fails(self):
+        r = _single(
+            {"action": "terminate", "status": "success", "answer": None},
+            {"action": "click", "coordinate": [200, 240]},
+        )
+        self.assertFalse(r["step_correct"])
+
     def test_type_mismatch_blocks_field_check(self):
         # action type 불일치 → field_match 진입 전에 오답
         r = _single(

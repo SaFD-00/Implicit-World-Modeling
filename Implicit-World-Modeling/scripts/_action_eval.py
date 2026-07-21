@@ -184,7 +184,10 @@ _UI_STATE_MARKER = "Current UI State:"
 _SCREENSHOT_MARKER = "[Screenshot]"
 _BOUNDS_RE = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 
-_XY_NO_FIELD_TYPES = {"wait", "navigate_back", "navigate_home", "finish"}
+# 필드 대조 없이 type 일치만으로 정답 처리하는 종료/무인자 액션.
+# "finish" 는 구 스키마 명칭이고 EXP05/06 GT 는 "terminate" 를 쓴다 — 둘 다 포함해
+# 스키마 전환에도 종료 액션이 조용히 0점 처리되지 않게 한다(1118건/18.6% 오채점 수정).
+_XY_NO_FIELD_TYPES = {"wait", "navigate_back", "navigate_home", "finish", "terminate"}
 
 # bbox 채점은 pred 좌표가 GT 와 같은 절대 픽셀 공간이라고 가정한다. 다른 좌표계
 # (예: 0~1 정규화) 로 학습된 체크포인트는 bbox 정확도가 0 으로 나오는데, 그것이
