@@ -44,7 +44,7 @@ from monkey_collector.domain.actions import OpenApp
 class DataWriter:
     """Writes raw collection data to session directories (two-root split)."""
 
-    def __init__(self, data_dir: str = "data", runtime_dir: str = "runtime"):
+    def __init__(self, data_dir: str = "data/raw", runtime_dir: str = "runtime"):
         self.data_dir = data_dir
         self.runtime_dir = runtime_dir
         self.data_session_dir: str | None = None

@@ -621,7 +621,7 @@ def main() -> None:
         "reset",
         help="Delete collected session data by scope (all / apps)",
     )
-    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
     p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
     p.add_argument(
         "--all",
@@ -658,7 +658,7 @@ def main() -> None:
 
     # convert
     p = sub.add_parser("convert", help="Convert session to JSONL")
-    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
     p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
     p.add_argument("--package", required=True, help="Package id (session directory name)")
     p.add_argument("--output", required=True, help="Output JSONL path")
@@ -667,7 +667,7 @@ def main() -> None:
 
     # page-map
     p = sub.add_parser("page-map", help="Build page map from session data")
-    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
     p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
     p.add_argument("--package", required=True, help="Package id (session directory name)")
     p.add_argument(
@@ -679,7 +679,7 @@ def main() -> None:
 
     # page-map-all
     p = sub.add_parser("page-map-all", help="Build page maps for all sessions")
-    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
     p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
     p.add_argument(
         "--threshold", type=float, default=0.85,
@@ -689,14 +689,22 @@ def main() -> None:
 
     # regenerate
     p = sub.add_parser("regenerate", help="Regenerate XML variants from raw XML")
-    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
 
     # convert-all
     p = sub.add_parser("convert-all", help="Convert all sessions to JSONL")
-    p.add_argument("--data-dir", default="data", help="Durable data root directory")
+    p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
     p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
-    p.add_argument("--output", required=True, help="Output JSONL path")
-    p.add_argument("--images-dir", required=True, help="Images output directory")
+    p.add_argument(
+        "--output",
+        default="data/processed/gui-model_stage1.jsonl",
+        help="Output JSONL path",
+    )
+    p.add_argument(
+        "--images-dir",
+        default="data/processed/images",
+        help="Images output directory",
+    )
 
     args = parser.parse_args()
 

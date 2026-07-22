@@ -58,7 +58,7 @@ def test_builtin_defaults_no_yaml():
     assert cfg.collection.seed == 42
     assert cfg.collection.action_delay_ms == 1500
     assert cfg.collection.port == 12345
-    assert cfg.collection.data_dir == "data"
+    assert cfg.collection.data_dir == "data/raw"
     assert cfg.collection.runtime_dir == "runtime"
     assert cfg.collection.budget_mode == "time"
     assert cfg.collection.max_duration_sec == 7200

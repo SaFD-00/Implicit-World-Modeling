@@ -254,7 +254,7 @@ def migrate_logs(logs_dir: str, runtime_dir: str, apply: bool, report: list[str]
 
 
 def migrate(
-    data_dir: str = "data",
+    data_dir: str = "data/raw",
     runtime_dir: str = "runtime",
     logs_dir: str = "logs",
     apply: bool = False,
@@ -272,7 +272,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Migrate legacy page_/zero-padded storage layout to bare integers."
     )
-    parser.add_argument("--data-dir", default="data", help="Durable data root (default: data)")
+    parser.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root (default: data/raw)")
     parser.add_argument("--runtime-dir", default="runtime", help="Runtime root (default: runtime)")
     parser.add_argument("--logs-dir", default="logs", help="Repo-level logs dir to relocate (default: logs)")
     parser.add_argument(

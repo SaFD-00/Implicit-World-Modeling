@@ -36,8 +36,10 @@ collection:
   action_delay_ms: 1500
   # TCP server port. Env: MC_COLLECTION_PORT
   port: 12345
-  # Durable data root (pages/observations, page_graph). Env: MC_COLLECTION_DATA_DIR
-  data_dir: data
+  # Durable raw-collection root (pages/observations, page_graph). Sibling of
+  # data/processed, which holds the converted training artifacts.
+  # Env: MC_COLLECTION_DATA_DIR
+  data_dir: data/raw
   # Ephemeral runtime root (metadata, events.jsonl, cost/coverage CSVs). Env: MC_COLLECTION_RUNTIME_DIR
   runtime_dir: runtime
   # Session end condition. Options: time | steps

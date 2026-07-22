@@ -32,7 +32,7 @@ _BUILTIN_DEFAULTS: dict = {
         "seed": 42,
         "action_delay_ms": 1500,
         "port": 12345,
-        "data_dir": "data",
+        "data_dir": "data/raw",
         "runtime_dir": "runtime",
         "budget_mode": "time",
         "max_duration": "2h",
@@ -84,7 +84,7 @@ class CollectionConfig:
     seed: int = 42
     action_delay_ms: int = 1500
     port: int = 12345
-    data_dir: str = "data"
+    data_dir: str = "data/raw"
     runtime_dir: str = "runtime"
     # Session end condition. "time": run until max_duration_sec elapses
     # (product default). "steps": run until max_steps actions (legacy).
@@ -360,7 +360,7 @@ def _from_raw(raw: dict) -> RunConfig:
             seed=int(coll.get("seed", 42)),
             action_delay_ms=int(coll.get("action_delay_ms", 1500)),
             port=int(coll.get("port", 12345)),
-            data_dir=str(coll.get("data_dir", "data")),
+            data_dir=str(coll.get("data_dir", "data/raw")),
             runtime_dir=str(coll.get("runtime_dir", "runtime")),
             budget_mode=_normalize_budget_mode(coll.get("budget_mode", "time"), source="config"),
             max_duration_sec=parse_duration(coll.get("max_duration", "2h")),

@@ -15,13 +15,18 @@ def resolve_targets(
     packages: list[str] | None = None,
 ) -> list[Path]:
     """Return existing directories that match the reset scope, across BOTH
-    roots — a full reset must clear ``data/{package}/`` and
-    ``runtime/{package}/`` together, or a surviving ``data/`` half would
+    roots — a full reset must clear ``data/raw/{package}/`` and
+    ``runtime/{package}/`` together, or a surviving ``data/raw/`` half would
     immediately rehydrate stale page knowledge into what's supposed to be a
     wiped/fresh session.
 
     * ``all_=True``   → ``[data_dir, runtime_dir]`` (whichever exist).
     * ``packages``    → ``[data_dir / pkg, runtime_dir / pkg for each existing pkg dir]``.
+
+    Reset clears collection *session state* only. ``data/processed/`` — the
+    derived training corpus ``convert-all`` writes — is a **sibling** of the
+    ``data/raw`` reset root, so no scope ever reaches it. That is the contract,
+    and it holds by layout rather than by a guard here.
 
     Raises ValueError if no scope is given.
     """

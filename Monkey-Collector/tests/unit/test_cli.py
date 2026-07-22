@@ -146,7 +146,7 @@ class TestConvertArgsParsing:
         ]), patch("monkey_collector.cli.cmd_convert") as mock_cmd:
             main()
             args = mock_cmd.call_args[0][0]
-            assert args.data_dir == "data"
+            assert args.data_dir == "data/raw"
             assert args.runtime_dir == "runtime"
             assert args.package == "com.test.app"
             assert args.output == "/data/output.jsonl"
@@ -204,15 +204,16 @@ class TestConvertAllArgsParsing:
     def test_defaults(self):
         from monkey_collector.cli import main
 
-        with patch("sys.argv", [
-            "monkey-collect", "convert-all",
-            "--output", "/data/output.jsonl",
-            "--images-dir", "/data/images",
-        ]), patch("monkey_collector.cli.cmd_convert_all") as mock_cmd:
+        with patch("sys.argv", ["monkey-collect", "convert-all"]), \
+                patch("monkey_collector.cli.cmd_convert_all") as mock_cmd:
             main()
             args = mock_cmd.call_args[0][0]
-            assert args.data_dir == "data"
+            assert args.data_dir == "data/raw"
             assert args.runtime_dir == "runtime"
+            # --output / --images-dir are optional; they default to the
+            # data/processed siblings of the data/raw collection root.
+            assert args.output == "data/processed/gui-model_stage1.jsonl"
+            assert args.images_dir == "data/processed/images"
 
 
 class TestNoCommand:
@@ -274,7 +275,9 @@ class TestResetArgsParsing:
             assert args.all is True
             assert args.yes is True
             assert args.dry_run is False
-            assert args.data_dir == "data"
+            # Must match the collection root: run writes to data/raw, so reset
+            # deletes data/raw — leaving the data/processed sibling intact.
+            assert args.data_dir == "data/raw"
             assert args.runtime_dir == "runtime"
             assert args.apps is None
 
@@ -306,7 +309,7 @@ class TestPageMapArgsParsing:
         ]), patch("monkey_collector.cli.cmd_page_map") as mock_cmd:
             main()
             args = mock_cmd.call_args[0][0]
-            assert args.data_dir == "data"
+            assert args.data_dir == "data/raw"
             assert args.runtime_dir == "runtime"
             assert args.package == "com.test.app"
             assert args.threshold == 0.85
@@ -338,7 +341,7 @@ class TestPageMapAllArgsParsing:
                 patch("monkey_collector.cli.cmd_page_map_all") as mock_cmd:
             main()
             args = mock_cmd.call_args[0][0]
-            assert args.data_dir == "data"
+            assert args.data_dir == "data/raw"
             assert args.runtime_dir == "runtime"
             assert args.threshold == 0.85
             assert args.no_open is False
@@ -352,7 +355,7 @@ class TestRegenerateArgsParsing:
                 patch("monkey_collector.cli.cmd_regenerate") as mock_cmd:
             main()
             args = mock_cmd.call_args[0][0]
-            assert args.data_dir == "data"
+            assert args.data_dir == "data/raw"
 
     def test_custom_data_dir(self):
         from monkey_collector.cli import main
