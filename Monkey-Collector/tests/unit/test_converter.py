@@ -228,7 +228,10 @@ class TestConverterSession:
         output_path = tmp_path / "output.jsonl"
         converter = Converter(str(output_path), str(tmp_path / "images"))
         total = converter.convert_all(str(raw_dir), str(raw_dir))
-        assert total == 2  # exactly 1 pair per 2-frame session
+        # 1 pair per 2-frame session, but both mock sessions replay the SAME
+        # two frames and the same action — one triple, and dedup is global
+        # across sessions. See test_dedup_spans_sessions.
+        assert total == 1
 
 
 class TestFrameIndexAlignment:
@@ -417,6 +420,119 @@ class TestConverterNewLayout:
             w.data_session_dir, w.runtime_session_dir, session_label=1,
         )
         assert count == 0
+
+    def test_duplicate_transition_emitted_once(self, tmp_path):
+        # The same (before, action, after) triple observed twice is one
+        # training example — always deduplicated, no flag involved. The second
+        # occurrence writes no JSONL line and copies no screenshot.
+        w = _writer(tmp_path)
+        w.save_observation("page_0", 0, TINY_PNG, SIMPLE_XML)
+        w.save_observation("page_1", 0, TINY_PNG, COMPLEX_XML)
+        # page_0 obs 1 / page_1 obs 1 re-observe the SAME screens, so the
+        # second A->B pair encodes identically to the first.
+        w.save_observation("page_0", 1, TINY_PNG, SIMPLE_XML)
+        w.save_observation("page_1", 1, TINY_PNG, COMPLEX_XML)
+        for frame, (key, obs) in enumerate(
+            [("page_0", 0), ("page_1", 0), ("page_0", 1), ("page_1", 1)]
+        ):
+            w.log_event({
+                "action_type": "tap", "element_index": 0,
+                "frame_index": frame, "page_key": key, "observation_num": obs,
+            })
+
+        output_path = tmp_path / "output.jsonl"
+        images_dir = tmp_path / "images"
+        converter = Converter(str(output_path), str(images_dir))
+        count = converter.convert_session(
+            w.data_session_dir, w.runtime_session_dir, session_label=1,
+        )
+
+        # Pairs: (p0/0 -> p1/0), (p1/0 -> p0/1), (p0/1 -> p1/1). The third is
+        # an exact duplicate of the first, so only two survive.
+        assert count == 2
+        lines = output_path.read_text().strip().split("\n")
+        assert len(lines) == 2
+        assert len(list(images_dir.iterdir())) == 2
+
+    def test_distinct_transitions_both_kept(self, tmp_path):
+        # Dedup keys on the transition triple, not on the before-screen alone —
+        # two different actions from the same screen must both survive.
+        w = _writer(tmp_path)
+        w.save_observation("page_0", 0, TINY_PNG, SIMPLE_XML)
+        w.save_observation("page_1", 0, TINY_PNG, COMPLEX_XML)
+        w.save_observation("page_0", 1, TINY_PNG, SIMPLE_XML)
+        w.save_observation("page_1", 1, TINY_PNG, COMPLEX_XML)
+        for frame, (key, obs, idx) in enumerate(
+            [("page_0", 0, 0), ("page_1", 0, 0), ("page_0", 1, 7), ("page_1", 1, 0)]
+        ):
+            w.log_event({
+                "action_type": "tap", "element_index": idx,
+                "frame_index": frame, "page_key": key, "observation_num": obs,
+            })
+
+        output_path = tmp_path / "output.jsonl"
+        images_dir = tmp_path / "images"
+        converter = Converter(str(output_path), str(images_dir))
+        count = converter.convert_session(
+            w.data_session_dir, w.runtime_session_dir, session_label=1,
+        )
+
+        # Same before/after screens as the previous test, but the third pair's
+        # action targets element 7 instead of 0 → a distinct triple.
+        assert count == 3
+        assert len(output_path.read_text().strip().split("\n")) == 3
+        assert len(list(images_dir.iterdir())) == 3
+
+    @staticmethod
+    def _two_app_roots(tmp_path, first_element_index: dict[str, int]):
+        """Build one page_0 -> page_1 transition per package under a shared root.
+
+        ``first_element_index`` maps package -> the tapped element index of the
+        *first* event, which is what varies the action JSON (and therefore the
+        dedup key) between the two packages.
+        """
+        from monkey_collector.storage import DataWriter
+
+        data_root = tmp_path / "data"
+        runtime_root = tmp_path / "runtime"
+        for pkg, idx in first_element_index.items():
+            w = DataWriter(data_dir=str(data_root), runtime_dir=str(runtime_root))
+            w.init_session(pkg, pkg)
+            w.save_observation("page_0", 0, TINY_PNG, SIMPLE_XML)
+            w.save_observation("page_1", 0, TINY_PNG, COMPLEX_XML)
+            w.log_event({
+                "action_type": "tap", "element_index": idx,
+                "frame_index": 0, "page_key": "page_0", "observation_num": 0,
+            })
+            w.log_event({
+                "action_type": "tap", "element_index": 1,
+                "frame_index": 1, "page_key": "page_1", "observation_num": 0,
+            })
+        return data_root, runtime_root
+
+    def test_convert_all_sums_distinct_sessions(self, tmp_path):
+        # Guards the enumeration itself: two packages with *different* actions
+        # produce two distinct triples, so both sessions must be walked and
+        # summed. (Without this, a regression that only converted the first
+        # session would still satisfy the dedup test below.)
+        data_root, runtime_root = self._two_app_roots(
+            tmp_path, {"com.a.app": 0, "com.b.app": 5},
+        )
+        converter = Converter(
+            str(tmp_path / "output.jsonl"), str(tmp_path / "images"),
+        )
+        assert converter.convert_all(str(data_root), str(runtime_root)) == 2
+
+    def test_dedup_spans_sessions(self, tmp_path):
+        # convert_all reuses one Converter, so the seen-set is global: the same
+        # transition collected in two apps yields one example.
+        data_root, runtime_root = self._two_app_roots(
+            tmp_path, {"com.a.app": 0, "com.b.app": 0},
+        )
+        converter = Converter(
+            str(tmp_path / "output.jsonl"), str(tmp_path / "images"),
+        )
+        assert converter.convert_all(str(data_root), str(runtime_root)) == 1
 
     def test_events_missing_join_key_skipped(self, tmp_path):
         # A pre-migration event (no page_key/observation_num) can't be joined

@@ -3,6 +3,7 @@
 Produces ShareGPT-format data for UI state transition prediction (World Modeling).
 """
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -155,13 +156,43 @@ def generate_example(
     }
 
 
+def _example_signature(example: dict) -> str:
+    """Hash the ``(before_encoded_xml, action_json, after_encoded_xml)`` triple.
+
+    The human turn embeds the before-XML *and* the action JSON, and the gpt turn
+    is the after-XML — together the two message bodies are exactly that triple.
+    ``images`` is deliberately excluded: its filename carries a per-example
+    sequence number, so hashing it would make every example look unique and
+    dedup would never fire.
+
+    Stored as a hexdigest rather than the raw strings so the seen-set stays
+    small across a full ~10k-example corpus.
+    """
+    messages = example["messages"]
+    payload = f"{messages[1]['value']}\x00{messages[2]['value']}"
+    return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+
 class Converter:
-    """Convert raw session data to gui-model_stage1.jsonl."""
+    """Convert raw session data to gui-model_stage1.jsonl.
+
+    Exact duplicate examples are **always** dropped — there is no flag to turn
+    this off. Two examples are duplicates when their
+    ``(before_encoded_xml, action_json, after_encoded_xml)`` triples match; the
+    second one is not written to the JSONL, its screenshot is not copied, and it
+    does not count. Because :meth:`convert_all` reuses one ``Converter`` for
+    every session, dedup is global — it spans session (app) boundaries, which is
+    intended: the same UI transition observed in two apps is still one training
+    example.
+    """
 
     def __init__(self, output_path: str, images_dir: str):
         self.output_path = Path(output_path)
         self.images_dir = Path(images_dir)
         self.images_dir.mkdir(parents=True, exist_ok=True)
+        # Signatures (md5 hexdigests) of every example already emitted by this
+        # Converter instance. See _example_signature / the class docstring.
+        self._seen_signatures: set[str] = set()
 
     def convert_session(
         self, data_session_dir: str, runtime_session_dir: str, session_label: int
@@ -178,14 +209,20 @@ class Converter:
         consecutive events resolving to the SAME observation (a reused
         observation — no visual change) are skipped too.
 
-        Events are excluded when they lack ``frame_index``/``page_key``/
-        ``observation_num`` (pre-migration sessions — no reliable join key, so
-        they are dropped rather than guessed), are ``transition: false``
+        Events are excluded when ``frame_index``/``page_key``/
+        ``observation_num`` are missing *or null* (pre-migration sessions, and
+        frames the loop never stamped — no reliable join key, so they are
+        dropped rather than guessed), are ``transition: false``
         markers (e.g. ``open_app`` on external recovery), or are
         ``no_change_retry`` retries (which saved no new frame). A session with
         no ``pages/`` directory but a legacy flat ``xml/`` dir degrades to
         :meth:`_convert_session_legacy`; one with neither is skipped, not a
         crash (decision: no migration script for pre-migration sessions).
+
+        The last gate, after every filter above, is **always-on dedup**: an
+        example whose ``(before_encoded_xml, action_json, after_encoded_xml)``
+        triple was already emitted by this ``Converter`` is dropped — not
+        written, no screenshot copied, not counted. See the class docstring.
 
         Returns:
             Number of examples generated.
@@ -218,8 +255,11 @@ class Converter:
                 continue  # open_app / external markers are not transitions
             if ev.get("no_change_retry"):
                 continue  # retried action saved no new frame
-            if not {"frame_index", "page_key", "observation_num"} <= ev.keys():
-                continue  # pre-migration event: no reliable join key
+            if any(
+                ev.get(k) is None
+                for k in ("frame_index", "page_key", "observation_num")
+            ):
+                continue  # no reliable join key (pre-migration, or unstamped frame)
             events.append(ev)
         events.sort(key=lambda e: e["frame_index"])
 
@@ -268,6 +308,11 @@ class Converter:
             if example is None:
                 continue
 
+            signature = _example_signature(example)
+            if signature in self._seen_signatures:
+                continue  # exact duplicate transition — no write, no image, no count
+            self._seen_signatures.add(signature)
+
             dest_image = self.images_dir / image_name
             shutil.copy2(src_screenshot, dest_image)
 
@@ -292,6 +337,9 @@ class Converter:
         session going forward); a truly untouched pre-refactor backup keeps it
         alongside ``xml/``/``screenshots/``, so pass the same path for both
         roots when converting one of those.
+
+        The same always-on dedup as :meth:`convert_session` applies here, over
+        the same shared seen-set.
         """
         data_session = Path(data_session_dir)
         xml_dir = data_session / "xml"
@@ -364,6 +412,11 @@ class Converter:
             if example is None:
                 continue
 
+            signature = _example_signature(example)
+            if signature in self._seen_signatures:
+                continue  # exact duplicate transition — no write, no image, no count
+            self._seen_signatures.add(signature)
+
             dest_image = self.images_dir / image_name
             shutil.copy2(src_screenshot, dest_image)
 
@@ -379,8 +432,16 @@ class Converter:
     def convert_all(self, data_dir: str, runtime_dir: str) -> int:
         """Convert all sessions under *data_dir* to JSONL.
 
+        Sessions are the immediate subdirectories of *data_dir* that hold a
+        ``pages/`` (or legacy ``xml/``) directory — so with the default
+        ``data/raw`` root, ``data/processed`` is a sibling and is never
+        enumerated.
+
+        All sessions share this one ``Converter``, hence one dedup seen-set:
+        duplicates are removed across app boundaries, not just within a session.
+
         Returns:
-            Total number of examples generated.
+            Total number of examples generated (duplicates excluded).
         """
         data_root = Path(data_dir)
         if not data_root.is_dir():
