@@ -16,7 +16,6 @@
 # screen_matching.bm25_top_k=5, screen_matching.element_criterion=diff,
 # screen_matching.element_diff_max=5, screen_matching.element_jaccard_min=0.5,
 # screen_matching.page_pixel_diff_threshold=0.3,
-# screen_matching.canvas_merge=false, screen_matching.canvas_min_area_frac=0.7,
 # screen_matching.package_guard=true. Reset to these before committing.
 
 exploration:
@@ -123,46 +122,13 @@ screen_matching:
   # Changed-pixel fraction below which the pixel gate confirms a page merge.
   # Env: MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD
   page_pixel_diff_threshold: 0.3
-  # --- Canvas-gated text-blind matching (S-9 map fragmentation) ---
-  # When the current screen AND the candidate page are both canvas screens (a
-  # full-screen interactive drawing surface: map / photo / game), compare the
-  # element criterion on TEXT-BLIND element-lines (attributes, incl. aria-label,
-  # kept) and let the pixel gate abstain. A panned map rewrites its scale bar,
-  # distance and address readouts and repaints every tile, so both gates
-  # otherwise measure viewport state, not page identity — that fragmented
-  # osmand's map into 46 pages in one 2h run. Thresholds are the existing ones,
-  # reused. Needs BOTH sides to be canvas, so it is inert in apps that have no
-  # canvas screen. true | false. Env: MC_SCREEN_MATCHING_CANVAS_MERGE
-  #
-  # ⚠️ DEFAULT OFF — this fix is NOT SAFE YET. It halves map fragmentation
-  # (osmand 46→27 / 26→14 map pages, offline replay) but it also merges screens
-  # that are NOT the map: osmand's navigation DRAWER (15 menu items — the app's
-  # main hub) and its turn-by-turn TRACKING mode both land on the map page. Two
-  # reasons, both measured: (1) the drawer/nav overlays keep the map surface leaf
-  # in the a11y tree, so is_canvas fires on them too — and a11y reports them as
-  # MapActivity, so an activity guard would not catch it either; (2) their menu
-  # items are plain TextViews with NO aria-label, so blinding text erases them to
-  # identical <p></p> lines, and the SET-based element criterion then discards
-  # cardinality (15 items and 3 items look the same). Restoring cardinality
-  # (multiset diff) separates those screens — but it also breaks 20 of the 23
-  # merges the fix performs, i.e. it destroys the fix. Refitting the threshold to
-  # rescue it would be post-hoc fitting. So S-9 stays OPEN: diagnosed with
-  # confidence (element-blocked, 95.6%/84.6%), no safe fix yet. Turn this on only
-  # for an experiment arm, never for corpus collection.
-  canvas_merge: false
-  # A screen is "canvas" when some LEAF, clickable (or long-clickable) node
-  # covers at least this fraction of the screen area. Detection is bounds-based,
-  # not class-based: a map surface reaches the a11y tree as a plain leaf View
-  # (osmand's covers 0.97 of the screen), never as SurfaceView/TextureView.
-  # Env: MC_SCREEN_MATCHING_CANVAS_MIN_AREA_FRAC
-  canvas_min_area_frac: 0.7
   # Same-package merge guard. A BM25 merge additionally requires the candidate
   # page to have been minted under the SAME package as the current screen — the
   # merge path never checked which APP a screen belonged to (only the structural
   # pre-filter keys on the activity), so a launcher/home frame sharing a few
   # generic element-lines could merge into an app's page (measured in the live
-  # corpora, before any canvas change). Abstains when either package is unknown
+  # corpora). Abstains when either package is unknown
   # (fail-open: a missing activity label must not fragment a page). Guards the
-  # WHOLE merge path, not just canvas pairs. true | false.
+  # WHOLE merge path, every candidate alike. true | false.
   # Env: MC_SCREEN_MATCHING_PACKAGE_GUARD
   package_guard: true

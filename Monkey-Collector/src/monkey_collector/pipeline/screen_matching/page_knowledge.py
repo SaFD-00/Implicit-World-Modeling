@@ -1,9 +1,8 @@
 """Per-page identity knowledge and an in-session registry.
 
 A :class:`PageKnowledge` records, for one logical page, the element-line
-document that is its BM25 identity, the canvas / text-blind projections the
-canvas match path consults, and the activity it was minted under (the merge
-guard's package source). Mirrors MobileGPT-V2 ``models.PageKnowledge`` +
+document that is its BM25 identity and the activity it was minted under (the
+merge guard's package source). Mirrors MobileGPT-V2 ``models.PageKnowledge`` +
 ``KnowledgeRegistry`` in shape.
 """
 
@@ -22,18 +21,6 @@ class PageKnowledge:
     # first sighting — the page's identity for BM25 retrieval + element-diff /
     # Jaccard verification. Serialized to page.json (additive/back-compat).
     element_lines: list[str] = field(default_factory=list)
-    # Canvas-gated text-blind matching (S-9). ``is_canvas``: this page's
-    # first-sighting raw XML showed a full-screen interactive drawing surface
-    # (canvas.is_canvas_screen) — a map/photo/game viewport. ``element_lines_blind``:
-    # the same element-line document with node TEXT emptied (attributes kept),
-    # which is what the matcher compares when BOTH sides are canvas screens, so a
-    # pan/zoom's rewritten scale-bar and distance readouts stop forking the page.
-    # Both are written at page creation and serialized to page.json
-    # (additive/back-compat, like element_lines above); they always travel
-    # together, so a page.json missing one is missing both and the resume path
-    # re-derives both from the page's first observation.
-    is_canvas: bool = False
-    element_lines_blind: list[str] = field(default_factory=list)
     # Activity label (``package/window.Class``) this page was minted under. Only
     # its PACKAGE part is load-bearing: it is what the BM25 merge guard compares
     # against the current screen's, so a launcher/home frame can never merge into
@@ -69,8 +56,6 @@ class PageKnowledge:
         return {
             "page_key": self.page_key,
             "element_lines": list(self.element_lines),
-            "is_canvas": self.is_canvas,
-            "element_lines_blind": list(self.element_lines_blind),
             "first_activity": self.first_activity,
         }
 
@@ -84,8 +69,6 @@ class PageKnowledge:
         return cls(
             page_key=d["page_key"],
             element_lines=list(d.get("element_lines", [])),
-            is_canvas=bool(d.get("is_canvas", False)),
-            element_lines_blind=list(d.get("element_lines_blind", [])),
             first_activity=str(d.get("first_activity", "")),
         )
 

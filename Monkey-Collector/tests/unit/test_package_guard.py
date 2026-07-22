@@ -2,9 +2,9 @@
 
 The merge path never checked WHICH APP a screen belongs to, so a launcher/home
 frame that shares a few generic element-lines with an app screen could merge into
-its page — measured in the live corpora before any canvas change (osmand armB
-pages 0/34, broccoli page 0). The guard vetoes every cross-package merge, canvas
-or not, and abstains when either package is unknown.
+its page — measured in the live corpora (osmand armB pages 0/34, broccoli page 0).
+The guard vetoes every cross-package merge and abstains when either package is
+unknown.
 
 Fixtures: APP_* and LAUNCHER_* are element-line-IDENTICAL screens under different
 packages (distinct resource-ids keep their structural fingerprints apart, so the
@@ -38,19 +38,10 @@ def _btn(rid, desc, bounds):
     )
 
 
-def _surface(rid):
-    return (
-        f'<node class="android.view.View" resource-id="{rid}" content-desc="Map" text="" '
-        'bounds="[0,0][400,780]" clickable="true"/>'
-    )
-
-
 # Same element-lines (aria-label carries identity, resource-id is dropped), so
 # the element criterion sees |A △ B| = 0 — only the package differs.
 APP_FLAT = _screen(_btn("com.app:id/a", "Add", "[0,0][100,100]") + _btn("com.app:id/s", "Search", "[0,100][100,200]"))
 LAUNCHER_FLAT = _screen(_btn("com.l:id/a", "Add", "[0,0][100,100]") + _btn("com.l:id/s", "Search", "[0,100][100,200]"))
-APP_CANVAS = _screen(_surface("com.app:id/m") + _btn("com.app:id/z", "Zoom in", "[300,700][360,760]"))
-LAUNCHER_CANVAS = _screen(_surface("com.l:id/m") + _btn("com.l:id/z", "Zoom in", "[300,700][360,760]"))
 
 
 def _enc(raw):
@@ -72,21 +63,12 @@ def test_package_of_splits_on_the_slash():
     assert package_of(None) == ""
 
 
-def test_cross_package_non_canvas_merge_is_blocked():
+def test_cross_package_merge_is_blocked():
     sm = _matcher()
     a = _drive(sm, APP_FLAT, APP)
     launcher = _drive(sm, LAUNCHER_FLAT, LAUNCHER)
     assert a.is_new_page is True
     assert launcher.is_new_page is True  # identical element-lines, different app
-    assert launcher.page_key != a.page_key
-
-
-def test_cross_package_canvas_pair_is_blocked():
-    sm = _matcher()
-    a = _drive(sm, APP_CANVAS, APP)
-    launcher = _drive(sm, LAUNCHER_CANVAS, LAUNCHER)
-    assert a.is_new_page is True
-    assert launcher.is_new_page is True
     assert launcher.page_key != a.page_key
 
 

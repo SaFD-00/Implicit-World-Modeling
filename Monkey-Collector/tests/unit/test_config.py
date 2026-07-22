@@ -182,10 +182,12 @@ def test_env_bool_coercion(monkeypatch):
     assert cfg.screen_matching.package_guard is False
 
 
-def test_env_bool_coercion_truthy(monkeypatch):
-    monkeypatch.setenv("MC_SCREEN_MATCHING_CANVAS_MERGE", "on")
-    cfg = load_run_config(path=NONEXISTENT)
-    assert cfg.screen_matching.canvas_merge is True
+def test_env_bool_coercion_truthy(tmp_path, monkeypatch):
+    # A yaml-disabled knob flipped back on by a truthy env string ("on").
+    path = _write_yaml(tmp_path, "screen_matching:\n  package_guard: false\n")
+    monkeypatch.setenv("MC_SCREEN_MATCHING_PACKAGE_GUARD", "on")
+    cfg = load_run_config(path=path)
+    assert cfg.screen_matching.package_guard is True
 
 
 def test_mc_config_path_env_respected(tmp_path, monkeypatch):

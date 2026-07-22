@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from monkey_collector.domain.page_graph import compute_xml_fingerprint
-from monkey_collector.pipeline.screen_matching.canvas import is_canvas_screen
 from monkey_collector.pipeline.screen_matching.element_lines import serialize_element_lines
 from monkey_collector.pipeline.screen_matching.luminance import (
     extract_luminance_features,
@@ -92,22 +91,6 @@ def rehydrate_screen_matcher(matcher: ScreenMatcher, writer: DataWriter) -> None
                 raw = writer.load_observation_raw_xml(page_key, min(obs_nums))
                 if raw:
                     page.element_lines = serialize_element_lines(encode_with_bounds(raw)[0])
-
-        # Same fallback for the canvas fields: a page.json written before
-        # is_canvas / element_lines_blind existed carries neither key (they are
-        # written together, so an empty blind document means "legacy file", not
-        # "blind document that happens to be empty" — a page with element-lines
-        # always has exactly as many blind ones). Re-derive both from the page's
-        # first observation, or the matcher would silently see every resumed page
-        # as non-canvas and the canvas path would go dead on resume.
-        if not page.element_lines_blind and obs_nums:
-            with contextlib.suppress(Exception):
-                raw = writer.load_observation_raw_xml(page_key, min(obs_nums))
-                if raw:
-                    page.element_lines_blind = serialize_element_lines(
-                        encode_with_bounds(raw)[0], blind_text=True
-                    )
-                    page.is_canvas = is_canvas_screen(raw, matcher._canvas_min_area_frac)
 
         # Same fallback for the merge guard's package: a legacy page.json has no
         # first_activity, and an empty one makes the guard abstain — so without

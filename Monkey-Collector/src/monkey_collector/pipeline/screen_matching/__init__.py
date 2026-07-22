@@ -41,8 +41,6 @@ def create_screen_matcher(
     element_diff_max: int = 5,
     element_jaccard_min: float = 0.5,
     page_pixel_diff_threshold: float = 0.3,
-    canvas_merge: bool = True,
-    canvas_min_area_frac: float = 0.7,
     package_guard: bool = True,
 ) -> ScreenMatcher | None:
     """Build a :class:`ScreenMatcher`, or ``None`` when nothing distinguishes pages.
@@ -66,7 +64,5 @@ def create_screen_matcher(
         element_diff_max=element_diff_max,
         element_jaccard_min=element_jaccard_min,
         page_pixel_diff_threshold=page_pixel_diff_threshold,
-        canvas_merge=canvas_merge,
-        canvas_min_area_frac=canvas_min_area_frac,
         package_guard=package_guard,
     )

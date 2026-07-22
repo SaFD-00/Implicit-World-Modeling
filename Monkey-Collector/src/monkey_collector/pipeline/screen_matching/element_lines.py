@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 _ATTR_ORDER = ("aria-label", "alt", "type", "value", "checked", "role", "data-scroll")
 
 
-def serialize_element_lines(encoded_xml: str, *, blind_text: bool = False) -> list[str]:
+def serialize_element_lines(encoded_xml: str) -> list[str]:
     """Encoded XML → normalized element-line document (document order, dups kept).
 
     Emits one line for every node that is a LEAF (no element children) OR a
@@ -34,15 +34,6 @@ def serialize_element_lines(encoded_xml: str, *, blind_text: bool = False) -> li
     "leaf-visible + scrollable" emission rule. ``index``/``bounds`` are dropped;
     the attributes in :data:`_ATTR_ORDER` (when non-empty) plus the node text
     form the line. Duplicates are preserved so BM25 term frequency is faithful.
-
-    With *blind_text*, the node TEXT is emitted empty while every
-    :data:`_ATTR_ORDER` attribute (``aria-label`` included) is kept. This is the
-    projection the canvas path compares on: a map screen's floating readouts
-    (scale ``100 ft``/``200 ft``, distance, address) rewrite themselves on every
-    pan, so their text is viewport state, not page identity. Blinding is done AT
-    SERIALIZATION — never by re-parsing the emitted line, whose text/labels may
-    themselves contain ``<``/``>``. The attributes are deliberately NOT blinded:
-    dropping them too collapses distinct screens into one (measured).
 
     Returns ``[]`` on parse failure (the matcher must never break on a bad dump).
     """
@@ -62,7 +53,7 @@ def serialize_element_lines(encoded_xml: str, *, blind_text: bool = False) -> li
             for key in _ATTR_ORDER
             if node.attrib.get(key)
         )
-        text = "" if blind_text else (node.text or "").replace("\n", "").strip()
+        text = (node.text or "").replace("\n", "").strip()
         lines.append(f"<{node.tag}{attrs}>{text}</{node.tag}>")
     return lines
 

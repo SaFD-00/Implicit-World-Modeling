@@ -30,7 +30,6 @@ import argparse
 import json
 import os
 
-from monkey_collector.pipeline.screen_matching.canvas import is_canvas_screen
 from monkey_collector.pipeline.screen_matching.element_lines import (
     element_diff_count,
     serialize_element_lines,
@@ -82,12 +81,12 @@ def _load_observation(data_dir: str, page_key: str, obs_num: int) -> tuple[str, 
     return raw_xml, encoded_xml, screenshot
 
 
-def _build_matcher(canvas_merge: bool = True, package_guard: bool = True) -> ScreenMatcher:
+def _build_matcher(package_guard: bool = True) -> ScreenMatcher:
     """A fresh matcher with the ``config/run.yaml`` canonical knobs (verbatim).
 
-    Two knobs are swept by the replay. ``--canvas-merge`` off + ``--package-guard``
-    off reproduces the PRE-FIX matcher exactly (the fidelity anchor); on/on is the
-    shipped configuration. Sweeping them independently isolates what each does.
+    One knob is swept by the replay: ``--package-guard`` off reproduces the
+    PRE-GUARD matcher exactly (the fidelity anchor); on is the shipped
+    configuration.
     """
     return ScreenMatcher(
         luminance_prefilter=True,
@@ -100,8 +99,6 @@ def _build_matcher(canvas_merge: bool = True, package_guard: bool = True) -> Scr
         element_diff_max=5,
         element_jaccard_min=0.5,
         page_pixel_diff_threshold=0.3,
-        canvas_merge=canvas_merge,
-        canvas_min_area_frac=0.7,
         package_guard=package_guard,
     )
 
@@ -109,8 +106,6 @@ def _build_matcher(canvas_merge: bool = True, package_guard: bool = True) -> Scr
 def _classify_mint(
     matcher: ScreenMatcher,
     lines: list[str],
-    blind_lines: list[str],
-    cur_canvas: bool,
     cur_activity: str,
     feat,
     first_seen_activity: dict[str, str],
@@ -120,16 +115,13 @@ def _classify_mint(
     Called BEFORE ``matcher.match()`` runs for this event, so ``matcher._bm25``
     / ``matcher._registry`` reflect exactly the candidate pool ``match()`` is
     about to see. The per-candidate verdict comes from ``_verify_candidate`` —
-    the same method ``match()`` uses — so the canvas branch (text-blind element
-    sets, pixel gate abstaining) is reflected here rather than re-implemented.
-    ``element_diff_count`` is always reported on the UNBLINDED sets so the
-    canvas-on and canvas-off runs stay comparable.
+    the same method ``match()`` uses — so the gate is reflected here rather than
+    re-implemented.
     """
     if len(matcher._registry) == 0 or not lines:
         return {"category": "retrieval-miss", "reason": "empty_registry_or_empty_query", "candidates": []}
 
     cur_set = set(lines)
-    cur_blind_set = set(blind_lines)
     diag = []
     for cand_key, score in matcher._bm25.top_k(lines, matcher._bm25_top_k):
         page = matcher._registry.get(cand_key)
@@ -139,8 +131,8 @@ def _classify_mint(
         is_map = MAP_ACTIVITY in cand_activity
         cand_set = set(page.element_lines)
         diff = element_diff_count(cur_set, cand_set)
-        canvas_pair, package_ok, element_ok, pixel_ok = matcher._verify_candidate(
-            cur_set, cur_blind_set, page, feat, cur_canvas, cur_activity,
+        package_ok, element_ok, pixel_ok = matcher._verify_candidate(
+            cur_set, page, feat, cur_activity,
         )
         pixel_diff = None
         if feat is not None and page.luminance_features:
@@ -155,10 +147,6 @@ def _classify_mint(
                 "is_map_activity": is_map,
                 "bm25_score": score,
                 "element_diff_count": diff,
-                "element_diff_count_blind": element_diff_count(
-                    cur_blind_set, set(page.element_lines_blind)
-                ),
-                "canvas_pair": canvas_pair,
                 "package_ok": package_ok,
                 "element_ok": element_ok,
                 "pixel_diff_fraction": pixel_diff,
@@ -205,20 +193,15 @@ def _classify_mint(
     }
 
 
-def replay(
-    data_dir: str, runtime_dir: str, canvas_merge: bool = True, package_guard: bool = True,
-) -> dict:
+def replay(data_dir: str, runtime_dir: str, package_guard: bool = True) -> dict:
     events = _load_events(runtime_dir)
-    matcher = _build_matcher(canvas_merge, package_guard)
+    matcher = _build_matcher(package_guard)
     first_seen_activity: dict[str, str] = {}
 
     replay_mint_page_keys: list[str] = []
     mint_classifications: list[dict] = []
     per_event_mismatches: list[dict] = []
-    # Live mints the replay merged away — the fix's whole effect. Each entry
-    # carries whether the merged-away screen is itself canvas-detected: the
-    # both-sides rule says a NON-canvas page must never land here, and this is
-    # the list that proves it (the osmand non-map regression gate).
+    # Live mints the replay merged away — the effect of whatever knob is swept.
     merged_at_live_mint: list[dict] = []
     decisions: list[dict] = []
     # Every activity each replay page absorbed (mint + all merges). A page that
@@ -235,8 +218,6 @@ def replay(
         raw_xml, encoded_xml, screenshot = _load_observation(data_dir, page_key, obs_num)
 
         lines = serialize_element_lines(encoded_xml)
-        blind_lines = serialize_element_lines(encoded_xml, blind_text=True)
-        cur_canvas = is_canvas_screen(raw_xml, matcher._canvas_min_area_frac)
         feat = (
             extract_luminance_features(screenshot, matcher._luma_width)
             if (matcher._luma_enabled and screenshot)
@@ -247,9 +228,7 @@ def replay(
         # Diagnose EVERY event's pre-match() state, not just the live mints: with
         # the merge guard on, the replay can mint where the live run merged (that
         # is the point), and those events need a classification too.
-        diag = _classify_mint(
-            matcher, lines, blind_lines, cur_canvas, activity, feat, first_seen_activity,
-        )
+        diag = _classify_mint(matcher, lines, activity, feat, first_seen_activity)
 
         result = matcher.match(raw_xml, encoded_xml, activity, screenshot)
 
@@ -281,16 +260,13 @@ def replay(
             )
 
         if live_is_mint and not result.is_new_page:
-            merged = matcher.get_page_knowledge(result.page_key)
             merged_at_live_mint.append(
                 {
                     "step": ev["step"],
                     "live_page_key": page_key,
                     "activity": activity,
                     "is_map_activity": MAP_ACTIVITY in activity,
-                    "screen_is_canvas": cur_canvas,
                     "merged_into_replay_page_key": result.page_key,
-                    "merged_into_is_canvas": bool(merged.is_canvas) if merged else None,
                 }
             )
 
@@ -307,7 +283,6 @@ def replay(
                         "live_page_key": page_key,
                         "replay_page_key": result.page_key,
                         "activity": activity,
-                        "screen_is_canvas": cur_canvas,
                         **diag,
                     }
                 )
@@ -330,7 +305,6 @@ def replay(
     ]
 
     return {
-        "canvas_merge": canvas_merge,
         "package_guard": package_guard,
         "fidelity": {
             "total_pages_replay": total_replay_pages,
@@ -354,12 +328,6 @@ def main() -> int:
     ap.add_argument("--data-dir", required=True, help="e.g. .../armA_poke_off/data_net.osmand")
     ap.add_argument("--runtime-dir", required=True, help="e.g. .../armA_poke_off/runtime_net.osmand")
     ap.add_argument(
-        "--canvas-merge",
-        choices=("on", "off"),
-        default="on",
-        help="canvas-gated text-blind element criterion (default on; off = pre-fix matcher)",
-    )
-    ap.add_argument(
         "--package-guard",
         choices=("on", "off"),
         default="on",
@@ -371,7 +339,6 @@ def main() -> int:
     result = replay(
         args.data_dir,
         args.runtime_dir,
-        canvas_merge=(args.canvas_merge == "on"),
         package_guard=(args.package_guard == "on"),
     )
     text = json.dumps(result, indent=2, ensure_ascii=False)

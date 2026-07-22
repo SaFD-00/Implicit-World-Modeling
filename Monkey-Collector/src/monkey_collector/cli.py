@@ -80,8 +80,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         element_diff_max=cfg.screen_matching.element_diff_max,
         element_jaccard_min=cfg.screen_matching.element_jaccard_min,
         page_pixel_diff_threshold=cfg.screen_matching.page_pixel_diff_threshold,
-        canvas_merge=cfg.screen_matching.canvas_merge,
-        canvas_min_area_frac=cfg.screen_matching.canvas_min_area_frac,
         package_guard=cfg.screen_matching.package_guard,
     )
     explorer = CoverageGuidedExplorer(

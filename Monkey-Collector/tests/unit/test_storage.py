@@ -380,8 +380,6 @@ class TestPageKnowledgePersistence:
         page = PageKnowledge(
             page_key="page_0",
             element_lines=["<button>Search</button>"],
-            is_canvas=True,
-            element_lines_blind=["<button></button>"],
             first_activity="com.test.app/.MainActivity",
         )
         path = writer.save_page_knowledge("page_0", page)
@@ -394,8 +392,6 @@ class TestPageKnowledgePersistence:
         assert loaded is not None
         assert loaded.page_key == "page_0"
         assert loaded.element_lines == ["<button>Search</button>"]
-        assert loaded.is_canvas is True
-        assert loaded.element_lines_blind == ["<button></button>"]
         assert loaded.first_activity == "com.test.app/.MainActivity"
         # luminance_features/next_observation_num are never persisted.
         assert loaded.luminance_features == []

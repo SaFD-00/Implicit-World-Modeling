@@ -56,9 +56,6 @@ _BUILTIN_DEFAULTS: dict = {
         "element_diff_max": 5,
         "element_jaccard_min": 0.5,
         "page_pixel_diff_threshold": 0.3,
-        # Canvas-gated text-blind matching (S-9).
-        "canvas_merge": False,
-        "canvas_min_area_frac": 0.7,
         "package_guard": True,
     },
 }
@@ -135,17 +132,6 @@ class ScreenMatchingConfig:
     element_diff_max: int = 5                 # symmetric-diff cutoff → same page
     element_jaccard_min: float = 0.5          # Jaccard floor → same page ("jaccard")
     page_pixel_diff_threshold: float = 0.3    # PAGE-level pixel gate (changed frac)
-    # Canvas-gated text-blind matching (S-9): when the current screen AND the
-    # candidate page are both full-screen drawing surfaces (map/photo/game), the
-    # element criterion runs on text-blind element-lines and the pixel gate
-    # abstains — the same thresholds, no new ones.
-    # DEFAULT OFF: it halves map fragmentation but also merges osmand's navigation
-    # drawer and its tracking mode into the map page (both keep the map surface
-    # leaf in the a11y tree AND are reported as MapActivity; their menu items are
-    # aria-label-less TextViews that text-blinding erases). See run.yaml for the
-    # full measurement, including why the cardinality repair does not work.
-    canvas_merge: bool = False
-    canvas_min_area_frac: float = 0.7         # leaf-clickable bounds ≥ this × screen
     # Same-package merge guard: a BM25 merge requires the candidate page to have
     # been minted under the SAME package as the current screen (abstains when
     # either package is unknown). Blocks cross-app merges (launcher home frame →
@@ -310,8 +296,6 @@ def _apply_env_overrides(raw: dict) -> dict:
         ("MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX",        "screen_matching", "element_diff_max",          "int"),
         ("MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN",     "screen_matching", "element_jaccard_min",       "float"),
         ("MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD", "screen_matching", "page_pixel_diff_threshold", "float"),
-        ("MC_SCREEN_MATCHING_CANVAS_MERGE",            "screen_matching", "canvas_merge",              "bool"),
-        ("MC_SCREEN_MATCHING_CANVAS_MIN_AREA_FRAC",    "screen_matching", "canvas_min_area_frac",      "float"),
         ("MC_SCREEN_MATCHING_PACKAGE_GUARD",           "screen_matching", "package_guard",             "bool"),
     ]
 
@@ -389,8 +373,6 @@ def _from_raw(raw: dict) -> RunConfig:
             element_diff_max=int(sm.get("element_diff_max", 5)),
             element_jaccard_min=float(sm.get("element_jaccard_min", 0.5)),
             page_pixel_diff_threshold=float(sm.get("page_pixel_diff_threshold", 0.3)),
-            canvas_merge=_coerce_bool(sm.get("canvas_merge", False)),
-            canvas_min_area_frac=float(sm.get("canvas_min_area_frac", 0.7)),
             package_guard=_coerce_bool(sm.get("package_guard", True)),
         ),
     )
