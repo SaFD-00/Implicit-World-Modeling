@@ -7,6 +7,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from monkey_collector.paths import apps_root
+
 
 def resolve_targets(
     data_dir: str | Path,
@@ -16,12 +18,14 @@ def resolve_targets(
 ) -> list[Path]:
     """Return existing directories that match the reset scope, across BOTH
     roots — a full reset must clear ``data/raw/{package}/`` and
-    ``runtime/{package}/`` together, or a surviving ``data/raw/`` half would
+    ``runtime/apps/{package}/`` together, or a surviving ``data/raw/`` half would
     immediately rehydrate stale page knowledge into what's supposed to be a
     wiped/fresh session.
 
-    * ``all_=True``   → ``[data_dir, runtime_dir]`` (whichever exist).
-    * ``packages``    → ``[data_dir / pkg, runtime_dir / pkg for each existing pkg dir]``.
+    * ``all_=True``   → ``[data_dir, runtime_dir]`` (whichever exist) — the
+      whole runtime root, ``apps/`` and ``logs/`` alike.
+    * ``packages``    → ``[data_dir / pkg, runtime_dir / apps / pkg for each
+      existing pkg dir]`` — per-app scope never touches ``runtime/logs/``.
 
     Reset clears collection *session state* only. ``data/processed/`` — the
     derived training corpus ``convert-all`` writes — is a **sibling** of the
@@ -39,7 +43,7 @@ def resolve_targets(
     if packages:
         return [
             p for pkg in packages
-            for p in (data_dir / pkg, runtime_dir / pkg)
+            for p in (data_dir / pkg, Path(apps_root(runtime_dir)) / pkg)
             if p.exists()
         ]
 

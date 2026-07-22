@@ -10,12 +10,15 @@ Directory structure::
     │       └── elements.json         (only when a live match produced one)
     └── page_graph.json
 
-    runtime/{package}/
-    ├── metadata.json
-    └── events.jsonl
+    runtime/
+    ├── apps/{package}/
+    │   ├── metadata.json
+    │   └── events.jsonl
+    └── logs/run_*.log
 
 ``data/`` is the durable corpus root (pages/observations, page_graph);
-``runtime/`` is ephemeral per-run bookkeeping (resume state, cost/coverage
+``runtime/`` is ephemeral per-run bookkeeping, split into ``apps/`` (per-package
+session state) and ``logs/`` (per-run log sinks) — resume state, cost/coverage
 CSVs, the action timeline — each event carries the ``page_key``/
 ``observation_num`` it maps onto, alongside a monotonic ``frame_index``).
 Whether a prefilter/dedup revisit writes files is decided by the matcher (see
@@ -39,6 +42,7 @@ from datetime import datetime
 from loguru import logger
 
 from monkey_collector.domain.actions import OpenApp
+from monkey_collector.paths import apps_root
 
 
 class DataWriter:
@@ -47,6 +51,9 @@ class DataWriter:
     def __init__(self, data_dir: str = "data/raw", runtime_dir: str = "runtime"):
         self.data_dir = data_dir
         self.runtime_dir = runtime_dir
+        # Every per-package runtime path derives from here, never from
+        # ``runtime_dir`` directly — ``runtime/logs/`` is its sibling.
+        self.runtime_apps_dir = apps_root(runtime_dir)
         self.data_session_dir: str | None = None
         self.runtime_session_dir: str | None = None
         self.step_count = 0
@@ -61,11 +68,11 @@ class DataWriter:
         """Find existing session directory for a package.
 
         Returns the session_id (directory name) or None. Existence is
-        determined by ``runtime/{package}/metadata.json`` — the durable
+        determined by ``runtime/apps/{package}/metadata.json`` — the durable
         ``data/{package}/`` half may exist without it (e.g. after a wipe of
         only the runtime side), which correctly reads as "no session".
         """
-        meta_path = os.path.join(self.runtime_dir, package, "metadata.json")
+        meta_path = os.path.join(self.runtime_apps_dir, package, "metadata.json")
         if os.path.isfile(meta_path):
             return package
         return None
@@ -83,7 +90,7 @@ class DataWriter:
         under, which is a labeling nicety, not a data-loss risk.
         """
         self.data_session_dir = os.path.join(self.data_dir, session_id)
-        self.runtime_session_dir = os.path.join(self.runtime_dir, session_id)
+        self.runtime_session_dir = os.path.join(self.runtime_apps_dir, session_id)
         events_path = os.path.join(self.runtime_session_dir, "events.jsonl")
 
         max_frame_index = -1
@@ -122,7 +129,7 @@ class DataWriter:
         ``save_page_knowledge`` on first write — nothing to pre-create here.
         """
         self.data_session_dir = os.path.join(self.data_dir, session_id)
-        self.runtime_session_dir = os.path.join(self.runtime_dir, session_id)
+        self.runtime_session_dir = os.path.join(self.runtime_apps_dir, session_id)
         self.step_count = 0
 
         os.makedirs(self.data_session_dir, exist_ok=True)

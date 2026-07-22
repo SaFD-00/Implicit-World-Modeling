@@ -24,8 +24,10 @@ def _apps_csv(path: Path, rows: list[tuple[str, bool]]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _seed_session(output_dir: Path, package: str, *, completed: bool) -> None:
-    d = output_dir / package
+def _seed_session(runtime_dir: Path, package: str, *, completed: bool) -> None:
+    """Seed a session under the runtime root's ``apps/`` sub-root — where the
+    completed-package scan looks."""
+    d = runtime_dir / "apps" / package
     d.mkdir(parents=True, exist_ok=True)
     meta = {
         "session_id": package,
@@ -44,14 +46,22 @@ class TestLoadCompletedPackages:
         _seed_session(tmp_path, "com.inprogress", completed=False)
         assert _load_completed_packages(str(tmp_path)) == {"com.done"}
 
+    def test_logs_sibling_is_not_scanned(self, tmp_path: Path) -> None:
+        # runtime/logs/ sits next to runtime/apps/, so the package scan never
+        # sees it — no name-based exclusion needed.
+        _seed_session(tmp_path, "com.done", completed=True)
+        (tmp_path / "logs").mkdir()
+        (tmp_path / "logs" / "run_20260101_000000.log").write_text("log\n")
+        assert _load_completed_packages(str(tmp_path)) == {"com.done"}
+
     def test_missing_metadata_ignored(self, tmp_path: Path) -> None:
-        (tmp_path / "com.bare").mkdir()
+        (tmp_path / "apps" / "com.bare").mkdir(parents=True)
         _seed_session(tmp_path, "com.done", completed=True)
         assert _load_completed_packages(str(tmp_path)) == {"com.done"}
 
     def test_malformed_metadata_ignored(self, tmp_path: Path) -> None:
-        d = tmp_path / "com.broken"
-        d.mkdir()
+        d = tmp_path / "apps" / "com.broken"
+        d.mkdir(parents=True)
         (d / "metadata.json").write_text("{not: valid}", encoding="utf-8")
         _seed_session(tmp_path, "com.done", completed=True)
         assert _load_completed_packages(str(tmp_path)) == {"com.done"}

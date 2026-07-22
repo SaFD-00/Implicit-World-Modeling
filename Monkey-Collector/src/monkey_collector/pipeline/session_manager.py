@@ -131,7 +131,7 @@ def init_or_resume_session(
         # data/{package}/ half would immediately rehydrate stale page
         # knowledge right back into what's supposed to be a new session.
         existing_data_dir = os.path.join(collector.writer.data_dir, session_id)
-        existing_runtime_dir = os.path.join(collector.writer.runtime_dir, session_id)
+        existing_runtime_dir = os.path.join(collector.writer.runtime_apps_dir, session_id)
         for existing_dir in (existing_data_dir, existing_runtime_dir):
             if os.path.isdir(existing_dir):
                 shutil.rmtree(existing_dir)

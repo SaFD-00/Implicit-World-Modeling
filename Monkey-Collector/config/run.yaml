@@ -39,7 +39,10 @@ collection:
   # data/processed, which holds the converted training artifacts.
   # Env: MC_COLLECTION_DATA_DIR
   data_dir: data/raw
-  # Ephemeral runtime root (metadata, events.jsonl, cost/coverage CSVs). Env: MC_COLLECTION_RUNTIME_DIR
+  # Ephemeral runtime ROOT. Per-app state (metadata.json, events.jsonl,
+  # cost.csv, activity_coverage.csv) lands in {root}/apps/{package}/ and run
+  # logs in {root}/logs/ — point this at the root, not at the apps sub-root.
+  # Env: MC_COLLECTION_RUNTIME_DIR
   runtime_dir: runtime
   # Session end condition. Options: time | steps
   #   time:  run until max_duration elapses (product default)

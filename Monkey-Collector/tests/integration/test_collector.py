@@ -53,8 +53,9 @@ def _make_collector(mock_adb, signals, max_steps=10):
     mock_writer.find_existing_session.return_value = None
     mock_writer.data_dir = "/tmp/data"
     mock_writer.runtime_dir = "/tmp/runtime"
+    mock_writer.runtime_apps_dir = "/tmp/runtime/apps"
     mock_writer.data_session_dir = "/tmp/data/com.test.app"
-    mock_writer.runtime_session_dir = "/tmp/runtime/com.test.app"
+    mock_writer.runtime_session_dir = "/tmp/runtime/apps/com.test.app"
 
     collector = Collector(
         adb=mock_adb,
@@ -82,7 +83,7 @@ class TestSessionResume:
         writer.find_existing_session.return_value = "com.test.app"
         writer.resume_session.return_value = 5
         writer.data_session_dir = "/tmp/data/com.test.app"
-        writer.runtime_session_dir = "/tmp/runtime/com.test.app"
+        writer.runtime_session_dir = "/tmp/runtime/apps/com.test.app"
 
         session_id = collector.run(package="com.test.app")
 

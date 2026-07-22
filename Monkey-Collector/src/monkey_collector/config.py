@@ -82,6 +82,7 @@ class CollectionConfig:
     action_delay_ms: int = 1500
     port: int = 12345
     data_dir: str = "data/raw"
+    # Runtime ROOT: per-app state under {root}/apps/, run logs under {root}/logs/.
     runtime_dir: str = "runtime"
     # Session end condition. "time": run until max_duration_sec elapses
     # (product default). "steps": run until max_steps actions (legacy).

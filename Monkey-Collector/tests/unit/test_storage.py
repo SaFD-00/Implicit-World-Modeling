@@ -21,12 +21,12 @@ class TestInitSession:
         # save_page_knowledge on first write — init_session only needs the
         # bare session roots to exist.
         data_session_dir = tmp_path / "data" / "com.test.app"
-        runtime_session_dir = tmp_path / "runtime" / "com.test.app"
+        runtime_session_dir = tmp_path / "runtime" / "apps" / "com.test.app"
         assert data_session_dir.is_dir()
         assert runtime_session_dir.is_dir()
 
     def test_writes_metadata(self, writer, tmp_path):
-        meta_path = tmp_path / "runtime" / "com.test.app" / "metadata.json"
+        meta_path = tmp_path / "runtime" / "apps" / "com.test.app" / "metadata.json"
         assert meta_path.exists()
         meta = json.loads(meta_path.read_text())
         assert meta["session_id"] == "com.test.app"
@@ -58,7 +58,7 @@ class TestLogEvent:
         writer.log_event({"action_type": "tap", "x": 100, "y": 200})
         writer.log_event({"action_type": "swipe", "step": 1})
 
-        events_path = tmp_path / "runtime" / "com.test.app" / "events.jsonl"
+        events_path = tmp_path / "runtime" / "apps" / "com.test.app" / "events.jsonl"
         lines = events_path.read_text().strip().split("\n")
         assert len(lines) == 2
         assert json.loads(lines[0])["action_type"] == "tap"
@@ -70,7 +70,7 @@ class TestLogExternalApp:
         writer.log_external_app({"detected_package": "com.other"})
 
         # Check event written
-        events_path = tmp_path / "runtime" / "com.test.app" / "events.jsonl"
+        events_path = tmp_path / "runtime" / "apps" / "com.test.app" / "events.jsonl"
         lines = events_path.read_text().strip().split("\n")
         event = json.loads(lines[0])
         assert event["type"] == "external_app"
@@ -78,7 +78,7 @@ class TestLogExternalApp:
 
         # Check metadata counter
         meta = json.loads(
-            (tmp_path / "runtime" / "com.test.app" / "metadata.json").read_text()
+            (tmp_path / "runtime" / "apps" / "com.test.app" / "metadata.json").read_text()
         )
         assert meta["external_app_events"] == 1
 
@@ -92,7 +92,7 @@ class TestLogOpenApp:
             from_package="com.android.chrome",
         )
 
-        events_path = tmp_path / "runtime" / "com.test.app" / "events.jsonl"
+        events_path = tmp_path / "runtime" / "apps" / "com.test.app" / "events.jsonl"
         event = json.loads(events_path.read_text().strip().split("\n")[0])
         assert event["action_type"] == "open_app"
         assert event["package"] == "com.target.app"
@@ -104,13 +104,13 @@ class TestLogOpenApp:
         assert event["trigger"] == "external_recovery"
 
         meta = json.loads(
-            (tmp_path / "runtime" / "com.test.app" / "metadata.json").read_text()
+            (tmp_path / "runtime" / "apps" / "com.test.app" / "metadata.json").read_text()
         )
         assert meta["open_app_events"] == 1
 
     def test_from_package_omitted_when_none(self, writer, tmp_path):
         writer.log_open_app("com.target.app", step=1)
-        events_path = tmp_path / "runtime" / "com.test.app" / "events.jsonl"
+        events_path = tmp_path / "runtime" / "apps" / "com.test.app" / "events.jsonl"
         event = json.loads(events_path.read_text().strip().split("\n")[0])
         assert "from_package" not in event
         assert event["app_name"] == ""
@@ -123,7 +123,7 @@ class TestFinalizeSession:
         writer.finalize_session()
 
         meta = json.loads(
-            (tmp_path / "runtime" / "com.test.app" / "metadata.json").read_text()
+            (tmp_path / "runtime" / "apps" / "com.test.app" / "metadata.json").read_text()
         )
         assert meta["completed_at"] is not None
         assert meta["total_steps"] == 2
@@ -134,7 +134,7 @@ class TestFinalizeSession:
         writer.finalize_session()
 
         meta = json.loads(
-            (tmp_path / "runtime" / "com.test.app" / "metadata.json").read_text()
+            (tmp_path / "runtime" / "apps" / "com.test.app" / "metadata.json").read_text()
         )
         assert meta["completed_at"] is None
         assert meta["total_steps"] == 0
@@ -206,7 +206,7 @@ class TestFindExistingSession:
     def test_ignores_dirs_without_metadata(self, tmp_path):
         """Directory without metadata.json is not a valid session."""
         w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
-        os.makedirs(tmp_path / "runtime" / "com.test.app")
+        os.makedirs(tmp_path / "runtime" / "apps" / "com.test.app")
         # No metadata.json created
         assert w.find_existing_session("com.test.app") is None
 
@@ -244,7 +244,7 @@ class TestResumeSession:
         """Original started_at is preserved on resume."""
         w = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w.init_session("com.test.app", "com.test.app")
-        meta_path = tmp_path / "runtime" / "com.test.app" / "metadata.json"
+        meta_path = tmp_path / "runtime" / "apps" / "com.test.app" / "metadata.json"
         original_meta = json.loads(meta_path.read_text())
         original_started = original_meta["started_at"]
 
@@ -262,7 +262,7 @@ class TestResumeSession:
         w2 = DataWriter(data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"))
         w2.resume_session("com.test.app")
 
-        meta_path = tmp_path / "runtime" / "com.test.app" / "metadata.json"
+        meta_path = tmp_path / "runtime" / "apps" / "com.test.app" / "metadata.json"
         meta = json.loads(meta_path.read_text())
         assert "resumed_at" in meta
         assert len(meta["resumed_at"]) == 1
@@ -290,7 +290,7 @@ class TestIncrementMetadata:
         w._increment_metadata("external_app_events")
         w._increment_metadata("external_app_events")
 
-        meta_path = tmp_path / "runtime" / "test_session" / "metadata.json"
+        meta_path = tmp_path / "runtime" / "apps" / "test_session" / "metadata.json"
         meta = json.loads(meta_path.read_text())
         assert meta["external_app_events"] == 2
 

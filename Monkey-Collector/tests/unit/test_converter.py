@@ -230,13 +230,17 @@ class TestConverterSession:
         assert converter.convert_session(str(session_dir), str(session_dir), session_label=1) == 0
 
     def test_convert_all(self, tmp_path):
-        raw_dir = tmp_path / "raw"
+        # The legacy fixture keeps events.jsonl inside the session dir, so the
+        # data root doubles as the runtime *apps* root — hence the runtime root
+        # passed in is its parent.
+        runtime_dir = tmp_path / "runtime"
+        raw_dir = runtime_dir / "apps"
         create_mock_session(raw_dir, "session_a")
         create_mock_session(raw_dir, "session_b")
 
         output_path = tmp_path / "output.jsonl"
         converter = Converter(str(output_path), str(tmp_path / "images"))
-        total = converter.convert_all(str(raw_dir), str(raw_dir))
+        total = converter.convert_all(str(raw_dir), str(runtime_dir))
         # 1 pair per 2-frame session, but both mock sessions replay the SAME
         # two frames and the same action — one triple, and dedup is global
         # across sessions. See test_dedup_spans_sessions.

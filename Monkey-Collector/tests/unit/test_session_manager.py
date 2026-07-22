@@ -29,8 +29,8 @@ class TestNewSessionDualRootWipe:
         to be a fresh session."""
         collector = _collector(tmp_path, new_session=True)
         (tmp_path / "data" / "com.test.app" / "pages" / "page_0").mkdir(parents=True)
-        (tmp_path / "runtime" / "com.test.app").mkdir(parents=True)
-        (tmp_path / "runtime" / "com.test.app" / "metadata.json").write_text("{}")
+        (tmp_path / "runtime" / "apps" / "com.test.app").mkdir(parents=True)
+        (tmp_path / "runtime" / "apps" / "com.test.app" / "metadata.json").write_text("{}")
 
         init_or_resume_session(collector, "com.test.app")
 

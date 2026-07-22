@@ -10,7 +10,12 @@ from loguru import logger
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Run server-driven data collection across one or more installed apps."""
-    log_dir = Path(__file__).resolve().parents[2] / "runtime" / "logs"
+    from monkey_collector.paths import logs_root
+
+    # Pinned to the repo-root runtime/, not cfg.collection.runtime_dir: the
+    # sink has to be up before the config is loaded, so a custom --runtime-dir
+    # moves the per-app state but leaves run logs here.
+    log_dir = Path(logs_root(Path(__file__).resolve().parents[2] / "runtime"))
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     logger.add(str(log_path), level="DEBUG", enqueue=True)
@@ -135,7 +140,7 @@ def _resolve_run_packages(
     * ``["com.X", "com.Y"]`` → exactly those package ids (preserves order,
       deduplicates, warns on unknown packages).
 
-    Sessions whose ``{runtime_dir}/{pkg}/metadata.json`` has a non-empty
+    Sessions whose ``{runtime_dir}/apps/{pkg}/metadata.json`` has a non-empty
     ``completed_at`` field are skipped — those apps are treated as done.
     Pass ``force=True`` to include them anyway (useful for re-collection).
     """
@@ -251,13 +256,17 @@ def _resolve_app_names(packages: list[str]) -> dict[str, str]:
 def _load_completed_packages(runtime_dir: str) -> set[str]:
     """Return package ids whose session is already marked complete.
 
-    Scans ``runtime_dir`` for ``{pkg}/metadata.json`` files and collects every
-    package whose metadata has a non-empty ``completed_at`` value.
+    Scans ``{runtime_dir}/apps`` for ``{pkg}/metadata.json`` files and collects
+    every package whose metadata has a non-empty ``completed_at`` value. The
+    scan is scoped to ``apps/`` so the sibling ``logs/`` never has to be
+    filtered out of the iteration.
     """
     import json
     from pathlib import Path
 
-    base = Path(runtime_dir)
+    from monkey_collector.paths import apps_root
+
+    base = Path(apps_root(runtime_dir))
     if not base.is_dir():
         return set()
     completed: set[str] = set()
@@ -335,9 +344,10 @@ def cmd_convert(args: argparse.Namespace) -> None:
     import os
 
     from monkey_collector.export.converter import Converter
+    from monkey_collector.paths import app_dir
 
     data_session_dir = os.path.join(args.data_dir, args.package)
-    runtime_session_dir = os.path.join(args.runtime_dir, args.package)
+    runtime_session_dir = app_dir(args.runtime_dir, args.package)
     converter = Converter(
         output_path=args.output,
         images_dir=args.images_dir,
@@ -361,9 +371,10 @@ def cmd_page_map(args: argparse.Namespace) -> None:
         build_graph_from_session,
     )
     from monkey_collector.export.graph_visualizer import visualize_session
+    from monkey_collector.paths import app_dir
 
     data_session_dir = os.path.join(args.data_dir, args.package)
-    runtime_session_dir = os.path.join(args.runtime_dir, args.package)
+    runtime_session_dir = app_dir(args.runtime_dir, args.package)
 
     if os.path.isdir(os.path.join(data_session_dir, "pages")):
         graph = build_graph_from_new_layout(
@@ -397,6 +408,7 @@ def cmd_page_map_all(args: argparse.Namespace) -> None:
         build_graph_from_session,
     )
     from monkey_collector.export.graph_visualizer import visualize_session
+    from monkey_collector.paths import app_dir
 
     data_dir = args.data_dir
     if not os.path.isdir(data_dir):
@@ -406,7 +418,7 @@ def cmd_page_map_all(args: argparse.Namespace) -> None:
     total = 0
     for name in sorted(os.listdir(data_dir)):
         data_session_dir = os.path.join(data_dir, name)
-        runtime_session_dir = os.path.join(args.runtime_dir, name)
+        runtime_session_dir = app_dir(args.runtime_dir, name)
 
         if os.path.isdir(os.path.join(data_session_dir, "pages")):
             graph = build_graph_from_new_layout(
@@ -518,7 +530,7 @@ def main() -> None:
     )
     p.add_argument("--port", type=int, default=None, help="TCP server port")
     p.add_argument("--data-dir", default=None, help="Durable data root (pages/observations, page_graph)")
-    p.add_argument("--runtime-dir", default=None, help="Ephemeral runtime root (metadata, events, cost/coverage)")
+    p.add_argument("--runtime-dir", default=None, help="Ephemeral runtime root; per-app state lands in {root}/apps, logs in {root}/logs")
     p.add_argument(
         "--input-mode",
         choices=["api", "random"],
@@ -620,7 +632,7 @@ def main() -> None:
         help="Delete collected session data by scope (all / apps)",
     )
     p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
-    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory (per-app state under {root}/apps)")
     p.add_argument(
         "--all",
         action="store_true",
@@ -657,7 +669,7 @@ def main() -> None:
     # convert
     p = sub.add_parser("convert", help="Convert session to JSONL")
     p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
-    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory (per-app state under {root}/apps)")
     p.add_argument("--package", required=True, help="Package id (session directory name)")
     p.add_argument("--output", required=True, help="Output JSONL path")
     p.add_argument("--images-dir", required=True, help="Images output directory")
@@ -666,7 +678,7 @@ def main() -> None:
     # page-map
     p = sub.add_parser("page-map", help="Build page map from session data")
     p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
-    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory (per-app state under {root}/apps)")
     p.add_argument("--package", required=True, help="Package id (session directory name)")
     p.add_argument(
         "--threshold", type=float, default=0.85,
@@ -678,7 +690,7 @@ def main() -> None:
     # page-map-all
     p = sub.add_parser("page-map-all", help="Build page maps for all sessions")
     p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
-    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory (per-app state under {root}/apps)")
     p.add_argument(
         "--threshold", type=float, default=0.85,
         help="XML fingerprint similarity threshold (0.0-1.0, legacy flat-layout sessions only)",
@@ -692,7 +704,7 @@ def main() -> None:
     # convert-all
     p = sub.add_parser("convert-all", help="Convert all sessions to JSONL")
     p.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root directory")
-    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory")
+    p.add_argument("--runtime-dir", default="runtime", help="Ephemeral runtime root directory (per-app state under {root}/apps)")
     p.add_argument(
         "--output",
         default="data/processed/gui-model_stage1.jsonl",

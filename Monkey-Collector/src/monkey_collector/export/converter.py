@@ -10,6 +10,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from monkey_collector.paths import apps_root
 from monkey_collector.xml.ui_tree import UIElement, parse_uiautomator_xml
 
 SYSTEM_PROMPT = (
@@ -501,7 +502,9 @@ class Converter:
         Sessions are the immediate subdirectories of *data_dir* that hold a
         ``pages/`` (or legacy ``xml/``) directory — so with the default
         ``data/raw`` root, ``data/processed`` is a sibling and is never
-        enumerated.
+        enumerated. Each session's ``events.jsonl`` is looked up under
+        ``{runtime_dir}/apps/{session}/`` (*runtime_dir* is the runtime **root**,
+        not the apps sub-root).
 
         All sessions share this one ``Converter``, hence one pair of dedup
         seen-sets: the XML-triple gate removes duplicates across app boundaries,
@@ -516,7 +519,7 @@ class Converter:
             logger.warning(f"Data directory not found: {data_dir}")
             return 0
 
-        runtime_root = Path(runtime_dir)
+        runtime_root = Path(apps_root(runtime_dir))
         sessions = sorted(
             d for d in data_root.iterdir()
             if d.is_dir() and ((d / "pages").exists() or (d / "xml").exists())

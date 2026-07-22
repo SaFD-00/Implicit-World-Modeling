@@ -37,21 +37,21 @@ class TestResolveTargets:
         runtime_dir = tmp_path / "runtime"
         _seed(data_dir, "com.a")
         _seed(data_dir, "com.c")
-        _seed(runtime_dir, "com.a")
-        _seed(runtime_dir, "com.c")
+        _seed(runtime_dir / "apps", "com.a")
+        _seed(runtime_dir / "apps", "com.c")
         targets = resolve_targets(data_dir, runtime_dir, packages=["com.a", "com.c"])
         assert sorted(targets) == sorted([
             data_dir / "com.a", data_dir / "com.c",
-            runtime_dir / "com.a", runtime_dir / "com.c",
+            runtime_dir / "apps" / "com.a", runtime_dir / "apps" / "com.c",
         ])
 
     def test_packages_filters_out_nonexistent(self, tmp_path):
         data_dir = tmp_path / "data" / "raw"
         runtime_dir = tmp_path / "runtime"
         _seed(data_dir, "com.a")
-        _seed(runtime_dir, "com.a")
+        _seed(runtime_dir / "apps", "com.a")
         targets = resolve_targets(data_dir, runtime_dir, packages=["com.a", "com.missing"])
-        assert sorted(targets) == sorted([data_dir / "com.a", runtime_dir / "com.a"])
+        assert sorted(targets) == sorted([data_dir / "com.a", runtime_dir / "apps" / "com.a"])
 
     def test_packages_missing_one_root_returns_only_existing(self, tmp_path):
         # A package present only under data/raw (e.g. runtime/ already wiped)
