@@ -173,17 +173,63 @@ def _example_signature(example: dict) -> str:
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
 
+def _page_signature(
+    package: str, before_key: str, action: dict, after_key: str
+) -> str:
+    """Hash the ``(package, before page_key, action_json, after page_key)`` tuple.
+
+    The *page-level* dedup key. Where :func:`_example_signature` compares raw
+    encoded-XML bytes — so a single character of drift makes two renderings of
+    the same screen look like different examples — this one trusts the screen
+    matcher: if two frames were already assigned the same ``page_key``, they are
+    the same page, and the transition between two such pages under the same
+    action is one transition.
+
+    ``package`` is part of the key because ``page_key`` is **not** globally
+    unique: it is a per-package counter (``"0"``, ``"1"``, …, restarting at 0
+    for every app), so ``0 -> 1`` in one app has nothing to do with ``0 -> 1``
+    in another. Dropping ``package`` would collapse unrelated transitions across
+    app boundaries.
+
+    ``action`` is the dict produced by :func:`_map_event_to_action`, serialised
+    with ``sort_keys=True``. It must **not** be taken from the example's human
+    turn: that string embeds the whole before-XML, which would reintroduce the
+    byte sensitivity this signature exists to avoid and silently turn the gate
+    into a no-op.
+
+    Stored as a hexdigest for the same memory reason as
+    :func:`_example_signature`.
+    """
+    action_json = json.dumps(action, sort_keys=True)
+    payload = f"{package}\x00{before_key}\x00{action_json}\x00{after_key}"
+    return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+
 class Converter:
     """Convert raw session data to gui-model_stage1.jsonl.
 
-    Exact duplicate examples are **always** dropped — there is no flag to turn
-    this off. Two examples are duplicates when their
-    ``(before_encoded_xml, action_json, after_encoded_xml)`` triples match; the
-    second one is not written to the JSONL, its screenshot is not copied, and it
-    does not count. Because :meth:`convert_all` reuses one ``Converter`` for
-    every session, dedup is global — it spans session (app) boundaries, which is
-    intended: the same UI transition observed in two apps is still one training
-    example.
+    Duplicate examples are **always** dropped — there is no flag to turn this
+    off. Two independent gates run, and a hit on *either* drops the example: it
+    is not written to the JSONL, its screenshot is not copied, and it does not
+    count.
+
+    1. **XML triple** (:func:`_example_signature`) — matching
+       ``(before_encoded_xml, action_json, after_encoded_xml)``. Scope is
+       **global**, i.e. the whole ``Converter`` instance, spanning session (app)
+       boundaries: identical encoded XML *is* the same screen no matter which
+       app produced it. This gate is the only one :meth:`_convert_session_legacy`
+       has, since a flat-layout session carries no ``page_key`` at all.
+    2. **Page triple** (:func:`_page_signature`) — matching
+       ``(before page_key, action_json, after page_key)``, trusting the screen
+       matcher's page identity instead of raw XML bytes. Scope is **per
+       package**, not global, because ``page_key`` is a counter that restarts at
+       0 for every app — the same string in two apps means two different
+       screens. Only :meth:`convert_session` (the ``pages/`` layout) has these
+       keys.
+
+    Because :meth:`convert_all` reuses one ``Converter`` for every session, both
+    seen-sets live for the whole run; the package component of the page key is
+    what keeps gate 2 from leaking across apps.
     """
 
     def __init__(self, output_path: str, images_dir: str):
@@ -193,6 +239,9 @@ class Converter:
         # Signatures (md5 hexdigests) of every example already emitted by this
         # Converter instance. See _example_signature / the class docstring.
         self._seen_signatures: set[str] = set()
+        # Page-level signatures (md5 hexdigests) of every emitted example that
+        # had page keys. See _page_signature / the class docstring.
+        self._seen_page_signatures: set[str] = set()
 
     def convert_session(
         self, data_session_dir: str, runtime_session_dir: str, session_label: int
@@ -219,10 +268,15 @@ class Converter:
         :meth:`_convert_session_legacy`; one with neither is skipped, not a
         crash (decision: no migration script for pre-migration sessions).
 
-        The last gate, after every filter above, is **always-on dedup**: an
-        example whose ``(before_encoded_xml, action_json, after_encoded_xml)``
-        triple was already emitted by this ``Converter`` is dropped — not
-        written, no screenshot copied, not counted. See the class docstring.
+        The last gate, after every filter above, is **always-on dedup**, and
+        here it is two gates: the example is dropped if either its
+        ``(before_encoded_xml, action_json, after_encoded_xml)`` triple (global)
+        or its ``(package, before page_key, action_json, after page_key)`` tuple
+        (per package — ``page_key`` is a per-app counter) was already emitted by
+        this ``Converter``. Dropped means not written, no screenshot copied, not
+        counted. The page gate is the stronger of the two: it catches
+        re-observations of the same transition whose encoded XML drifted by a
+        few bytes, which the XML gate lets through. See the class docstring.
 
         Returns:
             Number of examples generated.
@@ -308,10 +362,21 @@ class Converter:
             if example is None:
                 continue
 
+            # generate_example already proved the event maps to an action, so
+            # this re-mapping cannot be None. The page signature needs the bare
+            # action dict — NOT the human turn, which carries the before-XML.
+            action = _map_event_to_action(event, before_elements or [])
             signature = _example_signature(example)
-            if signature in self._seen_signatures:
-                continue  # exact duplicate transition — no write, no image, no count
+            page_signature = _page_signature(
+                data_session.name, str(before_key), action, str(after_key)
+            )
+            if (
+                signature in self._seen_signatures
+                or page_signature in self._seen_page_signatures
+            ):
+                continue  # duplicate transition — no write, no image, no count
             self._seen_signatures.add(signature)
+            self._seen_page_signatures.add(page_signature)
 
             dest_image = self.images_dir / image_name
             shutil.copy2(src_screenshot, dest_image)
@@ -338,8 +403,9 @@ class Converter:
         alongside ``xml/``/``screenshots/``, so pass the same path for both
         roots when converting one of those.
 
-        The same always-on dedup as :meth:`convert_session` applies here, over
-        the same shared seen-set.
+        A flat-layout session has no ``page_key``, so the page-level gate cannot
+        apply here: the XML-triple gate is the *only* defence on this path. It
+        runs over the same instance-wide seen-set :meth:`convert_session` uses.
         """
         data_session = Path(data_session_dir)
         xml_dir = data_session / "xml"
@@ -437,8 +503,10 @@ class Converter:
         ``data/raw`` root, ``data/processed`` is a sibling and is never
         enumerated.
 
-        All sessions share this one ``Converter``, hence one dedup seen-set:
-        duplicates are removed across app boundaries, not just within a session.
+        All sessions share this one ``Converter``, hence one pair of dedup
+        seen-sets: the XML-triple gate removes duplicates across app boundaries,
+        while the page-level gate is namespaced by package and so only fires
+        within one app. See the class docstring for why they differ.
 
         Returns:
             Total number of examples generated (duplicates excluded).

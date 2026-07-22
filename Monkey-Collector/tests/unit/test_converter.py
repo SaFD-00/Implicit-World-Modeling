@@ -4,6 +4,7 @@ import json
 
 from monkey_collector.export.converter import (
     Converter,
+    _example_signature,
     _find_element_at,
     _map_event_to_action,
     generate_example,
@@ -25,6 +26,14 @@ SIMPLE_PARSED = parse_to_html_xml(SIMPLE_XML) or ""
 COMPLEX_PARSED = parse_to_html_xml(COMPLEX_XML) or ""
 SIMPLE_ENCODED = encode_to_html_xml(SIMPLE_XML) or ""
 COMPLEX_ENCODED = encode_to_html_xml(COMPLEX_XML) or ""
+
+# Same screens, a few bytes of drift (one label re-worded) — what a real
+# re-visit of a page looks like. The screen matcher still calls these the same
+# page; the XML-triple gate does not.
+SIMPLE_XML_DRIFT = SIMPLE_XML.replace('text="Item title"', 'text="Item title 2"')
+COMPLEX_XML_DRIFT = COMPLEX_XML.replace('text="Settings"', 'text="Settings 2"')
+SIMPLE_DRIFT_ENCODED = encode_to_html_xml(SIMPLE_XML_DRIFT) or ""
+COMPLEX_DRIFT_ENCODED = encode_to_html_xml(COMPLEX_XML_DRIFT) or ""
 
 
 def _action_from_human(human_value: str) -> dict:
@@ -552,3 +561,185 @@ class TestConverterNewLayout:
             w.data_session_dir, w.runtime_session_dir, session_label=1,
         )
         assert count == 0
+
+
+def _drifted_revisit_session(tmp_path, package="com.test.app", third_index=0):
+    """page_0 -> page_1 -> page_0 -> page_1, the revisits carrying drifted XML.
+
+    Observation 1 of each page renders the *same* page as observation 0 (the
+    matcher assigned the same ``page_key``) but its encoded XML differs by a
+    few bytes. ``third_index`` is the tapped element of the third event, i.e.
+    the action of the third (revisit) pair.
+    """
+    from monkey_collector.storage import DataWriter
+
+    w = DataWriter(
+        data_dir=str(tmp_path / "data"), runtime_dir=str(tmp_path / "runtime"),
+    )
+    w.init_session(package, package)
+    w.save_observation("page_0", 0, TINY_PNG, SIMPLE_XML)
+    w.save_observation("page_1", 0, TINY_PNG, COMPLEX_XML)
+    w.save_observation("page_0", 1, TINY_PNG, SIMPLE_XML_DRIFT)
+    w.save_observation("page_1", 1, TINY_PNG, COMPLEX_XML_DRIFT)
+    for frame, (key, obs, idx) in enumerate([
+        ("page_0", 0, 0),
+        ("page_1", 0, 0),
+        ("page_0", 1, third_index),
+        ("page_1", 1, 0),
+    ]):
+        w.log_event({
+            "action_type": "tap", "element_index": idx,
+            "frame_index": frame, "page_key": key, "observation_num": obs,
+        })
+    return w
+
+
+class TestPageLevelDedup:
+    """The page-level gate: ``(package, before page_key, action, after page_key)``.
+
+    It exists to catch what the XML-triple gate structurally cannot — the same
+    transition re-observed with a few bytes of XML drift.
+    """
+
+    def test_fixture_actually_drifts(self):
+        # Guards the fixtures below: if the drift stopped changing the encoded
+        # XML, every test in this class would pass for the wrong reason (the
+        # XML gate would be doing the work).
+        assert SIMPLE_DRIFT_ENCODED and COMPLEX_DRIFT_ENCODED
+        assert SIMPLE_DRIFT_ENCODED != SIMPLE_ENCODED
+        assert COMPLEX_DRIFT_ENCODED != COMPLEX_ENCODED
+
+    def test_same_pages_same_action_drifted_xml_emitted_once(self, tmp_path):
+        # THE discriminating test. Two page_0 -> page_1 transitions under the
+        # same Click(0) whose before/after encoded.xml differ. The XML gate is
+        # blind to this (see the control at the end) — only the page gate can
+        # drop the second, and an implementation that hashed the human turn
+        # (which embeds the before-XML) would be a silent no-op here.
+        w = _drifted_revisit_session(tmp_path)
+        output_path = tmp_path / "output.jsonl"
+        images_dir = tmp_path / "images"
+        converter = Converter(str(output_path), str(images_dir))
+        count = converter.convert_session(
+            w.data_session_dir, w.runtime_session_dir, session_label=1,
+        )
+
+        # Pairs: (p0/0 -> p1/0), (p1/0 -> p0/1), (p0/1 -> p1/1). The first and
+        # third are both page_0 -> page_1 under Click(0) → the third is dropped.
+        assert count == 2
+        lines = output_path.read_text().strip().split("\n")
+        assert len(lines) == 2
+        assert len(list(images_dir.iterdir())) == 2
+
+        examples = [json.loads(line) for line in lines]
+        befores = [_before_from_human(e["messages"][1]["value"]) for e in examples]
+        assert befores == [SIMPLE_ENCODED, COMPLEX_ENCODED]
+        # The revisit pair — the one carrying drifted XML — is what got dropped.
+        assert SIMPLE_DRIFT_ENCODED not in befores
+
+        # Control: all three candidate triples are byte-distinct, so the XML
+        # gate alone would have emitted 3. The drop is the page gate's doing.
+        triples = [
+            (SIMPLE_ENCODED, COMPLEX_ENCODED),
+            (COMPLEX_ENCODED, SIMPLE_DRIFT_ENCODED),
+            (SIMPLE_DRIFT_ENCODED, COMPLEX_DRIFT_ENCODED),
+        ]
+        event = {"action_type": "tap", "element_index": 0}
+        signatures = {
+            _example_signature(generate_example(b, a, event, "img.png"))
+            for b, a in triples
+        }
+        assert len(signatures) == 3
+
+    def test_same_pages_different_action_both_kept(self, tmp_path):
+        # The action is part of the page key: the same page pair under a
+        # different action is a different transition and must survive.
+        w = _drifted_revisit_session(tmp_path, third_index=7)
+        output_path = tmp_path / "output.jsonl"
+        images_dir = tmp_path / "images"
+        converter = Converter(str(output_path), str(images_dir))
+        count = converter.convert_session(
+            w.data_session_dir, w.runtime_session_dir, session_label=1,
+        )
+
+        # Same three pairs as above, but the third taps element 7 → its page
+        # key differs from the first's, so nothing is dropped.
+        assert count == 3
+        assert len(output_path.read_text().strip().split("\n")) == 3
+        assert len(list(images_dir.iterdir())) == 3
+
+    def test_page_gate_does_not_span_packages(self, tmp_path):
+        # page_key is a per-package counter ("0", "1", ... restarting at 0 for
+        # every app), so identical page keys in two packages are two unrelated
+        # screens. Same page pair + same action + drifted XML in two apps must
+        # yield two examples, not one — hence `package` in the page key.
+        from monkey_collector.storage import DataWriter
+
+        data_root = tmp_path / "data"
+        runtime_root = tmp_path / "runtime"
+        for pkg, (before_xml, after_xml) in {
+            "com.a.app": (SIMPLE_XML, COMPLEX_XML),
+            "com.b.app": (SIMPLE_XML_DRIFT, COMPLEX_XML_DRIFT),
+        }.items():
+            w = DataWriter(data_dir=str(data_root), runtime_dir=str(runtime_root))
+            w.init_session(pkg, pkg)
+            w.save_observation("page_0", 0, TINY_PNG, before_xml)
+            w.save_observation("page_1", 0, TINY_PNG, after_xml)
+            for frame, key in enumerate(["page_0", "page_1"]):
+                w.log_event({
+                    "action_type": "tap", "element_index": 0,
+                    "frame_index": frame, "page_key": key, "observation_num": 0,
+                })
+
+        converter = Converter(
+            str(tmp_path / "output.jsonl"), str(tmp_path / "images"),
+        )
+        assert converter.convert_all(str(data_root), str(runtime_root)) == 2
+
+
+class TestLegacyXmlDedup:
+    """Regression: the flat-layout path has no page keys, so the XML-triple
+    gate is its only dedup — adding the page gate must not disturb it."""
+
+    def test_repeated_transition_deduped_in_legacy_session(self, tmp_path):
+        # Frames a, b, a, b: the frame-2 -> frame-3 pair re-encodes byte-for-byte
+        # as the frame-0 -> frame-1 pair, under the same action.
+        session = create_aligned_session(
+            tmp_path,
+            frames=[(0, "a"), (1, "b"), (2, "a"), (3, "b")],
+            events=[
+                {"action_type": "tap", "element_index": 1,
+                 "step": i, "frame_index": i}
+                for i in range(4)
+            ],
+        )
+        output_path = tmp_path / "out.jsonl"
+        images_dir = tmp_path / "images"
+        converter = Converter(str(output_path), str(images_dir))
+        count = converter.convert_session(
+            str(session), str(session), session_label=1,
+        )
+
+        # Pairs: (0->1 a->b), (1->2 b->a), (2->3 a->b). The last is an exact
+        # duplicate of the first. The frame-3 event is last → no after-frame.
+        assert count == 2
+        assert len(output_path.read_text().strip().split("\n")) == 2
+        assert len(list(images_dir.iterdir())) == 2
+
+    def test_legacy_distinct_transitions_all_kept(self, tmp_path):
+        # Complement to the above: without it, a legacy path that dropped
+        # everything after the first example would also report 2 there.
+        session = create_aligned_session(
+            tmp_path,
+            frames=[(0, "a"), (1, "b"), (2, "c"), (3, "d")],
+            events=[
+                {"action_type": "tap", "element_index": 1,
+                 "step": i, "frame_index": i}
+                for i in range(4)
+            ],
+        )
+        output_path = tmp_path / "out.jsonl"
+        converter = Converter(str(output_path), str(tmp_path / "images"))
+        count = converter.convert_session(
+            str(session), str(session), session_label=1,
+        )
+        assert count == 3
