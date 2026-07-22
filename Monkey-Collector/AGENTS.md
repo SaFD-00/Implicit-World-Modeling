@@ -45,7 +45,7 @@
 
 수집 결과 수치는 **아래 출처에서만** 읽는다. 로그를 grep 해 세지 마라.
 
-- **steps** = `runtime/<pkg>/metadata.json` 의 `total_steps`. 서버 로그의 `Session complete: … steps=N` 과 일치함이 검증됐다.
+- **steps** = `runtime/apps/<pkg>/metadata.json` 의 `total_steps`. 서버 로그의 `Session complete: … steps=N` 과 일치함이 검증됐다.
 - ⚠️ **로그를 `grep -cE 'Step [0-9]+:'` 로 세지 마라** — 재시도·타임아웃·키보드 처리 라인까지 세는 **오염 카운터**다. 실측 196/181/186 vs 진짜 145/113/130.
 - **pages/edges** = `data/raw/<pkg>/page_graph.json` 의 `len(nodes)`/`len(edges)`. pages 는 로그의 `max_page_id + 1` 로도 재도출 가능하다.
 - ⚠️ **`page_graph.json` 은 run 간에 덮어써진다** — 반드시 **아카이브본**에서 읽어라. 이 함정이 실제로 데이터를 두 번 죽였다.
@@ -90,7 +90,7 @@
    - 계약: signal timeout·no_change·empty-UI 대기·keyboard/permission/system/stale 같은 **비-action 반복에서는 올리지 않는다**.
    - 깨지면: `step` 이 `frame_index` 와 어긋나 정렬이 깨진다 — 과거 정렬 버그의 원인이 정확히 이것이다.
 7. **`--new-session`/`reset` 은 두 root 를 함께 지운다 — 단 수집 세션 상태만**
-   - 계약: `data/raw/` 와 `runtime/` 를 **동시에** 삭제한다.
+   - 계약: `data/raw/{pkg}/` 와 `runtime/apps/{pkg}/` 를 **동시에** 삭제한다.
    - 계약: **`data/processed/` 는 절대 지우지 않는다.** 파생 학습 코퍼스는 수집 세션 상태가 아니다. `data/processed` 는 리셋 루트 `data/raw` 의 **형제**라 어떤 스코프도 닿지 않는다 — 가드가 아니라 레이아웃으로 성립한다(`pipeline/reset.py`, `tests/unit/test_reset.py::TestProcessedCorpusPreserved`).
    - 깨지면: 한쪽만 지우면 남은 쪽에서 지식이 rehydrate 되어 **"새 세션"이 되지 않는다**. 반대로 리셋 루트를 `data/` 로 올려 잡으면 수집과 무관한 학습 코퍼스까지 날린다.
 8. **`open_app` 은 navigation 전이가 아니다 (3중 격리)**
@@ -141,7 +141,7 @@
   - `OPENROUTER_API_KEY` 가 없으면 입력 텍스트 생성은 random 으로 degrade 하며 수집 흐름을 깨지 않는다. page 식별(`ScreenMatcher`)은 LLM 무관이라 그대로 동작한다.
   - 비용은 `cost.csv` 의 `agent` 컬럼(현재 `text_generator`)에 기록된다.
 - 세션 저장 형식은 [`src/monkey_collector/storage.py`](./src/monkey_collector/storage.py) 가 기준이다.
-  - `DataWriter` 는 두 root 로 나뉜다 — `data/raw/{package}/pages/{page_key}/{observation_num}/` (영속, `save_observation`/`save_page_knowledge` 는 `is_new_observation` 일 때만 새로 씀) 와 `runtime/{package}/` (휘발성: metadata/events/cost/coverage).
+  - `DataWriter` 는 두 root 로 나뉜다 — `data/raw/{package}/pages/{page_key}/{observation_num}/` (영속, `save_observation`/`save_page_knowledge` 는 `is_new_observation` 일 때만 새로 씀) 와 `runtime/apps/{package}/` (휘발성: metadata/events/cost/coverage — `runtime/logs/` 가 그 형제).
   - 세션 재개(resume)는 `session_manager.rehydrate_session` → `screen_matching/rehydrate.py` 가 `data/raw/{package}/pages/` 를 다시 읽어 `ScreenMatcher` 지식과 `state.page_graph` 를 모두 복원한다.
   - **코퍼스는 `data/` 아래에서 이원화돼 있다** — `data/raw/`(수집 원본, `collection.data_dir` 기본값)와 `data/processed/`(`convert-all` 이 만드는 학습 변환 산출물: `gui-model_stage1.jsonl` + `images/`). 수집기는 `data/raw` 만 쓰고, `convert-all` 은 `data/raw` 를 읽어 `data/processed` 에 쓴다.
 - world-modeling 변환은 [`src/monkey_collector/export/converter.py`](./src/monkey_collector/export/converter.py) 가 기준이다.
@@ -158,7 +158,7 @@
 
 ## 작업 시 주의점
 
-- 세션은 두 root 로 나뉜다 — `data/raw/{package}/`(영속)와 `runtime/{package}/`(휘발성). `--new-session`/`reset` 은 반드시 두 root 를 함께 지우되 `data/processed/` 는 건드리지 않는다(불변식 7) — 메커니즘은 [ARCHITECTURE.md](./ARCHITECTURE.md) §4~§5 참조.
+- 세션은 두 root 로 나뉜다 — `data/raw/{package}/`(영속)와 `runtime/apps/{package}/`(휘발성). `--new-session`/`reset` 은 반드시 두 root 를 함께 지우되 `data/processed/` 는 건드리지 않는다(불변식 7) — 메커니즘은 [ARCHITECTURE.md](./ARCHITECTURE.md) §4~§5 참조.
 - 기본 동작은 같은 앱 패키지의 기존 세션을 이어서 저장하는 것이다. `run` 커맨드의 `--new-session` 은 해당 앱 한 개만 초기화한다. 더 넓은 범위 삭제는 `monkey-collect reset` 을 사용한다.
 - App -> Server signal 이름 `P`, `S`, `X`, `E`, `N`, `F` 와 Server -> App 제어 메시지 (`{"type":"START","package":...}`, `{"type":"SESSION_END"}`) 계약을 깨지 마라. Android 측 `CollectorService.beginStandby` 루프가 이 계약에 의존한다.
 - 세션 전환 핸드셰이크: `SESSION_END` → 클라이언트 `F` 회신 + 소켓 close → 클라이언트 한 번 자동 재접속.
@@ -184,7 +184,7 @@
 - external 복구가 타깃 앱을 재실행하면 `open_app` 액션을 events.jsonl 에 excursion 당 1회 기록한다(`collection_loop._record_open_app`, `DataWriter.log_open_app`) — 3중 격리 메커니즘은 불변식 8 및 [ARCHITECTURE.md](./ARCHITECTURE.md) §4 참조.
   - `return_to_app`/`recover` 의 `bool` 반환(launch 여부)·이 격리·`transition` 표식 중 하나라도 바꾸면 open_app 이 가짜 전이로 샐 수 있으니 함께 검토하라.
 - `src/monkey_collector/__init__.py` 의 공개 export 를 바꾸면 패키지 사용 코드와 문서도 같이 갱신한다.
-- 저장 포맷을 바꾸면 converter, page-map, regenerate, `rehydrate.py`, `config.py`(`data_dir`/`runtime_dir`), `pipeline/reset.py`, 테스트를 함께 갱신해야 한다.
+- 저장 포맷을 바꾸면 converter, page-map, regenerate, `rehydrate.py`, `config.py`(`data_dir`/`runtime_dir`), `paths.py`(`runtime/` sub-root), `pipeline/reset.py`, 테스트를 함께 갱신해야 한다.
 - action 이벤트의 `page_key`/`observation_num` 이 실제 화면 파일 위치를 가리키는 **조인 키**다(`frame_index`/`step` 은 조인 키가 아님, `step` 증가 규칙은 불변식 6) — 스키마는 [ARCHITECTURE.md](./ARCHITECTURE.md) §5 참조.
   - step 증가 지점이나 page_key/observation_num 주입·조인을 바꾸면 converter·page-map·`build_graph_from_new_layout`·테스트를 함께 검토하라.
 

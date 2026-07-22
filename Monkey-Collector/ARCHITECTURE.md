@@ -23,7 +23,7 @@
 
 - 전환 감지는 App 의 [`ScreenStabilizer.kt`](./app/app/src/main/java/com/monkey/collector/ScreenStabilizer.kt) 에서 수행한다.
 - no-change, first screen, external app recovery 는 server collection loop 에서 처리한다.
-- 세션은 패키지명 기반 두 root — `data/raw/{package}/`(영속)·`runtime/{package}/`(휘발성) — 이고, 기본 동작은 resume(page 지식 복원 포함)이다.
+- 세션은 패키지명 기반 두 root — `data/raw/{package}/`(영속)·`runtime/apps/{package}/`(휘발성) — 이고, 기본 동작은 resume(page 지식 복원 포함)이다.
 - 코퍼스는 `data/` 아래에서 이원화돼 있다 — `data/raw/`(수집 원본)와 `data/processed/`(`convert-all` 이 만드는 학습 변환 산출물: `gui-model_stage1.jsonl` + `images/`). 수집기는 `data/raw` 에만 쓴다.
 
 ## 2. 컴포넌트 구조
@@ -100,7 +100,7 @@
   - [`collector.py`](./src/monkey_collector/pipeline/collector.py): collector facade
   - [`session_manager.py`](./src/monkey_collector/pipeline/session_manager.py): session init/resume/finalize.
     - `_resolve_declared_activities` 헬퍼가 catalog 우선, dumpsys 폴백 정책을 적용한다.
-    - `init_or_resume_session`(3-tuple `(session_id, resume_step, is_resumed)` 반환; `--new-session` 은 `data/raw/`+`runtime/` 두 root 를 모두 삭제)와 `rehydrate_session`(재개일 때만: `page_graph.json` 을 `state.page_graph` 로 로드 — 안 하면 `finalize_session` 이 이번 세션에서 재방문한 page 만으로 그래프를 덮어써 나머지 page 이력을
+    - `init_or_resume_session`(3-tuple `(session_id, resume_step, is_resumed)` 반환; `--new-session` 은 `data/raw/{package}/`+`runtime/apps/{package}/` 를 모두 삭제)와 `rehydrate_session`(재개일 때만: `page_graph.json` 을 `state.page_graph` 로 로드 — 안 하면 `finalize_session` 이 이번 세션에서 재방문한 page 만으로 그래프를 덮어써 나머지 page 이력을
       날린다 — 그리고 `ScreenMatcher` 가 있으면 `rehydrate_screen_matcher` 호출)로 재개 시 지식 복원을 담당.
   - [`collection_loop.py`](./src/monkey_collector/pipeline/collection_loop.py): 메인 루프.
     - 세션 종료 조건은 `_has_budget` 이 판정한다 — `budget_mode="time"` 이면 벽시계 deadline(`clock() + max_duration_sec`, `run_collection_loop` 진입마다 재계산 = per-run 예산; injectable `now` 로 테스트) 초과까지, `"steps"` 면 `state.step < state.max_step` 까지(둘 다 idle backstop `idle_iterations < max_idle` 와 AND).
@@ -161,6 +161,7 @@
 - 인프라 모듈 (monkey_collector/ 직속)
   - [`adb.py`](./src/monkey_collector/adb.py): ADB wrapper. 상단 상수 `REQUIRED_AVD_NAME`(기본값 `"Pixel6-2"`, env `MC_AVD` 로 오버라이드 가능) 에 맞춰 `adb devices` + `emu avd name` 으로 해당 AVD 의 emulator serial 을 해석하고, 이후 모든 명령에 `-s <serial>` 을 prefix 한다. 다중 디바이스 환경에서도 단일 AVD 만 쓰도록 강제.
   - [`tcp_server.py`](./src/monkey_collector/tcp_server.py): TCP 서버와 signal queue (`CollectionServer`)
+  - [`paths.py`](./src/monkey_collector/paths.py): `apps_root`/`app_dir`/`logs_root` — `runtime/` 하위 sub-root 를 만드는 유일한 정의점.
   - [`storage.py`](./src/monkey_collector/storage.py): `DataWriter` — 두 root(`data_dir`/`runtime_dir`) 로 분리된 세션 저장.
     - `save_observation`(observation 폴더 1개의 screenshot+XML 파생 4종+`elements.json` 을 한 번에 씀, 재사용 시 호출 안 함)·`save_page_knowledge`/`load_page_knowledge`(`page.json` 왕복)·`list_pages`/`list_observations`(디스크 리스팅이 ground truth — 재개 카운터의 근거)·`next_frame_index`(events.jsonl 정렬용 단조 카운터, 파일
       쓰기와 분리)·`regenerate_xml_variants`(새/구형 레이아웃 자동 판별).
@@ -335,11 +336,11 @@ CLI/config 가 해소한 strategy 를 `cli.py` 가 `CoverageGuidedExplorer` 에 
 
 ### 세션 라이프사이클
 
-- 저장 위치는 두 root: `data/raw/{package}/`(영속)·`runtime/{package}/`(휘발성) — timestamp 기반 새 디렉터리는 만들지 않는다.
-- 동일 패키지에 `runtime/{package}/metadata.json` 이 있으면 resume. 이때 `completed_at` 은 `None` 으로 되돌아가고, `session_manager.rehydrate_session` 이 `data/raw/{package}/pages/` 로부터 `state.page_graph` 와 `ScreenMatcher` 지식을 복원한다(재개해도 기존 page 를 다시 "새 page" 로 등록하지 않음).
+- 저장 위치는 두 root: `data/raw/{package}/`(영속)·`runtime/apps/{package}/`(휘발성) — timestamp 기반 새 디렉터리는 만들지 않는다.
+- 동일 패키지에 `runtime/apps/{package}/metadata.json` 이 있으면 resume. 이때 `completed_at` 은 `None` 으로 되돌아가고, `session_manager.rehydrate_session` 이 `data/raw/{package}/pages/` 로부터 `state.page_graph` 와 `ScreenMatcher` 지식을 복원한다(재개해도 기존 page 를 다시 "새 page" 로 등록하지 않음).
 - `run` 은 큐 구성 단계에서 `completed_at` 이 채워진 앱을 자동 skip 한다. `--force` 로 우회.
-- `run --new-session` 은 해당 앱의 `data/raw/{package}/`·`runtime/{package}/` 를 **모두** 삭제하고 새로 시작 — 한쪽만 지우면 남은 쪽에서 지식이 다시 rehydrate 돼 "새 세션"이 되지 않는다.
-- `reset` 서브커맨드로 범위 단위 (all / apps) 일괄 삭제 가능 (`--data-dir`/`--runtime-dir` 두 root 모두 대상, 기본 `data/raw`/`runtime`)
+- `run --new-session` 은 해당 앱의 `data/raw/{package}/`·`runtime/apps/{package}/` 를 **모두** 삭제하고 새로 시작 — 한쪽만 지우면 남은 쪽에서 지식이 다시 rehydrate 돼 "새 세션"이 되지 않는다.
+- `reset` 서브커맨드로 범위 단위 (all / apps) 일괄 삭제 가능 (`--data-dir`/`--runtime-dir` 두 root 모두 대상, 기본 `data/raw`/`runtime`). `--apps` 스코프는 `runtime/apps/{package}/` 만 지우므로 형제인 `runtime/logs/` 는 남고, `--all` 은 `runtime/` 전체(apps+logs)를 지운다
   - reset 이 지우는 것은 **수집 세션 상태뿐**이다 — 파생 학습 코퍼스 `data/processed/` 는 리셋 루트 `data/raw` 의 **형제**라 `--all` 을 포함해 어떤 스코프도 닿지 않는다. 가드가 아니라 레이아웃으로 성립한다(`pipeline/reset.py`).
 - 세션 정상 종료(스텝 소진 또는 시간 예산 만료, `budget_mode` 에 따라) 시 `completed_at` 기록, page graph 재빌드, HTML 시각화 생성. 다음 `run` 부터는 이 앱이 큐에서 자동 제외.
 
@@ -376,7 +377,7 @@ CLI/config 가 해소한 strategy 를 `cli.py` 가 `CoverageGuidedExplorer` 에 
 
 코퍼스는 `data/` 아래에서 이원화돼 있다 — `data/raw/`(수집 원본)와 `data/processed/`(`convert-all` 산출물: `gui-model_stage1.jsonl` + `images/`). 수집기가 쓰는 것은 `data/raw` 뿐이고, `convert-all` 이 `data/raw` 를 읽어 `data/processed` 에 쓴다.
 
-세션은 **두 root** 로 나뉜다 — `data/raw/{package}/` (영속 코퍼스: page/observation 지식, page_graph)와 `runtime/{package}/` (휘발성: 재개 상태, cost/coverage, 액션 타임라인). `DataWriter(data_dir="data/raw", runtime_dir="runtime")` 가 이 split 을 관리한다.
+세션은 **두 root** 로 나뉜다 — `data/raw/{package}/` (영속 코퍼스: page/observation 지식, page_graph)와 `runtime/apps/{package}/` (휘발성: 재개 상태, cost/coverage, 액션 타임라인). `DataWriter(data_dir="data/raw", runtime_dir="runtime")` 가 이 split 을 관리한다 — `runtime_dir` 은 **root** 이고, 앱별 경로는 언제나 `paths.apps_root()`(→ `runtime/apps`)를 거쳐 만들어진다.
 
 ```
 data/raw/{package}/
@@ -398,19 +399,23 @@ data/raw/{package}/
 ├── page_graph.json
 └── page_graph.html
 
-runtime/{package}/
-├── metadata.json
-├── events.jsonl
-├── activity_coverage.csv     # ground truth: catalog/activities.json (fallback: dumpsys)
-└── cost.csv
+runtime/                                   # 휘발성 root — apps/ 와 logs/ 두 sub-root
+├── apps/{package}/
+│   ├── metadata.json
+│   ├── events.jsonl
+│   ├── activity_coverage.csv  # ground truth: catalog/activities.json (fallback: dumpsys)
+│   └── cost.csv
+└── logs/run_*.log                         # `run` 이 남기는 per-run loguru 싱크 (항상 repo 루트 기준 — `--runtime-dir` 을 따르지 않는다)
 ```
+
+`apps/` 와 `logs/` 가 형제라, 앱 목록을 훑는 코드(`_load_completed_packages` 등)가 `logs` 를 이름으로 걸러낼 필요가 없다.
 
 page 디렉터리명은 `page_key`(0-based 정수, 예 `0`/`1` — `page_` 접두사 없음), observation 디렉터리명은 `observation_num`(0-based 정수) 이며 **zero-pad 를 쓰지 않는다**(예전엔 `page_0`/`0000` 였다).
 이 이름은 곧 `events.jsonl`/`elements.json`/`page_graph.json` 에 조인 키로 박히는 `page_key` 값과 동일하다.
 **필터된 재방문(구조적 exact-match 또는 luminance 픽셀-매치)의 저장 여부는 `screen_matching.persist_filtered`(기본 on)가 결정한다** — 기본값에선 각 재방문이 그 page 아래 새 `observation_num`(방문마다 `0,1,2,…` per-visit 체인)으로 저장되고, off 면 재사용 관계 화면은 새 파일을 전혀 쓰지 않는다.
 어느 쪽이든 `DataWriter.save_observation`은 `ScreenMatch.is_new_observation` 이 참일 때만 호출된다(`collection_loop.py`).
 마이그레이션 이전(flat `screenshots/`/`xml/`, `pages/` 없음) 세션은 그대로 남으며, `regenerate`/`page-map`/`convert` 는 그런 세션을 감지하면 자동으로 구형 로직으로 degrade 한다(flat→pages 마이그레이션 스크립트는 없음 — 재수집).
-구형 `page_`/zero-pad 이름으로 저장된 세션을 새 bare 이름으로 옮기려면 `python -m monkey_collector.migrate_layout`(디렉터리 rename + JSON `page_key` 재작성 + `logs/`→`runtime/logs/` 이동, 기본 dry-run·`--apply` 로 실행·idempotent)을 쓴다.
+구형 레이아웃으로 저장된 세션을 현행으로 옮기려면 `python -m monkey_collector.migrate_layout`(디렉터리 rename + JSON `page_key` 재작성 + `runtime/{pkg}/`→`runtime/apps/{pkg}/` 재편 + `logs/`→`runtime/logs/` 이동, 기본 dry-run·`--apply` 로 실행·idempotent)을 쓴다.
 
 `events.jsonl` 은 한 줄에 하나의 이벤트다. 대부분은 처리된 화면 하나당(pending 제외) 실행된 domain action(`action.to_dict()` + `step` + `frame_index` + `page_key` + `observation_num` [+`activity_name`/`no_change_retry`])이고, 그 외 두 종류의 비-탐색 마커가 섞인다:
 
@@ -509,7 +514,7 @@ CLI 의 YAML-커버 파라미터는 기본값이 `None`(= "CLI 에서 지정 안
 | `collection` | `poke_delay_sec` | 한 signal 대기 안에서 이만큼 침묵이 이어지면 서버가 클라이언트에 `CAPTURE` poke 를 보내 프레임을 당겨온다 (기본 1.5, 대기당 최대 `recovery.MAX_POKES_PER_WAIT`=2 회). poke 는 `signal_timeout_sec` 창을 쪼개 쓰므로 총 대기 시간과 timeout escalation 시점은 불변. `0` 이하이거나 `signal_timeout_sec` 이상이면 poke 비활성(= 레거시 단일 대기). 의미는 §3 참조 |
 | `collection` | `port` | TCP 서버 포트 (기본 12345) |
 | `collection` | `data_dir` | 수집 원본 루트 — pages/observations, page_graph (기본 `data/raw`). 파생 학습 코퍼스 `data/processed` 는 이 루트의 **형제**라 수집·리셋 어느 쪽에도 포함되지 않는다. **CWD 상대 경로**라 다른 디렉터리(예: git worktree)에서 실행하면 다른 트리에 쓴다 |
-| `collection` | `runtime_dir` | 휘발성 런타임 루트 — metadata, events, cost/coverage (기본 `runtime`). `data_dir` 와 동일하게 **CWD 상대** |
+| `collection` | `runtime_dir` | 휘발성 런타임 **root** (기본 `runtime`) — 앱별 상태는 `{root}/apps/{package}/`, 실행 로그는 `{root}/logs/`. `data_dir` 와 동일하게 **CWD 상대** |
 | `llm` | `input_mode` | 입력 텍스트 생성 모드 `api`\|`random` (기본 `api`; 런타임 LLM 의 유일한 사용처) |
 | `screen_matching` | `luminance_prefilter` | luminance on/off (기본 `true`; OBSERVATION dedup + PAGE pixel 게이트 지문 공급; off 면 pixel 게이트 abstain → element 기준 단독 판정) |
 | `screen_matching` | `luminance_threshold` | 픽셀 밝기 `|ΔY|` 변화 임계값 0–255 (기본 10) |
