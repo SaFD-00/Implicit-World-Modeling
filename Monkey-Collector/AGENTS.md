@@ -24,7 +24,7 @@
 ./.venv/bin/python -m pytest tests    # bare `python` 금지 (venv 밖 인터프리터를 잡는다)
 ```
 
-현재 기준선은 **864 passed** 다. 이 수가 줄면 회귀로 본다.
+현재 기준선은 **858 passed** 다(2026-07-22). 이 수가 줄면 회귀로 본다 — 단 **테스트를 의도적으로 삭제한 변경은 예외**이고, 그때는 삭제 개수까지 세어 새 기준선을 여기에 갱신한다(직전 869 − canvas 테스트 17 + converter dedup 신규 6 = 858).
 
 #### 빠른 검증 포인트
 
@@ -49,6 +49,8 @@
 - ⚠️ **로그를 `grep -cE 'Step [0-9]+:'` 로 세지 마라** — 재시도·타임아웃·키보드 처리 라인까지 세는 **오염 카운터**다. 실측 196/181/186 vs 진짜 145/113/130.
 - **pages/edges** = `data/raw/<pkg>/page_graph.json` 의 `len(nodes)`/`len(edges)`. pages 는 로그의 `max_page_id + 1` 로도 재도출 가능하다.
 - ⚠️ **`page_graph.json` 은 run 간에 덮어써진다** — 반드시 **아카이브본**에서 읽어라. 이 함정이 실제로 데이터를 두 번 죽였다.
+- **학습 examples** = `data/processed/gui-model_stage1.jsonl` 의 라인 수. **현재 24앱 9,943 examples**(2026-07-22 재생성; 중복 0, 이미지 1:1). 게이트별 감소는 pre-dedup **13,299** → XML 게이트만 **11,376** → \+ page 게이트 **9,943** 이다(게이트 계약은 불변식 10).
+- ⚠️ **`convert-all` 은 append-only 라 재실행하면 누적된다** — examples 수를 재측정하려면 `data/processed/` 의 기존 `gui-model_stage1.jsonl` 과 `images/` 를 먼저 비워라. 파일 라인 수만 믿고 세면 누적본을 "현재 산출" 로 오독한다.
 
 ### 4. 효과 측정 (arm 비교)
 
@@ -66,7 +68,7 @@
 
 ## 불변식 — 깨뜨리면 안 되는 것
 
-아래 9항은 이 수집기의 **계약**이다. 이 목록이 인덱스 겸 계약 선언이고, 세부는 각 항이 가리키는 파일/섹션에 있다.
+아래 10항은 이 수집기의 **계약**이다. 이 목록이 인덱스 겸 계약 선언이고, 세부는 각 항이 가리키는 파일/섹션에 있다.
 깨져도 대개 **크래시가 아니라 조용한 데이터 오염**으로 나타나므로, 건드리기 전에 여기부터 읽어라.
 
 1. **외부앱 제외 목록은 양쪽 짝이다**
@@ -97,6 +99,9 @@
 9. **측정 불변식**
    - 계약: 매 run 앱 리셋 + arm 간 차이는 **코드(또는 문서화된 config 토글) 하나뿐** + seed 보존.
    - 깨지면: confound 로 오염돼 인과 해석이 불가하다 — 과거 "다양성 +78%" 오귀속 사례. 헬퍼: `../.claude/handoff/reset_app.sh`.
+10. **converter dedup 게이트는 2종이고 스코프가 서로 다르다**
+    - 계약: **XML 3튜플 게이트**(`(before_encoded_xml, action_json, after_encoded_xml)`)는 **전역**, **page 3튜플 게이트**(`(package, before_page_key, action_json, after_page_key)`)는 **패키지(앱) 스코프**로 유지한다. 둘 다 끄는 플래그가 없고, 하나라도 히트하면 write·이미지·count 가 전부 없다.
+    - 깨지면: page 게이트에서 `package` 를 빼 전역으로 만들면 `page_key` 가 **앱마다 0 부터 재시작하는 카운터**라 서로 무관한 앱의 전이가 우연한 카운터 일치로 합쳐진다 — **실측 452건이 조용히 사라졌다**. 반대로 `action_json` 을 예제의 human turn 문자열에서 뽑으면 before-XML 이 통째로 섞여 게이트가 사실상 no-op 이 된다. 어느 쪽도 크래시 없이 코퍼스만 틀어진다. 세부는 [ARCHITECTURE.md](./ARCHITECTURE.md) §`converter.py`.
 
 ## 어디를 수정해야 하는가
 
@@ -140,8 +145,11 @@
   - 세션 재개(resume)는 `session_manager.rehydrate_session` → `screen_matching/rehydrate.py` 가 `data/raw/{package}/pages/` 를 다시 읽어 `ScreenMatcher` 지식과 `state.page_graph` 를 모두 복원한다.
   - **코퍼스는 `data/` 아래에서 이원화돼 있다** — `data/raw/`(수집 원본, `collection.data_dir` 기본값)와 `data/processed/`(`convert-all` 이 만드는 학습 변환 산출물: `gui-model_stage1.jsonl` + `images/`). 수집기는 `data/raw` 만 쓰고, `convert-all` 은 `data/raw` 를 읽어 `data/processed` 에 쓴다.
 - world-modeling 변환은 [`src/monkey_collector/export/converter.py`](./src/monkey_collector/export/converter.py) 가 기준이다.
-  - **완전중복 예제는 항상 1건만 남는다 — 끄는 플래그가 없다.** 중복 판정 키는 `(before_encoded_xml, action_json, after_encoded_xml)` 3튜플이며, 기존 필터(`transition:false`·`no_change_retry`·조인키 null·같은 observation 연속·`before==after`)를 모두 통과한 뒤의 마지막 관문이다. 중복이면 JSONL 미기록 + 이미지 미복사 + count 미증가.
-  - dedup 은 **`Converter` 인스턴스 단위**다. `convert-all` 은 `Converter` 하나를 모든 세션에 재사용하므로 dedup 이 **앱(세션) 경계를 넘어 전역으로** 걸린다 — 두 앱에서 같은 전이가 나오면 1건만 남는다. 의도된 동작이다.
+  - **완전중복 예제는 항상 1건만 남는다 — 끄는 플래그가 없다.** 판정 게이트는 **2종**이며(불변식 10), 기존 필터(`transition:false`·`no_change_retry`·조인키 null·같은 observation 연속·`before==after`)를 모두 통과한 뒤의 마지막 관문이다. 둘 중 **하나라도 히트하면** JSONL 미기록 + 이미지 미복사 + count 미증가.
+    - **XML 3튜플 게이트** — `(before_encoded_xml, action_json, after_encoded_xml)`. 스코프 **전역**.
+    - **page 3튜플 게이트** — `(package, before_page_key, action_json, after_page_key)`. 스코프 **패키지(앱)**. matcher 가 확정한 `page_key` 를 신뢰하므로 encoded XML 의 바이트 흔들림에 안 흔들린다. 구형 평면 레이아웃(`_convert_session_legacy`)은 `page_key` 가 없어 이 게이트가 적용되지 않는다.
+  - dedup 은 **`Converter` 인스턴스 단위**다. `convert-all` 은 `Converter` 하나를 모든 세션에 재사용하므로 **XML 게이트가 앱(세션) 경계를 넘어 전역으로** 걸린다 — 두 앱에서 같은 encoded XML 전이가 나오면 1건만 남는다. 의도된 동작이다.
+  - ⚠️ **page 게이트는 전역이면 안 된다** — `page_key` 는 앱마다 0 부터 재시작하는 카운터라 `package` 를 빼면 무관한 앱의 전이가 합쳐진다(실측 452건 오제거). 상세는 불변식 10.
   - ⚠️ **`convert-all` 은 append-only 다** — output JSONL 을 `"a"` 로만 열고 truncate 하지 않으며, dedup seen-set 은 인스턴스 로컬이라 **파일에 이미 있는 줄과는 대조하지 않는다**. 재실행 전 `data/processed/` 의 기존 `gui-model_stage1.jsonl` 과 `images/` 를 비우지 않으면 중복이 그대로 누적된다.
 - XML 파싱 규약은 [`src/monkey_collector/xml/ui_tree.py`](./src/monkey_collector/xml/ui_tree.py), [`src/monkey_collector/xml/structured_parser.py`](./src/monkey_collector/xml/structured_parser.py) 를 본다.
 - Android 측 전환 감지와 TCP 프로토콜은 [`CollectorService.kt`](./app/app/src/main/java/com/monkey/collector/CollectorService.kt), [`ScreenStabilizer.kt`](./app/app/src/main/java/com/monkey/collector/ScreenStabilizer.kt), [`TcpClient.kt`](./app/app/src/main/java/com/monkey/collector/TcpClient.kt) 에 있다 — 안정성 규약(외부앱 제외 목록 짝맞춤, MediaProjection 토큰 단발성)은 불변식 1·2 참조.
@@ -204,16 +212,20 @@
   aria-label(`3D mode`↔`2D mode`)이 재방문마다 바뀌어 `|A△B|` 가 `element_diff_max=5` 를 크게 넘는다
   (median 13). **임계값 상향으로는 못 고친다**(max 41~45).
 
-  **후보 수정(`screen_matching.canvas_merge`)은 구현·테스트돼 있으나 기본 OFF 다 — 켜지 마라.**
-  파편화는 절반으로 준다(46→27, 26→14, 오프라인 리플레이). 그러나 **지도가 아닌 화면까지 병합한다**:
+  **시도했던 후보 수정(canvas-gated text-blind 병합, 구 `screen_matching.canvas_merge`)은 2026-07-22 에
+  코드베이스에서 제거됐다** — 기본값이 계속 OFF 였고 안전해지지 않았다. 아래는 그 실패의 실측 기록이다.
+  파편화는 절반으로 줄었다(46→27, 26→14, 오프라인 리플레이). 그러나 **지도가 아닌 화면까지 병합했다**:
   osmand 의 **내비게이션 드로어**(메뉴 15개 — 앱의 메인 허브)와 **턴바이턴 추적 모드**가 지도 page 로
-  들어간다. 이유 둘 다 실측됐다 — (1) 드로어·내비 오버레이는 그 밑 지도 surface leaf 를 a11y 트리에
-  **그대로 남기므로** `is_canvas` 가 함께 발화하고, a11y 가 그 화면들을 **`MapActivity` 로 보고**하기 때문에
-  activity 가드로도 못 막는다. (2) 드로어 메뉴 항목은 **aria-label 없는 순수 TextView** 라 텍스트를 blind
-  하면 전부 동일한 `<p></p>` 로 뭉개지고, **집합 기반** element 기준이 카디널리티를 버린다(15개와 3개가
+  들어갔다. 이유 둘 다 실측됐다 — (1) 드로어·내비 오버레이는 그 밑 지도 surface leaf 를 a11y 트리에
+  **그대로 남기므로** canvas 판정이 함께 발화하고, a11y 가 그 화면들을 **`MapActivity` 로 보고**하기 때문에
+  activity 가드로도 못 막는다. (2) 드로어 메뉴 항목은 **aria-label 없는 순수 TextView** 라 텍스트를 가리면
+  전부 동일한 `<p></p>` 로 뭉개지고, **집합 기반** element 기준이 카디널리티를 버린다(15개와 3개가
   같아 보인다). **카디널리티 복원(multiset diff)은 그 화면들을 분리하지만, 수정이 수행한 병합 23건 중
   20건을 함께 깨뜨려 수정 자체를 무효화한다** — 임계값을 다시 맞추는 것은 사후 끼워맞추기다.
-  → **S-9 는 열려 있다.** 다음 시도는 이 두 실측을 출발점으로 삼아라(다시 재보지 마라).
+  → **S-9 는 미해결로 남아 있고, 현재 코드에는 어떤 완화 경로도 없다.** 다음 시도는 이 두 실측을
+  출발점으로 삼아라(다시 재보지 마라). 기존 아카이브는 영향이 없다 — 기본값이 계속 OFF 였으므로
+  이 경로로 병합된 page 가 애초에 없고, 남아 있는 `page.json` 의 `is_canvas`/`element_lines_blind` 키는
+  로드 시 무시된다(마이그레이션 불필요).
 
 - **BM25 병합의 패키지 교차 오염 (수정됨 — `screen_matching.package_guard`, 기본 ON. 2026-07-14)**:
   BM25 병합 경로는 화면이 **어느 앱의 것인지 검사하지 않았다**(구조 prefilter 만 activity 로 키를 잡는다).

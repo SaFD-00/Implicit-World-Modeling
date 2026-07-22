@@ -140,9 +140,9 @@
       - **순수 Pillow**(numpy 미사용; `Pillow>=10.0` 의존성).
       - 지문 자체(`PageKnowledge.luminance_features`, `(observation_num, PIL Image)` 쌍, page 당 `_MAX_LUMINANCE_OBS=10` cap)는 세션 인메모리로만 보관해 별도 캐시 파일로 영속하지는 않지만, 재개 시 `rehydrate.py` 가 각 observation 의 저장된 `screenshot.png` 로부터 이 함수로 다시 뽑아 복원한다 — 원본 스크린샷이
         이미 디스크에 있으므로 별도 지문 캐시 포맷을 새로 만들지 않는다는 원래 설계 방침 유지.
-    - [`page_knowledge.py`](./src/monkey_collector/pipeline/screen_matching/page_knowledge.py): `PageKnowledge`(page_key·**`element_lines`**[BM25 문서, 생성 시 고정]·`is_canvas`·`element_lines_blind`(text-blind BM25 문서)·`first_activity`(merge 가드용 package 출처)·`luminance_features`[`(observation_num, PIL Image)` 쌍, 인메모리 capped]·`next_observation_num`[다음 관측 번호, 인메모리]) +
+    - [`page_knowledge.py`](./src/monkey_collector/pipeline/screen_matching/page_knowledge.py): `PageKnowledge`(page_key·**`element_lines`**[BM25 문서, 생성 시 고정]·`first_activity`(merge 가드용 package 출처)·`luminance_features`[`(observation_num, PIL Image)` 쌍, 인메모리 capped]·`next_observation_num`[다음 관측 번호, 인메모리]) +
       `KnowledgeRegistry`(세션별 in-memory 저장).
-      - `to_dict()`/`from_dict()` 로 `page.json`(page_key·element_lines·is_canvas·element_lines_blind·first_activity; luminance/next_observation_num 은 제외 — 재개 시 재파생) 왕복 직렬화. 구 스키마 키(`elements`/`key_elements`/`extra_uis`)는 로드 시 무시.
+      - `to_dict()`/`from_dict()` 로 `page.json`(page_key·element_lines·first_activity; luminance/next_observation_num 은 제외 — 재개 시 재파생) 왕복 직렬화. 구 스키마 키(`elements`/`key_elements`/`extra_uis`, 그리고 2026-07-22 에 제거된 `is_canvas`/`element_lines_blind`)는 로드 시 무시되므로 기존 아카이브에 마이그레이션이 필요 없다.
       - `element_lines` 직렬화는 additive/back-compat.
     - [`rehydrate.py`](./src/monkey_collector/pipeline/screen_matching/rehydrate.py): `rehydrate_screen_matcher(matcher, writer)` — 재개 시 `data/raw/{package}/pages/` 를 순회하며 각 page 의 `page.json` 을 로드하고, 각 observation 의 `raw.xml`(→ `_fp_to_key` 구조 캐시 재구성)과 (luminance 활성 시) `screenshot.png`(→ luminance 지문 재추출)로 등록.
       - `element_lines` 가 없는 legacy `page.json` 은 첫 observation 의 `raw.xml` 로부터 재계산(fallback).
@@ -172,8 +172,12 @@
   - [`converter.py`](./src/monkey_collector/export/converter.py): raw session -> ShareGPT JSONL.
     - 각 action 을 이벤트의 `page_key`/`observation_num` 으로 `data/raw/{package}/pages/{page_key}/{observation_num}/` 에 조인하고, after 는 다음 action 의 before 화면으로 잡아 중간 로딩 프레임을 건너뛴다(연속 이벤트가 같은 observation 을 가리키면 — 재사용 — 시각적 변화가 없으므로 스킵).
     - `pages/` 없이 구형 flat `xml/` 만 있으면 `_convert_session_legacy`(기존 `frame_index` 조인)로 degrade.
-    - **완전중복 예제는 항상 1건만 남는다 — 끄는 플래그가 없다.** 중복 키는 `(before_encoded_xml, action_json, after_encoded_xml)` 3튜플(`_example_signature` 가 md5 hexdigest 로 보관)이며, 기존 필터를 모두 통과한 뒤의 마지막 관문이다. 중복이면 JSONL 미기록 + 이미지 미복사 + count 미증가. 신규/legacy 두 경로가 같은 seen-set 을 공유한다.
-    - dedup 은 **`Converter` 인스턴스 단위**다. `convert_all` 은 `Converter` 하나를 모든 세션에 재사용하므로 **앱(세션) 경계를 넘어 전역으로** 걸린다 — 의도된 동작이다.
+    - **완전중복 예제는 항상 1건만 남는다 — 끄는 플래그가 없다.** 게이트는 **2종**이고 **스코프가 다르다**. 기존 필터를 모두 통과한 뒤의 마지막 관문이며, 둘 중 **하나라도 히트하면** JSONL 미기록 + 이미지 미복사 + count 미증가다.
+      1. **XML 3튜플 게이트** — `(before_encoded_xml, action_json, after_encoded_xml)`(`_example_signature`, md5 hexdigest). 스코프 **전역**. 신규/legacy 두 경로가 같은 seen-set 을 공유한다.
+      2. **page 3튜플 게이트** — `md5(f"{package}\x00{before_page_key}\x00{action_json}\x00{after_page_key}")`(`_page_signature`; `package` = `Path(data_session_dir).name`, `action_json` = `json.dumps(action, sort_keys=True)`). 스코프 **패키지(앱)**. encoded XML 바이트가 아니라 matcher 가 이미 확정한 `page_key` 를 신뢰하므로, 같은 화면의 미세한 렌더링 흔들림이 별개 예제로 새는 것을 막는다.
+    - dedup 은 **`Converter` 인스턴스 단위**다. `convert_all` 은 `Converter` 하나를 모든 세션에 재사용하므로 **XML 게이트는 앱(세션) 경계를 넘어 전역으로** 걸린다 — 같은 encoded XML 은 어느 앱이든 같은 화면이라 의도된 동작이다.
+    - ⚠️ **page 게이트만 패키지 스코프인 이유(silent trap)**: `page_key` 는 BM25 전역 식별자가 아니라 **앱마다 0 부터 다시 시작하는 정수 카운터**다. `package` 를 키에서 빼면 `com.chess` 의 `0 --Click(0)--> 1` 과 `org.wikipedia` 의 동일 문자열이 **우연한 카운터 일치**로 합쳐진다 — 실측 **452건 오제거**. 또한 `action_json` 은 반드시 `_map_event_to_action` 의 bare dict 여야 한다(예제의 human turn 문자열에는 before-XML 전체가 박혀 있어, 그걸 쓰면 이 게이트가 존재 이유인 바이트 민감성을 되불러 사실상 no-op 이 된다).
+    - `_convert_session_legacy`(구형 평면 레이아웃)는 `page_key` 자체가 없어 **XML 게이트만** 적용된다.
     - ⚠️ **output JSONL 은 append-only** (`open(..., "a")`, truncate 없음). seen-set 은 인스턴스 로컬이라 **파일에 이미 있는 줄과는 대조하지 않는다** — 재실행 전 `data/processed/` 를 비우지 않으면 중복이 누적된다.
   - [`graph_visualizer.py`](./src/monkey_collector/export/graph_visualizer.py): page graph HTML 시각화
 
@@ -378,7 +382,7 @@ CLI/config 가 해소한 strategy 를 `cli.py` 가 `CoverageGuidedExplorer` 에 
 data/raw/{package}/
 ├── pages/
 │   ├── 0/                            # page_key (0-based 정수, page_ 접두사·zero-pad 없음)
-│   │   ├── page.json                 # PageKnowledge.to_dict() — page_key/element_lines/is_canvas/element_lines_blind/first_activity. 새 page 생성 시 1회만 기록(merge 는 identity 를 바꾸지 않으므로 재기록 없음)
+│   │   ├── page.json                 # PageKnowledge.to_dict() — page_key/element_lines/first_activity. 새 page 생성 시 1회만 기록(merge 는 identity 를 바꾸지 않으므로 재기록 없음)
 │   │   ├── 0/                        # observation 0 (이 page 의 첫 관측)
 │   │   │   ├── screenshot.png
 │   │   │   ├── raw.xml
@@ -517,8 +521,6 @@ CLI 의 YAML-커버 파라미터는 기본값이 `None`(= "CLI 에서 지정 안
 | `screen_matching` | `element_diff_max` | 같은 page 로 볼 최대 상이 element-line 수 (`diff` 모드, 기본 5) |
 | `screen_matching` | `element_jaccard_min` | 같은 page 로 볼 최소 element-line Jaccard (`jaccard` 모드, 기본 0.5) |
 | `screen_matching` | `page_pixel_diff_threshold` | PAGE 병합을 확정하는 pixel 게이트 차이 픽셀 비율 (기본 0.3) |
-| `screen_matching` | `canvas_merge` | 두 화면이 **모두 canvas**(지도/사진/게임 등 전면 인터랙티브 드로잉 표면)일 때 element-line 을 **텍스트-blind** 로 비교하고 pixel 게이트를 abstain 시켜 병합 — S-9(지도 파편화) 후보 수정. `true`\|`false`. **기본 `false` — 안전하지 않아 미출하**: 지도가 아닌 내비 드로어(앱 메인 허브)·턴바이턴 추적 화면까지 병합하고 카디널리티 복원으로도 못 고쳐진다. **S-9 는 열려 있다**; 실험 arm 외엔 켜지 마라("알려진 한계" 참조) |
-| `screen_matching` | `canvas_min_area_frac` | 어떤 **leaf** clickable(또는 long-clickable) 노드가 화면 면적의 이 비율 이상을 덮으면 그 화면을 "canvas" 로 판정 (bounds 기반, class 기반 아님; osmand 지도 표면은 0.97). 기본 0.7 |
 | `screen_matching` | `package_guard` | BM25 병합을 후보 page 가 **현재 화면과 같은 package 로 mint 된 경우로만** 허용 — 런처/홈 프레임이 앱 page 로 흡수되는 교차 병합 차단. 전체 병합 경로에 적용. 어느 쪽 package 든 미상이면 abstain(fail-open). `true`\|`false`, 기본 `true` |
 
 ### MC_* 환경변수
@@ -551,8 +553,6 @@ YAML 위, CLI 아래 레이어. 각 변수는 대응 키를 타입 변환해 덮
 | `MC_SCREEN_MATCHING_ELEMENT_DIFF_MAX` | `screen_matching.element_diff_max` | int |
 | `MC_SCREEN_MATCHING_ELEMENT_JACCARD_MIN` | `screen_matching.element_jaccard_min` | float |
 | `MC_SCREEN_MATCHING_PAGE_PIXEL_DIFF_THRESHOLD` | `screen_matching.page_pixel_diff_threshold` | float |
-| `MC_SCREEN_MATCHING_CANVAS_MERGE` | `screen_matching.canvas_merge` | bool (`true/1/yes/on`) |
-| `MC_SCREEN_MATCHING_CANVAS_MIN_AREA_FRAC` | `screen_matching.canvas_min_area_frac` | float |
 | `MC_SCREEN_MATCHING_PACKAGE_GUARD` | `screen_matching.package_guard` | bool (`true/1/yes/on`) |
 | `MC_CONFIG_PATH` | (YAML 파일 경로 자체) | path — 대체 yaml 위치 지정 |
 

@@ -3,6 +3,21 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-22 — Monkey-Collector: canvas_merge 경로 전면 삭제(S-9 처방 철회) + page 레벨 dedup 게이트 신설 → 코퍼스 11,376 → 9,943 examples
+
+켤 수 없는 분기였던 `canvas_merge`를 코드베이스에서 걷어내고, 대신 매처(BM25)의 page 판정을 컨버터가 신뢰하는 두 번째 dedup 게이트를 넣어 코퍼스를 재생성했다. 상세는 [revise 기록](../Monkey-Collector/.claude/devlog/2026-07-22_12-27-53_canvas-removal-and-page-level-dedup.md).
+
+- **canvas_merge 전면 삭제 — S-9는 처방만 사라지고 열린 채 남는다**: `screen_matching/canvas.py`와 `tests/unit/test_canvas_matching.py`를 삭제하고 config 키·env 매핑·`run.yaml` 항목·`PageKnowledge.is_canvas`/`element_lines_blind`·`serialize_element_lines(blind_text=)`를 전량 제거, 매처 핵심 판정 함수 `_verify_candidate`를 4-튜플에서 3-튜플 `(package, element, pixel)`로 축소했다. 근거는 2026-07-14 엔트리에 기록된 그대로다 — 파편화 완화 효과(armA map 46→27)는 있었으나 osmand **내비게이션 드로어·턴바이턴 화면까지 지도 page로 흡수**해 production 기본값이 계속 false였고, 켤 수 없는 분기가 판정 함수와 저장 스키마(`page.json`)를 오염시키는 비용이 더 크다는 판단이다. **S-9(지도류 연속 캔버스의 page 지문 파편화)는 미해결로 남는다.** `package_guard`(기본 ON)는 canvas와 무관한 선재 결함 수정이므로 그대로 유지한다.
+- **기존 아카이브 영향 없음 · 마이그레이션 스크립트 불필요**: `canvas_merge`가 계속 false였으므로 canvas 병합으로 생성된 page 자체가 아카이브에 없고, `page.json`의 잔여 키는 `from_dict`가 무시한다.
+- **converter dedup 게이트 2종 — 스코프가 서로 다르다**: 기존 **XML 3튜플** 게이트 `(before_encoded_xml, action_json, after_encoded_xml)`는 **전역**으로 유지하고, 신규 **page 3튜플** 게이트 `md5(package \x00 before_page_key \x00 action_json \x00 after_page_key)`는 **패키지 스코프**로 건다. 스코프를 나눈 이유는 `page_key`가 BM25 전역 식별자가 아니라 **앱마다 0부터 다시 시작하는 정수 카운터**이기 때문이다 — 전역으로 두면 서로 다른 앱의 `0 --Click(0)--> 1`이 우연한 카운터 일치로 합쳐져 **실측 452건의 별개 전이가 오제거**된다(전역 9,491 vs 패키지 9,943). 즉 9,491은 기각된 반사실 수치이고 실제 산출은 9,943이다.
+- **코퍼스 재생성 — 24 sessions 9,943 examples**: 수율 추이는 pre-dedup 13,299 → XML 게이트만 11,376 → **+ page 게이트 9,943**이다(바로 아래 2026-07-22 엔트리의 11,376은 그 시점의 산출이며 이번 재생성으로 대체됐다). 구 코퍼스는 `data/processed.bak-20260722/`로 백업한 뒤 출력 디렉터리를 비우고 `convert-all`을 재실행했다(Converter는 append-only).
+- 변경: `Monkey-Collector/src/monkey_collector/pipeline/screen_matching/{canvas(삭제),screen_matcher,page_knowledge,element_lines,rehydrate,offline_replay,__init__}.py` · `export/converter.py` · `config.py` · `cli.py` · `config/run.yaml` · `tests/unit/{test_canvas_matching(삭제),test_converter,test_config,test_package_guard,test_storage}.py`. 문서 정합: `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md` · `docs/ARCHITECTURE.md`(MC→IWM 데이터 계약의 dedup 절을 2게이트·스코프·9,943으로 갱신). 총 **20 files, +374 −640**.
+- **동봉 수정 — `offline_replay`의 null 조인키 크래시(선행 버그)**: canvas 제거로 `_verify_candidate`가 3-튜플이 됐는데 `offline_replay`는 pytest 커버리지가 없어 게이트로 검증되지 않는다. 실제로 완주시켜 확인하다가 3-튜플과 무관한 선행 크래시를 발견했다 — `_load_events`가 `if "page_key" not in ev`로 **키 존재만** 검사해 값이 `null`인 이벤트를 통과시키고 `os.path.join(..., None)`에서 죽었다(org.wikipedia 1,379 이벤트 중 1건). `export/converter.py`에서 이미 고친 것과 동일 결함이라 같은 선례대로 `any(ev.get(k) is None for k in ("page_key","observation_num"))`로 교정했다(`observation_num == 0`이 정상값이라 falsiness가 아닌 `is None`이어야 한다). 교정 후 완주하며, 이것이 3-튜플 언팩 경로의 실동작 검증을 겸한다.
+- 커밋: 없음 (기록 시점 uncommitted).
+- 결과/검증: `./.venv/bin/python -m pytest tests` **858 passed / 0 failed / exit 0**(직전 869 − canvas 테스트 17 + converter 신규 6 = 858 산식 정합) · 인자 없이 `convert-all` → **9,943 examples / 24 sessions**, 사전 재현 예측치 9,943과 정확히 일치(같은 스크립트의 XML-only 예측 11,376이 직전 실제 코퍼스와 일치한 것이 재현 신뢰 근거) · 산출물 재해싱 → 9,943 라인 / 고유 시그니처 9,943 / **중복 0**, 이미지 9,943 ↔ 참조 9,943 **1:1**(결손·고아 0) · 판별력 증명으로 사보타주 3종(page 게이트 제거 / human-turn 문자열을 키에 쓰는 no-op 함정 / package 성분 제거)이 각각 타깃 테스트 **1개만** 실패시킴을 확인 후 원복.
+- 후속: **P1** S-9는 여전히 열려 있다 — 카디널리티 복원 경로는 이미 반증됐고(재시도 금지) 필드 단위 텍스트 제외 등 미검증 대안만 남는다. **P2** page 게이트가 추가로 걷어낸 1,433건은 "BM25가 같은 page로 본 전이"라 매처의 판정 품질이 코퍼스 크기에 직접 전이된다 — S-9가 열린 동안 지도류 앱에서는 과소 병합 쪽으로 치우친다.
+- 카테고리: devlog
+
 ## 2026-07-22 — Monkey-Collector: convert 완전중복 상시 제거 + 코퍼스 레이아웃 `data/raw`·`data/processed` 이원화 (30앱→24앱, 11,376 examples)
 
 산출 JSONL을 직접 재해싱해 **13,299 예제 중 완전중복이 1,923건(14.5%)** 임을 실측한 뒤, converter에 상시 dedup을 넣고 수집 원본과 학습 변환 산출물을 디렉터리 레벨에서 갈랐다. 선행 작업으로 수율 기준 컷을 적용해 저품질 6앱을 제외했다(30앱 → 24앱). 상세는 [revise 기록](../Monkey-Collector/.claude/devlog/2026-07-22_11-31-30_convert-dedup-and-raw-processed-layout.md).

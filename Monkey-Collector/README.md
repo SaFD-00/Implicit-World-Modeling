@@ -168,7 +168,7 @@ monkey-collect run --apps all --input-mode random
 - `exploration.strategy`: `DFS` | `BFS` | `GREEDY` (canonical 기본 `BFS`)
 - `collection.{budget_mode, max_duration, max_steps, seed, action_delay_ms, poke_delay_sec, port, data_dir, runtime_dir}` (`budget_mode` 기본 `time`, `max_duration` 기본 `2h`, `poke_delay_sec` 기본 `1.5`, `data_dir` 기본 `data/raw`, `runtime_dir` 기본 `runtime`)
 - `llm.{input_mode}`
-- `screen_matching.{luminance_prefilter, luminance_threshold, screenshot_diff_threshold, luminance_low_res_width, persist_filtered, bm25_top_k, element_criterion, element_diff_max, element_jaccard_min, page_pixel_diff_threshold, canvas_merge, canvas_min_area_frac, package_guard}`
+- `screen_matching.{luminance_prefilter, luminance_threshold, screenshot_diff_threshold, luminance_low_res_width, persist_filtered, bm25_top_k, element_criterion, element_diff_max, element_jaccard_min, page_pixel_diff_threshold, package_guard}`
 
 각 키에 대응하는 `MC_*` 환경변수(+ 타입)의 전체 목록은 [ARCHITECTURE.md](./ARCHITECTURE.md) 의 「MC_* 환경변수」 표가 정본이다. 대체 yaml 경로는 `MC_CONFIG_PATH` 로 지정한다.
 
@@ -301,8 +301,11 @@ monkey-collect convert-all \
 
 `--data-dir` 아래 각 세션 디렉터리명으로 `--runtime-dir` 의 대응 세션을 찾아 짝짓는다. 존재하지 않는 `--data-dir` 은 크래시 없이 경고 후 0건으로 종료한다. 세션으로 인정되는 것은 `pages/` 또는 구형 `xml/` 를 가진 하위 디렉터리뿐이라, `data/processed` 는 `data/raw` 의 형제이자 그 조건도 만족하지 않아 열거되지 않는다.
 
-- **완전중복 예제는 항상 1건만 남는다 — 끄는 플래그가 없다.** `(before_encoded_xml, action_json, after_encoded_xml)` 3튜플이 이미 나온 예제와 같으면 JSONL 에 쓰지 않고 이미지도 복사하지 않는다.
-- dedup 은 `Converter` 인스턴스 단위이고 `convert-all` 은 모든 세션에 `Converter` 하나를 재사용하므로, **중복 제거가 앱(세션) 경계를 넘어 전역으로** 걸린다.
+- **완전중복 예제는 항상 1건만 남는다 — 끄는 플래그가 없다.** 게이트는 **2종**이고 **스코프가 서로 다르다**. 둘 중 **하나라도 히트하면** JSONL 에 쓰지 않고 이미지도 복사하지 않으며 count 도 올리지 않는다.
+  - **XML 3튜플 게이트** — `(before_encoded_xml, action_json, after_encoded_xml)`. 스코프 **전역**.
+  - **page 3튜플 게이트** — `(package, before_page_key, action_json, after_page_key)`. 스코프 **패키지(앱)**. 화면 정체는 matcher 가 이미 판정했으므로 encoded XML 의 바이트 흔들림에 영향받지 않는다.
+- dedup 은 `Converter` 인스턴스 단위이고 `convert-all` 은 모든 세션에 `Converter` 하나를 재사용하므로, **XML 게이트는 앱(세션) 경계를 넘어 전역으로** 걸린다 — 같은 encoded XML 은 어느 앱이든 같은 화면이라 의도된 동작이다.
+- ⚠️ **page 게이트는 전역이면 안 된다.** `page_key` 는 전역 식별자가 아니라 **앱마다 0 부터 다시 시작하는 정수 카운터**라, `package` 를 키에서 빼면 `com.chess` 의 `0 --Click(0)--> 1` 과 `org.wikipedia` 의 동일 문자열이 우연한 카운터 일치로 합쳐진다(실측 **452건 오제거**). 구형 평면 레이아웃(`_convert_session_legacy`)은 `page_key` 가 없어 **XML 게이트만** 적용된다.
 - ⚠️ **append-only 다.** output JSONL 을 `"a"` 로만 열고 truncate 하지 않으며, dedup 은 파일에 이미 있는 줄과는 대조하지 않는다. **재실행 전 `data/processed/` 의 기존 `gui-model_stage1.jsonl` 과 `images/` 를 비워라** — 안 그러면 중복이 그대로 누적된다.
 
 ### `page-map`
@@ -338,7 +341,7 @@ raw XML 을 기준으로 파생 파일(`parsed.xml`, `hierarchy.xml`, `encoded.x
 data/raw/{package}/                        # 영속 — page/observation 코퍼스 (수집 원본)
 ├── pages/
 │   ├── 0/                                 # page_key (0-based 정수, page_ 접두사·zero-pad 없음)
-│   │   ├── page.json                      # page 의 고정 identity(element_lines[BM25 문서]·is_canvas·element_lines_blind·first_activity), 최초 생성 시 1회만 기록
+│   │   ├── page.json                      # page 의 고정 identity(element_lines[BM25 문서]·first_activity), 최초 생성 시 1회만 기록
 │   │   ├── 0/                             # observation (persist_filtered on 이면 방문마다 0,1,2… 체인)
 │   │   │   ├── screenshot.png, raw.xml, parsed.xml, hierarchy.xml, encoded.xml, pretty.xml
 │   │   │   └── elements.json              # matched observation 마다 (page_key/match_type/is_new_page/activity)
