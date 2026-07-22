@@ -3,6 +3,21 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-22 — Monkey-Collector: convert 완전중복 상시 제거 + 코퍼스 레이아웃 `data/raw`·`data/processed` 이원화 (30앱→24앱, 11,376 examples)
+
+산출 JSONL을 직접 재해싱해 **13,299 예제 중 완전중복이 1,923건(14.5%)** 임을 실측한 뒤, converter에 상시 dedup을 넣고 수집 원본과 학습 변환 산출물을 디렉터리 레벨에서 갈랐다. 선행 작업으로 수율 기준 컷을 적용해 저품질 6앱을 제외했다(30앱 → 24앱). 상세는 [revise 기록](../Monkey-Collector/.claude/devlog/2026-07-22_11-31-30_convert-dedup-and-raw-processed-layout.md).
+
+- **중복 제거를 플래그 없이 상시화**: 키는 `(before_encoded_xml, action_json, after_encoded_xml)` 3튜플의 md5다. `Converter` 인스턴스가 모든 세션에 재사용되므로 `convert-all`에서는 dedup이 **앱 경계를 넘어 전역**으로 걸린다. 끄는 플래그·config 키는 없다(사용자 결정). 기존 필터는 "같은 observation 연속"과 "before == after"만 걸러 서로 다른 observation에서 나온 내용 동일 전이를 그대로 남겼고, 앱별 편차가 최대 45.5%였다.
+- **레이아웃 이원화 — `data/raw`(수집 원본) + `data/processed`(학습 변환 산출물)**: `collection.data_dir` 기본값을 `data` → `data/raw`로 옮기고, `convert-all`의 `--output`/`--images-dir` required를 해제해 기본값을 `data/processed/gui-model_stage1.jsonl` / `data/processed/images`로 정했다. 기존 24앱 데이터도 `data/raw/`로 마이그레이션했다.
+- **reset 계약 확정**: reset은 수집 *세션 상태만* 초기화한다 — `data/raw` + `runtime`은 지우고 `data/processed`는 절대 지우지 않는다. 가드가 아니라 레이아웃으로 성립하며(`resolve_targets(all_)`가 형제 디렉터리에 도달할 수 없다), docstring에 계약으로 명시하고 회귀 테스트로 고정했다.
+- **저품질 6앱 제외(선행 작업)**: dry-run 예제 수 기준 하위군(0~35예제)과 그다음 93예제 사이 2.7배 gap을 컷으로 삼아 freedcam·kiss·wunderground·settings·eventbrite·retromusic을 제외했다. espn(35예제)은 깨진 세션이 아니라 조기 종료라는 판단으로 **사용자 결정에 따라 보존**했다. 컷 근거는 이탈률이 아니라 **수율**이다 — raw.xml modal package 기준 타깃앱 이탈 페이지가 전 앱 0%라 content 오염으로 걸러야 할 앱이 없었고, 이는 바로 아래 엔트리의 "activity 라벨 stale은 label-only" 결론과 일치한다.
+- **동봉 버그 수정**: 조인키 필터가 키 *존재*만 검사해 값이 `null`인 이벤트를 통과시키면서 `convert-all`이 죽던 버그(4앱 9건, 전부 swipe)를 `any(ev.get(k) is None ...)`로 교정했다 — `observation_num == 0` 같은 falsy 정상값은 오검출하지 않는다.
+- 변경: `Monkey-Collector/src/monkey_collector/{export/converter,config,storage,cli,migrate_layout,pipeline/reset}.py` · `config/run.yaml` · `tests/unit/{test_converter,test_config,test_cli,test_reset}.py`. 문서 정합: `Monkey-Collector/{README,ARCHITECTURE,AGENTS}.md`(26곳) · `docs/ARCHITECTURE.md`(MC→IWM 데이터 계약에 레이아웃 이원화·dedup·이관 함정 반영). 총 **14 files, +337 −81**.
+- 커밋: 없음 (기록 시점 uncommitted).
+- 결과/검증: `pytest tests` **869 passed / 0 failed / exit 0**(기준선 864 + 신규 5) · 인자 없이 `convert-all`(새 기본값) → **11,376 examples / 24 sessions**, 사전 dry-run 예측치(13,299 − 1,923)와 정확히 일치 · 산출물 재해싱 → 11,376 라인 / 고유 시그니처 11,376 / **중복 0**, 이미지 참조 11,376 ↔ 디스크 파일 11,376 **1:1**(결손·고아 0) · `data/` 직속에 `raw`·`processed`만, `data/raw` 24/24가 `pages/` + `page_graph.json` 보유 · `test_reset.py::TestProcessedCorpusPreserved::test_all_scope_keeps_processed_corpus` PASSED.
+- 후속: **P1** 학습 박스 이관 — JSONL의 `images` 값이 하드코딩 `GUI-Model/images/`인데 실제 파일은 `data/processed/images/`에 있어, 학습측 `media_dir: ../data`와 조합하면 조회 경로가 `<IWM data root>/GUI-Model/images/`다. 이관 시 그 위치에 배치하지 않으면 **전부 miss**난다(이 맥에는 해당 data root가 없어 현재는 무해). **P2** `convert-all`은 append-only이고 dedup seen-set이 인스턴스 로컬이라, **재실행 전 `data/processed/`를 비우지 않으면 중복이 누적**된다.
+- **카테고리**: devlog
+
 ## 2026-07-22 — Monkey-Collector: Pixel6-2 수집 캠페인(29앱) 분석 — 데이터 정합성 건전, wall-clock 42%가 3앱 stall storm에 소실 + activity 라벨 8.8% stale(content 무손상)
 
 Pixel6-2 AVD에서 2026-07-20~22 돌린 단일 수집 캠페인의 산출물을 근거 기반으로 분석했다(반복 측정 없음, Notion 미업로드). **33 타깃 중 29앱 수집 성공(1,945 nodes / 4,359 edges, 세션 합산 27.9h·캘린더 스팬 44h31m·4+회 run 재개, LLM 비용 $0.25).** 데이터 구조·정합성은 건전하나 수집 효율과 activity 메타 라벨에 결함이 있다. 상세는 [분석 허브](../Monkey-Collector/.claude/analysis/2026-07-22_07-33-00/README.md).

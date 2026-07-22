@@ -29,7 +29,10 @@ Implicit-World-Modeling (2-stage VLM fine-tuning)
 ## 데이터 계약 주의 (수집 산출물 무결성)
 
 - MC `page_graph.json` node와 `pages/*/page.json`의 `activity`/`first_activity` 메타 라벨은 **~8.8% 페이지에서 stale**하다(171/1945 pages, 18/29앱, 대개 `nexuslauncher`로 오표기). 다만 관측 content(raw.xml modal package·element_lines)는 항상 해당 앱 자신이라 **label-only 결함**이다 — IWM Stage-1/2 변환기는 페이지의 앱/화면 정체를 `activity` 문자열이 아니라 **raw.xml content로 판정**해야 한다(에러 없이 틀린 문자열이 들어오는 silent trap). 참조무결성(dangling-edge 0)·`pages`=`nodes` 일치는 건전.
-- 근거: [수집 캠페인 무결성 분석 (2026-07-22)](../Monkey-Collector/.claude/analysis/2026-07-22_07-33-00/gap-stage4-integrity.md).
+- **MC 코퍼스 레이아웃은 이원화돼 있다**(2026-07-22): `Monkey-Collector/data/raw/<pkg>/`가 **수집 원본**(세션별 `pages/` + `page_graph.json`), `Monkey-Collector/data/processed/`가 **학습 변환 산출물**(`gui-model_stage1.jsonl` + `images/`)이다. IWM 측이 소비하는 것은 후자다. reset은 `data/raw` + `runtime`만 지우고 `data/processed`는 건드리지 않는다.
+- **`convert-all`은 완전중복 예제를 항상 1건만 남긴다**: 중복 키는 `(before_encoded_xml, action_json, after_encoded_xml)` 3튜플이며 **끄는 플래그·config 키가 없다**. 세션(앱) 경계를 넘어 전역으로 적용된다. 현재 산출은 **24앱 11,376 examples**(중복 0, 이미지 1:1).
+- **⚠️ 학습 박스 이관 시 이미지 경로 함정**: JSONL의 `images` 값은 converter가 하드코딩한 `GUI-Model/images/...` prefix인데 실제 파일은 `data/processed/images/`에 있다. 학습측 `media_dir: ../data`(`Implicit-World-Modeling/configs/train/IWM-MC/stage1_*/`)와 조합하면 조회 경로가 `<IWM data root>/GUI-Model/images/`가 되므로, **이관 시 이미지를 그 위치에 배치하지 않으면 전부 miss 난다.**
+- 근거: [수집 캠페인 무결성 분석 (2026-07-22)](../Monkey-Collector/.claude/analysis/2026-07-22_07-33-00/gap-stage4-integrity.md) · [convert dedup·레이아웃 이원화 (2026-07-22)](../Monkey-Collector/.claude/devlog/2026-07-22_11-31-30_convert-dedup-and-raw-processed-layout.md).
 
 ## 더 보기
 

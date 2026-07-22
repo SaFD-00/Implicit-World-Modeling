@@ -47,7 +47,7 @@
 
 - **steps** = `runtime/<pkg>/metadata.json` 의 `total_steps`. 서버 로그의 `Session complete: … steps=N` 과 일치함이 검증됐다.
 - ⚠️ **로그를 `grep -cE 'Step [0-9]+:'` 로 세지 마라** — 재시도·타임아웃·키보드 처리 라인까지 세는 **오염 카운터**다. 실측 196/181/186 vs 진짜 145/113/130.
-- **pages/edges** = `data/<pkg>/page_graph.json` 의 `len(nodes)`/`len(edges)`. pages 는 로그의 `max_page_id + 1` 로도 재도출 가능하다.
+- **pages/edges** = `data/raw/<pkg>/page_graph.json` 의 `len(nodes)`/`len(edges)`. pages 는 로그의 `max_page_id + 1` 로도 재도출 가능하다.
 - ⚠️ **`page_graph.json` 은 run 간에 덮어써진다** — 반드시 **아카이브본**에서 읽어라. 이 함정이 실제로 데이터를 두 번 죽였다.
 
 ### 4. 효과 측정 (arm 비교)
@@ -56,7 +56,7 @@
 
 - `../.claude/handoff/reset_app.sh` — 앱 리셋 + seed 보존 검증
 - `../.claude/handoff/measure.sh` — 리셋 + 수집 1회 (steps SSoT 출력)
-- `../.claude/handoff/instrument_p1.sh` — 위 + logcat + **산출물 아카이브**. ⚠️ **아카이브 없이 돌리면 다음 run 이 `data/<pkg>/` 를 덮어쓴다.**
+- `../.claude/handoff/instrument_p1.sh` — 위 + logcat + **산출물 아카이브**. ⚠️ **아카이브 없이 돌리면 다음 run 이 `data/raw/<pkg>/` 를 덮어쓴다.**
 
 ### 5. F2 on/off arm 구성 (server pull poke)
 
@@ -87,9 +87,10 @@
 6. **`state.step` 은 정상 action 경로에서만 `+1`**
    - 계약: signal timeout·no_change·empty-UI 대기·keyboard/permission/system/stale 같은 **비-action 반복에서는 올리지 않는다**.
    - 깨지면: `step` 이 `frame_index` 와 어긋나 정렬이 깨진다 — 과거 정렬 버그의 원인이 정확히 이것이다.
-7. **`--new-session`/`reset` 은 두 root 를 함께 지운다**
-   - 계약: `data/` 와 `runtime/` 를 **동시에** 삭제한다.
-   - 깨지면: 한쪽만 지우면 남은 쪽에서 지식이 rehydrate 되어 **"새 세션"이 되지 않는다**.
+7. **`--new-session`/`reset` 은 두 root 를 함께 지운다 — 단 수집 세션 상태만**
+   - 계약: `data/raw/` 와 `runtime/` 를 **동시에** 삭제한다.
+   - 계약: **`data/processed/` 는 절대 지우지 않는다.** 파생 학습 코퍼스는 수집 세션 상태가 아니다. `data/processed` 는 리셋 루트 `data/raw` 의 **형제**라 어떤 스코프도 닿지 않는다 — 가드가 아니라 레이아웃으로 성립한다(`pipeline/reset.py`, `tests/unit/test_reset.py::TestProcessedCorpusPreserved`).
+   - 깨지면: 한쪽만 지우면 남은 쪽에서 지식이 rehydrate 되어 **"새 세션"이 되지 않는다**. 반대로 리셋 루트를 `data/` 로 올려 잡으면 수집과 무관한 학습 코퍼스까지 날린다.
 8. **`open_app` 은 navigation 전이가 아니다 (3중 격리)**
    - 계약: 복구 시 `state.last_action` 클리어 + `explorer._last_record` 클리어 + 이벤트 `transition: false` — 셋을 모두 유지한다.
    - 깨지면: 하나라도 바꾸면 **가짜 전이**가 live page graph·routing memory·offline 재빌드/world-modeling 변환으로 샌다.
@@ -135,8 +136,13 @@
   - `OPENROUTER_API_KEY` 가 없으면 입력 텍스트 생성은 random 으로 degrade 하며 수집 흐름을 깨지 않는다. page 식별(`ScreenMatcher`)은 LLM 무관이라 그대로 동작한다.
   - 비용은 `cost.csv` 의 `agent` 컬럼(현재 `text_generator`)에 기록된다.
 - 세션 저장 형식은 [`src/monkey_collector/storage.py`](./src/monkey_collector/storage.py) 가 기준이다.
-  - `DataWriter` 는 두 root 로 나뉜다 — `data/{package}/pages/{page_key}/{observation_num}/` (영속, `save_observation`/`save_page_knowledge` 는 `is_new_observation` 일 때만 새로 씀) 와 `runtime/{package}/` (휘발성: metadata/events/cost/coverage).
-  - 세션 재개(resume)는 `session_manager.rehydrate_session` → `screen_matching/rehydrate.py` 가 `data/{package}/pages/` 를 다시 읽어 `ScreenMatcher` 지식과 `state.page_graph` 를 모두 복원한다.
+  - `DataWriter` 는 두 root 로 나뉜다 — `data/raw/{package}/pages/{page_key}/{observation_num}/` (영속, `save_observation`/`save_page_knowledge` 는 `is_new_observation` 일 때만 새로 씀) 와 `runtime/{package}/` (휘발성: metadata/events/cost/coverage).
+  - 세션 재개(resume)는 `session_manager.rehydrate_session` → `screen_matching/rehydrate.py` 가 `data/raw/{package}/pages/` 를 다시 읽어 `ScreenMatcher` 지식과 `state.page_graph` 를 모두 복원한다.
+  - **코퍼스는 `data/` 아래에서 이원화돼 있다** — `data/raw/`(수집 원본, `collection.data_dir` 기본값)와 `data/processed/`(`convert-all` 이 만드는 학습 변환 산출물: `gui-model_stage1.jsonl` + `images/`). 수집기는 `data/raw` 만 쓰고, `convert-all` 은 `data/raw` 를 읽어 `data/processed` 에 쓴다.
+- world-modeling 변환은 [`src/monkey_collector/export/converter.py`](./src/monkey_collector/export/converter.py) 가 기준이다.
+  - **완전중복 예제는 항상 1건만 남는다 — 끄는 플래그가 없다.** 중복 판정 키는 `(before_encoded_xml, action_json, after_encoded_xml)` 3튜플이며, 기존 필터(`transition:false`·`no_change_retry`·조인키 null·같은 observation 연속·`before==after`)를 모두 통과한 뒤의 마지막 관문이다. 중복이면 JSONL 미기록 + 이미지 미복사 + count 미증가.
+  - dedup 은 **`Converter` 인스턴스 단위**다. `convert-all` 은 `Converter` 하나를 모든 세션에 재사용하므로 dedup 이 **앱(세션) 경계를 넘어 전역으로** 걸린다 — 두 앱에서 같은 전이가 나오면 1건만 남는다. 의도된 동작이다.
+  - ⚠️ **`convert-all` 은 append-only 다** — output JSONL 을 `"a"` 로만 열고 truncate 하지 않으며, dedup seen-set 은 인스턴스 로컬이라 **파일에 이미 있는 줄과는 대조하지 않는다**. 재실행 전 `data/processed/` 의 기존 `gui-model_stage1.jsonl` 과 `images/` 를 비우지 않으면 중복이 그대로 누적된다.
 - XML 파싱 규약은 [`src/monkey_collector/xml/ui_tree.py`](./src/monkey_collector/xml/ui_tree.py), [`src/monkey_collector/xml/structured_parser.py`](./src/monkey_collector/xml/structured_parser.py) 를 본다.
 - Android 측 전환 감지와 TCP 프로토콜은 [`CollectorService.kt`](./app/app/src/main/java/com/monkey/collector/CollectorService.kt), [`ScreenStabilizer.kt`](./app/app/src/main/java/com/monkey/collector/ScreenStabilizer.kt), [`TcpClient.kt`](./app/app/src/main/java/com/monkey/collector/TcpClient.kt) 에 있다 — 안정성 규약(외부앱 제외 목록 짝맞춤, MediaProjection 토큰 단발성)은 불변식 1·2 참조.
   - **클라이언트(.kt) 수정은 APK 재빌드(JDK 17)·재설치해야 디바이스에 반영**된다.
@@ -144,7 +150,7 @@
 
 ## 작업 시 주의점
 
-- 세션은 두 root 로 나뉜다 — `data/{package}/`(영속)와 `runtime/{package}/`(휘발성). `--new-session`/`reset` 은 반드시 두 root 를 함께 지운다(불변식 7) — 메커니즘은 [ARCHITECTURE.md](./ARCHITECTURE.md) §4~§5 참조.
+- 세션은 두 root 로 나뉜다 — `data/raw/{package}/`(영속)와 `runtime/{package}/`(휘발성). `--new-session`/`reset` 은 반드시 두 root 를 함께 지우되 `data/processed/` 는 건드리지 않는다(불변식 7) — 메커니즘은 [ARCHITECTURE.md](./ARCHITECTURE.md) §4~§5 참조.
 - 기본 동작은 같은 앱 패키지의 기존 세션을 이어서 저장하는 것이다. `run` 커맨드의 `--new-session` 은 해당 앱 한 개만 초기화한다. 더 넓은 범위 삭제는 `monkey-collect reset` 을 사용한다.
 - App -> Server signal 이름 `P`, `S`, `X`, `E`, `N`, `F` 와 Server -> App 제어 메시지 (`{"type":"START","package":...}`, `{"type":"SESSION_END"}`) 계약을 깨지 마라. Android 측 `CollectorService.beginStandby` 루프가 이 계약에 의존한다.
 - 세션 전환 핸드셰이크: `SESSION_END` → 클라이언트 `F` 회신 + 소켓 close → 클라이언트 한 번 자동 재접속.
