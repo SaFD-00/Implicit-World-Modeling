@@ -26,6 +26,11 @@ Implicit-World-Modeling (2-stage VLM fine-tuning)
 - 환경 분리: 메인 파이프라인 = conda env `implicit-world-modeling` + editable LlamaFactory,
   수집기 = uv `.venv` (Python 3.10).
 
+## 데이터 계약 주의 (수집 산출물 무결성)
+
+- MC `page_graph.json` node와 `pages/*/page.json`의 `activity`/`first_activity` 메타 라벨은 **~8.8% 페이지에서 stale**하다(171/1945 pages, 18/29앱, 대개 `nexuslauncher`로 오표기). 다만 관측 content(raw.xml modal package·element_lines)는 항상 해당 앱 자신이라 **label-only 결함**이다 — IWM Stage-1/2 변환기는 페이지의 앱/화면 정체를 `activity` 문자열이 아니라 **raw.xml content로 판정**해야 한다(에러 없이 틀린 문자열이 들어오는 silent trap). 참조무결성(dangling-edge 0)·`pages`=`nodes` 일치는 건전.
+- 근거: [수집 캠페인 무결성 분석 (2026-07-22)](../Monkey-Collector/.claude/analysis/2026-07-22_07-33-00/gap-stage4-integrity.md).
+
 ## 더 보기
 
 - 모델 매트릭스·데이터셋(AC_EXP01~05 / MC / MB)·실행 절차: [메인 README](../Implicit-World-Modeling/README.md)

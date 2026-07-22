@@ -3,6 +3,20 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-22 — Monkey-Collector: Pixel6-2 수집 캠페인(29앱) 분석 — 데이터 정합성 건전, wall-clock 42%가 3앱 stall storm에 소실 + activity 라벨 8.8% stale(content 무손상)
+
+Pixel6-2 AVD에서 2026-07-20~22 돌린 단일 수집 캠페인의 산출물을 근거 기반으로 분석했다(반복 측정 없음, Notion 미업로드). **33 타깃 중 29앱 수집 성공(1,945 nodes / 4,359 edges, 세션 합산 27.9h·캘린더 스팬 44h31m·4+회 run 재개, LLM 비용 $0.25).** 데이터 구조·정합성은 건전하나 수집 효율과 activity 메타 라벨에 결함이 있다. 상세는 [분석 허브](../Monkey-Collector/.claude/analysis/2026-07-22_07-33-00/README.md).
+
+- **🟢 정합성 건전(confirmed/cross-app)**: 29/29 앱에서 graph 참조무결성 완전(dangling edge 0), `pages/` 디렉터리 수 = `page_graph.json` node 수 정확 일치(0 mismatch). 관측 7파일 중 6종(`elements.json`·`raw.xml`·XML 4변형)은 15,445 관측 전량 present·non-empty. `screenshot.png`만 66건(0.43%) 누락하나 node 레벨 시각 손실은 2/1945(0.1%)에 그친다(내용은 JPEG인데 확장자가 png).
+- **🔴 wall-clock 42%가 3앱 no-change stall storm에 소실(confirmed/cross-app 3/29)**: eventbrite(758.9 sec/step)·joplin(80.8)·kitchenstories(58.9)가 세션 합산 시간의 ~42%를 소진했다. 세 앱 모두 `max_duration_sec=7200` 예산을 1.58~2.54× 초과했고, `no_change_retries` 리셋 루프가 3-strike back-press 탈출과 D2/D3 loop-guard를 구조적으로 우회했다(가드는 캠페인 다른 곳에서 101회 정상 발화). 최상위 deadline이 왜 미강제되는지는 정적 read로 규명 못 함(**needs-user-input**).
+- **🟠 activity/first_activity 메타 라벨 8.8% stale(confirmed/cross-app, label-only)**: 171/1945 pages(18/29앱, 앱별 1.3~28.3%)에서 `activity`/`first_activity`가 다른 앱(대개 `nexuslauncher` 154건)으로 오표기된다. 그러나 171/171 pages·614/614 관측의 raw.xml modal package와 element_lines는 **항상 해당 앱 자신** — content 오염이 아니라 라벨-only 결함이다. **다운스트림은 activity 문자열이 아니라 raw.xml/element content를 신뢰해야 한다**(에러 없이 틀린 문자열이 들어오는 silent trap). `docs/ARCHITECTURE.md`의 MC→IWM 경계에 이 caveat를 명시했다.
+- **YouTube foreground-storm + dead-socket 복구史(confirmed/cross-app)**: antennapod가 07-21 00:13~01:30에 752 external-app 이벤트 중 603건(80%)을 `com.google.android.youtube`로 검출당했고, 뒤이어 07:24~09:13에 "External app reinit exhausted(10/10)" 10회가 약 12분 간격으로 발화하며 다운스트림 앱들을 steps=0으로 밀었다("osmand→end" 알려진 인시던트를 분 단위로 date). dead-socket("Device did not connect within 120s")은 캠페인 전반 ≥3회 독립 재발. freedcam은 유일 실패(카메라 권한 스톰으로 step 0, `MAX_EXTERNAL_REINITS=10` 도달).
+- 변경: `docs/DEVLOG.md`(본 엔트리) · `docs/ARCHITECTURE.md`(MC→IWM 데이터 계약에 activity 라벨 stale caveat 1건). 분석 산출물 반영이며 **코드·수집 데이터 미수정**.
+- 커밋: 없음 (분석 전용).
+- 결과/검증: 29앱 1,945 nodes/4,359 edges(source: `data/*/page_graph.json`), 27.9h·$0.2466 LLM(source: `runtime/*/{metadata,cost}.csv`). 정합성·실패모드·무결성 stage 보고는 [분석 허브](../Monkey-Collector/.claude/analysis/2026-07-22_07-33-00/README.md) 및 `gap-stage2-failure.md`·`gap-stage4-integrity.md`.
+- 후속: 상세 P1/P2/P3은 허브 `solutions.md` 참조 — (1) stall storm 예산 미강제 원인 런타임 트레이싱(needs-user-input), (2) activity 라벨 stamping race 규명(plausible), (3) screenshot 캡처 드롭(0.43%) 소스 수정.
+- 카테고리: analysis
+
 ## 2026-07-18 — Implicit-World-Modeling: EXP06 (AndroidControl_EXP06) 등록 — EXP05 비증강 Stage-2 대조군 · NOTAUG→EXP06 마이그레이션 · 데이터 양식 정규화 · merged 3에폭 HF 업로드
 
 로컬에 커밋되지 않은 `AC_NOTAUG`(비증강 stage2 실험군)를 표준 `AC_EXP06`/`AndroidControl_EXP06` 네이밍으로 승격 등록했다. **EXP05(데이터 증강 O) vs EXP06(증강 X)** 비교가 목적이다. 학습은 이미 완료돼 있어(`qwen2.5-vl-3b` LoRA base, epoch 1/2/3) 재학습 없이 개명·정규화·merge·HF 업로드만 수행했다. **평가는 사용자 지시로 보류**(데이터는 준비됨). 협업 제약: 사용자 지시로 **fable·codex 미사용** → Advisor/Worker/검증 전부 `claude`/`opus`, tier-2 codex 대신 **tier-1 결정론 게이트를 오케스트레이터가 직접** 재실행해 승인.
