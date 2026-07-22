@@ -13,6 +13,8 @@ Implicit-World-Modeling/unsloth/
 Monkey-Collector/app_candidates.csv
 # 수집/진단 스크래치 (타임스탬프 디렉토리 — 재사용 아님, git status 오염 방지)
 Monkey-Collector/_*/
+# 수집 데이터 아카이브 (수 GB — 위 `**/data*/` 는 trailing slash 라 디렉터리만 잡는다)
+Monkey-Collector/*.zip
 
 # Cache (HuggingFace models, Python tooling, ML logs)
 **/.cache/
