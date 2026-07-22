@@ -86,6 +86,20 @@ def test_dry_run_reports_without_touching_disk(tmp_path):
     pj = json.loads((tmp_path / "data" / "com.test.app" / "pages" / "page_0" / "page.json").read_text())
     assert pj["page_key"] == "page_0"
     assert (tmp_path / "logs" / "run_20260101_000000.log").is_file()
+    assert (tmp_path / "runtime" / "com.test.app" / "events.jsonl").is_file()
+    assert not (tmp_path / "runtime" / "apps").exists()
+
+
+def test_dry_run_counts_events_still_at_the_runtime_root(tmp_path):
+    # The apps/ move has not happened yet on a dry run, so the event scan has
+    # to look at the legacy root too — otherwise the plan under-reports.
+    _build_legacy(tmp_path)
+    data, runtime, logs = _paths(tmp_path)
+
+    result = migrate(data, runtime, logs, apply=False)
+
+    assert result["counts"]["apps"] == 1
+    assert result["counts"]["events"] == 2
 
 
 def test_apply_renames_dirs_and_rewrites_keys(tmp_path):
@@ -114,19 +128,22 @@ def test_apply_renames_dirs_and_rewrites_keys(tmp_path):
 
     events = [
         json.loads(line)
-        for line in (tmp_path / "runtime" / "com.test.app" / "events.jsonl").read_text().splitlines()
+        for line in (tmp_path / "runtime" / "apps" / "com.test.app" / "events.jsonl").read_text().splitlines()
         if line.strip()
     ]
     assert events[0]["page_key"] == "0" and events[1]["page_key"] == "1"
     assert "page_key" not in events[2]  # open_app line preserved verbatim
 
-    # log relocated under runtime/logs/
+    # package regrouped under runtime/apps/, log under the sibling runtime/logs/
+    assert not (tmp_path / "runtime" / "com.test.app").exists()
     assert (tmp_path / "runtime" / "logs" / "run_20260101_000000.log").is_file()
     assert not (tmp_path / "logs" / "run_20260101_000000.log").exists()
+    # logs/ stayed a sibling of apps/ instead of being swept into it
+    assert not (tmp_path / "runtime" / "apps" / "logs").exists()
 
     assert c["pages"] == 2 and c["observations"] == 3
     assert c["page_json"] == 2 and c["elements_json"] == 1
-    assert c["graphs"] == 1 and c["events"] == 2 and c["logs"] == 1
+    assert c["graphs"] == 1 and c["apps"] == 1 and c["events"] == 2 and c["logs"] == 1
 
 
 def test_apply_is_idempotent(tmp_path):
@@ -173,3 +190,23 @@ def test_missing_roots_are_noops(tmp_path):
     )
     assert result["operations"] == []
     assert all(v == 0 for v in result["counts"].values())
+
+
+def test_already_grouped_runtime_is_left_alone(tmp_path):
+    # A tree already in the current layout: the package sits under apps/ and
+    # the log under logs/. Nothing to move, and neither sub-root gets nested
+    # inside the other.
+    _write(
+        tmp_path / "runtime" / "apps" / "com.test.app" / "events.jsonl",
+        json.dumps({"frame_index": 0, "page_key": "0"}) + "\n",
+    )
+    _write(tmp_path / "runtime" / "logs" / "run_20260101_000000.log", "log line\n")
+    data, runtime, logs = _paths(tmp_path)
+
+    result = migrate(data, runtime, logs, apply=True)
+
+    assert result["operations"] == []
+    assert all(v == 0 for v in result["counts"].values())
+    assert not (tmp_path / "runtime" / "apps" / "apps").exists()
+    assert not (tmp_path / "runtime" / "apps" / "logs").exists()
+    assert (tmp_path / "runtime" / "logs" / "run_20260101_000000.log").is_file()

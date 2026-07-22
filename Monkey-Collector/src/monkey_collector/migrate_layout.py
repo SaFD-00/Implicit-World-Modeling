@@ -1,27 +1,31 @@
-"""One-off migration: legacy ``page_``/zero-padded storage layout → bare integers.
+"""One-off migration: legacy storage layout → the current one.
 
-A session collected before the bare-name refactor looks like::
+A session collected before the bare-name and runtime-split refactors looks
+like::
 
     data/{pkg}/pages/page_0/0000/...          runtime/{pkg}/events.jsonl
     data/{pkg}/pages/page_0/page.json         logs/run_*.log        (repo root)
 
 This module converts it to the current layout::
 
-    data/{pkg}/pages/0/0/...                  runtime/{pkg}/events.jsonl
+    data/{pkg}/pages/0/0/...                  runtime/apps/{pkg}/events.jsonl
     data/{pkg}/pages/0/page.json              runtime/logs/run_*.log
 
-Two kinds of change:
+Three kinds of change:
 
 * **Directory renames** — ``pages/page_{N}/`` → ``pages/{N}/`` and each
   zero-padded observation dir ``{obs:04d}/`` → ``{obs}/``.
+* **Runtime regrouping** — package dirs sitting directly under ``runtime/``
+  move into ``runtime/apps/``, making ``apps/`` and ``logs/`` siblings.
 * **Embedded ``page_key`` strings** — the ``"page_{N}"`` identifier stored in
   ``page.json``, ``elements.json``, ``page_graph.json`` (``nodes[].page_key``),
   and ``events.jsonl`` is rewritten to ``"{N}"``. ``page_graph.json`` edges use
   integer node ids (``from_page``/``to_page``), so they need no change.
 
 Design: **dry-run first** (``apply=False`` reports what would change without
-touching disk) and **idempotent** (already-bare names/keys and files already
-under ``runtime/logs/`` are left untouched, so re-running is safe). These are
+touching disk) and **idempotent** (already-bare names/keys, packages already
+under ``runtime/apps/``, and files already under ``runtime/logs/`` are left
+untouched, so re-running is safe). These are
 gitignored, freely-regenerated collection artifacts — a fresh run after the
 refactor already writes the new layout, so this is only for pre-refactor
 sessions you want to keep.
@@ -37,6 +41,8 @@ import re
 import shutil
 
 from loguru import logger
+
+from monkey_collector.paths import APPS_SUBDIR, LOGS_SUBDIR, apps_root, logs_root
 
 _PAGE_RE = re.compile(r"^page_(\d+)$")
 
@@ -217,16 +223,63 @@ def migrate_data_dir(data_dir: str, apply: bool, report: list[str]) -> dict[str,
     return counts
 
 
+def migrate_runtime_apps(runtime_dir: str, apply: bool, report: list[str]) -> int:
+    """Move each package dir from the runtime root into ``runtime/apps/``.
+
+    Legacy layout put package dirs and ``logs/`` as siblings directly under
+    ``runtime/``; the current layout groups packages under ``apps/``. Only
+    package directories move: the ``apps`` and ``logs`` sub-roots are skipped
+    explicitly (moving ``logs`` would bury the run logs, and moving ``apps``
+    would nest it inside itself), as are loose files. Already-migrated trees
+    have nothing left at the root to move, so re-running is a no-op.
+
+    Returns the number of package directories moved.
+    """
+    if not os.path.isdir(runtime_dir):
+        return 0
+    dest_root = apps_root(runtime_dir)
+    moved = 0
+    for name in sorted(os.listdir(runtime_dir)):
+        if name in (APPS_SUBDIR, LOGS_SUBDIR):
+            continue
+        src = os.path.join(runtime_dir, name)
+        if not os.path.isdir(src):
+            continue
+        dst = os.path.join(dest_root, name)
+        if os.path.exists(dst):
+            logger.warning(f"migrate: app target exists, skipping {src} -> {dst}")
+            continue
+        report.append(f"move {src} -> {dst}")
+        if apply:
+            os.makedirs(dest_root, exist_ok=True)
+            shutil.move(src, dst)
+        moved += 1
+    return moved
+
+
 def migrate_runtime_dir(runtime_dir: str, apply: bool) -> int:
     """Rewrite ``page_key`` in every package's ``events.jsonl``. Returns the
-    total number of event lines changed."""
+    total number of event lines changed.
+
+    Looks under ``{runtime_dir}/apps/`` *and* at package dirs still sitting at
+    the runtime root: on a dry run :func:`migrate_runtime_apps` has not moved
+    anything yet, so scanning only ``apps/`` would report zero events for a
+    legacy tree. ``apps``/``logs`` are excluded from the root scan, and a
+    package can only be found in one place, so nothing is counted twice.
+    """
     total = 0
     if not os.path.isdir(runtime_dir):
         return 0
-    for pkg in sorted(os.listdir(runtime_dir)):
-        events_path = os.path.join(runtime_dir, pkg, "events.jsonl")
-        if os.path.isfile(events_path):
-            total += _rewrite_events(events_path, apply)
+    apps_dir = apps_root(runtime_dir)
+    roots = [apps_dir] if os.path.isdir(apps_dir) else []
+    roots.append(runtime_dir)
+    for root in roots:
+        for pkg in sorted(os.listdir(root)):
+            if root == runtime_dir and pkg in (APPS_SUBDIR, LOGS_SUBDIR):
+                continue
+            events_path = os.path.join(root, pkg, "events.jsonl")
+            if os.path.isfile(events_path):
+                total += _rewrite_events(events_path, apply)
     return total
 
 
@@ -235,7 +288,7 @@ def migrate_logs(logs_dir: str, runtime_dir: str, apply: bool, report: list[str]
     of log files moved."""
     if not os.path.isdir(logs_dir):
         return 0
-    dest_dir = os.path.join(runtime_dir, "logs")
+    dest_dir = logs_root(runtime_dir)
     moved = 0
     for name in sorted(os.listdir(logs_dir)):
         src = os.path.join(logs_dir, name)
@@ -263,6 +316,10 @@ def migrate(
     concrete rename/move operations (for logging or assertions in tests)."""
     report: list[str] = []
     counts = migrate_data_dir(data_dir, apply, report)
+    # Move packages under apps/ before rewriting their events — the rewrite
+    # scans apps/ first, so doing it in this order keeps the applied run from
+    # walking the same package twice.
+    counts["apps"] = migrate_runtime_apps(runtime_dir, apply, report)
     counts["events"] = migrate_runtime_dir(runtime_dir, apply)
     counts["logs"] = migrate_logs(logs_dir, runtime_dir, apply, report)
     return {"applied": apply, "counts": counts, "operations": report}
@@ -270,10 +327,10 @@ def migrate(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Migrate legacy page_/zero-padded storage layout to bare integers."
+        description="Migrate legacy storage layout (page_/zero-padded names, flat runtime root) to the current one."
     )
     parser.add_argument("--data-dir", default="data/raw", help="Durable raw-collection root (default: data/raw)")
-    parser.add_argument("--runtime-dir", default="runtime", help="Runtime root (default: runtime)")
+    parser.add_argument("--runtime-dir", default="runtime", help="Runtime root holding apps/ and logs/ (default: runtime)")
     parser.add_argument("--logs-dir", default="logs", help="Repo-level logs dir to relocate (default: logs)")
     parser.add_argument(
         "--apply", action="store_true",
@@ -290,7 +347,7 @@ def main(argv: list[str] | None = None) -> None:
     logger.info(
         f"[migrate-layout] pages={c['pages']} observations={c['observations']} "
         f"page.json={c['page_json']} elements.json={c['elements_json']} "
-        f"graphs={c['graphs']} events={c['events']} logs={c['logs']}"
+        f"graphs={c['graphs']} apps={c['apps']} events={c['events']} logs={c['logs']}"
     )
 
 
