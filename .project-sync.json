@@ -14,8 +14,7 @@
       "AGENTS.md",
       "README.md",
       "ARCHITECTURE.md",
-      "ROADMAP.md",
-      "CHANGELOG.md"
+      "ROADMAP.md"
     ],
     "devlog": "docs/DEVLOG.md"
   },
@@ -61,5 +60,5 @@
       }
     }
   },
-  "last_sync": "2026-07-22T02:44:24+00:00"
+  "last_sync": "2026-07-22T03:42:10+00:00"
 }

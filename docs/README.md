@@ -11,7 +11,6 @@
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 모노레포 전체 데이터 흐름(수집 → 학습/평가)을 가로지르는 상위 설계 | 구조/계약 변경 시 |
 | [ROADMAP.md](./ROADMAP.md) | 실험·마일스톤·할 일 | 진척 시 |
 | [DEVLOG.md](./DEVLOG.md) | 시점성 진행 로그 (append-only) | 변경마다 |
-| [CHANGELOG.md](./CHANGELOG.md) | 버전/릴리스 변경 요약 | 릴리스 시 |
 
 ## 정본 문서 (각 하위 프로젝트)
 
