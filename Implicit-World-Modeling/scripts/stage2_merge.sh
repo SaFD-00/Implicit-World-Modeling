@@ -49,16 +49,22 @@ for MODEL_SHORT in "${MODELS[@]}"; do
     SFX="$(ds_model_suffix "$DS")"
 
     # Stage 1 local merged base (world-model variant 전용). --stage1-epoch 기반.
+    # ds_stage1_source 로 stage1 계보 소스 DS 를 해석한다 (예: AC_EXP06 → AC_EXP05,
+    # stage2 비증강 대조군은 EXP06 stage1 을 따로 학습하지 않고 EXP05 를 승계).
+    # stage2 산출물(OUT_DS/SFX, 위에서 정의)은 원래 DS 를 그대로 유지 — stage1 winner 참조만 소스 기준.
+    S1_SRC_DS="$(ds_stage1_source "$DS")"
+    S1_OUT_DS="$(ds_outputs_code "$S1_SRC_DS")"
+    S1_SFX="$(ds_model_suffix "$S1_SRC_DS")"
     S1_WINNER_AVAILABLE=0
     S1_WINNER_ABS=""
     S1_WINNER_REL=""
     if [[ -n "$STAGE1_EPOCH" ]]; then
-      S1_WINNER_ABS="$(local_merged_epoch_dir stage1 "$MODEL_SHORT" "$DS" "$STAGE1_MODE" "$STAGE1_EPOCH")"
-      S1_WINNER_REL="../outputs/${OUT_DS}/merged/${MODEL_SHORT}${SFX}_stage1_${STAGE1_MODE}_world-model/epoch-${STAGE1_EPOCH}"
+      S1_WINNER_ABS="$(local_merged_epoch_dir stage1 "$MODEL_SHORT" "$S1_SRC_DS" "$STAGE1_MODE" "$STAGE1_EPOCH")"
+      S1_WINNER_REL="../outputs/${S1_OUT_DS}/merged/${MODEL_SHORT}${S1_SFX}_stage1_${STAGE1_MODE}_world-model/epoch-${STAGE1_EPOCH}"
       if [ -d "$S1_WINNER_ABS" ]; then
         S1_WINNER_AVAILABLE=1
       else
-        echo "[WARN] [$MODEL_SHORT][$DS] Missing Stage 1 merged dir: $S1_WINNER_ABS" >&2
+        echo "[WARN] [$MODEL_SHORT][$DS] Missing Stage 1 merged dir (stage1 소스 DS: ${S1_SRC_DS}): $S1_WINNER_ABS" >&2
         echo "       world-model variant 건너뜁니다. (base variant 는 계속 진행)" >&2
       fi
     else
