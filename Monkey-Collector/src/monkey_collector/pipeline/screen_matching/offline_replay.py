@@ -50,7 +50,13 @@ def _load_events(runtime_dir: str) -> list[dict]:
     """Screen-match events from ``events.jsonl``, frame order, page_key-bearing only.
 
     Non-screen-match lines (``external_app``, ``open_app`` interrupts) carry no
-    ``page_key`` and are skipped — they never reached the matcher.
+    ``page_key`` and are skipped — they never reached the matcher. An event that
+    carries the keys but with a ``null`` value is skipped for the same reason:
+    the frame was never stamped, so there is no observation directory to load.
+    Testing *presence* alone let those through and crashed ``_load_observation``
+    on ``os.path.join(..., None)`` — the same null-join-key defect already fixed
+    in ``export/converter.py``. ``observation_num == 0`` is a valid value, so the
+    check must be ``is None``, not falsiness.
     """
     path = os.path.join(runtime_dir, "events.jsonl")
     events = []
@@ -60,7 +66,7 @@ def _load_events(runtime_dir: str) -> list[dict]:
             if not line:
                 continue
             ev = json.loads(line)
-            if "page_key" not in ev:
+            if any(ev.get(k) is None for k in ("page_key", "observation_num")):
                 continue
             events.append(ev)
     events.sort(key=lambda e: e["step"])
