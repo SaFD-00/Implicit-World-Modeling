@@ -53,42 +53,42 @@ STEP_RE = re.compile(r"step_(\d+)")
 Kind = Literal["stage1", "stage2"]
 
 # (EXP01 입력 파일, 출력 파일, kind). 세 실험 공통.
-# stage1 train 은 ratio73(train_7_3) 만 미러 → EXP02 스타일 단일 train 명으로 출력.
+# stage1 train 은 ratio73 만 미러 → EXP02 스타일 단일 train 명으로 출력.
 # 나머지 test / stage2 는 EXP01 과 동일 파일명 (EXP02 와도 byte 구조 동일).
 STAGE1_JOBS: list[tuple[str, str, Kind]] = [
     (
-        "implicit-world-modeling_stage1_train_7_3.jsonl",
-        "implicit-world-modeling_stage1_train.jsonl",
+        "stage1_train_ratio73.jsonl",
+        "stage1_train.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_id_action.jsonl",
-        "implicit-world-modeling_stage1_test_id_action.jsonl",
+        "stage1_test_id_action.jsonl",
+        "stage1_test_id_action.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_id_state.jsonl",
-        "implicit-world-modeling_stage1_test_id_state.jsonl",
+        "stage1_test_id_state.jsonl",
+        "stage1_test_id_state.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_id_state_without_open_app.jsonl",
-        "implicit-world-modeling_stage1_test_id_state_without_open_app.jsonl",
+        "stage1_test_id_state_without_open_app.jsonl",
+        "stage1_test_id_state_without_open_app.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_ood_action.jsonl",
-        "implicit-world-modeling_stage1_test_ood_action.jsonl",
+        "stage1_test_ood_action.jsonl",
+        "stage1_test_ood_action.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_ood_state.jsonl",
-        "implicit-world-modeling_stage1_test_ood_state.jsonl",
+        "stage1_test_ood_state.jsonl",
+        "stage1_test_ood_state.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_ood_state_without_open_app.jsonl",
-        "implicit-world-modeling_stage1_test_ood_state_without_open_app.jsonl",
+        "stage1_test_ood_state_without_open_app.jsonl",
+        "stage1_test_ood_state_without_open_app.jsonl",
         "stage1",
     ),
 ]
@@ -96,18 +96,18 @@ STAGE1_JOBS: list[tuple[str, str, Kind]] = [
 # stage2 3-job. EXP03 에만 append (EXP04/05 는 stage2 보류).
 STAGE2_JOBS: list[tuple[str, str, Kind]] = [
     (
-        "implicit-world-modeling_stage2_train.jsonl",
-        "implicit-world-modeling_stage2_train.jsonl",
+        "stage2_train.jsonl",
+        "stage2_train.jsonl",
         "stage2",
     ),
     (
-        "implicit-world-modeling_stage2_test_id.jsonl",
-        "implicit-world-modeling_stage2_test_id.jsonl",
+        "stage2_test_id.jsonl",
+        "stage2_test_id.jsonl",
         "stage2",
     ),
     (
-        "implicit-world-modeling_stage2_test_ood.jsonl",
-        "implicit-world-modeling_stage2_test_ood.jsonl",
+        "stage2_test_ood.jsonl",
+        "stage2_test_ood.jsonl",
         "stage2",
     ),
 ]
@@ -132,27 +132,28 @@ class VariantConfig:
 VARIANTS: dict[str, VariantConfig] = {
     "exp03": VariantConfig(
         experiment="exp03",
-        action_source="implicit-world-modeling_stage1_action_xy.jsonl",
-        state_source="implicit-world-modeling_stage1_state_xy.jsonl",
-        stage2_source="implicit-world-modeling_stage2_xy.jsonl",
+        action_source="EXP03_stage1_action.jsonl",
+        state_source="EXP03_stage1_state.jsonl",
+        stage2_source="EXP03_stage2.jsonl",
         out_subdir="AndroidControl_EXP03",
         has_stage2=True,
     ),
     "exp04": VariantConfig(
         experiment="exp04",
-        action_source="implicit-world-modeling_stage1_action_xy_prompt-enhanced.jsonl",
-        state_source="implicit-world-modeling_stage1_state_xy_prompt-enhanced.jsonl",
+        action_source="EXP04_stage1_action.jsonl",
+        state_source="EXP04_stage1_state.jsonl",
         out_subdir="AndroidControl_EXP04",
         has_stage2=False,
     ),
     "exp05": VariantConfig(
         experiment="exp05",
-        action_source="implicit-world-modeling_stage1_action_xy_pixel-aligned.jsonl",
-        state_source="implicit-world-modeling_stage1_state_xy_pixel-aligned.jsonl",
+        action_source="EXP05_stage1_action.jsonl",
+        state_source="EXP05_stage1_state.jsonl",
         out_subdir="AndroidControl_EXP05",
         has_stage2=False,
         missing_source_hint=(
-            "Google Drive '0710_버젼' 폴더에서 받아 위 이름으로 배치하세요."
+            "Google Drive '0710_버젼' 폴더에서 받아 data/AndroidControl/ 에 위 이름"
+            "(EXP05_stage1_{action,state}.jsonl) 으로 배치하세요."
         ),
     ),
 }

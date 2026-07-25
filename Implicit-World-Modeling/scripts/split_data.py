@@ -8,7 +8,7 @@ source root 는 항상 ``data/AndroidControl/`` 이고, 산출물은 DS 별 OUTP
 (``data/AndroidControl_EXP01/``) 에 쓰여진다.
 
 MobiBench(MB) 는 평가 전용 벤치마크이므로 split 하지 않는다 —
-``data/MobiBench/implicit-world-modeling_stage{1,2}.jsonl`` 두 단일 파일이 eval 입력.
+``data/MobiBench/stage{1,2}.jsonl`` 두 단일 파일이 eval 입력.
 
 AC_EXP02 는 AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred diff loss 전처리본을
 별도 스크립트가 만들기 때문에 split_data.py 는 직접 지원하지 않는다.
@@ -28,11 +28,11 @@ Stage 2 (Action Prediction)
 AndroidAccessibilityForest proto 에서 전경 application window 의
 ``package_name`` 을 다수결로 집계해 생성한다.
 
-AC_EXP01 Stage 1 / Stage 2 는 항상 ``_filtered`` 입력을 사용한다
-(``implicit-world-modeling_stage1_{state,action}_filtered.jsonl`` 두 파일 +
-``implicit-world-modeling_stage2_filtered.jsonl``; mm-expanded length > cutoff_len 샘플
-사전 제거). 모든 _filtered 파일은 source root ``data/AndroidControl/`` 에 있으며,
-필터는 ``scripts/filter_long_samples.py`` 가 만든다 — 누락 시 명시적으로 에러.
+AC_EXP01 Stage 1 / Stage 2 는 항상 필터링된 EXP01 입력을 사용한다
+(``EXP01_stage1_{state,action}.jsonl`` 두 파일 + ``EXP01_stage2.jsonl``;
+mm-expanded length > cutoff_len 샘플 사전 제거). 세 파일 모두 source root
+``data/AndroidControl/`` 에 있으며, ``scripts/filter_long_samples.py`` 가 만든다
+— 누락 시 명시적으로 에러.
 Stage 2 마지막 message 의
 ``<thought>...</thought><action>{...}</action>`` 래핑은
 ``_parse_action_payload`` 로 추출한다.
@@ -439,14 +439,12 @@ def _parse_ratios(spec: str) -> list[tuple[int, int]]:
 
 
 def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
-    # AC_EXP01 는 항상 _filtered 소스만 사용 (mm-expanded length > cutoff_len 샘플
-    # 제거 후의 jsonl). 학습 시 Qwen3-VL get_rope_index 의 broadcast shape
+    # AC_EXP01 는 항상 필터링된 EXP01_* 소스만 사용 (mm-expanded length > cutoff_len
+    # 샘플 제거 후의 jsonl). 학습 시 Qwen3-VL get_rope_index 의 broadcast shape
     # mismatch 를 피하기 위함. 필터 산출은 scripts/filter_long_samples.py.
     # source_dir = data/AndroidControl/ (원본 자산), output_dir = data/AndroidControl_EXP01/.
-    state_pred_path = source_dir / "implicit-world-modeling_stage1_state_filtered.jsonl"
-    action_pred_path = (
-        source_dir / "implicit-world-modeling_stage1_action_filtered.jsonl"
-    )
+    state_pred_path = source_dir / "EXP01_stage1_state.jsonl"
+    action_pred_path = source_dir / "EXP01_stage1_action.jsonl"
     meta_path = source_dir / "episodes_meta.jsonl"
 
     for p in (state_pred_path, action_pred_path):
@@ -454,7 +452,7 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
             print(
                 f"[ERROR] AC_EXP01 source 가 없습니다: {p}\n"
                 f"        먼저 `python scripts/filter_long_samples.py --dataset AC_EXP01` 로 "
-                f"_filtered.jsonl 을 생성하세요.",
+                f"EXP01_*.jsonl 을 생성하세요.",
                 file=sys.stderr,
             )
             return 1
@@ -545,14 +543,10 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
     ap_train_pool = _disjoint(ap_id, ap_test_id)
 
     # Test 4 파일 작성 (output_dir 에 write)
-    test_id_sp_path = output_dir / "implicit-world-modeling_stage1_test_id_state.jsonl"
-    test_id_ap_path = output_dir / "implicit-world-modeling_stage1_test_id_action.jsonl"
-    test_ood_sp_path = (
-        output_dir / "implicit-world-modeling_stage1_test_ood_state.jsonl"
-    )
-    test_ood_ap_path = (
-        output_dir / "implicit-world-modeling_stage1_test_ood_action.jsonl"
-    )
+    test_id_sp_path = output_dir / "stage1_test_id_state.jsonl"
+    test_id_ap_path = output_dir / "stage1_test_id_action.jsonl"
+    test_ood_sp_path = output_dir / "stage1_test_ood_state.jsonl"
+    test_ood_ap_path = output_dir / "stage1_test_ood_action.jsonl"
     write_jsonl(sp_test_id, test_id_sp_path)
     write_jsonl(ap_test_id, test_id_ap_path)
     write_jsonl(sp_test_ood, test_ood_sp_path)
@@ -591,7 +585,7 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
         mixed = state_chunk + action_chunk
         random.Random(seed + 300 + i).shuffle(mixed)
 
-        out_path = output_dir / f"implicit-world-modeling_stage1_train_{rs}_{ra}.jsonl"
+        out_path = output_dir / f"stage1_train_ratio{rs}{ra}.jsonl"
         write_jsonl(mixed, out_path)
         print(
             f"  EXP {rs}:{ra} → {out_path.name} "
@@ -604,15 +598,15 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
 
     # ── Stage 2 (Action Prediction, ID/OOD) ─────────────────────────────
     # Stage 1 partition (id_apps/ood_apps) 을 그대로 적용해 Stage 1↔Stage 2
-    # OOD app 집합을 일치시킨다. Stage 1 과 동일하게 _filtered 입력만 사용.
-    stage2_path = source_dir / "implicit-world-modeling_stage2_filtered.jsonl"
+    # OOD app 집합을 일치시킨다. Stage 1 과 동일하게 필터링된 EXP01_* 입력만 사용.
+    stage2_path = source_dir / "EXP01_stage2.jsonl"
     if args.skip_stage2:
         print("[skip] Stage 2 split (per --skip-stage2)")
     elif not stage2_path.exists():
         print(
             f"[ERROR] AC_EXP01 Stage 2 source 가 없습니다: {stage2_path}\n"
             f"        먼저 `python scripts/filter_long_samples.py --dataset AC_EXP01` 로 "
-            f"implicit-world-modeling_stage2_filtered.jsonl 을 생성하세요.",
+            f"EXP01_stage2.jsonl 을 생성하세요.",
             file=sys.stderr,
         )
         return 1
@@ -637,9 +631,9 @@ def run_exp01_split(args, source_dir: Path, output_dir: Path) -> int:
             s2_ood, args.stage2_test_ood_size, seed + 32, type_key="action_type"
         )
 
-        s2_train_path = output_dir / "implicit-world-modeling_stage2_train.jsonl"
-        s2_test_id_path = output_dir / "implicit-world-modeling_stage2_test_id.jsonl"
-        s2_test_ood_path = output_dir / "implicit-world-modeling_stage2_test_ood.jsonl"
+        s2_train_path = output_dir / "stage2_train.jsonl"
+        s2_test_id_path = output_dir / "stage2_test_id.jsonl"
+        s2_test_ood_path = output_dir / "stage2_test_ood.jsonl"
         write_jsonl(s2_train, s2_train_path)
         write_jsonl(s2_test_id, s2_test_id_path)
         write_jsonl(s2_test_ood, s2_test_ood_path)
@@ -728,7 +722,7 @@ def main() -> int:
         type=str,
         default="7:3,3:7,5:5",
         help="AC_EXP01 EXP 비율 list (state:action), 콤마 구분. "
-        "Default '7:3,3:7,5:5' → 출력 파일명 train_7_3 / train_3_7 / train_5_5.",
+        "Default '7:3,3:7,5:5' → 출력 파일명 train_ratio73 / train_ratio37 / train_ratio55.",
     )
 
     args = parser.parse_args()
@@ -755,8 +749,8 @@ def main() -> int:
 
     # MC: source == output 인 단일 폴더 흐름 (random stage1 split).
     dataset_dir = source_dir  # alias — MC 는 source/output 가 동일.
-    stage1_path = dataset_dir / "implicit-world-modeling_stage1.jsonl"
-    stage2_path = dataset_dir / "implicit-world-modeling_stage2.jsonl"
+    stage1_path = dataset_dir / "stage1.jsonl"
+    stage2_path = dataset_dir / "stage2.jsonl"
     meta_path = dataset_dir / "episodes_meta.jsonl"
     meta_available = meta_path.exists()
 
@@ -836,9 +830,9 @@ def main() -> int:
             exclude_null_app=args.stage1_exclude_null_app,
         )
 
-        train_path = dataset_dir / "implicit-world-modeling_stage1_train.jsonl"
-        test_id_path = dataset_dir / "implicit-world-modeling_stage1_test_id.jsonl"
-        test_ood_path = dataset_dir / "implicit-world-modeling_stage1_test_ood.jsonl"
+        train_path = dataset_dir / "stage1_train.jsonl"
+        test_id_path = dataset_dir / "stage1_test_id.jsonl"
+        test_ood_path = dataset_dir / "stage1_test_ood.jsonl"
         write_jsonl(train, train_path)
         write_jsonl(test_id, test_id_path)
         write_jsonl(test_ood, test_ood_path)
@@ -857,8 +851,8 @@ def main() -> int:
     else:  # random
         stage1_entries = load_jsonl(stage1_path)
         train, test = split_stage1_random(stage1_entries, args.stage1_ratio, args.seed)
-        train_path = dataset_dir / "implicit-world-modeling_stage1_train.jsonl"
-        test_path = dataset_dir / "implicit-world-modeling_stage1_test.jsonl"
+        train_path = dataset_dir / "stage1_train.jsonl"
+        test_path = dataset_dir / "stage1_test.jsonl"
         write_jsonl(train, train_path)
         write_jsonl(test, test_path)
         print("=== Stage 1 (World Modeling, random) ===")
@@ -885,9 +879,9 @@ def main() -> int:
             exclude_null_app=args.stage2_exclude_null_app,
         )
 
-        train_path = dataset_dir / "implicit-world-modeling_stage2_train.jsonl"
-        test_id_path = dataset_dir / "implicit-world-modeling_stage2_test_id.jsonl"
-        test_ood_path = dataset_dir / "implicit-world-modeling_stage2_test_ood.jsonl"
+        train_path = dataset_dir / "stage2_train.jsonl"
+        test_id_path = dataset_dir / "stage2_test_id.jsonl"
+        test_ood_path = dataset_dir / "stage2_test_ood.jsonl"
         write_jsonl(train, train_path)
         write_jsonl(test_id, test_id_path)
         write_jsonl(test_ood, test_ood_path)

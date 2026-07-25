@@ -12,7 +12,7 @@
 # EVAL_DS 별 섹션 구성:
 #   AC_EXP01 / AC_EXP02 : test_id + test_ood 2-회 inference → action_metrics.json
 #        (overall / in_domain / out_of_domain 3-섹션)
-#   MB : 단일 파일 implicit-world-modeling_stage2.jsonl 1-회 inference → action_metrics.json
+#   MB : 단일 파일 stage2.jsonl 1-회 inference → action_metrics.json
 #        (overall 1-섹션, single-pair 모드)
 #
 # Flags (공통은 _common.sh::parse_eval_args 참고):
@@ -46,7 +46,7 @@ TRAIN_DS="$TRAIN_DATASET"
 case "$TRAIN_DS" in
   # AC_EXP04 stage2 보류 — 데이터/등록 키 없음 (현재 *) 분기로 거부). 도입 시 case + 아래 에러문에 AC_EXP04 포함.
   # AC_EXP05 = xy 통일 액션 스페이스 실험군 — action 채점 시 --coord-mode xy (run_variant_epoch_eval_on 참조).
-  AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02|AC_EXP03|AC_EXP05|AC_EXP06) ;;
+  AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02|AC_EXP03|AC_EXP05|AC_EXP06|AC_EXP07) ;;
   MC)
     echo "[!] Stage 2 는 MonkeyCollection(MC) 학습 데이터를 갖지 않습니다 (got '$TRAIN_DS')." >&2
     echo "    --train-dataset 는 AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP05 만 사용하세요." >&2
@@ -79,13 +79,13 @@ run_variant_epoch_eval_on() {
   # AC_EXP05 는 xy 통일 액션 스페이스라 action 채점 모드가 다르다 (stage1_eval 과 동일).
   # 나머지 EXP 는 플래그 없이 기존 index 채점 경로 그대로.
   local action_mode_flag=""
-  if [[ "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP06" ]]; then
+  if [[ "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP06" || "$eval_ds" == "AC_EXP07" ]]; then
     action_mode_flag="--coord-mode xy"
   fi
 
   # Single-test 데이터셋 (overall only): MB.
   if [[ "$eval_ds" == "MB" ]]; then
-    local test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2.jsonl"
+    local test_jsonl="$BASE_DIR/data/${datadir}/stage2.jsonl"
     local ds_test="${eval_prefix}_stage2"
     if [ ! -f "$test_jsonl" ]; then
       echo "[!] [$model_short][train=$train_ds][eval=$eval_ds] Missing test file: $test_jsonl" >&2
@@ -104,10 +104,13 @@ run_variant_epoch_eval_on() {
           --test   '$test_jsonl' \
           --pred   '$out_dir/generated_predictions.jsonl' \
           $action_mode_flag \
-          --output '$out_dir/action_metrics.json'"
+          --output '$out_dir/action_metrics.json' && \
+        python '$BASE_DIR/scripts/thought_eval.py' \
+          --pred   '$out_dir/generated_predictions.jsonl' \
+          --output '$out_dir/thought_metrics.json'"
   else
-    local test_id="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2_test_id.jsonl"
-    local test_ood="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage2_test_ood.jsonl"
+    local test_id="$BASE_DIR/data/${datadir}/stage2_test_id.jsonl"
+    local test_ood="$BASE_DIR/data/${datadir}/stage2_test_ood.jsonl"
     if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
       echo "[!] [$model_short][train=$train_ds][eval=$eval_ds] Missing test_id/test_ood jsonl:" >&2
       echo "      $test_id" >&2
@@ -138,7 +141,11 @@ run_variant_epoch_eval_on() {
           --test-ood '$test_ood' \
           --pred-ood '$out_dir/generated_predictions_ood.jsonl' \
           $action_mode_flag \
-          --output   '$out_dir/action_metrics.json'"
+          --output   '$out_dir/action_metrics.json' && \
+        python '$BASE_DIR/scripts/thought_eval.py' \
+          --pred-id  '$out_dir/generated_predictions_id.jsonl' \
+          --pred-ood '$out_dir/generated_predictions_ood.jsonl' \
+          --output   '$out_dir/thought_metrics.json'"
   fi
 }
 
@@ -199,6 +206,31 @@ for MODEL_SHORT in "${MODELS[@]}"; do
               "$STAGE1_MODE" "$STAGE1_EPOCH" "$MODE2" "$EPOCH")
           fi
           OUT_REL_BASE="${EVAL_DIR_REL}/${VARIANT_PATH}_from_${STAGE1_MODE}-ep${STAGE1_EPOCH}/epoch-${EPOCH}"
+          for EVAL_DS in "${EVAL_DATASETS[@]}"; do
+            run_variant_epoch_eval_on "$MODEL_SHORT" "$TRAIN_DS" "$VARIANT" "$EPOCH" "$HUB_ID" \
+              "$OUT_REL_BASE" "$TEMPLATE" "$EVAL_DS"
+          done
+        done
+        ;;
+
+      lora_world_model_adapter)
+        # merge X 계보: stage1 LoRA 어댑터를 병합하지 않고 이어학습한 stage2 (mode2=lora 고정).
+        # EXP07 한정 opt-in variant (기본 sweep 미포함, --variants 로 명시할 때만 진입).
+        if [[ -z "$STAGE1_EPOCH" ]]; then
+          echo "[!] [$MODEL_SHORT][train=$TRAIN_DS][$VARIANT] --stage1-epoch 필수." >&2
+          exit 2
+        fi
+        MODE2="lora"
+        echo "[+] [$MODEL_SHORT][train=$TRAIN_DS][$VARIANT] stage1=${STAGE1_MODE}ep${STAGE1_EPOCH} (merge X) stage2 epochs: ${EPOCHS[*]}" >&2
+        for EPOCH in "${EPOCHS[@]}"; do
+          if [[ "$EPOCH" == "0" ]]; then
+            # epoch-0 = stage2 미학습 = stage1 어댑터 자체 (merge O 의 epoch-0 과 동일 모델).
+            HUB_ID=$(resolve_eval_model_path stage1 "$MODEL_SHORT" "$(ds_stage1_source "$TRAIN_DS")" "$STAGE1_MODE" "$STAGE1_EPOCH")
+          else
+            HUB_ID=$(resolve_eval_model_path stage2_world_adapter "$MODEL_SHORT" "$TRAIN_DS" \
+              "$STAGE1_MODE" "$STAGE1_EPOCH" "$MODE2" "$EPOCH")
+          fi
+          OUT_REL_BASE="${EVAL_DIR_REL}/lora_world-model_from_adapter-ep${STAGE1_EPOCH}/epoch-${EPOCH}"
           for EVAL_DS in "${EVAL_DATASETS[@]}"; do
             run_variant_epoch_eval_on "$MODEL_SHORT" "$TRAIN_DS" "$VARIANT" "$EPOCH" "$HUB_ID" \
               "$OUT_REL_BASE" "$TEMPLATE" "$EVAL_DS"

@@ -17,22 +17,22 @@ Examples
 --------
   # 1. Single-pair (MC / MB) — overall 만 기록
   python scripts/_hungarian_eval.py score \\
-      --test  data/MonkeyCollection/implicit-world-modeling_stage1_test.jsonl \\
+      --test  data/MonkeyCollection/stage1_test.jsonl \\
       --pred  .../generated_predictions.jsonl \\
       --output .../hungarian_metrics.json
 
   # 2. ID + OOD 동시 입력 (AC) — overall/in_domain/out_of_domain 3 섹션
   python scripts/_hungarian_eval.py score \\
-      --test-id   data/AndroidControl/implicit-world-modeling_stage1_test_id.jsonl \\
+      --test-id   data/AndroidControl_EXP01/stage1_test_id_state.jsonl \\
       --pred-id   .../generated_predictions_id.jsonl \\
-      --test-ood  data/AndroidControl/implicit-world-modeling_stage1_test_ood.jsonl \\
+      --test-ood  data/AndroidControl_EXP01/stage1_test_ood_state.jsonl \\
       --pred-ood  .../generated_predictions_ood.jsonl \\
       --output    .../hungarian_metrics.json
 
   # 3. 필터 산출 (open_app 행 제외) — 정규 eval 산출물을 재활용해 sibling 디렉토리에
   #    필터 jsonl + hungarian_metrics + predict_results 를 idempotent 저장
   python scripts/_hungarian_eval.py score \\
-      --test  data/MobiBench/implicit-world-modeling_stage1.jsonl \\
+      --test  data/MobiBench/stage1.jsonl \\
       --pred  on-MB/generated_predictions.jsonl \\
       --exclude-action open_app \\
       --filtered-test-dir data/MobiBench \\
@@ -394,7 +394,7 @@ def _load_jsonl(path):
 def evaluate_pairs(gt_entries, pred_entries, match_mode="index"):
     """Pair-level Hungarian/BLEU/ROUGE 집계. ID/OOD 합산용으로 entries 리스트를 직접 받음."""
     results = []
-    for gt_entry, pred_entry in zip(gt_entries, pred_entries):
+    for gt_entry, pred_entry in zip(gt_entries, pred_entries, strict=False):
         gt_text = gt_entry["messages"][-1]["value"]
         pred_text = pred_entry.get("predict", pred_entry.get("output", ""))
         results.append(
@@ -410,10 +410,13 @@ def evaluate_pairs(gt_entries, pred_entries, match_mode="index"):
 
     pos_key = "hungarian_pos" if match_mode == "pos" else "hungarian_idx"
     total = len(results)
-    avg = lambda key: sum(r[key] for r in results) / total if total else 0.0
-    hung_avg = lambda key: (
-        sum(r["hungarian"][key] for r in results) / total if total else 0.0
-    )
+
+    def avg(key):
+        return sum(r[key] for r in results) / total if total else 0.0
+
+    def hung_avg(key):
+        return sum(r["hungarian"][key] for r in results) / total if total else 0.0
+
     return {
         "total": total,
         "avg_bleu": round(avg("bleu"), 4),
@@ -467,8 +470,8 @@ def _write_jsonl_idempotent(records, path):
 
 
 def _filtered_test_name(src_path, exclude_action):
-    """data/MobiBench/implicit-world-modeling_stage1.jsonl + open_app
-    → implicit-world-modeling_stage1_without_open_app.jsonl"""
+    """data/MobiBench/stage1.jsonl + open_app
+    → stage1_without_open_app.jsonl"""
     p = Path(src_path)
     return f"{p.stem}_without_{exclude_action}{p.suffix}"
 

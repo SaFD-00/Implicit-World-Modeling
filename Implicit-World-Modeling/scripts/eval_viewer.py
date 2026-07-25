@@ -91,7 +91,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-state-id": {
             "dir": f"{actual}-state",
             "pred": "generated_predictions_id.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_id_state.jsonl",
+            "test": data / "stage1_test_id_state.jsonl",
             "metric_files": [
                 ("predict_results_id.json", None),
                 ("hungarian_metrics.json", "in_domain"),
@@ -101,7 +101,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-state-ood": {
             "dir": f"{actual}-state",
             "pred": "generated_predictions_ood.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_ood_state.jsonl",
+            "test": data / "stage1_test_ood_state.jsonl",
             "metric_files": [
                 ("predict_results_ood.json", None),
                 ("hungarian_metrics.json", "out_of_domain"),
@@ -111,8 +111,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-state-id-without-open_app": {
             "dir": f"{actual}-state-without-open_app",
             "pred": "generated_predictions_id.jsonl",
-            "test": data
-            / "implicit-world-modeling_stage1_test_id_state_without_open_app.jsonl",
+            "test": data / "stage1_test_id_state_without_open_app.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "in_domain"),
@@ -122,8 +121,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-state-ood-without-open_app": {
             "dir": f"{actual}-state-without-open_app",
             "pred": "generated_predictions_ood.jsonl",
-            "test": data
-            / "implicit-world-modeling_stage1_test_ood_state_without_open_app.jsonl",
+            "test": data / "stage1_test_ood_state_without_open_app.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "out_of_domain"),
@@ -133,7 +131,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-action-id": {
             "dir": f"{actual}-action",
             "pred": "generated_predictions_id.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_id_action.jsonl",
+            "test": data / "stage1_test_id_action.jsonl",
             "metric_files": [
                 ("predict_results_id.json", None),
                 ("action_metrics.json", "in_domain"),
@@ -143,7 +141,7 @@ def _ac_stage1_entries(exp: str) -> dict:
         "on-AC-action-ood": {
             "dir": f"{actual}-action",
             "pred": "generated_predictions_ood.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test_ood_action.jsonl",
+            "test": data / "stage1_test_ood_action.jsonl",
             "metric_files": [
                 ("predict_results_ood.json", None),
                 ("action_metrics.json", "out_of_domain"),
@@ -159,7 +157,7 @@ def _mb_stage1_entries() -> dict:
         "on-MB": {
             "dir": "on-MB",
             "pred": "generated_predictions.jsonl",
-            "test": data / "implicit-world-modeling_stage1.jsonl",
+            "test": data / "stage1.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", None),  # single-pair: top-level flat
@@ -170,7 +168,7 @@ def _mb_stage1_entries() -> dict:
         "on-MB-without-open_app": {
             "dir": "on-MB-without-open_app",
             "pred": "generated_predictions.jsonl",
-            "test": data / "implicit-world-modeling_stage1_without_open_app.jsonl",
+            "test": data / "stage1_without_open_app.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", None),
@@ -187,7 +185,7 @@ def _mc_stage1_entries() -> dict:
         "on-MC": {
             "dir": "on-MC",
             "pred": "generated_predictions.jsonl",
-            "test": data / "implicit-world-modeling_stage1_test.jsonl",
+            "test": data / "stage1_test.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", None),
@@ -207,7 +205,7 @@ def _ac_stage2_entries(exp: str) -> dict:
         "on-AC-id": {
             "dir": actual,
             "pred": "generated_predictions_id.jsonl",
-            "test": data / "implicit-world-modeling_stage2_test_id.jsonl",
+            "test": data / "stage2_test_id.jsonl",
             "metric_files": [
                 ("predict_results_id.json", None),
                 ("action_metrics.json", "in_domain"),
@@ -217,7 +215,7 @@ def _ac_stage2_entries(exp: str) -> dict:
         "on-AC-ood": {
             "dir": actual,
             "pred": "generated_predictions_ood.jsonl",
-            "test": data / "implicit-world-modeling_stage2_test_ood.jsonl",
+            "test": data / "stage2_test_ood.jsonl",
             "metric_files": [
                 ("predict_results_ood.json", None),
                 ("action_metrics.json", "out_of_domain"),
@@ -233,7 +231,7 @@ def _mb_stage2_entries() -> dict:
         "on-MB": {
             "dir": "on-MB",
             "pred": "generated_predictions.jsonl",
-            "test": data / "implicit-world-modeling_stage2.jsonl",
+            "test": data / "stage2.jsonl",
             "metric_files": [
                 ("predict_results.json", None),
                 ("action_metrics.json", None),
@@ -464,7 +462,6 @@ def build_dataset(
     # predictions 적재. 첫 spec 의 entry 의 test 파일이 있으면 anchor 로 사용.
     pred_lists: dict[str, list[dict]] = {}
     metrics_by_label: dict[str, dict] = {}
-    anchor_label: str | None = None
     anchor_test: Path | None = None
 
     for exp, model, vpath, entry, eval_root in spec_variants:
@@ -477,7 +474,6 @@ def build_dataset(
             tp = entry.get("test")
             if tp is not None and Path(tp).is_file():
                 anchor_test = Path(tp)
-                anchor_label = label
 
     # 행 수 일관성 검증 — 모든 prediction 의 row 수가 같아야 같은 인덱스로 정렬됨.
     lengths = {label: len(recs) for label, recs in pred_lists.items()}

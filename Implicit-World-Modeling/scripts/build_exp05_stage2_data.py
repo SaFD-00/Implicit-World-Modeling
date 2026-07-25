@@ -46,18 +46,20 @@ DEFAULT_SRC = Path(
 )
 DEFAULT_DATA_ROOT = PROJ / "data"
 
-# drive 원본명 → 정본 산출명 매핑 (레코드 수는 fail-closed 검증에서 대조)
+# drive 원본명 → 정본 산출명 매핑 (레코드 수는 fail-closed 검증에서 대조).
+# 2026-07-25 명명규칙 통일 이후 양쪽 이름이 일치해 identity 가 됐지만, drive 원본명이
+# 바뀌어도 산출명이 흔들리지 않도록 매핑 자체는 유지한다.
 FILE_MAP = {
-    "stage2_train.jsonl": "implicit-world-modeling_stage2_train.jsonl",
-    "stage2_test_id.jsonl": "implicit-world-modeling_stage2_test_id.jsonl",
-    "stage2_test_ood.jsonl": "implicit-world-modeling_stage2_test_ood.jsonl",
+    "stage2_train.jsonl": "stage2_train.jsonl",
+    "stage2_test_id.jsonl": "stage2_test_id.jsonl",
+    "stage2_test_ood.jsonl": "stage2_test_ood.jsonl",
 }
 EXPECTED_COUNTS = {
-    "implicit-world-modeling_stage2_train.jsonl": 15000,
-    "implicit-world-modeling_stage2_test_id.jsonl": 3000,
-    "implicit-world-modeling_stage2_test_ood.jsonl": 3000,
+    "stage2_train.jsonl": 15000,
+    "stage2_test_id.jsonl": 3000,
+    "stage2_test_ood.jsonl": 3000,
 }
-TRAIN_OUT = "implicit-world-modeling_stage2_train.jsonl"
+TRAIN_OUT = "stage2_train.jsonl"
 
 OUT_SUBDIR = "AndroidControl_EXP05"
 IMG_SUBDIR = "AndroidControl/images"
@@ -105,7 +107,10 @@ def convert_file(src_path: Path, dst_path: Path) -> int:
     """
     n = 0
     dst_path.parent.mkdir(parents=True, exist_ok=True)
-    with src_path.open(encoding="utf-8") as fin, dst_path.open("w", encoding="utf-8") as fout:
+    with (
+        src_path.open(encoding="utf-8") as fin,
+        dst_path.open("w", encoding="utf-8") as fout,
+    ):
         for lineno, line in enumerate(fin, 1):
             if not line.strip():
                 continue
@@ -117,7 +122,9 @@ def convert_file(src_path: Path, dst_path: Path) -> int:
                     "(stage2 는 messages+images 만 허용)"
                 )
             if "token_weights" in rec:  # stage2 무가중 계약 방어
-                raise SystemExit(f"[ERROR] {src_path.name}:{lineno} token_weights 존재 — stage2 금지")
+                raise SystemExit(
+                    f"[ERROR] {src_path.name}:{lineno} token_weights 존재 — stage2 금지"
+                )
 
             new_line = line
             for old_ref in rec["images"]:
@@ -188,16 +195,18 @@ def verify_outputs(
     try:
         with Image.open(home_dst) as im:
             if im.mode != "RGB" or im.format != "JPEG":
-                problems.append(f"(e) home.jpg mode={im.mode} format={im.format} (RGB/JPEG 아님)")
+                problems.append(
+                    f"(e) home.jpg mode={im.mode} format={im.format} (RGB/JPEG 아님)"
+                )
     except Exception as e:  # noqa: BLE001
         problems.append(f"(e) home.jpg PIL open 실패: {e}")
 
     print("\n── fail-closed 검증 ─────────────────────────────────────")
     print(f"  (a) 레코드 수: {[EXPECTED_COUNTS[k] for k in EXPECTED_COUNTS]} 대조")
-    print(f"  (b) myset 잔존: 0")
+    print("  (b) myset 잔존: 0")
     print(f"  (c) 고유 이미지 경로 {len(all_paths)}건 전량 resolve (home 포함), 누락 0")
-    print(f"  (d) <image> 토큰 수 == len(images)")
-    print(f"  (e) home.jpg = RGB JPEG")
+    print("  (d) <image> 토큰 수 == len(images)")
+    print("  (e) home.jpg = RGB JPEG")
     if problems:
         print("\n  [FAIL] 검증 위반:")
         for p in problems:
@@ -210,9 +219,18 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description="AC_EXP05 stage2 데이터 빌드 (경로 변환 + home.jpg 주입, 무가중)"
     )
-    p.add_argument("--src", type=Path, default=DEFAULT_SRC, help="drive-download 원천 디렉토리")
-    p.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT, help="data 루트 (기본: repo/data)")
-    p.add_argument("--quality", type=int, default=95, help="home.jpg JPEG 품질 (기본 95)")
+    p.add_argument(
+        "--src", type=Path, default=DEFAULT_SRC, help="drive-download 원천 디렉토리"
+    )
+    p.add_argument(
+        "--data-root",
+        type=Path,
+        default=DEFAULT_DATA_ROOT,
+        help="data 루트 (기본: repo/data)",
+    )
+    p.add_argument(
+        "--quality", type=int, default=95, help="home.jpg JPEG 품질 (기본 95)"
+    )
     args = p.parse_args(argv)
 
     src: Path = args.src
@@ -252,7 +270,9 @@ def main(argv: list[str] | None = None) -> int:
         "home_jpg_sha256": sha256_of(home_dst),
     }
     meta_path = out_dir / (TRAIN_OUT + ".meta.json")
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    meta_path.write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     print(f"[meta] {meta_path}")
 
     print(f"\nDone. → {out_dir}")

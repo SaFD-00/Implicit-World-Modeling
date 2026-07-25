@@ -17,15 +17,15 @@ Examples
 --------
   # 1. 기본 (단일 pair) — overall 만 기록
   python scripts/_action_eval.py score \\
-      --test   data/AndroidControl/implicit-world-modeling_stage2_test_id.jsonl \\
+      --test   data/AndroidControl_EXP01/stage2_test_id.jsonl \\
       --pred   .../epoch-1/generated_predictions_id.jsonl \\
       --output .../epoch-1/action_metrics.json
 
   # 2. ID + OOD 동시 입력 — overall/in_domain/out_of_domain 3 섹션
   python scripts/_action_eval.py score \\
-      --test-id   data/AndroidControl/implicit-world-modeling_stage2_test_id.jsonl \\
+      --test-id   data/AndroidControl_EXP01/stage2_test_id.jsonl \\
       --pred-id   .../epoch-1/generated_predictions_id.jsonl \\
-      --test-ood  data/AndroidControl/implicit-world-modeling_stage2_test_ood.jsonl \\
+      --test-ood  data/AndroidControl_EXP01/stage2_test_ood.jsonl \\
       --pred-ood  .../epoch-1/generated_predictions_ood.jsonl \\
       --output    .../epoch-1/action_metrics.json
 
@@ -408,7 +408,7 @@ def evaluate_pairs(gt_entries, pred_entries, coord_mode="index"):
     type_correct = 0
     step_correct = 0
 
-    for gt_entry, pred_entry in zip(gt_entries, pred_entries):
+    for gt_entry, pred_entry in zip(gt_entries, pred_entries, strict=False):
         gt_action = parse_action(gt_entry["messages"][-1]["value"])
         pred_text = pred_entry.get("predict", pred_entry.get("output", ""))
         pred_action = parse_action(pred_text)
@@ -499,7 +499,7 @@ def _evaluate_pairs_xy(gt_entries, pred_entries):
     total = parsed = type_correct = step_correct = no_bbox_n = 0
     coord_samples = []
 
-    for gt_entry, pred_entry in zip(gt_entries, pred_entries):
+    for gt_entry, pred_entry in zip(gt_entries, pred_entries, strict=False):
         gt_action = parse_action(gt_entry["messages"][-1]["value"])
         pred_text = pred_entry.get("predict", pred_entry.get("output", ""))
         pred_action = parse_action(pred_text)

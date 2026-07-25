@@ -48,7 +48,7 @@ W_UNCHANGED = 0.25
 METRIC_VERSION = "v2"
 DEFAULT_MODEL = "Qwen/Qwen2.5-VL-3B-Instruct"
 
-TRAIN_NAME = "implicit-world-modeling_stage1_train.jsonl"
+TRAIN_NAME = "stage1_train.jsonl"
 
 
 def run_mirror(data_root: Path) -> None:
@@ -123,7 +123,9 @@ def verify(train_path: Path) -> int:
     print("\n── 검증 ──────────────────────────────────────────────")
     print(f"  총 {n} 행 = state {n_state} + action {n_action}")
     if state_tok:
-        print(f"  state 출력 토큰 중 {W_UNCHANGED}배 감쇠 비율: {state_low / state_tok:.1%}")
+        print(
+            f"  state 출력 토큰 중 {W_UNCHANGED}배 감쇠 비율: {state_low / state_tok:.1%}"
+        )
     if bad:
         print(f"  [FAIL] 계약 위반 {len(bad)}건")
         for b in bad[:10]:
@@ -134,14 +136,18 @@ def verify(train_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="AC_EXP05 학습 데이터 빌드 (mirror + diff loss v2)")
+    p = argparse.ArgumentParser(
+        description="AC_EXP05 학습 데이터 빌드 (mirror + diff loss v2)"
+    )
     p.add_argument(
         "--data-root",
         type=Path,
         default=SCRIPTS.parent / "data",
         help="data 루트 (기본: repo/data)",
     )
-    p.add_argument("--model", default=DEFAULT_MODEL, help=f"tokenizer (기본: {DEFAULT_MODEL})")
+    p.add_argument(
+        "--model", default=DEFAULT_MODEL, help=f"tokenizer (기본: {DEFAULT_MODEL})"
+    )
     p.add_argument("--revision", default=None, help="tokenizer commit SHA 고정")
     p.add_argument("--skip-mirror", action="store_true", help="mirror 를 건너뛴다")
     p.add_argument(

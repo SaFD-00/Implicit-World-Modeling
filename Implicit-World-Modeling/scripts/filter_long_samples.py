@@ -16,7 +16,8 @@ Qwen3-VL ``get_rope_index`` 는 ``cutoff_len`` 으로 input_ids 가 잘리기 *�
 대상 (필터): AC_EXP01 / AC_EXP02 (원본 ``data/AndroidControl/``) Stage 1 두 source
 (``implicit-world-modeling_stage1_{state,action}.jsonl``) + Stage 2 source
 (``implicit-world-modeling_stage2.jsonl``).
-출력: 같은 디렉토리 (``data/AndroidControl/``) 에 ``*_filtered.jsonl`` (3 파일).
+출력: 같은 디렉토리 (``data/AndroidControl/``) 에 ``EXP01_stage1_{state,action}.jsonl``
++ ``EXP01_stage2.jsonl`` (3 파일) — 이 필터 산출물의 유일한 소비자가 EXP01 계보다.
 
 대상 (측정, ``--report-only``): AC_EXP03 (좌표 미러 ``data/AndroidControl_EXP03/``) train
 산출물. EXP03 는 무손실 정책상 필터링하지 않고, 선택한 ``cutoff_len`` 이 전 샘플을
@@ -49,7 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from split_data import load_jsonl, write_jsonl  # noqa: E402
 
 # AC_EXP01 / AC_EXP02 의 source 자산은 모두 원본 폴더 data/AndroidControl/ 에 있다
-# (split_data.py 와 동일한 source 분리 정책). _filtered.jsonl 산출물도 같은 폴더에 쓴다.
+# (split_data.py 와 동일한 source 분리 정책). 필터 산출물도 같은 폴더에 쓴다.
 # AC_EXP03 (좌표 미러) 는 산출물 폴더 data/AndroidControl_EXP03/ 를 가리키며,
 # 무손실 정책상 필터링이 아니라 --report-only 측정 (cutoff_len 이 전 샘플을 덮는지 확인) 용도다.
 DATASET_TO_DIR = {
@@ -65,26 +66,29 @@ DATASET_TO_DIR = {
     "AndroidControl_EXP05": "AndroidControl_EXP05",
 }
 
-# 데이터셋 디렉토리별 측정/필터 대상 source 목록.
-# AndroidControl: AC_EXP01/02 의 원본 3 종 (필터 → _filtered).
+# 데이터셋 디렉토리별 측정/필터 대상 (source 파일명, 필터 산출 파일명).
+# 산출명은 source stem 에서 파생하지 않고 명시한다 — AndroidControl/ 의 필터 산출물은
+# EXP01 계보 전용이라 `EXP01_` 접두를 쓰고, source 원본 3 종과 이름이 무관하다.
+# AndroidControl: AC_EXP01/02 의 원본 3 종 (필터 → EXP01_*).
 # AndroidControl_EXP03: 좌표 미러 train 산출물 2 종 (측정 전용 — 10%/크래시 통계의 출처).
 # AndroidControl_EXP04: 프롬프트 업그레이드 미러 train 1 종 (stage1 전용, 측정용; Stage 2 보류).
 # AndroidControl_EXP05: 절대 픽셀(840×1876, budget 1605632) 미러 train 1 종 (Qwen2.5-VL 전용, stage1 측정용; Stage 2 보류).
-SOURCES_BY_DIR = {
+# 측정 전용 항목의 산출명은 실제로 쓰이지 않는다 (로그 표기용).
+SOURCES_BY_DIR: dict[str, list[tuple[str, str]]] = {
     "AndroidControl": [
-        "implicit-world-modeling_stage1_state.jsonl",
-        "implicit-world-modeling_stage1_action.jsonl",
-        "implicit-world-modeling_stage2.jsonl",
+        ("implicit-world-modeling_stage1_state.jsonl", "EXP01_stage1_state.jsonl"),
+        ("implicit-world-modeling_stage1_action.jsonl", "EXP01_stage1_action.jsonl"),
+        ("implicit-world-modeling_stage2.jsonl", "EXP01_stage2.jsonl"),
     ],
     "AndroidControl_EXP03": [
-        "implicit-world-modeling_stage1_train.jsonl",
-        "implicit-world-modeling_stage2_train.jsonl",
+        ("stage1_train.jsonl", "stage1_train_filtered.jsonl"),
+        ("stage2_train.jsonl", "stage2_train_filtered.jsonl"),
     ],
     "AndroidControl_EXP04": [
-        "implicit-world-modeling_stage1_train.jsonl",
+        ("stage1_train.jsonl", "stage1_train_filtered.jsonl"),
     ],
     "AndroidControl_EXP05": [
-        "implicit-world-modeling_stage1_train.jsonl",
+        ("stage1_train.jsonl", "stage1_train_filtered.jsonl"),
     ],
 }
 
@@ -249,7 +253,7 @@ def filter_jsonl(
         else:
             kept.append(entry)
 
-    # report-only 모드는 측정만 — _filtered 산출물을 쓰지 않는다 (무손실 정책).
+    # report-only 모드는 측정만 — 필터 산출물을 쓰지 않는다 (무손실 정책).
     if not report_only:
         write_jsonl(kept, dst)
 
@@ -305,12 +309,12 @@ def main() -> int:
     parser.add_argument(
         "--skip-existing",
         action="store_true",
-        help="대응하는 _filtered.jsonl 이 이미 있으면 그 source 를 처리하지 않음.",
+        help="대응하는 필터 산출물이 이미 있으면 그 source 를 처리하지 않음.",
     )
     parser.add_argument(
         "--report-only",
         action="store_true",
-        help="길이 분포만 측정/출력하고 _filtered.jsonl 은 쓰지 않음 "
+        help="길이 분포만 측정/출력하고 필터 산출물은 쓰지 않음 "
         "(AC_EXP03 무손실 검증용: threshold 가 전 샘플을 덮는지 확인).",
     )
     args = parser.parse_args()
@@ -324,22 +328,24 @@ def main() -> int:
         print(f"[ERROR] dataset dir not found: {ds_dir}", file=sys.stderr)
         return 1
 
-    sources = [ds_dir / name for name in SOURCES_BY_DIR[DATASET_TO_DIR[args.dataset]]]
-    for p in sources:
+    sources = [
+        (ds_dir / src_name, ds_dir / dst_name)
+        for src_name, dst_name in SOURCES_BY_DIR[DATASET_TO_DIR[args.dataset]]
+    ]
+    for p, _dst in sources:
         if not p.exists():
             print(f"[ERROR] source not found: {p}", file=sys.stderr)
             return 1
 
-    pending: list[Path] = []
-    for src in sources:
-        dst = src.with_name(src.stem + "_filtered" + src.suffix)
-        # report-only 는 산출물을 쓰지 않으므로 _filtered 존재 여부로 skip 하지 않는다.
+    pending: list[tuple[Path, Path]] = []
+    for src, dst in sources:
+        # report-only 는 산출물을 쓰지 않으므로 산출물 존재 여부로 skip 하지 않는다.
         if args.skip_existing and not args.report_only and dst.exists():
             print(f"[skip] {dst.name} already exists (--skip-existing).")
             continue
-        pending.append(src)
+        pending.append((src, dst))
     if not pending:
-        print("[done] 모든 source 의 _filtered.jsonl 이 이미 존재합니다.")
+        print("[done] 모든 source 의 필터 산출물이 이미 존재합니다.")
         return 0
 
     print(f"Dataset: {args.dataset} ({ds_dir})")
@@ -356,11 +362,10 @@ def main() -> int:
     )
 
     if args.report_only:
-        print("[report-only] 측정만 수행 — _filtered.jsonl 을 쓰지 않습니다.")
+        print("[report-only] 측정만 수행 — 필터 산출물을 쓰지 않습니다.")
     print()
     summaries: list[dict] = []
-    for src in pending:
-        dst = src.with_name(src.stem + "_filtered" + src.suffix)
+    for src, dst in pending:
         label = "report" if args.report_only else "filter"
         arrow = "(측정)" if args.report_only else f"→ {dst.name}"
         print(f"[{label}] {src.name} {arrow}", flush=True)

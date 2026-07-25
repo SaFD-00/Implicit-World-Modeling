@@ -16,9 +16,9 @@
 #   --epochs LIST        콤마 구분 정수 (기본 1,2,3). world-model variant 대상.
 #
 # EVAL_DS 별 분기 (Stage 2 와 동일 패턴):
-#   MC       : 단일 파일 implicit-world-modeling_stage1_test.jsonl 1-회 (random split 산출물)
+#   MC       : 단일 파일 stage1_test.jsonl 1-회 (random split 산출물)
 #              → hungarian_metrics.json (overall 1-섹션, single-pair)
-#   MB       : 단일 파일 implicit-world-modeling_stage1.jsonl 1-회 (벤치마크 단일 파일)
+#   MB       : 단일 파일 stage1.jsonl 1-회 (벤치마크 단일 파일)
 #              → hungarian_metrics.json (overall 1-섹션, single-pair)
 #   AC_EXP01 / AC_EXP02 : task 별 독립 평가 (state_pred + action_pred). 각 task 는 id/ood 2-section.
 #              on-{DS}-state/  ← _hungarian_eval.py score (Stage1 채점, state transition)
@@ -68,7 +68,7 @@ run_exp01_eval() {
   # AC_EXP05 는 xy 통일 액션 스페이스 + index 속성 없는 HTML 이라 채점 모드가 다르다.
   # 나머지 EXP 는 플래그를 붙이지 않아 기존 채점 경로 그대로.
   local state_mode_flag="" action_mode_flag=""
-  if [[ "$eval_ds" == "AC_EXP05" ]]; then
+  if [[ "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP07" ]]; then
     state_mode_flag="--match-mode pos"
     action_mode_flag="--coord-mode xy"
   fi
@@ -97,8 +97,8 @@ run_exp01_eval() {
       continue
     fi
 
-    local test_id="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_id_${task}.jsonl"
-    local test_ood="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test_ood_${task}.jsonl"
+    local test_id="$BASE_DIR/data/${datadir}/stage1_test_id_${task}.jsonl"
+    local test_ood="$BASE_DIR/data/${datadir}/stage1_test_ood_${task}.jsonl"
     if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
       echo "[!] [$model_short][train=$train_ds][eval=${eval_ds}-${task}] Missing test jsonl:" >&2
       echo "      $test_id" >&2
@@ -155,16 +155,16 @@ run_exp01_eval() {
 }
 
 # 한 (MODEL, TRAIN_DS, VARIANT, EPOCH, HUB_ID, EVAL_DS) 조합 평가 실행.
-# - EVAL_DS=MC                : 단일 파일 implicit-world-modeling_stage1_test.jsonl → overall only.
-# - EVAL_DS=MB                : 단일 파일 implicit-world-modeling_stage1.jsonl      → overall only.
+# - EVAL_DS=MC                : 단일 파일 stage1_test.jsonl → overall only.
+# - EVAL_DS=MB                : 단일 파일 stage1.jsonl      → overall only.
 # - EVAL_DS=AC_EXP01 / AC_EXP02 : state_pred / action_pred 두 task 독립 채점.
 #                                  state → hungarian_metrics, action → action_metrics.
 run_variant_epoch_eval_on() {
   local model_short="$1" train_ds="$2" variant="$3" epoch="$4" hub_id="$5" \
         out_rel_base="$6" template="$7" eval_ds="$8"
 
-  # AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / AC_EXP05 는 task 별 독립 채점이라 별도 helper 위임.
-  if [[ "$eval_ds" == "AC_EXP01" || "$eval_ds" == "AC_EXP02" || "$eval_ds" == "AC_EXP03" || "$eval_ds" == "AC_EXP04" || "$eval_ds" == "AC_EXP05" ]]; then
+  # AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / AC_EXP05 / AC_EXP07 는 task 별 독립 채점이라 별도 helper 위임.
+  if [[ "$eval_ds" == "AC_EXP01" || "$eval_ds" == "AC_EXP02" || "$eval_ds" == "AC_EXP03" || "$eval_ds" == "AC_EXP04" || "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP07" ]]; then
     run_exp01_eval "$model_short" "$train_ds" "$variant" "$epoch" "$hub_id" \
                    "$out_rel_base" "$template" "$eval_ds"
     return $?
@@ -187,10 +187,10 @@ run_variant_epoch_eval_on() {
   local test_jsonl
   local ds_test
   if [[ "$eval_ds" == "MB" ]]; then
-    test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1.jsonl"
+    test_jsonl="$BASE_DIR/data/${datadir}/stage1.jsonl"
     ds_test="${eval_prefix}_stage1"
   else  # MC (random split)
-    test_jsonl="$BASE_DIR/data/${datadir}/implicit-world-modeling_stage1_test.jsonl"
+    test_jsonl="$BASE_DIR/data/${datadir}/stage1_test.jsonl"
     ds_test="${eval_prefix}_stage1_test"
   fi
   if [ ! -f "$test_jsonl" ]; then

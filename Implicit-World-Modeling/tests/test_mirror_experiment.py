@@ -52,61 +52,65 @@ needs_originals = pytest.mark.skipif(
 )
 
 
-# ── 원본에서 verbatim 복사한 기대 상수 (Layer 1 비교 기준) ────────────────────
+# ── 원본에서 복사한 기대 상수 (Layer 1 비교 기준) ─────────────────────────────
 # 원본 세 파일의 JOBS 튜플 3번째 원소(stage1 bool)를 kind 로 사상: True→"stage1",
-# False→"stage2". source 파일명은 원본 main() 의 build_index 인자에서 그대로 복사.
+# False→"stage2". source 파일명은 원본 main() 의 build_index 인자에서 복사.
+# 2026-07-25 데이터 파일명 일괄 rename (``implicit-world-modeling_`` 접두 제거 /
+# base 변형본 ``EXP{NN}_`` 접두 / ``train_7_3``→``train_ratio73``) 을 반영해 아래
+# 문자열만 갱신했다 — (in/out/kind) 사상과 순서는 원본과 동일하며, byte-identity
+# 는 원본 삭제 전 Layer 2·3 통과로 증명됐다.
 
 _STAGE1_JOBS = [
     (
-        "implicit-world-modeling_stage1_train_7_3.jsonl",
-        "implicit-world-modeling_stage1_train.jsonl",
+        "stage1_train_ratio73.jsonl",
+        "stage1_train.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_id_action.jsonl",
-        "implicit-world-modeling_stage1_test_id_action.jsonl",
+        "stage1_test_id_action.jsonl",
+        "stage1_test_id_action.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_id_state.jsonl",
-        "implicit-world-modeling_stage1_test_id_state.jsonl",
+        "stage1_test_id_state.jsonl",
+        "stage1_test_id_state.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_id_state_without_open_app.jsonl",
-        "implicit-world-modeling_stage1_test_id_state_without_open_app.jsonl",
+        "stage1_test_id_state_without_open_app.jsonl",
+        "stage1_test_id_state_without_open_app.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_ood_action.jsonl",
-        "implicit-world-modeling_stage1_test_ood_action.jsonl",
+        "stage1_test_ood_action.jsonl",
+        "stage1_test_ood_action.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_ood_state.jsonl",
-        "implicit-world-modeling_stage1_test_ood_state.jsonl",
+        "stage1_test_ood_state.jsonl",
+        "stage1_test_ood_state.jsonl",
         "stage1",
     ),
     (
-        "implicit-world-modeling_stage1_test_ood_state_without_open_app.jsonl",
-        "implicit-world-modeling_stage1_test_ood_state_without_open_app.jsonl",
+        "stage1_test_ood_state_without_open_app.jsonl",
+        "stage1_test_ood_state_without_open_app.jsonl",
         "stage1",
     ),
 ]
 _STAGE2_JOBS = [
     (
-        "implicit-world-modeling_stage2_train.jsonl",
-        "implicit-world-modeling_stage2_train.jsonl",
+        "stage2_train.jsonl",
+        "stage2_train.jsonl",
         "stage2",
     ),
     (
-        "implicit-world-modeling_stage2_test_id.jsonl",
-        "implicit-world-modeling_stage2_test_id.jsonl",
+        "stage2_test_id.jsonl",
+        "stage2_test_id.jsonl",
         "stage2",
     ),
     (
-        "implicit-world-modeling_stage2_test_ood.jsonl",
-        "implicit-world-modeling_stage2_test_ood.jsonl",
+        "stage2_test_ood.jsonl",
+        "stage2_test_ood.jsonl",
         "stage2",
     ),
 ]
@@ -115,22 +119,22 @@ _STAGE2_JOBS = [
 _EXPECTED = {
     "exp03": {
         "jobs": _STAGE1_JOBS + _STAGE2_JOBS,
-        "action_source": "implicit-world-modeling_stage1_action_xy.jsonl",
-        "state_source": "implicit-world-modeling_stage1_state_xy.jsonl",
-        "stage2_source": "implicit-world-modeling_stage2_xy.jsonl",
+        "action_source": "EXP03_stage1_action.jsonl",
+        "state_source": "EXP03_stage1_state.jsonl",
+        "stage2_source": "EXP03_stage2.jsonl",
         "out_subdir": "AndroidControl_EXP03",
     },
     "exp04": {
         "jobs": _STAGE1_JOBS,
-        "action_source": "implicit-world-modeling_stage1_action_xy_prompt-enhanced.jsonl",
-        "state_source": "implicit-world-modeling_stage1_state_xy_prompt-enhanced.jsonl",
+        "action_source": "EXP04_stage1_action.jsonl",
+        "state_source": "EXP04_stage1_state.jsonl",
         "stage2_source": None,
         "out_subdir": "AndroidControl_EXP04",
     },
     "exp05": {
         "jobs": _STAGE1_JOBS,
-        "action_source": "implicit-world-modeling_stage1_action_xy_pixel-aligned.jsonl",
-        "state_source": "implicit-world-modeling_stage1_state_xy_pixel-aligned.jsonl",
+        "action_source": "EXP05_stage1_action.jsonl",
+        "state_source": "EXP05_stage1_state.jsonl",
         "stage2_source": None,
         "out_subdir": "AndroidControl_EXP05",
     },
