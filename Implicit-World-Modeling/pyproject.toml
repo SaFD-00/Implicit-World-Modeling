@@ -35,6 +35,10 @@ dependencies = [
   "jieba",
   "rouge-chinese",
   "huggingface_hub>=0.34.0",
+  # thought_eval.py (U4) 전용: 임베딩 코사인(정본) 및 보조 BLEU 지표.
+  # ROUGE-L 은 rouge_score 의존성 없이 LCS 직접 구현.
+  "sentence-transformers",
+  "sacrebleu",
   # accelerate 는 `accelerate launch` 로 직접 호출되므로 transitive 에 맡기지
   # 않고 명시적으로 고정한다 (CLI 보장).
   "accelerate>=1.3.0,<=1.11.0",

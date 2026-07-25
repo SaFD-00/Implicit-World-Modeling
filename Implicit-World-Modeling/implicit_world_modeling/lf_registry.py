@@ -149,7 +149,7 @@ _MODEL_CONFIG = {
 
 # ============================================================
 # === Dataset configs (baseline hparams per dataset) ===
-# 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, MC}. MB 는 평가 전용.
+# 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, AC_EXP07, MC}. MB 는 평가 전용.
 # ============================================================
 # AC_EXP01: state_pred / action_pred dual-task test. id/ood × task = 4 test 파일.
 _DUAL_TASK_TEST = {
@@ -158,13 +158,15 @@ _DUAL_TASK_TEST = {
     "AndroidControl_EXP03",
     "AndroidControl_EXP04",
     "AndroidControl_EXP05",
+    "AndroidControl_EXP07",
 }
 
-# AC_EXP01 ratio (state:action) → split_data.py 가 산출하는 train 파일 stem.
+# AC_EXP01 ratio (state:action) → split_data.py 가 산출하는 train 파일 stem
+# (data/AndroidControl_EXP01/<stem>.jsonl).
 _AC3_RATIO_FILES = {
-    "ratio37": "train_3_7",  # state 30% : action 70%
-    "ratio55": "train_5_5",
-    "ratio73": "train_7_3",
+    "ratio37": "stage1_train_ratio37",  # state 30% : action 70%
+    "ratio55": "stage1_train_ratio55",
+    "ratio73": "stage1_train_ratio73",
 }
 
 _DATASET_CONFIG = {
@@ -429,6 +431,52 @@ _DATASET_CONFIG = {
             "lr_scheduler_type": "cosine",
         },
     },
+    # AC_EXP07 — EXP05 계열(절대 픽셀, Qwen2.5-VL 전용)의 3B 한정 실험군.
+    # stage1 baseline + stage2 merge O/X 비교가 목적이라 stage2 에 4번째 변형
+    # (world-model-adapter = merge X: stage1 LoRA 어댑터를 병합하지 않고 base 위에
+    # 얹어 stage2 를 잇는다) 을 둔다. 그 변형은 EXP07 stage2_lora 에서만 렌더된다
+    # (`stage2_adapter_variant` opt-in 플래그 + mode=="lora" 게이트, gen_configs).
+    "AndroidControl_EXP07": {
+        "lf_subfolder": "IWM-AC_EXP07",
+        "ds_prefix": "IWM-AC_EXP07",
+        "output_prefix": "AndroidControl_EXP07/",
+        "hf_slug": "ac-exp07-",
+        # stage2 merge X 변형(world-model-adapter)을 EXP07 한정으로 opt-in.
+        "stage2_adapter_variant": True,
+        "stage1": {
+            "lr": "1.0e-5",
+            "epochs": 1,
+            "warmup_ratio": 0.03,
+            "save_strategy": "steps",
+            "save_steps": 0.25,  # float — transformers 가 총 스텝 대비 비율로 해석
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 64,
+            "lora_alpha": 128,  # α = 2r 관례
+            "lora_dropout": 0.05,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+            "use_diff_token_weighted_loss": True,  # Stage 1 diff loss (state-pred 가중)
+        },
+        "stage2": {
+            "lr": "5.0e-5",
+            "epochs": 3,
+            "warmup_ratio": 0.03,
+            "save_strategy": "epoch",
+            "save_steps": None,
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 64,
+            "lora_alpha": 128,  # merge O/X 통일 — merge X 가 stage1 rank 64 를 구조 상속
+            "lora_dropout": 0.1,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+        },
+    },
     "MonkeyCollection": {
         "lf_subfolder": "IWM-MC",
         "ds_prefix": "IWM-MC",
@@ -477,7 +525,7 @@ _STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04"}
 # 대조군이라 stage1 학습 데이터가 아예 없고, stage1 체크포인트는 EXP05 것을 잇는다.
 _STAGE2_ONLY = {"AndroidControl_EXP06"}
 
-# ID/OOD split 없이 `implicit-world-modeling_stage{1,2}_test.jsonl` 단일 파일을 쓰는 DS.
+# ID/OOD split 없이 `stage{1,2}_test.jsonl` 단일 파일을 쓰는 DS.
 # `_STAGE1_ONLY` 와 직교 — MC 는 Stage 1 만 + 단일 test.
 _SINGLE_TEST = {"MonkeyCollection"}
 
@@ -485,8 +533,8 @@ _EVAL_ONLY_BENCHMARKS = {
     "MobiBench": {
         "ds_prefix": "IWM-MB",
         "data_dir": os.path.join(BASE_DIR, "data", "MobiBench"),
-        "stage1_jsonl": "implicit-world-modeling_stage1.jsonl",
-        "stage2_jsonl": "implicit-world-modeling_stage2.jsonl",
+        "stage1_jsonl": "stage1.jsonl",
+        "stage2_jsonl": "stage2.jsonl",
         "ds_s1_name": "IWM-MB_stage1",
         "ds_s2_name": "IWM-MB_stage2",
     },
@@ -521,6 +569,9 @@ DATASET_MODEL_ELIGIBILITY: dict[str, frozenset[str]] = {
     # EXP06 은 EXP05 의 stage2 비증강 대조군이다 — 같은 절대 픽셀 좌표 표현을 쓰고
     # stage1 체크포인트도 EXP05 것을 잇는다. 계보상 자격도 EXP05 와 같아야 한다.
     "AndroidControl_EXP06": frozenset(_QWEN2_5_VL_FAMILY),
+    # EXP07 은 절대 픽셀 EXP05 계열 + 3B 한정 실험이다 (사용자 스펙). EXP05 처럼
+    # family 전체가 아니라 Qwen2.5-VL-3B 단독 자격이다.
+    "AndroidControl_EXP07": frozenset({"qwen2.5-vl-3b"}),
 }
 
 
@@ -559,6 +610,7 @@ _LONG_CUTOFF_DS = (
     "AndroidControl_EXP04",
     "AndroidControl_EXP05",
     "AndroidControl_EXP06",
+    "AndroidControl_EXP07",
 )
 
 
@@ -691,6 +743,13 @@ def build_configs() -> dict[str, dict[str, dict]]:
                     f"../outputs/{ds_code}/adapters/{mshort_dir}_stage2_{m2}"
                     "_world-model_from_lora-ep__STAGE1_EPOCH__"
                 )
+                # merge X 계보 (world-model-adapter): stage1 어댑터를 병합하지 않고
+                # base 위에 얹는다. EXP07 stage2_lora 에서만 렌더되지만 (gen_configs),
+                # 키는 from_full/from_lora 와 대칭으로 전 DS 에 만들어 둔다 (무해).
+                c[f"save_s2_{m2}_world_from_adapter"] = (
+                    f"../outputs/{ds_code}/adapters/{mshort_dir}_stage2_{m2}"
+                    "_world-model_from_adapter-ep__STAGE1_EPOCH__"
+                )
                 c[f"out_s2_merged_{m2}_base"] = (
                     f"../outputs/{ds_code}/merged/{mshort_dir}_stage2_{m2}_base"
                 )
@@ -702,6 +761,10 @@ def build_configs() -> dict[str, dict[str, dict]]:
                     f"../outputs/{ds_code}/merged/{mshort_dir}_stage2_{m2}"
                     "_world-model_from_lora-ep__STAGE1_EPOCH__"
                 )
+                c[f"out_s2_merged_{m2}_world_from_adapter"] = (
+                    f"../outputs/{ds_code}/merged/{mshort_dir}_stage2_{m2}"
+                    "_world-model_from_adapter-ep__STAGE1_EPOCH__"
+                )
             c["save_s2_base"] = c["save_s2_lora_base"]
             c["save_s2_world_from_full"] = c["save_s2_lora_world_from_full"]
             c["save_s2_world_from_lora"] = c["save_s2_lora_world_from_lora"]
@@ -712,9 +775,7 @@ def build_configs() -> dict[str, dict[str, dict]]:
             c["out_s2_merged_world"] = c["out_s2_merged_world_from_full"]
 
             tier = (
-                _SIZE_CONFIG_AC[size]
-                if ds_name.startswith(_TIERED_DS_PREFIX)
-                else None
+                _SIZE_CONFIG_AC[size] if ds_name.startswith(_TIERED_DS_PREFIX) else None
             )
 
             s1_full = dict(c["stage1"])

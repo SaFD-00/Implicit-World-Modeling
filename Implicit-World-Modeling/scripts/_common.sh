@@ -168,6 +168,7 @@ declare -A DS_PREFIX=(
   [AC_EXP04]="IWM-AC_EXP04"
   [AC_EXP05]="IWM-AC_EXP05"
   [AC_EXP06]="IWM-AC_EXP06"
+  [AC_EXP07]="IWM-AC_EXP07"
   [MC]="IWM-MC"
 )
 declare -A HF_SLUG=(
@@ -180,6 +181,7 @@ declare -A HF_SLUG=(
   [AC_EXP04]="ac-exp04-"
   [AC_EXP05]="ac-exp05-"
   [AC_EXP06]="ac-exp06-"
+  [AC_EXP07]="ac-exp07-"
   [MC]="mc-"
 )
 declare -A DS_DATADIR=(
@@ -202,6 +204,9 @@ declare -A DS_DATADIR=(
   [AC_EXP05]="AndroidControl_EXP05"
   # AC_EXP06 = EXP05 계열(절대 픽셀 xy) 비증강 대조군, Stage 2 전용.
   [AC_EXP06]="AndroidControl_EXP06"
+  # AC_EXP07 = EXP05 계열(절대 픽셀 xy) 3B 한정 실험군 — stage1 baseline + stage2 merge O/X 비교.
+  # 자체 stage1 을 가지며(ds_stage1_source 미매핑), stage2_lora 에 merge X 변형(world-model-adapter) 추가.
+  [AC_EXP07]="AndroidControl_EXP07"
   [MC]="MonkeyCollection"
 )
 
@@ -218,6 +223,7 @@ ds_outputs_code() {
     AC_EXP04) echo "AndroidControl_EXP04" ;;
     AC_EXP05) echo "AndroidControl_EXP05" ;;
     AC_EXP06) echo "AndroidControl_EXP06" ;;
+    AC_EXP07) echo "AndroidControl_EXP07" ;;
     *) echo "$1" ;;
   esac
 }
@@ -402,6 +408,7 @@ EOF
     AC_EXP04) DATASETS=(AC_EXP04) ;;
     AC_EXP05) DATASETS=(AC_EXP05) ;;
     AC_EXP06) DATASETS=(AC_EXP06) ;;
+    AC_EXP07) DATASETS=(AC_EXP07) ;;
     MC)       DATASETS=(MC) ;;
     AC_EXP01)
       DATASETS=()
@@ -528,7 +535,7 @@ EOF
     echo "Error: --train-dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC)." >&2; exit 2
   fi
   case "$train_arg" in
-    AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|MC) TRAIN_DATASET="$train_arg" ;;
+    AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07|MC) TRAIN_DATASET="$train_arg" ;;
     AC_EXP01)
       # AC_EXP01 은 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
       # 미지정 시 ratio55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
@@ -565,7 +572,7 @@ EOF
     fi
     for _d in "${EVAL_DATASETS[@]}"; do
       case "$_d" in
-        AC_EXP01|AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|MC|MB) ;;
+        AC_EXP01|AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07|MC|MB) ;;
         *) echo "Error: --eval-datasets item '$_d' invalid (use AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC | MB)." >&2; exit 2 ;;
       esac
     done
@@ -600,13 +607,17 @@ EOF
     exit 2
   fi
 
+  # --epochs 는 정수 또는 소수를 허용한다. EXP07 stage1 은 save_steps=0.25 로 분수
+  # 체크포인트(0.25/0.5/0.75/1)를 저장하므로 stage1_eval sweep 이 그 라벨을 참조할 수
+  # 있어야 한다. 정수 입력의 동작은 불변(byte 동일). (parse_args --epochs 는 학습/merge
+  # 전용이라 정수 그대로 둔다.)
   IFS=',' read -r -a EPOCHS <<< "$epochs_arg"
   if [[ "${#EPOCHS[@]}" -eq 0 ]]; then
     echo "Error: --epochs 값이 비어있습니다." >&2; exit 2
   fi
   for _e in "${EPOCHS[@]}"; do
-    if ! [[ "$_e" =~ ^[0-9]+$ ]]; then
-      echo "Error: --epochs 는 콤마로 구분된 정수여야 합니다 (got: '$epochs_arg')." >&2
+    if ! [[ "$_e" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      echo "Error: --epochs 는 콤마로 구분된 정수 또는 소수여야 합니다 (got: '$epochs_arg')." >&2
       exit 2
     fi
   done
@@ -822,8 +833,11 @@ maybe_dry_run() {
 }
 
 # --- checkpoint → epoch 매핑 -------------------------------------------------
-# HF Trainer 가 저장한 trainer_state.json 의 "epoch" 필드를 int 로 반환.
-# 학습 YAML 은 save_strategy=epoch 이므로 정수에 근접하지만 방어적으로 round.
+# HF Trainer 가 저장한 trainer_state.json 의 "epoch" 필드를 라벨 문자열로 반환.
+# save_strategy=epoch (EXP01–06) 은 정수에 근접 → 정수 문자열 ("1","2","3") 로 그대로,
+# save_strategy=steps 분수 저장 (EXP07 stage1: save_steps=0.25) 은 0.25/0.5/0.75 를
+# 소수 라벨로 유지한다. round(e,2) 후 trailing-zero strip:
+#   1.0→"1", 3.0→"3" (정수 출력은 기존 int(round()) 와 byte 동일), 0.25→"0.25", 0.5→"0.5".
 ckpt_epoch_from_dir() {
   local ckpt_dir="$1"
   local state="$ckpt_dir/trainer_state.json"
@@ -839,7 +853,8 @@ e = s.get("epoch")
 if e is None:
     sys.stderr.write(f"[!] 'epoch' missing in {sys.argv[1]}\n")
     sys.exit(1)
-print(int(round(float(e))))
+r = round(float(e), 2)
+print(f"{r:.2f}".rstrip("0").rstrip("."))
 PY
 }
 
@@ -867,6 +882,16 @@ hf_repo_id_stage2_base() {
 hf_repo_id_stage2_world_model() {
   local model_short="$1" ds="$2" mode1="$3" epoch1="$4" mode2="$5" epoch2="$6"
   printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s-stage2-%s-epoch%s' \
+    "$model_short" "${HF_SLUG[$ds]}" "$mode1" "$epoch1" "$mode2" "$epoch2"
+}
+
+# Stage 2 (world-model-adapter variant — merge X: stage1 LoRA 어댑터를 병합하지 않고
+# base 위에 얹어 이어학습한 계보). world-model 과 slug 가 대칭이되 stage2 mode 뒤에
+# `-adapter` 를 끼워 구분한다 (EXP07 한정, STAGE1_MODE=STAGE2_MODE=lora 고정 진입):
+#   SaFD-00/{short}-{slug}world-model-stage1-{mode1}-epoch{E1}-stage2-{mode2}-adapter-epoch{E2}
+hf_repo_id_stage2_world_model_adapter() {
+  local model_short="$1" ds="$2" mode1="$3" epoch1="$4" mode2="$5" epoch2="$6"
+  printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s-stage2-%s-adapter-epoch%s' \
     "$model_short" "${HF_SLUG[$ds]}" "$mode1" "$epoch1" "$mode2" "$epoch2"
 }
 
@@ -921,6 +946,12 @@ resolve_eval_model_path() {
       local_dir="$(local_merged_epoch_dir stage2 "$_ms" "$_ds" "${_m2}_world-model_from_${_m1}-ep${_ep1}" "$_ep2")"
       hub_id="$(hf_repo_id_stage2_world_model "$_ms" "$_ds" "$_m1" "$_ep1" "$_m2" "$_ep2")"
       ;;
+    stage2_world_adapter)
+      # merge X 계보: variant_key 는 `..._world-model_from_adapter-ep{E1}` (from_full/from_lora 와 대칭).
+      local _ms="$1" _ds="$2" _m1="$3" _ep1="$4" _m2="$5" _ep2="$6"
+      local_dir="$(local_merged_epoch_dir stage2 "$_ms" "$_ds" "${_m2}_world-model_from_adapter-ep${_ep1}" "$_ep2")"
+      hub_id="$(hf_repo_id_stage2_world_model_adapter "$_ms" "$_ds" "$_m1" "$_ep1" "$_m2" "$_ep2")"
+      ;;
     *)
       echo "[!] resolve_eval_model_path: unknown kind '$kind'" >&2; return 1 ;;
   esac
@@ -938,6 +969,9 @@ resolve_eval_model_path() {
 STAGE1_ALL_VARIANTS=(base full_world_model lora_world_model)
 # Stage 2 변형: base, full_base, lora_base, full_world_model, lora_world_model
 STAGE2_ALL_VARIANTS=(base full_base lora_base full_world_model lora_world_model)
+# merge X (world-model-adapter) eval 변형 — EXP07 한정. 기본 sweep 에는 넣지 않아
+# EXP01–06 eval 기본 동작을 불변으로 유지하고, --variants 로 명시할 때만 허용한다.
+STAGE2_EXTRA_VARIANTS=(lora_world_model_adapter)
 
 # Stage 1 variants 를 지정하지 않았으면 전체를 사용. 잘못된 항목은 error.
 resolve_stage1_variants() {
@@ -1001,7 +1035,7 @@ build_infer_cmd() {
   # 상향(잘림 0), 그 외는 8192. vLLM max_model_len = cutoff + max_new_tokens 증가 →
   # KV cache 메모리↑/throughput↓ (필요 시 VLLM_GPU_MEM_UTIL 로 보정).
   local infer_cutoff=8192
-  if [[ "$ds_name" == IWM-AC_EXP03* || "$ds_name" == IWM-AC_EXP04* || "$ds_name" == IWM-AC_EXP05* || "$ds_name" == IWM-AC_EXP06* ]]; then
+  if [[ "$ds_name" == IWM-AC_EXP03* || "$ds_name" == IWM-AC_EXP04* || "$ds_name" == IWM-AC_EXP05* || "$ds_name" == IWM-AC_EXP06* || "$ds_name" == IWM-AC_EXP07* ]]; then
     infer_cutoff=24576
   fi
   INFER_CMD="python scripts/vllm_infer.py \
@@ -1024,12 +1058,12 @@ resolve_stage2_variants() {
   fi
   for v in "${VARIANTS[@]}"; do
     local ok=0
-    for allowed in "${STAGE2_ALL_VARIANTS[@]}"; do
+    for allowed in "${STAGE2_ALL_VARIANTS[@]}" "${STAGE2_EXTRA_VARIANTS[@]}"; do
       if [[ "$v" == "$allowed" ]]; then ok=1; break; fi
     done
     if (( ok == 0 )); then
       echo "Error: unknown stage2 variant '$v'." >&2
-      echo "Allowed: ${STAGE2_ALL_VARIANTS[*]}" >&2
+      echo "Allowed: ${STAGE2_ALL_VARIANTS[*]} ${STAGE2_EXTRA_VARIANTS[*]}" >&2
       exit 2
     fi
   done

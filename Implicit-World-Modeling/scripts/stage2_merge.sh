@@ -74,17 +74,31 @@ for MODEL_SHORT in "${MODELS[@]}"; do
     # variant key (adapter 디렉토리 suffix 로 사용)
     BASE_VARIANT_KEY="${STAGE2_MODE}_base"
     WM_VARIANT_KEY="${STAGE2_MODE}_world-model_from_${STAGE1_MODE}-ep${STAGE1_EPOCH}"
+    # merge X 계보 (world-model-adapter): stage1 어댑터를 병합하지 않고 base 위에 얹어
+    # 이어학습한 stage2 어댑터. merge 는 원본 base + 그 stage2 ckpt 로 수행 (stage1 merged 불필요).
+    ADAPTER_VARIANT_KEY="${STAGE2_MODE}_world-model_from_adapter-ep${STAGE1_EPOCH}"
 
     declare -A VARIANT_BASE_LF_REL=(
       [base]="$BASE_MODEL"
       [world_model]="${S1_WINNER_REL}"
+      [adapter]="$BASE_MODEL"
     )
     declare -A VARIANT_ADAPTER_SUFFIX=(
       [base]="${BASE_VARIANT_KEY}"
       [world_model]="${WM_VARIANT_KEY}"
+      [adapter]="${ADAPTER_VARIANT_KEY}"
     )
 
-    for VARIANT in base world_model; do
+    # merge X 변형은 lora×lora + 해당 YAML(EXP07) 이 있을 때만 편입 (EXP01–06 merge 불변).
+    # adapter merge 는 stage1 merged 를 요구하지 않으므로 S1_WINNER 게이트를 타지 않는다;
+    # 자기 stage2 ckpt 부재 시 아래 CKPTS 체크로 자연스럽게 skip.
+    VARIANTS_TO_MERGE=(base world_model)
+    if [[ "$STAGE2_MODE" == "lora" && "$STAGE1_MODE" == "lora" && -n "$STAGE1_EPOCH" \
+          && -f "$BASE_DIR/configs/train/IWM-${DS}/stage2_lora/${MODEL_SHORT}_world-model-adapter.yaml" ]]; then
+      VARIANTS_TO_MERGE+=(adapter)
+    fi
+
+    for VARIANT in "${VARIANTS_TO_MERGE[@]}"; do
       if [ "$VARIANT" = "world_model" ] && [ "$S1_WINNER_AVAILABLE" -eq 0 ]; then
         SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
         continue
@@ -113,12 +127,16 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         }
 
         if [ "$HF_UPLOAD" -eq 1 ]; then
-          if [ "$VARIANT" = "base" ]; then
-            HUB_ID=$(hf_repo_id_stage2_base "$MODEL_SHORT" "$DS" "$STAGE2_MODE" "$EPOCH")
-          else
-            HUB_ID=$(hf_repo_id_stage2_world_model "$MODEL_SHORT" "$DS" \
-              "$STAGE1_MODE" "$STAGE1_EPOCH" "$STAGE2_MODE" "$EPOCH")
-          fi
+          case "$VARIANT" in
+            base)
+              HUB_ID=$(hf_repo_id_stage2_base "$MODEL_SHORT" "$DS" "$STAGE2_MODE" "$EPOCH") ;;
+            adapter)
+              HUB_ID=$(hf_repo_id_stage2_world_model_adapter "$MODEL_SHORT" "$DS" \
+                "$STAGE1_MODE" "$STAGE1_EPOCH" "$STAGE2_MODE" "$EPOCH") ;;
+            *)
+              HUB_ID=$(hf_repo_id_stage2_world_model "$MODEL_SHORT" "$DS" \
+                "$STAGE1_MODE" "$STAGE1_EPOCH" "$STAGE2_MODE" "$EPOCH") ;;
+          esac
           TARGET_DESC="$HUB_ID"
         else
           HUB_ID=""

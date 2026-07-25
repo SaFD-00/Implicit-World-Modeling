@@ -97,11 +97,17 @@ def render_stage1(cfg: dict, mode: str, policy: GpuPolicy) -> str:
 
     ds_line = f"deepspeed: {_deepspeed_field(policy)}\n"
 
-    # diff loss: stage1 config 에 플래그가 있으면 (AC_EXP02 / AC_EXP05) method 에 주입.
+    # diff loss: stage1 config 에 플래그가 있으면 (AC_EXP02 / AC_EXP05 / AC_EXP07) method 에 주입.
     diff_loss_line = (
         "use_diff_token_weighted_loss: true\n"
         if s1.get("use_diff_token_weighted_loss")
         else ""
+    )
+
+    # save_steps: 레지스트리에 값이 있을 때만 emit (기존 DS 는 전부 None → byte 불변).
+    # EXP07 은 save_strategy: steps + save_steps: 0.25 (총 스텝 대비 비율).
+    save_steps_line = (
+        f"save_steps: {s1['save_steps']}\n" if s1.get("save_steps") is not None else ""
     )
 
     output_dir = cfg[f"save_s1_{mode}"]
@@ -146,7 +152,7 @@ media_dir: ../data
 output_dir: {output_dir}
 logging_steps: 1
 save_strategy: {s1["save_strategy"]}
-save_total_limit: 5
+{save_steps_line}save_total_limit: 5
 plot_loss: true
 overwrite_output_dir: true
 
@@ -170,9 +176,12 @@ gradient_checkpointing: true
 # === Stage 2 YAML (노트북 Cell 12) ===
 # ============================================================
 def render_stage2(cfg: dict, mode: str, policy: GpuPolicy) -> dict[str, str]:
-    """Stage 2 (Action Prediction) 학습 YAML — variant 3 종을 한 번에 렌더한다.
+    """Stage 2 (Action Prediction) 학습 YAML — variant 3~4 종을 한 번에 렌더한다.
 
     variant: base / world-model-full / world-model-lora (Stage 1 계보).
+    ``cfg["stage2_adapter_variant"]`` 이 켜져 있고 mode=="lora" 이면 4번째 변형
+    world-model-adapter (merge X — stage1 어댑터를 병합하지 않고 base 위에 얹는다)
+    를 추가 렌더한다. EXP07 전용 (레지스트리 opt-in 플래그).
     """
     s2 = cfg["stage2"]
     mcfg = cfg["model_config"]
@@ -206,7 +215,7 @@ def render_stage2(cfg: dict, mode: str, policy: GpuPolicy) -> dict[str, str]:
     common_config = f"""\
 {_header(cfg["dataset_name"])}### model
 model_name_or_path: {{model_name_or_path}}
-trust_remote_code: true
+{{adapter_line}}trust_remote_code: true
 image_max_pixels: {cfg["image_max_pixels"]}
 image_min_pixels: {cfg["image_min_pixels"]}
 
@@ -258,10 +267,22 @@ gradient_checkpointing: true
         },
     }
 
+    # merge X 변형 (world-model-adapter): stage1 어댑터를 병합하지 않고 base 위에
+    # 얹는다. EXP07 stage2_lora 에서만 (opt-in 플래그 + lora 모드). model 블록에
+    # adapter_name_or_path placeholder 를 추가하고, 런타임에 U3 의 stage2_train.sh
+    # 가 __STAGE1_ADAPTER__ 를 실제 어댑터 경로로 치환한다.
+    if cfg.get("stage2_adapter_variant") and mode == "lora":
+        variants["world-model-adapter"] = {
+            "model_name_or_path": cfg["model_id"],
+            "output_dir": cfg[f"save_s2_{mode}_world_from_adapter"],
+            "adapter_line": "adapter_name_or_path: __STAGE1_ADAPTER__\n",
+        }
+
     return {
         variant: common_config.format(
             model_name_or_path=params["model_name_or_path"],
             output_dir=params["output_dir"],
+            adapter_line=params.get("adapter_line", ""),
         )
         for variant, params in variants.items()
     }

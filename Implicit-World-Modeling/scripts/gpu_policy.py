@@ -105,6 +105,7 @@ _HALF_BATCH_DATASETS: frozenset[str] = frozenset(
         "AndroidControl_EXP04",
         "AndroidControl_EXP05",
         "AndroidControl_EXP06",
+        "AndroidControl_EXP07",
     }
 )
 

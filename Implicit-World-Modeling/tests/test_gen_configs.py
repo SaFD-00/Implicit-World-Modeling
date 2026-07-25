@@ -105,7 +105,10 @@ def as_trained() -> dict[str, str]:
         listing = _git(
             "ls-tree", "-r", "--name-only", AS_TRAINED_COMMIT, "--", "configs/train"
         )
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:  # pragma: no cover
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+    ) as exc:  # pragma: no cover
         pytest.skip(f"git 미가용 또는 커밋 {AS_TRAINED_COMMIT} 없음: {exc}")
 
     # 이 패키지는 git 루트의 서브디렉토리다 (rev-parse --show-prefix 로 접두를 얻는다) —
@@ -186,9 +189,7 @@ def test_generated_gpu_trio_is_baseline(generated: dict[str, str]) -> None:
 def test_reconstructed_header_on_exp03_exp04_only(generated: dict[str, str]) -> None:
     """EXP03/EXP04 YAML 은 재구성본 헤더를 갖고, 나머지는 갖지 않는다."""
     exp0304 = [
-        rel
-        for rel in generated
-        if rel.startswith(("IWM-AC_EXP03/", "IWM-AC_EXP04/"))
+        rel for rel in generated if rel.startswith(("IWM-AC_EXP03/", "IWM-AC_EXP04/"))
     ]
     assert exp0304, "EXP03/EXP04 YAML 이 생성되지 않았다"
     for rel in exp0304:
@@ -225,6 +226,14 @@ def test_family_eligibility(generated: dict[str, str]) -> None:
         if rel.startswith("IWM-AC_EXP06/"):
             assert "qwen3-vl" not in rel, f"EXP06 에 Qwen3-VL 유입: {rel}"
 
+    # EXP07 (절대 픽셀 EXP05 계열 + 3B 한정) — Qwen2.5-VL-3B 단독 자격. family 아님.
+    assert eligible_models("AndroidControl_EXP07") == ["qwen2.5-vl-3b"]
+    for rel in generated:
+        if rel.startswith("IWM-AC_EXP07/"):
+            assert rel.split("/")[-1].startswith("qwen2.5-vl-3b_"), (
+                f"EXP07 에 3B 외 모델 유입: {rel}"
+            )
+
     # EXP01/EXP02/MC — 등록 4 모델 전부.
     assert len(eligible_models("AndroidControl_EXP01_ratio37")) == 4
     assert len(eligible_models("MonkeyCollection")) == 4
@@ -254,9 +263,7 @@ def test_exp06_stage2_only_and_exp05_lineage(generated: dict[str, str]) -> None:
             expected = _MODEL_CONFIG[model_short]["model_id"]
         else:
             lineage = variant.rsplit("-", 1)[1]  # world-model-{full,lora}
-            expected = (
-                f"SaFD-00/{model_short}-ac-exp05-stage1-{lineage}-world-model"
-            )
+            expected = f"SaFD-00/{model_short}-ac-exp05-stage1-{lineage}-world-model"
         assert f"model_name_or_path: {expected}\n" in content, rel
 
     # base 는 소재 모델 그대로 (회귀 방어용 명시 단언).
@@ -270,13 +277,44 @@ def test_exp06_stage2_only_and_exp05_lineage(generated: dict[str, str]) -> None:
     )
 
 
-def test_diff_loss_flag_only_exp02_exp05(generated: dict[str, str]) -> None:
-    """diff loss 플래그는 EXP02/EXP05 stage1 에만 (레지스트리 플래그와 일치)."""
+def test_exp07_adapter_variant_only_in_exp07_stage2_lora(
+    generated: dict[str, str],
+) -> None:
+    """world-model-adapter (merge X) 는 EXP07 stage2_lora 에만 렌더된다 (orphan 0).
+
+    - 파일 집합: 정확히 EXP07 stage2_lora 의 3B 어댑터 변형 1 개.
+    - model 블록: base(원본) model_name_or_path + adapter_name_or_path placeholder.
+    - output_dir: from_adapter 계보 (__STAGE1_EPOCH__ 치환 대기).
+    다른 DS/stage/mode 의 어느 YAML 에도 adapter placeholder 가 새면 안 된다.
+    """
+    adapter_files = sorted(
+        rel for rel in generated if rel.endswith("_world-model-adapter.yaml")
+    )
+    assert adapter_files == [
+        "IWM-AC_EXP07/stage2_lora/qwen2.5-vl-3b_world-model-adapter.yaml"
+    ], adapter_files
+
+    content = generated[adapter_files[0]]
+    assert "model_name_or_path: Qwen/Qwen2.5-VL-3B-Instruct\n" in content
+    assert "adapter_name_or_path: __STAGE1_ADAPTER__\n" in content
+    assert (
+        "output_dir: ../outputs/AndroidControl_EXP07/adapters/"
+        "qwen2.5-vl-3b_stage2_lora_world-model_from_adapter-ep__STAGE1_EPOCH__\n"
+    ) in content
+
+    # placeholder 는 이 파일 밖으로 새지 않는다.
+    for rel, c in generated.items():
+        if rel != adapter_files[0]:
+            assert "adapter_name_or_path" not in c, rel
+
+
+def test_diff_loss_flag_only_exp02_exp05_exp07(generated: dict[str, str]) -> None:
+    """diff loss 플래그는 EXP02/EXP05/EXP07 stage1 에만 (레지스트리 플래그와 일치)."""
     for rel, content in generated.items():
         has_flag = "use_diff_token_weighted_loss: true" in content
-        expected = rel.startswith(("IWM-AC_EXP02/", "IWM-AC_EXP05/")) and (
-            "/stage1_" in rel
-        )
+        expected = rel.startswith(
+            ("IWM-AC_EXP02/", "IWM-AC_EXP05/", "IWM-AC_EXP07/")
+        ) and ("/stage1_" in rel)
         assert has_flag == expected, rel
 
 
@@ -328,7 +366,9 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
     mode 는 경로의 ``stage{1,2}_<mode>`` 세그먼트에서 읽는다.
     """
     small_models = {m for m, cfg in _MODEL_CONFIG.items() if cfg["size"] == "3-4B"}
-    assert small_models, "_MODEL_CONFIG 에 3-4B tier 모델이 없다 — 이 테스트의 전제가 깨졌다"
+    assert small_models, (
+        "_MODEL_CONFIG 에 3-4B tier 모델이 없다 — 이 테스트의 전제가 깨졌다"
+    )
 
     a100 = generate_all(gpu_type="A100", nproc=2)
     assert set(a100) == set(generate_all())
@@ -371,19 +411,24 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
                 assert "gradient_accumulation_steps: 16" in content, rel
 
     # 두 갈래가 실제로 코퍼스에 존재해야 이 테스트가 의미를 갖는다 (vacuous pass 방지).
-    assert seen_7b_full_offload, "7-9B × full 생성물이 없다 — offload 유지 경로가 검증되지 않았다"
-    assert seen_7b_lora_no_offload, "7-9B × lora 생성물이 없다 — no-offload 경로가 검증되지 않았다"
+    assert seen_7b_full_offload, (
+        "7-9B × full 생성물이 없다 — offload 유지 경로가 검증되지 않았다"
+    )
+    assert seen_7b_lora_no_offload, (
+        "7-9B × lora 생성물이 없다 — no-offload 경로가 검증되지 않았다"
+    )
 
 
 def test_generated_count(generated: dict[str, str]) -> None:
-    """as-trained 74 − 자격박탈 2 + 신규 112 = 184 (EXP06 stage2 12 개 포함).
+    """as-trained 74 − 자격박탈 2 + 신규 121 = 193 (EXP06 12 + EXP07 9 포함).
 
     개수를 하드코딩하지 않는다 — 자격 정의(DATASET_MODEL_ELIGIBILITY)의 결과이지
     독립적 사실이 아니기 때문이다. 자격을 바꾸면 개수는 따라 바뀌는 게 정상이고,
     이 테스트가 잡아야 할 것은 "생성기가 자격과 어긋나게 만드는가" 다.
     """
-    # 신규 112 = 기존 확장 100 + EXP06 stage2 12 (2 모델 × 2 모드 × 3 variant).
-    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 112
+    # 신규 121 = 기존 확장 100 + EXP06 stage2 12 (2 모델 × 2 모드 × 3 variant)
+    #          + EXP07 9 (3B 단독: stage1 full/lora 2 + stage2 full 3 + stage2 lora 4).
+    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 121
 
     # 생성된 모든 YAML 이 자격 집합 안에 있는가 (자격 밖 조합을 만들지 않는가)
     for rel in generated:

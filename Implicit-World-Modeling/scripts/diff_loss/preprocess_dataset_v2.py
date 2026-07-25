@@ -209,10 +209,11 @@ def process_sample(
     asst = next((m["content"] for m in normalized if m["role"] == "assistant"), "")
 
     # ── action 샘플 분기 ──────────────────────────────────────────────────
-    # images 2개 = action_pred (assistant가 <action>{...}</action>), 1개 = state_pred.
+    # images 1개 = state_pred, 그 외(EXP05 action=2장 / EXP07 이미지 제거 action=0장)
+    # = action_pred (assistant가 <action>{...}</action>).
     # action 출력에는 diff 개념이 없으므로 균일 1.0을 부여한다.
     # diff 경로로 흘려보내면 "diff 없음 → 전부 baseline(0.25)"으로 잘못 감쇠된다.
-    is_action = len(sample.get("images", [])) == 2
+    is_action = len(sample.get("images", [])) != 1
     starts_with_action = asst.lstrip().startswith("<action>")
     if is_action != starts_with_action:
         print(

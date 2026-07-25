@@ -78,13 +78,20 @@ def test_left_straddling_token_gets_weight():
     # 시작점만 보던 구버전은 tok_cs=0 < 2 라 이 토큰을 놓쳤다.
     html = 'xx<p bounds="[1,2][3,4]">Hi</p>'
     tok = FakeTokenizer(chunk=4)
-    diff = [{"element": {"tag": "p", "index": -1, "bounds": "[1,2][3,4]", "text": "Hi"}, "diff_type": "MODIFIED"}]
+    diff = [
+        {
+            "element": {"tag": "p", "index": -1, "bounds": "[1,2][3,4]", "text": "Hi"},
+            "diff_type": "MODIFIED",
+        }
+    ]
 
     w = _weights(html, diff, tok)
     offsets = tok(html, return_offsets_mapping=True)["offset_mapping"]
 
     char_start = html.index("<p")
-    assert offsets[0] == (0, 4) and offsets[0][0] < char_start < offsets[0][1], "전제: 첫 토큰이 왼쪽 경계를 걸쳐야 한다"
+    assert offsets[0] == (0, 4) and offsets[0][0] < char_start < offsets[0][1], (
+        "전제: 첫 토큰이 왼쪽 경계를 걸쳐야 한다"
+    )
     assert w[0] == 1.0, "왼쪽 경계를 걸친 토큰이 가중치를 받아야 한다 (S2-05)"
     # element 안쪽 토큰도 당연히 가중치
     assert all(x == 1.0 for x in w[1:])
@@ -94,7 +101,12 @@ def test_no_overlap_token_keeps_baseline():
     # element 가 뒤쪽에만 있고, 앞 토큰들은 전혀 겹치지 않는다 → baseline 유지.
     html = 'xxxxxxxx<p bounds="[1,2][3,4]">Hi</p>'
     tok = FakeTokenizer(chunk=4)
-    diff = [{"element": {"tag": "p", "index": -1, "bounds": "[1,2][3,4]", "text": "Hi"}, "diff_type": "MODIFIED"}]
+    diff = [
+        {
+            "element": {"tag": "p", "index": -1, "bounds": "[1,2][3,4]", "text": "Hi"},
+            "diff_type": "MODIFIED",
+        }
+    ]
 
     w = _weights(html, diff, tok)
     assert w[0] == BASE and w[1] == BASE, "겹치지 않는 토큰은 baseline"
@@ -104,7 +116,12 @@ def test_no_overlap_token_keeps_baseline():
 def test_zero_length_offsets_skipped():
     html = 'xx<p bounds="[1,2][3,4]">Hi</p>'
     tok = FakeTokenizer(chunk=4, zero_at={1})  # 두 번째 토큰이 (0,0)
-    diff = [{"element": {"tag": "p", "index": -1, "bounds": "[1,2][3,4]", "text": "Hi"}, "diff_type": "MODIFIED"}]
+    diff = [
+        {
+            "element": {"tag": "p", "index": -1, "bounds": "[1,2][3,4]", "text": "Hi"},
+            "diff_type": "MODIFIED",
+        }
+    ]
 
     w = _weights(html, diff, tok)
     assert w[1] == BASE, "zero-length offset 토큰은 어디에도 겹치지 않으므로 baseline"
@@ -113,7 +130,12 @@ def test_zero_length_offsets_skipped():
 def test_unchanged_element_stays_baseline():
     html = '<p bounds="[1,2][3,4]">Hi</p>'
     tok = FakeTokenizer(chunk=4)
-    diff = [{"element": {"tag": "p", "index": -1, "bounds": "[1,2][3,4]", "text": "Hi"}, "diff_type": "UNCHANGED"}]
+    diff = [
+        {
+            "element": {"tag": "p", "index": -1, "bounds": "[1,2][3,4]", "text": "Hi"},
+            "diff_type": "UNCHANGED",
+        }
+    ]
 
     w = _weights(html, diff, tok)
     assert set(w) == {BASE}, "UNCHANGED 는 baseline 유지"
@@ -124,8 +146,19 @@ def test_nested_spans_take_max_weight():
     html = '<div bounds="[0,0][9,9]"><button bounds="[1,1][2,2]">X</button></div>'
     tok = FakeTokenizer(chunk=8)
     diff = [
-        {"element": {"tag": "div", "index": -1, "bounds": "[0,0][9,9]", "text": ""}, "diff_type": "UNCHANGED"},
-        {"element": {"tag": "button", "index": -1, "bounds": "[1,1][2,2]", "text": "X"}, "diff_type": "ADDED"},
+        {
+            "element": {"tag": "div", "index": -1, "bounds": "[0,0][9,9]", "text": ""},
+            "diff_type": "UNCHANGED",
+        },
+        {
+            "element": {
+                "tag": "button",
+                "index": -1,
+                "bounds": "[1,1][2,2]",
+                "text": "X",
+            },
+            "diff_type": "ADDED",
+        },
     ]
     w = _weights(html, diff, tok)
     b_start = html.index("<button")
@@ -144,7 +177,10 @@ def _sample(images: int, asst: str) -> dict:
     return {
         "messages": [
             {"from": "system", "value": "sys"},
-            {"from": "human", "value": "Current UI State:\n<p bounds=\"[1,2][3,4]\">A</p>\n[Screenshot]"},
+            {
+                "from": "human",
+                "value": 'Current UI State:\n<p bounds="[1,2][3,4]">A</p>\n[Screenshot]',
+            },
             {"from": "gpt", "value": asst},
         ],
         "images": ["a.jpg"] * images,
@@ -153,7 +189,11 @@ def _sample(images: int, asst: str) -> dict:
 
 @pytest.fixture
 def patched(monkeypatch):
-    monkeypatch.setattr(pp.AutoTokenizer, "from_pretrained", staticmethod(lambda *a, **k: FakeTokenizer()))
+    monkeypatch.setattr(
+        pp.AutoTokenizer,
+        "from_pretrained",
+        staticmethod(lambda *a, **k: FakeTokenizer()),
+    )
     return pp
 
 
@@ -168,8 +208,10 @@ def test_atomic_no_partial_output_on_failure(tmp_path, patched, monkeypatch):
     src = tmp_path / "in.jsonl"
     out = tmp_path / "out.jsonl"
     src.write_text(
-        json.dumps(_sample(1, '<p bounds="[1,2][3,4]">B</p>')) + "\n"
-        + json.dumps(_sample(1, '<p bounds="[1,2][3,4]">C</p>')) + "\n"
+        json.dumps(_sample(1, '<p bounds="[1,2][3,4]">B</p>'))
+        + "\n"
+        + json.dumps(_sample(1, '<p bounds="[1,2][3,4]">C</p>'))
+        + "\n"
     )
 
     # 두 번째 레코드에서 diff 실패를 강제
@@ -193,7 +235,9 @@ def test_atomic_no_partial_output_on_failure(tmp_path, patched, monkeypatch):
         patched.preprocess(str(src), str(out), "Qwen/fake", on_error="fail")
 
     assert not out.exists(), "실패 시 출력 파일이 생기면 안 된다 (원자 교체)"
-    assert not (tmp_path / "out.jsonl.tmp").exists(), "부분 산출물(.tmp)이 남으면 안 된다"
+    assert not (tmp_path / "out.jsonl.tmp").exists(), (
+        "부분 산출물(.tmp)이 남으면 안 된다"
+    )
 
 
 def test_action_sample_uniform_and_counted_separately(tmp_path, patched):
@@ -210,6 +254,24 @@ def test_action_sample_uniform_and_counted_separately(tmp_path, patched):
     assert Path(str(out) + ".meta.json").is_file(), "sidecar 메타데이터 기록"
 
 
+def test_zero_image_action_sample_uniform(tmp_path, patched):
+    # EXP07: action 샘플은 이미지가 제거돼 0장이 된다. images!=1 판별이라
+    # 0장 action 도 uniform 1.0 (diff 경로로 새면 baseline 으로 잘못 감쇠).
+    src = tmp_path / "in.jsonl"
+    out = tmp_path / "out.jsonl"
+    src.write_text(json.dumps(_sample(0, "<action>{}</action>")) + "\n")
+
+    meta = patched.preprocess(str(src), str(out), "Qwen/fake")
+    rec = json.loads(out.read_text().strip())
+
+    assert rec["images"] == [], "0-image action 은 images 가 비어있다"
+    assert set(rec["token_weights"]) == {1.0}, (
+        "0-image action 샘플도 uniform 1.0 (EXP07)"
+    )
+    assert meta["counts"]["action"] == 1
+    assert meta["counts"]["ok"] == 0, "action 은 diff 성공으로 집계하지 않는다"
+
+
 def test_uniform_fallback_not_counted_as_ok(tmp_path, patched, monkeypatch):
     src = tmp_path / "in.jsonl"
     out = tmp_path / "out.jsonl"
@@ -219,7 +281,9 @@ def test_uniform_fallback_not_counted_as_ok(tmp_path, patched, monkeypatch):
 
     def boom_load(v):
         real_load(v)
-        patched._hd.classify_diff = lambda c, f: (_ for _ in ()).throw(RuntimeError("boom"))
+        patched._hd.classify_diff = lambda c, f: (_ for _ in ()).throw(
+            RuntimeError("boom")
+        )
 
     monkeypatch.setattr(patched, "_load_metric", boom_load)
 
@@ -239,7 +303,9 @@ def test_skip_mode_drops_failed_records(tmp_path, patched, monkeypatch):
 
     def boom_load(v):
         real_load(v)
-        patched._hd.classify_diff = lambda c, f: (_ for _ in ()).throw(RuntimeError("boom"))
+        patched._hd.classify_diff = lambda c, f: (_ for _ in ()).throw(
+            RuntimeError("boom")
+        )
 
     monkeypatch.setattr(patched, "_load_metric", boom_load)
 
