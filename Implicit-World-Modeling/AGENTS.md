@@ -39,7 +39,9 @@
 14. **YAML 이 있다고 돌릴 수 있는 게 아니다.** 가드는 YAML 유무가 아니라 **dataset_info 등록 여부**를 본다 (`require_yaml` 이 내부에서 `require_dataset_registered` 를 호출한다 — [§3 함정 14](./ARCHITECTURE.md#3-데이터와-설정-계약)). EXP03/04 YAML 은 as-trained 가 아니라 **생성기 재구성본**이다 — [§7 함정 20](./ARCHITECTURE.md#7-중요한-운영-제약).
 15. **EXP05 는 로컬에서 학습할 수 없다** (OOM + 수일 단위 소요, 실측). 본 학습은 원격 A100/H100 — 단 제출 스크립트는 **UNVALIDATED** 다. [§7 함정 19](./ARCHITECTURE.md#7-중요한-운영-제약)
 15b. **EXP06 = EXP05 의 비증강 Stage-2 대조군**이다 (좌표/budget/`--coord-mode xy` 규약을 EXP05 에서 승계). `lf_registry` 에 **등록 완료**됐고(2026-07-20) 모델 자격 코드 가드 (하드 제약 2) 가 EXP05 와 동일하게 **Qwen2.5-VL 계열 전용**으로 걸린다 — 다른 family 는 `require_model_eligible()` 이 학습 진입 전 `exit 1` 한다. **EXP06 자체엔 stage1 체크포인트가 없다** — stage2 world-model variant 는 `stage1_hf_slug: "ac-exp05-"` override + 셸 `ds_stage1_source()` 로 **EXP05 stage1 을 그대로 승계**한다 (stage2 산출물 네이밍은 `ac-exp06-` 그대로 유지). [§2 자격 매트릭스 각주](./ARCHITECTURE.md#2-모델-설정)
+15c. **EXP07 = `qwen2.5-vl-3b` 단독 stage1 world-modeling 실험군**이다 (좌표계·budget·cutoff 는 EXP05 와 같되 **자격을 3B 로 좁혔다** — 7B 제외, `eligible_models('AndroidControl_EXP07') == ['qwen2.5-vl-3b']`). 모델 자격 코드 가드 (하드 제약 2) 가 EXP07 에도 걸린다 — `qwen2.5-vl-3b` 외 조합은 `require_model_eligible()` 이 학습 진입 전 `exit 1` 한다. **데이터는 EXP05 파생이 아니다** — 별도 0725 소스(`data/AndroidControl_EXP07_src/`)에서 자체 빌드한 train 2 (stage1 50K / stage2 15K) + **자체 test 6 종**이고, EXP05 를 향하는 데이터 심링크·포인터는 **없다** (과거 잠정본의 심링크는 빌더가 제거한다 — `configs/lf_dataset/` 의 dataset_dir 심링크는 별개로 필요). **EXP06 과 달리 EXP07 은 자체 stage1 을 가진다** (`ds_stage1_source` 미매핑, `stage1_hf_slug` 미설정). stage2 에는 **merge X 변형(`world-model-adapter`)** 이 EXP07 한정 opt-in 이다. [§2 자격 매트릭스 각주](./ARCHITECTURE.md#2-모델-설정) · [§3 계보](./ARCHITECTURE.md#3-데이터와-설정-계약)
 16. **`SMOKE=1` override 의 따옴표를 살려라.** OmegaConf 가 따옴표 없는 값을 boolean 으로 파싱해 HF 가 죽는다. [§4 함정 17](./ARCHITECTURE.md#4-파이프라인-컴포넌트)
+17. **데이터 파일명 규칙을 지켜라 — 디렉토리가 실험을 말하면 파일은 침묵한다.** `AndroidControl_EXP{NN}/`·`MonkeyCollection/`·`MobiBench/` 안은 `stage{N}_<role>.jsonl` 이고, 공유 폴더 `data/AndroidControl/` 의 변형본만 `EXP{NN}_` 접두를 쓴다 (표현 서픽스 `_xy`/`_pixel-aligned`/`_filtered` 는 **쓰지 않는다** — EXP 소속이 표현을 함의한다). 멀티-exp 공유 파일은 **직접 소비하는 최초 EXP 하나**만 소유하고 재사용 관계는 문서가 기록한다. 원본 3 종 (`implicit-world-modeling_*`) 과 `episodes_meta.jsonl`·`images/` 는 이름을 바꾸지 않는다. [§3 데이터 파일명 규칙](./ARCHITECTURE.md#3-데이터와-설정-계약)
 
 ### 인용 금지 (유령 참조)
 
@@ -95,9 +97,9 @@
 
 ### 데이터 분할 · 새 데이터셋 추가
 
-- 분할 정본은 [`scripts/split_data.py`](./scripts/split_data.py) (AC_EXP01 전용; MC 는 random fallback). 좌표 파생 실험군은 [`scripts/mirror_experiment.py`](./scripts/mirror_experiment.py), EXP05 는 [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py) 가 정본이다. 계보·분할 규칙: [§3](./ARCHITECTURE.md#3-데이터와-설정-계약).
+- 분할 정본은 [`scripts/split_data.py`](./scripts/split_data.py) (AC_EXP01 전용; MC 는 random fallback). 좌표 파생 실험군은 [`scripts/mirror_experiment.py`](./scripts/mirror_experiment.py), EXP05 는 [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py) (stage2 는 [`build_exp05_stage2_data.py`](./scripts/build_exp05_stage2_data.py)), **EXP07 은 [`scripts/build_exp07_data.py`](./scripts/build_exp07_data.py)** 가 정본이다 — EXP07 은 EXP01 계보 밖에서 자체 소스로 빌드하며 train ∩ test = 0 을 불변식으로 검사한다. 계보·분할 규칙: [§3](./ARCHITECTURE.md#3-데이터와-설정-계약).
 - **App partition 을 재계산하지 마라** — Stage 2 budget 으로 한 번 계산한 `(id_apps, ood_apps)` 를 Stage 1 이 재사용해야 "OOD 앱은 Stage 1 train 에 한 번도 등장하지 않는다" 가 성립한다. 파생 실험군은 EXP01 멤버십을 미러할 뿐 별도 계산을 하지 않는다.
-- **AC_EXP01 split 은 `_filtered.jsonl` 만 입력으로 쓴다** (선행: `filter_long_samples.py`). 원본을 직접 먹이지 마라.
+- **AC_EXP01 split 은 `EXP01_*.jsonl` (filter 산출) 만 입력으로 쓴다** (선행: `filter_long_samples.py`). 원본 `implicit-world-modeling_*` 을 직접 먹이지 마라.
 - 새 DS 를 추가하면 **다음을 전부** 손대야 한다 (하나라도 빠지면 학습 진입 전에 죽거나 조용히 잘못 돈다):
   - `lf_registry.py` — `_DATASET_CONFIG`, 세 **직교** 플래그 (`_STAGE1_ONLY` / `_DUAL_TASK_TEST` / `_SINGLE_TEST`), `_LONG_CUTOFF_DS`, `DATASET_MODEL_ELIGIBILITY`
   - `scripts/gpu_policy.py` — `_HALF_BATCH_DATASETS` (좌표 실험군이면)

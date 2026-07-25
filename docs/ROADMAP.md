@@ -3,6 +3,8 @@
 > **이 문서는 상태만 싣는다.** 실험군별로 무엇이 완료·진행·차단인가, 차단이면 **정확히 어디서 막히는가**.
 > 수치·표·근거·메커니즘은 전부 [`ARCHITECTURE.md`](../Implicit-World-Modeling/ARCHITECTURE.md) 가 정본이고 여기서는 링크만 한다.
 > 실험 **결과 지표**는 Notion `🧪 Experiments` DB 가 정본이다 (메트릭 정의는 [§6 메트릭](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭)).
+>
+> **포맷 규약**: 실험군 8종(EXP01–07·MC)은 아래에서 **동일 포맷**으로 싣는다 — 한 줄 상태(요약 표) → 실험군별 `완료 / 남은 것 / 차단·쟁점` 섹션.
 
 ---
 
@@ -22,34 +24,66 @@ find outputs -name '*_metrics.json'
 ```
 
 HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md#이름-규약), repo id 조립은 [§5](../Implicit-World-Modeling/ARCHITECTURE.md#5-실행-데이터-흐름과-산출물).
-`ac-2-` slug 와 `IWM-AC_2_*` 등록 키는 **구 스키마 사문화분**이다 — 현행 실험군이 아니다 ([§3 LF 등록](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약)).
+`ac-2-` slug 는 **구 스키마 사문화분**이다 — 현행 실험군이 아니다 (대응 등록 키 `IWM-AC_2_*` 는 2026-07-25 정본에서 제거됐다) ([§3 LF 등록](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약)).
 
 ---
 
-## 실험군 상태
+## 실험군 상태 — 한 줄 요약
 
 | 실험군 | 상태 | 한 줄 요약 |
 |---|---|---|
 | **AC_EXP01** | ✅ 완료 (공백 1) | stage1+stage2 완료. **ratio55 만 미학습** |
 | **AC_EXP02** | ✅ 완료 | diff loss **v1**. stage1+stage2 완료 |
-| **AC_EXP03** | ✅ 완료 | stage1+stage2 완료 — **단 자격 모순 1건 미판정** |
+| **AC_EXP03** | ✅ 완료 | stage1+stage2 완료 — **자격 모순 1건 미판정** |
 | **AC_EXP04** | ⛔ **차단** | **3중 차단** — 좌표계 모순 · 재빌드 소스 부재 · 등록 0 키 |
-| **AC_EXP05** | ✅ **eval 완주** (`qwen2.5-vl-3b`) | stage1 full FT **eval 완주**(state F1 ep2 정점 0.5963 / action ep3 0.7292, base→ep 추이 확인) · **stage2 full·lora world-model + base 전부 eval 완주**(2026-07-21, RTX5090×2). 재채점본 step_acc: full-wm ep3 **0.6950**, lora-wm ep3 0.6570, lora-base ep3 0.6627, base 0.4053. ⚠️ **terminate 채점 버그 수정**(`_action_eval.py`, 커밋 `dd17426` — GT `terminate` 가 xy no-field 채점서 누락돼 stage2 18.6% 오채점, 재추론 없이 재채점). 분석: [`.claude/analysis/2026-07-21_00-32-13/`](../.claude/analysis/2026-07-21_00-32-13/README.md) — **동일 예산(LoRA)서 world modeling 사전학습 이득 미관찰**(single-run). `qwen2.5-vl-7b` stage2 는 **사용자 지시로 스킵**. **데이터 쟁점 4건 미판정** |
-| **AC_EXP06** | 🔄 **merge/업로드** | EXP05 **비증강(증강 X) Stage-2 대조군** (2026-07-18 — `AC_NOTAUG`에서 표준 네이밍으로 마이그레이션). **lf_registry 등록 완료**(2026-07-20 — `DATASET_MODEL_ELIGIBILITY`/`_STAGE2_ONLY`/`_LONG_CUTOFF_DS`/half-batch 편입, stage1 계보는 `stage1_hf_slug: "ac-exp05-"` override 로 EXP05 stage1 체크포인트를 그대로 잇는다). stage2 YAML **12종**(EXP05 stage2 매트릭스를 완전 미러 — base/world-model-full/world-model-lora × `qwen2.5-vl-{3b,7b}` × stage2 {full,lora}) 완성. `base` variant: 학습 완료(`qwen2.5-vl-3b` LoRA base ep1/2/3) · merged 3에폭 HF 업로드(`SaFD-00/…ac-exp06-…epoch{1,2,3}`). **world-model variant(EXP05 stage1 full/lora 계승) 는 YAML 만 있고 학습 이력 0** — `scripts/stage2_train.sh` 가 `ds_stage1_source` 로 EXP05 local merged 를 base 로 삼는다. **eval 보류**(데이터 준비됨, 각 test 3000). 남은 것 = world-model variant 학습·평가 실행 |
-| **MC** | ⬜ 미착수 | 데이터·등록·YAML 다 있고 자격 제한 없음 — 그냥 안 돌렸다 |
+| **AC_EXP05** | ✅ **eval 완주** | `qwen2.5-vl-3b` stage1 full FT + stage2(full·lora world-model·base) **전부 eval 완주** (2026-07-21). **데이터 쟁점 4건 미판정** |
+| **AC_EXP06** | 🔄 **merge/업로드** | EXP05 비증강 Stage-2 대조군. `base` variant 완료·업로드, **world-model variant 학습 미착수** |
+| **AC_EXP07** | 🧱 **데이터·인프라 완비** | `qwen2.5-vl-3b` 단독 stage1 world-modeling. 등록·YAML·빌더 완비, **0725 실데이터 빌드 완료(누출 0)**, **학습 이력 0** |
+| **MC** | ⬜ 미착수 | 데이터·등록·YAML 완비, 자격 제한 없음. **프로덕션 코퍼스 아님** |
 | **MB** | ⬜ 미사용 | 평가 전용. `on-MB*` 산출물 0 |
+
+---
+
+## ✅ EXP01 — 완료 (공백 1)
+
+**완료**: `qwen3-vl-8b` (ratio37 · ratio73) + `qwen2.5-vl-7b` (ratio73) 로 stage1 LoRA → stage2 LoRA (`base` / `world-model`) 학습·평가 완료. 지표는 Notion `🧪 Experiments` DB 정본.
+
+**남은 것**: `ratio55` 학습 — 평가 기본값이 `--exp01-ratio ratio55` 이니 주의 ([§4 CLI](../Implicit-World-Modeling/ARCHITECTURE.md#4-파이프라인-컴포넌트)).
+
+**차단·쟁점**: ⚠️ **`ratio55` 는 학습된 적이 없다** (HF·로컬 모두 산출물 0). ratio sweep 3종 중 하나가 비어 있으므로 **"ratio 매트릭스 완주" 는 아직 거짓이다.**
+
+---
+
+## ✅ EXP02 — 완료 (diff loss v1)
+
+**완료**: diff loss **v1**. `qwen3-vl-8b` · `qwen2.5-vl-7b` stage1 LoRA → stage2 LoRA 완료.
+
+**남은 것**: 없음. EXP02 재실행이 필요해지면 그때 판단한다 (v1 동결 주의).
+
+**차단·쟁점**: v1 은 EXP02 재현성 때문에 **의도적으로 동결**돼 있다 — 경계 비대칭 버그도 고치지 않는다. **v1 4파일 삭제 금지** ([§3 함정 10](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약)).
+
+---
+
+## ✅ EXP03 — 완료 (자격 모순 1건 미판정)
+
+**완료**: `qwen3-vl-8b` · `qwen2.5-vl-7b` stage1 LoRA → stage2 LoRA 완료 (산출물은 HF. 로컬 `outputs/` 는 비어 있다 — 위 완료 판정 규칙 참조).
+
+**남은 것**: 없음 (기존 HF 산출물의 **평가는 되고 재학습만 막힌다** — 아래 자격 모순).
+
+**차단·쟁점**: ⚠️ **`qwen2.5-vl-7b` × EXP03 자격 모순** — HF 에 as-trained `ac-exp03-` 산출물이 있는데 현행 `eligible_models('AndroidControl_EXP03')` 는 Qwen3-VL 계열만 허용한다 → `require_model_eligible()` 이 **재학습을 막는다** (학습 당시엔 없던 가드). 열린 판정 2 참조. 커밋 YAML 은 재구성본이다 (아래 재현성 경고).
 
 ---
 
 ## ⛔ EXP04 — 차단 (3중)
 
-**돌리려 하면 `require_dataset_registered` 가 `llamafactory-cli` 진입 전에 죽인다.** YAML 이 있어도 돌지 않는다 ([§7 함정 20](../Implicit-World-Modeling/ARCHITECTURE.md#7-중요한-운영-제약)).
+**완료**: 데이터 파일과 stage1 YAML 은 디스크에 있다. **있다는 사실이 돌아간다는 뜻이 아니다** — `require_dataset_registered` 가 `llamafactory-cli` 진입 전에 죽인다 ([§7 함정 20](../Implicit-World-Modeling/ARCHITECTURE.md#7-중요한-운영-제약)).
 
-차단 지점 셋 — **순서대로** 풀어야 한다:
+**남은 것**: 선결 순서대로 — **좌표 규약 확정 → (원천 확보 후) 재빌드 → dataset_info 등록.** Stage 2 는 `_STAGE1_ONLY` 라 애초에 대상 아님. HF 에 EXP04 산출물 0.
 
-1. **좌표계 모순 (선결)** — 디스크의 EXP04 데이터가 문서 전제(0–1000 정규화)를 **만족하지 않는다**. 실측값과 판정 보류 근거는 [§2 EXP04 경고 블록](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정).
-   **버그인지 의도인지 아직 판정되지 않았다** — 어느 쪽으로도 단정하지 말 것. 이게 안 풀리면 아래 둘을 풀어도 의미가 없다 (**틀린 좌표계를 등록하게 된다**).
-2. **재빌드 불가** — `mirror_experiment.py --experiment exp04` 의 원천 `implicit-world-modeling_stage1_{action,state}_xy_prompt-enhanced.jsonl` 이 **디스크에 없다**. 좌표계를 고쳐 재빌드하려 해도 소스가 없다 → **원천 확보가 물리적 선결**.
+**차단·쟁점**: 3중 차단 — **순서대로** 풀어야 한다:
+
+1. **좌표계 모순 (선결)** — 디스크의 EXP04 데이터가 문서 전제(0–1000 정규화)를 **만족하지 않는다**. **버그인지 의도인지 아직 판정되지 않았다** — 어느 쪽으로도 단정하지 말 것. 이게 안 풀리면 아래 둘을 풀어도 **틀린 좌표계를 등록하게 된다**. 실측·근거는 [§2 EXP04 경고 블록](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정).
+2. **재빌드 불가** — `mirror_experiment.py --experiment exp04` 의 원천 `data/AndroidControl/EXP04_stage1_{action,state}.jsonl` 이 **디스크에 없다** → **원천 확보가 물리적 선결**.
 3. **등록 0 키** — `configs/lf_dataset/dataset_info.json` 에 `IWM-AC_EXP04_*` 키가 없다. 가드는 YAML 유무가 아니라 **등록 여부**를 본다 ([§3 함정 14](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약)).
 
 ```bash
@@ -57,38 +91,70 @@ HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md
 python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'));print(sorted(k for k in d if 'EXP04' in k))"
 ```
 
-데이터 파일과 stage1 YAML 은 디스크에 있다 — **있다는 사실이 돌아간다는 뜻이 아니다.** Stage 2 는 `_STAGE1_ONLY` 라 애초에 대상 아님. HF 에 EXP04 산출물 0.
-
 ---
 
-## 🔄 EXP05 — stage1 학습 중 (A100×2, 2026-07-14~)
+## ✅ EXP05 — eval 완주 (`qwen2.5-vl-3b`)
 
 절대 픽셀 좌표 실험군. 자격 밖 모델은 **코드 가드가 막는다** — 매트릭스는 [§2 자격 매트릭스 · 함정 3](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정).
 
-- [x] **데이터 빌드 완료** — 0711 수정본 + diff loss **v2** 가중. 빌드 정본 [`scripts/build_exp05_data.py`](../Implicit-World-Modeling/scripts/build_exp05_data.py). 등록도 되어 있다.
-- [ ] **데이터 쟁점 4건 — 조병웅님 판정 대기 (본실험 전 선결)**: `wait` 액션 전량 퍼지 · train 축소 · action/state 키 대칭 붕괴 · **좌표 범위이탈**(OOD 평가셋 오염). 실측·상세는 [§3 EXP05 데이터 쟁점](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약).
-  ⚠️ **아래 stage1 학습은 이 4건이 미판정인 채로 진행 중이다** — 판정 결과에 따라 산출물의 유효성이 달라질 수 있다.
-- [ ] **학습 — A100×2 에서 stage1 full FT 진행 중** (`qwen2.5-vl-3b`, 2026-07-14 재시작). GPU 정책이 80GB × 3-4B 에서 offload 를 끄면서 **138 s/step · ETA 약 3.3 일**이 됐다 (재시작 시점 확인값: step 15/2094, loss 0.1735, OOM 없음). 정책·실측 근거는 [§2 GPU 정책 · 함정 7](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정) · [§7 함정 19](../Implicit-World-Modeling/ARCHITECTURE.md#7-중요한-운영-제약).
-  - **아직 완주하지 않았다** — 체크포인트·HF 산출물 **0**. 메모리 여유가 **~7 GB** 뿐이라 **OOM 가능성이 남아 있다** (감시 중).
-  - **로컬 2×RTX5090 은 여전히 불가** (OOM + 비현실적 소요시간, [§7 함정 19](../Implicit-World-Modeling/ARCHITECTURE.md#7-중요한-운영-제약)). 로컬에 남은 건 OOM 로그(`trainer_log.jsonl.oom_0711.bak`) 뿐이다.
-- [ ] **원격 실행 경로 확보** — 제출 스펙(`scripts/remote_launch.sh` + `configs/remote/run.template.yaml`)은 저장소에 있으나 **UNVALIDATED (실행 이력 0)** ([§4](../Implicit-World-Modeling/ARCHITECTURE.md#4-파이프라인-컴포넌트)). org/project/cluster + 데이터 업로드 방식 미정. **위 A100×2 학습은 원격 제출 경로가 아니라 A100 머신에서 `scripts/stage1_train.sh` 를 직접 호출한 것이다** — 제출 스펙 검증과는 무관하다.
-- [ ] **평가** — xy 좌표 채점은 구현·배선 완료 (EXP05 일 때만 opt-in). 규칙과 함정은 [§6 xy 좌표 스페이스 채점](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭).
-- [x] **Stage 2 도입 (2026-07-15)** — drive-download stage2 3개 jsonl(train 15000 / test_id 3000 / test_ood 3000)을 저장소 이미지 경로 관례로 변환(`myset/images/…` → `AndroidControl/images/episode_<6자리>_step_<S>.jpg`, `home.png` → `home.jpg` 주입)해 `dataset_info.json` 에 3키 등록하고, `_STAGE1_ONLY` 에서 EXP05 를 제거해 stage2 YAML **12개**(`stage2_full` 6 + `stage2_lora` 6, `qwen2.5-vl-{3b,7b}` × {base, world-model-full, world-model-lora})를 정식 생성했다. 빌드 정본 [`scripts/build_exp05_stage2_data.py`](../Implicit-World-Modeling/scripts/build_exp05_stage2_data.py). 상세는 [devlog 2026-07-15](../.claude/devlog/2026-07-15_08-51-11_exp05-stage2-apply.md). 산출 데이터·`home.jpg` 는 관례상 gitignored.
-- [x] **Stage 2 `qwen2.5-vl-3b` LoRA(base) 학습+merge+eval 완료 (2026-07-16)** — 705 step · 3 epoch 학습(tmux `exp05_s2`, 2026-07-15 08:25 → 2026-07-16 04:03) 후 `scripts/stage2_merge.sh`/`scripts/stage2_eval.sh` 오케스트레이션으로 epoch 1/2/3 로컬 merge → epoch-3 만 HF Hub push(`SaFD-00/qwen2.5-vl-3b-ac-exp05-base-stage2-lora-epoch3`) → eval(variants `base`,`lora_base` epochs 1–3, AC_EXP05 test_id+test_ood 6000건씩). **macro_step_accuracy**: base(zero-shot) 0.261 → epoch1 0.516 → epoch2 0.545 → epoch3 **0.560**(최고, epoch 단조 개선). 근거: `action_metrics.json` ×4 (`outputs/AndroidControl_EXP05/{merged,eval}/`, 로컬 gitignored). `qwen2.5-vl-7b` stage2 학습/merge/eval 은 **사용자 지시로 스킵**(감시 스크립트 `exp05_guard` 가 7b 학습 진입 직전 kill — 0바이트 로그·GPU idle·프로세스 없음으로 확인, 실제 GPU 연산 없음). 상세는 [DEVLOG 2026-07-16](../.claude/devlog/DEVLOG.md).
+**완료**:
+- **데이터 빌드** — 0711 수정본 + diff loss **v2** 가중, 등록 완료. 빌드 정본 [`scripts/build_exp05_data.py`](../Implicit-World-Modeling/scripts/build_exp05_data.py).
+- **stage1 full FT eval 완주** — state F1 ep2 정점 **0.5963** / action ep3 **0.7292** (A100×2 에서 학습, base→ep 추이 확인). **현행 실험군 최초의 완주 full FT 경로**다 (나머지 완료 실험군은 전부 LoRA).
+- **Stage 2 도입 (2026-07-15)** — drive stage2 3 jsonl(train 15000 / test_id 3000 / test_ood 3000)을 저장소 이미지 경로 관례로 변환(`myset/images/…` → `AndroidControl/images/episode_<6자리>_step_<S>.jpg`, `home.png` → `home.jpg`)해 3키 등록 + `_STAGE1_ONLY` 에서 제거 + stage2 YAML **12개** 생성. 빌드 정본 [`scripts/build_exp05_stage2_data.py`](../Implicit-World-Modeling/scripts/build_exp05_stage2_data.py).
+- **stage2 full·lora world-model + base 전부 eval 완주** (2026-07-21, RTX5090×2). 재채점 `step_acc`: **full-wm ep3 0.6950** / lora-wm ep3 0.6570 / lora-base ep3 0.6627 / base 0.4053.
+- ⚠️ **terminate 채점 버그 수정** (`_action_eval.py`, 커밋 `dd17426`) — GT `terminate` 가 xy no-field 채점서 누락돼 stage2 18.6% 오채점 → 재추론 없이 재채점.
 
-HF 에 EXP05 stage2 산출물 1개(`qwen2.5-vl-3b-ac-exp05-base-stage2-lora-epoch3`, epoch3 LoRA adapter) — stage1 full FT 는 아직 완주 전이고, stage2 `qwen2.5-vl-7b` 는 사용자 지시로 스킵됐다.
+**남은 것**: 데이터 쟁점 4건 판정 후 산출물 유효성 재확인. `qwen2.5-vl-7b` stage2 는 **사용자 지시로 스킵** (감시 스크립트 `exp05_guard` 가 7b 학습 진입 직전 kill — 0바이트 로그·GPU idle·프로세스 없음으로 확인, 실제 GPU 연산 없음).
+
+**차단·쟁점**:
+- ⚠️ **데이터 쟁점 4건 — 조병웅님 판정 대기 (본실험 전 선결)**: `wait` 액션 전량 퍼지 · train 축소 · action/state 키 대칭 붕괴 · **좌표 범위이탈**(OOD 평가셋 오염). 실측·상세는 [§3 EXP05 데이터 쟁점](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약).
+- 분석: [`.claude/analysis/2026-07-21_00-32-13/`](../.claude/analysis/2026-07-21_00-32-13/README.md) — **동일 예산(LoRA)서 world modeling 사전학습 이득 미관찰** (single-run).
 
 ---
 
-## ✅ 완료 — EXP01 / EXP02 / EXP03
+## 🔄 EXP06 — merge/업로드 (world-model variant 학습 미착수)
 
-지표는 Notion `🧪 Experiments` DB 가 정본. 학습된 변형은 위 HF 커맨드로 확인한다.
+EXP05 의 **비증강(증강 X) Stage-2 대조군**. 좌표/budget/`--coord-mode xy` 규약을 EXP05 에서 승계하며 모델 자격도 EXP05 와 동일하게 **Qwen2.5-VL 계열 전용**이다 ([§2 자격 매트릭스 각주](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정)).
 
-- **EXP01** — `qwen3-vl-8b` (ratio37 · ratio73) + `qwen2.5-vl-7b` (ratio73) 로 stage1 LoRA → stage2 LoRA (`base` / `world-model`) 학습·평가 완료.
-  - ⚠️ **`ratio55` 는 학습된 적이 없다** (HF·로컬 모두 산출물 0). ratio sweep 3종 중 하나가 비어 있으므로 **"ratio 매트릭스 완주" 는 아직 거짓이다.** 평가 기본값이 `--exp01-ratio ratio55` 라는 점에 주의 ([§4 CLI](../Implicit-World-Modeling/ARCHITECTURE.md#4-파이프라인-컴포넌트)).
-- **EXP02** — diff loss **v1**. `qwen3-vl-8b` · `qwen2.5-vl-7b` stage1 LoRA → stage2 LoRA 완료.
-  - v1 은 EXP02 재현성 때문에 **의도적으로 동결**돼 있다 — 경계 비대칭 버그도 고치지 않는다. **v1 4파일 삭제 금지** ([§3 함정 10](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약)). EXP02 재실행이 필요해지면 그때 판단한다.
-- **EXP03** — `qwen3-vl-8b` · `qwen2.5-vl-7b` stage1 LoRA → stage2 LoRA 완료 (산출물은 HF. 로컬 `outputs/` 는 비어 있다 — 위 판정 규칙 참조).
+**완료**:
+- **마이그레이션** (2026-07-18) — `AC_NOTAUG` 에서 표준 네이밍으로.
+- **lf_registry 등록 완료** (2026-07-20) — `DATASET_MODEL_ELIGIBILITY`/`_STAGE2_ONLY`/`_LONG_CUTOFF_DS`/half-batch 편입. stage1 계보는 `stage1_hf_slug: "ac-exp05-"` override + 셸 `ds_stage1_source()` 로 **EXP05 stage1 체크포인트를 그대로 승계** (stage2 산출물 네이밍은 `ac-exp06-` 유지).
+- **stage2 YAML 12종** — EXP05 stage2 매트릭스 완전 미러 (base/world-model-full/world-model-lora × `qwen2.5-vl-{3b,7b}` × stage2 {full,lora}).
+- **`base` variant** — 학습 완료 (`qwen2.5-vl-3b` LoRA base ep1/2/3) · merged 3에폭 HF 업로드 (`SaFD-00/…ac-exp06-…epoch{1,2,3}`).
+
+**남은 것**: **world-model variant (EXP05 stage1 full/lora 계승) 학습·평가 실행** — YAML 만 있고 학습 이력 0. `scripts/stage2_train.sh` 가 `ds_stage1_source` 로 EXP05 local merged 를 base 로 삼는다. eval 보류 (데이터 준비됨, 각 test 3000).
+
+**차단·쟁점**: 없음 — 배선 완비, 실행만 남았다.
+
+---
+
+## 🧱 EXP07 — 데이터·인프라 완비 (학습 미착수)
+
+`qwen2.5-vl-3b` **단독** stage1 world-modeling 실험군. 자격 밖 모델은 EXP05 와 동일하게 코드 가드가 막는다 ([§2 자격 매트릭스](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정)).
+
+**스펙 요약**: 3B 전용 · **stage1** 1ep · `save_steps 0.25` (fractional 체크포인트 라벨 0.25/0.5/0.75/1) · train **50K** = state 40K + downstream 10K(이미지 제거) · LoRA **64/128** · diff v2 **1:0.2** (ADDED 1.0 / MODIFIED 1.0 / UNCHANGED 0.2, state 분량에 인라인). **stage2** 3ep · train **15K** · **merge O/X** 둘 다 지원 · rank 64 · thought 유사도 메트릭. 수치 정본은 [§2 하이퍼파라미터](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정) · [§6 메트릭](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭), 데이터 계약은 [§3](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약).
+
+**완료 (인프라 + 데이터)**:
+- **등록** — 자격 `qwen2.5-vl-3b` 단독, `dataset_info` **8키 전부 자체 경로**(stage1 train + stage1 test_{id,ood}_{state,action} + stage2 train/test_id/test_ood — EXP05 포인터 없음), `_LONG_CUTOFF_DS` 편입, stage2 **merge X 변형(`world-model-adapter`)** 을 EXP07 한정 opt-in.
+- **YAML 9종** — stage1 {full,lora} 2 + stage2_full 3 + stage2_lora 4. `gen_configs --check` 통과.
+- **데이터 빌드 (2026-07-25 실데이터)** — 빌드 정본 [`scripts/build_exp07_data.py`](../Implicit-World-Modeling/scripts/build_exp07_data.py). 원천은 0725 myset 필터링본 3 파일(`data/AndroidControl_EXP07_src/`)이고 **EXP05 파생이 아니다**. train 2(stage1 50K / stage2 15K) + **자체 test 6종** 전부 실파일 — EXP05 심링크·포인터는 폐기됐다. **누출 0**: EXP05 test 의 `(episode, step)` 키를 재현해 test 를 굽고 그 union 을 train 두 풀에서 전량 제외 → `train ∩ test = 0` (빌더 `verify()` 가 fail-closed 검사). 두 downstream 풀(stage1 10K / stage2 15K)도 **비중복**. 행수·분포는 sidecar 에서 읽는다: `cat data/AndroidControl_EXP07/stage1_train.jsonl.meta.json`.
+- **thought 유사도 메트릭 배선** — `stage2_eval.sh` 가 action 채점 직후 자동 hook 으로 산출 ([§6](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭)).
+
+**남은 것**: **학습 실행** — 데이터·인프라 완비, **학습 이력 0** (dry-run 까지 검증). GPU 학습은 별도 플랜.
+
+**차단·쟁점**:
+- 재빌드는 `python scripts/build_exp07_data.py --source-dir <dir> --seed 7` 로 한다 (`W_UNCHANGED=0.2`·metric v2 는 빌더 불변식으로 고정). 소스가 바뀌면 test 도 함께 다시 구워지므로 **누출 0 불변식은 빌더가 매번 재검사**한다.
+- thought eval 이 유의미하려면 실행 env 에 `sentence-transformers`·`sacrebleu` 가 필요하다 (pyproject 등재 — `.venv` 충족, conda env 는 별도 설치). 미설치 시 cosine/bleu null·ROUGE-L 만 산출, 파이프라인 비차단.
+
+---
+
+## ⬜ MC — 미착수 (차단 아님)
+
+**완료**: 배선·정적 관통 확인 (jsonl 스키마 + 이미지 경로 해석). 레지스트리·`dataset_info`·`configs/train/IWM-MC/`·`split_data.py --dataset MC` 전부 존재.
+
+**남은 것**: 원격 GPU 박스에서 `stage1_train.sh --dataset MC` 를 실제로 한 번 실행 (핸드오프만, **사용자 결정 2026-07-14 로 보류**). `--stage1-ratio` 기본값 0.95 를 164 행에 적용하면 test 가 9개뿐이라 실제 학습 전 비율을 다시 정해야 한다.
+
+**차단·쟁점**: 현재 `data/MonkeyCollection/` 는 **프로덕션 코퍼스가 아니다** (Monkey-Collector 실험 잔여물 164 examples, 교차-앱 병합 오염). **이 데이터로 낸 학습 결과를 코퍼스 품질의 근거로 쓰지 마라** ([§3 MC 데이터 상태](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약)).
 
 ---
 
@@ -110,10 +176,9 @@ HF 에 EXP05 stage2 산출물 1개(`qwen2.5-vl-3b-ac-exp05-base-stage2-lora-epoc
 
 ## 미착수 (차단 아님 — 그냥 안 돌렸다)
 
-- **`qwen3-vl-4b`** — 2026-07-13 레지스트리 복원으로 EXP01–EXP04 **자격만** 생겼다. **학습·평가 이력 0.** 위 EXP01–03 완료 표시는 전부 `qwen3-vl-8b`·`qwen2.5-vl-7b` 기준이다. EXP05 는 자격 밖 ([§2 모델 레지스트리](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정)).
-- **MC (MonkeyCollection)** — stage1 전용. 데이터·등록·YAML 다 있고 자격 제한 없음. 산출물 0.
+- **`qwen3-vl-4b`** — 2026-07-13 레지스트리 복원으로 EXP01–EXP04 **자격만** 생겼다. **학습·평가 이력 0.** 위 EXP01–03 완료 표시는 전부 `qwen3-vl-8b`·`qwen2.5-vl-7b` 기준이다. EXP05/06/07 은 자격 밖 ([§2 모델 레지스트리](../Implicit-World-Modeling/ARCHITECTURE.md#2-모델-설정)).
 - **MB (MobiBench)** — 평가 전용. 등록돼 있으나 `on-MB*` eval 산출물 0.
-- **Full FT 경로** — 현행 실험군(EXP01–05)에서 **완주한** stage1 full FT 는 아직 **없다** (완료된 실험군은 전부 LoRA). EXP05 3B full FT 가 **A100×2 에서 처음으로 진행 중**이다 (위 EXP05 참조). 로컬 RTX5090 시도는 OOM 으로 죽었다.
+- **Full FT 경로** — **EXP05 3B stage1 full FT 가 A100×2 에서 완주해 eval 까지 마쳤다** (현행 실험군 최초의 완주 full FT 경로 — 위 EXP05 참조). 로컬 RTX5090 시도는 OOM 으로 죽었다. 나머지 완료 실험군(EXP01–03)은 전부 LoRA 다.
 
 ---
 
@@ -122,7 +187,7 @@ HF 에 EXP05 stage2 산출물 1개(`qwen2.5-vl-3b-ac-exp05-base-stage2-lora-epoc
 - [x] 문서 트리오 정비 (README · ARCHITECTURE · AGENTS) + SSoT 재배치
 - [x] 2-stage 파이프라인 자동화 (`scripts/stage{1,2}_{train,merge,eval}.sh`)
 - [x] 학습 설정 정본화 — YAML 생성기(`gen_configs`) + 커밋된 `dataset_info.json` + 코드 가드(자격·등록)
-- [ ] **실험 매트릭스 완주** (모델 × 데이터셋 × {base / stage2 / stage1+stage2}) — EXP04 차단, EXP05 stage1 학습 중, ratio55·`qwen3-vl-4b`·MC 공백
+- [ ] **실험 매트릭스 완주** (모델 × 데이터셋 × {base / stage2 / stage1+stage2}) — EXP04 차단, EXP06 world-model·EXP07 학습 미착수, ratio55·`qwen3-vl-4b`·MC 공백
 - [ ] 결과 종합 및 논문화 (AAAI/ICLR 2027 트랙)
 - [ ] (추후) Obsidian 동기화 — Vault 있는 환경에서 `/project-sync init` 재실행
 

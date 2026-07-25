@@ -57,7 +57,7 @@ CPUAdam 이 미리 빌드된 이미지라면 `LF_CUDA_GUARD_SKIP=1` 로 가드�
 
 ## 2. 데이터 준비
 
-학습 대상 DS 는 `AC_EXP01` · `AC_EXP02` · `AC_EXP03` · `AC_EXP04` · `AC_EXP05` · `AC_EXP06` · `MC`. `MB` (MobiBench) 는 평가 전용이다. 원본 `AndroidControl/` 은 학습/평가 entry 가 아니라 **source 자산**이다. 계보와 각 실험군의 설계 의도는 [ARCHITECTURE §3 "데이터 계보"](./ARCHITECTURE.md#3-데이터와-설정-계약).
+학습 대상 DS 는 `AC_EXP01` · `AC_EXP02` · `AC_EXP03` · `AC_EXP04` · `AC_EXP05` · `AC_EXP06` · `AC_EXP07` · `MC`. `MB` (MobiBench) 는 평가 전용이다. 원본 `AndroidControl/` 은 학습/평가 entry 가 아니라 **source 자산**이다. 계보와 각 실험군의 설계 의도는 [ARCHITECTURE §3 "데이터 계보"](./ARCHITECTURE.md#3-데이터와-설정-계약).
 
 행수·파일 목록은 문서가 아니라 디스크에서 센다: `wc -l data/AndroidControl_EXP05/*.jsonl`
 
@@ -74,7 +74,7 @@ python scripts/extract_androidcontrol_metadata.py --output data/AndroidControl/e
 ### AC_EXP01 — Stage 1 ratio mix + Stage 2 ID/OOD split
 
 ```bash
-# (선행 필수) cutoff 초과 샘플 제거 → 원본 폴더에 _filtered.jsonl. split 은 _filtered 만 입력으로 쓴다.
+# (선행 필수) cutoff 초과 샘플 제거 → 원본 폴더에 EXP01_*.jsonl. split 은 이 EXP01_* 만 입력으로 쓴다.
 python scripts/filter_long_samples.py --dataset AC_EXP01
 
 python scripts/split_data.py --dataset AC_EXP01 --exp01-ratios 3:7,5:5,7:3 --exp01-train-total 50000
@@ -111,7 +111,7 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 
 ```bash
 # 1) 소스 2 파일을 Google Drive '0711_버젼' 폴더에서 받아 canonical 이름으로 배치 (예: gdown --folder <folder-url>)
-#    → data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl
+#    → data/AndroidControl/EXP05_stage1_{action,state}.jsonl
 
 # 2) 빌드 정본 — mirror → diff-loss v2 가중치 → 원자 교체 + sidecar. 기본 fail-closed.
 python scripts/build_exp05_data.py
@@ -120,7 +120,7 @@ python scripts/build_exp05_data.py
 실측 분포는 문서가 아니라 sidecar 에서 읽는다 (tokenizer / revision / 가중 상수 / 집계):
 
 ```bash
-cat data/AndroidControl_EXP05/implicit-world-modeling_stage1_train.jsonl.meta.json
+cat data/AndroidControl_EXP05/stage1_train.jsonl.meta.json
 ```
 
 > 본실험 전 선결 쟁점 (액션 라벨 좌표 범위이탈 · OOD 평가셋 오염 · `wait` 퍼지) 은 [ARCHITECTURE §3 "EXP05 데이터 쟁점"](./ARCHITECTURE.md#3-데이터와-설정-계약).
@@ -138,13 +138,37 @@ bash scripts/stage2_train.sh --model qwen2.5-vl-3b --dataset AC_EXP06 \
 
 이 커맨드의 `world-model-full` variant 는 `../outputs/AndroidControl_EXP05/merged/qwen2.5-vl-3b_stage1_full_world-model/epoch-3` 를 base 로 삼는다 (EXP06 자신의 stage1 이 아니라 EXP05 것 — DRY_RUN 로 확인됨).
 
+### AC_EXP07 — `qwen2.5-vl-3b` 단독 (자체 소스, 누출 0)
+
+EXP05 와 **같은 절대 픽셀 좌표계**를 쓰지만 **데이터 계보는 EXP05 파생이 아니다** — 0725 myset 필터링본에서 자체 빌드한다. 자격은 `qwen2.5-vl-3b` 단독 (7B 제외).
+
+```bash
+# 1) 원천 3 파일을 배치 → data/AndroidControl_EXP07_src/
+#    stage1/all_samples_state_pred_0725_filtered_v2.jsonl
+#    stage2/all_samples_sharegpt_0725_filtered_with_history_v5.jsonl
+#    stage2/results_sharegpt.jsonl
+
+# 2) 빌드 정본 — train 2 + 자체 test 6 + sidecar. 누출 0 불변식을 fail-closed 로 검사.
+#    ⚠ 이 빌더는 커밋 정본 configs/lf_dataset/dataset_info.json 에 EXP07 8키를 함께 써넣는다
+#      (register_dataset_info, main 에서 무조건 실행) → 빌드 후 그 파일 변경분을 같이 커밋한다.
+python scripts/build_exp07_data.py --seed 7
+```
+
+`train ∩ test = 0` 은 빌더가 매번 재검사한다 (EXP05 test 의 `(episode, step)` 키 union 을 train 두 풀에서 전량 제외). 행수·분포는 문서가 아니라 sidecar 에서 읽는다:
+
+```bash
+cat data/AndroidControl_EXP07/stage1_train.jsonl.meta.json
+```
+
+> stage1 은 `save_steps 0.25` 라 체크포인트 라벨이 **0.25 / 0.5 / 0.75 / 1** 이다 — `--epochs`·`--stage1-epoch` 에 소수를 넘길 수 있다 ([ARCHITECTURE §4](./ARCHITECTURE.md#4-파이프라인-컴포넌트)). stage2 의 **merge X 변형**(`world-model-adapter`) 은 EXP07 한정 opt-in 이며 기본 sweep 에 없다 — `--variants lora_world_model_adapter` 로 명시해야 채점된다.
+
 ### MC / MB
 
 ```bash
 python scripts/split_data.py --dataset MC     # random 95:5, Stage 2 자동 skip
 ```
 
-MB 는 split 불필요 — `data/MobiBench/implicit-world-modeling_stage{1,2}.jsonl` 두 파일만 있으면 평가가 성립한다. `IWM-MB_stage{1,2}` 는 커밋 정본에 정적 등록돼 있고 `_common.sh::verify_dataset_info()` 가 source 시점에 **검증만** 한다 (런타임에 심지 않는다).
+MB 는 split 불필요 — `data/MobiBench/stage{1,2}.jsonl` 두 파일만 있으면 평가가 성립한다. `IWM-MB_stage{1,2}` 는 커밋 정본에 정적 등록돼 있고 `_common.sh::verify_dataset_info()` 가 source 시점에 **검증만** 한다 (런타임에 심지 않는다).
 
 ### 학습 YAML
 

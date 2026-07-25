@@ -108,10 +108,13 @@ Qwen 계열은 **세대마다 native 좌표 규약이 반전됐다** (Qwen2-VL �
 | **AC_EXP03 / AC_EXP04** | 좌표 `point=[x,y]` | **Qwen3-VL 계열 전용** (`qwen3-vl-8b`, `qwen3-vl-4b`) |
 | **AC_EXP05** | **절대 픽셀 840×1876** | **Qwen2.5-VL 계열 전용** (`qwen2.5-vl-7b`, `qwen2.5-vl-3b`) |
 | **AC_EXP06** | **절대 픽셀 840×1876** | **Qwen2.5-VL 계열 전용** (EXP05 와 동일 — 아래 각주) |
+| **AC_EXP07** | **절대 픽셀 840×1876** | **`qwen2.5-vl-3b` 단독** (아래 각주) |
 
 재확인: `python -c "from implicit_world_modeling.lf_registry import eligible_models as e; print(e('AndroidControl_EXP05'))"`
 
 > ⓘ **AC_EXP06 은 EXP05 의 비증강 Stage-2 대조군**이며 `DATASET_MODEL_ELIGIBILITY` 에 **등록 완료**됐다(2026-07-20 — EXP05 와 동일하게 `frozenset(_QWEN2_5_VL_FAMILY)`). 따라서 EXP06 도 함정 2 의 코드 가드 대상이다 — 다른 family 는 `require_model_eligible()` 이 학습 진입 전 `exit 1` 한다. **단 EXP06 자체엔 stage1 학습 데이터·체크포인트가 없다** (`lf_registry._STAGE2_ONLY` — stage1 YAML 도 렌더되지 않는다). stage2 world-model variant 는 base 로 **EXP05 stage1 체크포인트를 그대로 승계**한다 — `_DATASET_CONFIG["AndroidControl_EXP06"]["stage1_hf_slug"] = "ac-exp05-"`(HF fallback repo id 조립용) + 셸 `scripts/_common.sh::ds_stage1_source()`(`AC_EXP06 → AC_EXP05`, `stage2_{train,merge,eval}.sh` 의 stage1 참조 지점에 관통) 가 이를 구현한다. **stage2 산출물(경로/HF id)은 EXP06 정체성을 그대로 유지**한다 — 승계되는 것은 stage1 참조뿐이다.
+
+> ⓘ **AC_EXP07 은 `qwen2.5-vl-3b` 단독** stage1 world-modeling 실험군이다 — EXP05/06 이 3B·7B 둘 다 자격인 것과 달리 **7B 를 자격에서 뺐다** (`eligible_models('AndroidControl_EXP07') == ['qwen2.5-vl-3b']`). **좌표계는 EXP05 와 같은 절대 픽셀 840×1876 이지만 데이터 계보는 EXP05 파생이 아니다** — 별도 0725 myset 소스에서 자체 빌드하며 (§3 계보), 같은 좌표계라서 채점도 EXP05 와 동일하게 `--coord-mode xy` 로 돈다 (`stage1_eval.sh` · `stage2_eval.sh` 가 `AC_EXP07` 에 자동 주입). **EXP06 과 달리 EXP07 은 자체 stage1 을 가진다** (`ds_stage1_source` 미매핑, `stage1_hf_slug` 미설정) — stage1 train 50K 를 자기 데이터로 학습한다. 대신 stage2 에는 **merge X 변형(`world-model-adapter`)** 이 EXP07 한정으로 opt-in 돼 있다 (아래 §4 Stage 2 · §5 HF 업로드 각주). `_LONG_CUTOFF_DS` 에 편입돼 학습·평가 cutoff 24576 을 승계한다.
 
 > ⚠️ **함정 2 — 이 자격은 문서 규약이 아니라 코드 가드다** (커밋 `fd4fd77`, 2026-07-13). `lf_registry.py::DATASET_MODEL_ELIGIBILITY` 가 정본이고, **`scripts/_common.sh::require_model_eligible()` 이 `llamafactory-cli train` 호출 전에 `exit 1`** 한다 (`stage{1,2}_train.sh` 가 호출). `--model qwen3-vl-8b --dataset AC_EXP05` 는 **학습이 시작되지 않고 중단된다.** `gen_configs` 도 `eligible_models()` 를 거쳐 자격 밖 조합의 YAML 을 아예 만들지 않는다.
 >
@@ -139,7 +142,7 @@ Qwen 계열은 **세대마다 native 좌표 규약이 반전됐다** (Qwen2-VL �
 >
 > **재판정·재빌드 경로가 둘 다 끊겨 있다:**
 > 1. **실행 불가** — `configs/lf_dataset/dataset_info.json` 에 `IWM-AC_EXP04_*` 키가 **하나도 없어** `require_dataset_registered` 가 학습 진입을 막는다 (§3). 확인: 아래 §3 등록 커맨드.
-> 2. **재빌드 불가** — `mirror_experiment.py --experiment exp04` 의 원천 `data/AndroidControl/implicit-world-modeling_stage1_{action,state}_xy_prompt-enhanced.jsonl` 2 개가 **디스크에 없다** (남은 것은 `*_xy.jsonl` (EXP03) 와 `*_xy_pixel-aligned.jsonl` (EXP05) 뿐).
+> 2. **재빌드 불가** — `mirror_experiment.py --experiment exp04` 의 원천 `data/AndroidControl/EXP04_stage1_{action,state}.jsonl` 2 개가 **디스크에 없다** (남은 것은 `EXP03_*` 와 `EXP05_*` 뿐).
 >
 > **선결 순서: 좌표 규약 확정 → (원천 확보 후) 재빌드 → dataset_info 등록.**
 > 위 자격 서술 (Qwen3-VL 전용) 자체는 **코드가 데이터 내용과 무관하게 강제**하므로 유효하다 — 흔들리는 것은 자격의 *근거로 적힌 좌표계 전제*다.
@@ -189,7 +192,7 @@ Qwen 계열은 **세대마다 native 좌표 규약이 반전됐다** (Qwen2-VL �
 >
 > **budget 일치 규칙: 데이터가 전제한 리사이즈 픽셀 크기와 학습·평가의 `image_max_pixels` 는 반드시 같은 budget 에서 나와야 한다.** 어긋나면 좌표계 전체가 무효다 — 데이터의 좌표는 budget B 로 리사이즈된 이미지 기준인데 모델은 budget B' 로 리사이즈된 이미지를 보게 되기 때문이다.
 >
-> **데이터 생성기에는 image budget 인자가 없다.** EXP05 의 840×1876 좌표는 원천 jsonl (`*_xy_pixel-aligned.jsonl`) 에 **이미 박혀 들어온다** — `build_exp05_data.py` / `mirror_experiment.py` 는 좌표를 재계산하지 않는다. 즉 EXP05 는 **원천 데이터가 전제한 budget 1,605,632 가 우리 Qwen2.5-VL family default 와 정확히 같아서** `image_overrides` 없이 자동으로 일치한다. (길이 사전측정용 `filter_long_samples.py` 의 `--image-max-pixels` 는 별개 도구의 인자다 — §4.)
+> **데이터 생성기에는 image budget 인자가 없다.** EXP05 의 840×1876 좌표는 원천 jsonl (`EXP05_stage1_{action,state}.jsonl`) 에 **이미 박혀 들어온다** — `build_exp05_data.py` / `mirror_experiment.py` 는 좌표를 재계산하지 않는다. 즉 EXP05 는 **원천 데이터가 전제한 budget 1,605,632 가 우리 Qwen2.5-VL family default 와 정확히 같아서** `image_overrides` 없이 자동으로 일치한다. (길이 사전측정용 `filter_long_samples.py` 의 `--image-max-pixels` 는 별개 도구의 인자다 — §4.)
 
 > vLLM `gpu_memory_utilization` 은 `build_infer_cmd` 기본 `0.80`, 환경변수 `VLLM_GPU_MEM_UTIL` 로 호출 단위 override (stage1/2 eval 공통). 예: `VLLM_GPU_MEM_UTIL=0.6 bash scripts/stage2_eval.sh …`
 
@@ -267,7 +270,7 @@ gradient_accumulation_steps = 64 / (per_device × nproc)      ← resolve_gpu_po
 
 **현재 (2) 와 (3) 은 전부 빈 dict 다** — 두 tier (`7-9B`/`3-4B`) 의 세 키가 모두 비었고 등록된 모델들의 `hparam_overrides` 도 비었다. 즉 **모든 모델이 dataset baseline 을 그대로 받는다** (EXP01/EXP02 실측 어댑터와 동일조건 보존 → diff loss 순효과만 비교). MB 는 평가 전용이라 하이퍼파라미터 해석에서 제외.
 
-**dataset baseline (전 실험군 공통):**
+**dataset baseline (EXP01–06 공통 · EXP07 은 아래 예외):**
 
 | | lr | epochs | LoRA r/α | dropout | warmup | weight_decay | max_grad_norm | scheduler |
 |---|---|---|---|---|---|---|---|---|
@@ -275,6 +278,8 @@ gradient_accumulation_steps = 64 / (per_device × nproc)      ← resolve_gpu_po
 | **Stage 1 (LoRA)** | 1.0e-5 | 3 | **8 / 16** | 0.05 | 0.03 | 0.01 | 1.0 | cosine |
 | **Stage 2 (LoRA)** | **5.0e-5** | 3 | **32 / 64** | **0.1** | 0.03 | 0.01 | 1.0 | cosine |
 | **Stage 2 (full)** | **1.5e-5** | 3 | — | — | 0.03 | 0.01 | 1.0 | cosine |
+
+> **EXP07 은 이 baseline 을 `_DATASET_CONFIG["AndroidControl_EXP07"]` 에서 벗어난다** (size/model tier 는 여전히 빈 dict — DS baseline 만 다르다). Stage 1 = lr 1.0e-5 · **1 epoch** · LoRA **64 / 128** · dropout 0.05 · `save_strategy: steps` + `save_steps: 0.25` (→ fractional 체크포인트, 아래 각주). Stage 2 (LoRA) = lr 5.0e-5 · 3 epoch · LoRA **64 / 128** · dropout 0.1. Stage 2 (full) 은 baseline 과 동일 (1.5e-5 · 3 epoch). 값 재확인: `python -c "from implicit_world_modeling.lf_registry import _DATASET_CONFIG as D; import json; print(json.dumps({k:D['AndroidControl_EXP07'][k] for k in ('stage1','stage2')}, default=str, ensure_ascii=False))"`
 
 > Stage 2 full 의 `1.5e-5` 는 `_DATASET_CONFIG` 가 아니라 `gen_configs.render_stage2()` 안에 하드코드돼 있다 (LoRA 대비 안정화).
 >
@@ -286,19 +291,25 @@ gradient_accumulation_steps = 64 / (per_device × nproc)      ← resolve_gpu_po
 
 ## 3. 데이터와 설정 계약
 
-### 데이터 계보 — 모든 실험군은 AC_EXP01 에서 파생된다
+### 데이터 계보 — EXP02~EXP05 는 AC_EXP01 파생, EXP07 은 별도 소스
 
 ```
 data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry 아님 (DS_DATADIR 미등재)
-  ├── implicit-world-modeling_stage1_{state,action}.jsonl               # 원천
-  ├── implicit-world-modeling_stage1_{state,action}_filtered.jsonl      # filter_long_samples.py 산출
-  ├── implicit-world-modeling_stage2{,_filtered}.jsonl
-  ├── implicit-world-modeling_stage1_{action,state}_xy.jsonl            # EXP03 원천 (좌표)
-  ├── implicit-world-modeling_stage2_xy.jsonl                           # EXP03 stage2 원천
-  ├── implicit-world-modeling_stage1_{action,state}_xy_pixel-aligned.jsonl  # EXP05 원천 (절대 픽셀, Drive '0711_버젼')
+  ├── implicit-world-modeling_stage1_{state,action}.jsonl   # 원천 (이름 그대로 유지 — 어느 EXP 소속도 아님)
+  ├── implicit-world-modeling_stage2.jsonl                  # 원천
+  ├── EXP01_stage1_{state,action}.jsonl                     # filter_long_samples.py 산출 (EXP01 계보 입력)
+  ├── EXP01_stage2.jsonl
+  ├── EXP03_stage1_{action,state}.jsonl                     # EXP03 원천 (0–1000 정규화 좌표)
+  ├── EXP03_stage2.jsonl                                    # EXP03 stage2 원천
+  ├── EXP05_stage1_{action,state}.jsonl                     # EXP05 원천 (절대 픽셀, Drive '0711_버젼')
   ├── episodes_meta.jsonl         # primary_app = 전경 앱 package_name
-  └── images/                     # ★ 유일한 이미지 디렉토리 — EXP01~EXP05 전부가 "AndroidControl/images/..." 로 참조
-      ⚠ EXP04 원천 (*_xy_prompt-enhanced.jsonl) 은 디스크에 없다 → 재빌드 불가 (§2 경고 블록)
+  └── images/                     # ★ 유일한 이미지 디렉토리 — EXP01~EXP07 전부가 "AndroidControl/images/..." 로 참조
+      ⚠ EXP04 원천 (EXP04_stage1_{action,state}.jsonl) 은 디스크에 없다 → 재빌드 불가 (§2 경고 블록)
+
+data/AndroidControl_EXP07_src/    # EXP07 전용 원천 (0725 myset 필터링본) — 학습/평가 entry 아님
+  ├── stage1/all_samples_state_pred_0725_filtered_v2.jsonl              # state-pred
+  ├── stage2/all_samples_sharegpt_0725_filtered_with_history_v5.jsonl   # downstream (with_history)
+  └── stage2/results_sharegpt.jsonl                                     # open 증강 (home.jpg)
 
   AC_EXP01  = filter_long_samples → split_data.py       (Stage1 ratio mix 3 종 + Stage2 ID/OOD)
      │
@@ -307,11 +318,28 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
      │      └── AC_EXP04 = EXP03 + stage1 프롬프트 업그레이드     (--experiment exp04, stage1-only)
      └── AC_EXP05 = ratio73 멤버십의 절대 픽셀 미러 + diff loss v2 (build_exp05_data.py; stage2 는 2026-07-15 별도 도입 → build_exp05_stage2_data.py)
 
+  AC_EXP07  = EXP01 계보 밖 — AndroidControl_EXP07_src/ 에서 자체 빌드 (build_exp07_data.py, seed 7)
+     ├── train  : stage1 50K (state 40K 가중 + downstream 10K 이미지제거) + stage2 15K   ← 전부 myset 원천
+     ├── test   : 자체 6 종 (stage1 state 2 · stage1 action 2 · stage2 2)
+     └── EXP05 의존은 test 정의뿐 — EXP05 test 의 (episode, step) 키를 myset 포맷으로
+         재현해 자체 파일로 굽고 id/ood 배정을 승계한다. train 내용은 EXP05 와 무관하며
+         그 test 키 union 을 train 두 풀에서 전량 제외해 train ∩ test = 0 을 만든다.
+         이미지는 myset → AndroidControl/images/ 로 경로 문자열 remap (파일 복사·링크 없음).
+
   MonkeyCollection  = Stage 1 전용 (random split 0.95)
   MobiBench         = 평가 전용 (stage{1,2}.jsonl 단일 파일)
 ```
 
 행수·파일 목록은 파생값이다 — 디스크에서 직접 센다: `wc -l data/AndroidControl_EXP05/*.jsonl`
+
+#### 데이터 파일명 규칙 (2026-07-25 확정)
+
+1. **디렉토리가 실험을 말하면 파일은 침묵한다.** `AndroidControl_EXP{NN}/` · `MonkeyCollection/` · `MobiBench/` 안에서는 `stage{N}_<role>.jsonl` 을 쓴다 (`implicit-world-modeling_` 접두 없음). 예: `stage1_train.jsonl`, `stage1_test_ood_action.jsonl`, `stage2_test_id.jsonl`.
+2. **공유 디렉토리의 변형본만 `EXP{NN}_` 접두를 쓴다.** `data/AndroidControl/` 은 여러 실험군이 함께 쓰는 폴더라 파일이 소속을 스스로 말해야 한다 — `EXP01_stage1_state.jsonl`, `EXP03_stage2.jsonl`, `EXP05_stage1_action.jsonl`. **표현 서픽스(`_xy` / `_pixel-aligned` / `_filtered`)는 쓰지 않는다** — EXP 소속이 이미 좌표 표현·필터 여부를 함의하고, 그 정의는 이 문서(§2 자격 매트릭스 · 위 계보)가 기록한다.
+3. **멀티-exp 공유는 단일 소유 + 계보 기록.** 한 파일을 여러 실험군이 읽어도 접두는 **직접 소비하는 최초 EXP 하나**만 붙인다 (누가 재사용하는지는 문서가 기록한다). 태생부터 공동 소유로 신설할 때만 `EXP05+07_` 처럼 `+` 로 잇는다.
+4. **유지되는 서픽스·sidecar**: 평가 파생본의 `_without_open_app`, train 의 sidecar `<train>.jsonl.meta.json` 은 규칙 그대로다. EXP01 ratio 파일은 dataset key 표기와 통일해 `stage1_train_ratio{37,55,73}.jsonl`.
+
+원본 3 종 (`implicit-world-modeling_stage1_{state,action}.jsonl` · `implicit-world-modeling_stage2.jsonl`) 과 `episodes_meta.jsonl` · `images/` 는 **어느 EXP 소속도 아닌 원본**이라 이름을 바꾸지 않는다.
 
 | 실험군 | Stage 2 | Stage 1 test | 좌표 표현 | diff loss |
 |---|---|---|---|---|
@@ -320,14 +348,25 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
 | AC_EXP03 | ✓ | EXP01 좌표 미러 (4) | point | — |
 | **AC_EXP04** | ✗ `_STAGE1_ONLY` | EXP03 미러 + 프롬프트 (4 + without_open_app 2) | **§2 경고 참조** | — |
 | **AC_EXP05** | ✓ (2026-07-15 도입) | 4 + without_open_app 2 | **절대 픽셀 840×1876** | **v2** (stage1) |
+| **AC_EXP07** | ✓ (자체 train 15K) | **자체 4** (id,ood) × (state,action) | **절대 픽셀 840×1876** | **v2** (stage1 state, 인라인 1:0.2) |
 | MC | ✗ (데이터 없음) | 단일 test | — | — |
 | MB | 평가 전용 | 단일 파일 | — | — |
 
-`_STAGE1_ONLY = {MonkeyCollection, AndroidControl_EXP04}` — Stage 2 YAML/등록/eval 을 전부 skip (**EXP05 는 2026-07-15 stage2 도입으로 이 집합에서 제거됨**). `_DUAL_TASK_TEST` 는 AC_EXP01~EXP05 전부 (Stage 1 한정, §6). `_SINGLE_TEST = {MonkeyCollection}` — 세 플래그는 **직교**한다.
+`_STAGE1_ONLY = {MonkeyCollection, AndroidControl_EXP04}` — Stage 2 YAML/등록/eval 을 전부 skip (**EXP05 는 2026-07-15 stage2 도입으로 이 집합에서 제거됨**). `_DUAL_TASK_TEST` 는 AC_EXP01~EXP05 + AC_EXP07 (Stage 1 한정, §6). `_SINGLE_TEST = {MonkeyCollection}` — 세 플래그는 **직교**한다.
+
+> ✅ **해소된 함정 (2026-07-25) — EXP07 은 `_DUAL_TASK_TEST` 에 편입됐다.** 그 전까지 EXP07 은 디스크·`dataset_info` 에 dual-task test 4 종을 다 갖고도 세트에서 빠져 있어, `build_configs()` 가 else 분기를 타 **미등록 키** `IWM-AC_EXP07_stage1_test_{id,ood}` 를 `ds_s1_test_*` 에 담았다 (실제 등록명은 `…_test_{id,ood}_{state,action}` 4 개다).
+> - **학습·평가는 그때도 무증상**이었다 — 셸이 이름을 직접 조립하기 때문이다 (`stage1_eval.sh` 의 `${eval_prefix}_stage1_test_{id,ood}_${task}`), 그리고 stage1 YAML 은 `dataset:` (train) 만 참조한다. 그래서 편입 후에도 **커밋된 YAML 은 한 글자도 안 바뀐다** (`gen_configs` 는 `ds_s1_train`/`ds_s2_train` 만 읽고, EXP07 은 `ac3_ratio` 가 없어 두 분기의 렌더 결과가 문자열 동일).
+> - **증상이 있던 곳은 노트북의 등록 검증 셀**이다 — `_expected_keys()` 가 같은 `_DUAL_TASK_TEST` 분기를 미러하므로 EXP07 에 대해 없는 bare 키를 "기대" 하고 실재하는 4 키를 누락으로 봤다. 노트북은 세트를 `lf_registry` 에서 import 하므로 **레지스트리 수정만으로 함께 해소된다** (노트북 무수정).
 
 - **EXP03 미러**: EXP01 ratio73 산출 파일을 한 줄씩 읽어 `(episode, step)` 키로 좌표 원천의 대응 레코드를 골라 **동일 순서로** write. UI 트리는 `index="N"` 대신 `bounds="[x1,y1][x2,y2]" point="[cx,cy]"`, 액션은 `point=[x,y]`. **본문만 좌표이고 이미지 경로는 EXP01 것을 채택**한다. 원천에 없는 키 (~0.8–1.7%) 는 제외 → EXP01 과 `(episode, step)` 1:1 대응이나 행 수는 소폭 작다.
 - **EXP04 미러**: EXP03 와 **동일 멤버십·좌표 표현**, 프롬프트만 업그레이드 (action space `scroll(direction, point)` → `swipe(start, end)`, role 문구 "represented as html-style XML", `[SWIPE]` 규칙). **EXP04 pool ⊆ EXP03 pool** 이라 멤버십 drift 가 없다.
 - **EXP05 미러**: 절대 픽셀 좌표. 출력 이미지 경로는 EXP01 의 `AndroidControl/images/...` 재사용 (source 의 `myset/images/...` 는 매칭 키 추출용).
+- **EXP07 빌드**: 빌드 정본 [`scripts/build_exp07_data.py`](./scripts/build_exp07_data.py) — **EXP07 train/test jsonl 의 유일한 커밋된 생성 경로**다. 원천은 `data/AndroidControl_EXP07_src/` 의 0725 myset 필터링본 3 파일 (state-pred · with_history downstream · open 증강) 이고, EXP05 파일은 **읽지 않는다** (test 키 추출 예외 — 아래). 산출 (train 2 · test 6 · stage1 sidecar 1) 전부 `data/AndroidControl_EXP07/` 안의 **실파일**이다 — 데이터 파일 심링크는 없다. (헷갈리지 말 것: `configs/lf_dataset/AndroidControl_EXP07 → ../../data/AndroidControl_EXP07` **dataset_dir 심링크는 다른 것이고 반드시 필요하다** — `_common.sh` 가 만든다.)
+  - **train 구성** (빌더 상수): stage1 50K = state 40K (이미지 유지, diff v2 가중) + downstream 10K (**이미지 제거**), stage2 15K = downstream (이미지 유지, 무가중). 두 downstream 풀은 **비중복** (with_history 풀을 disjoint 분할, action 비율 largest-remainder) 이고, open 증강과 answer-terminate 행을 각 stage 에 **우선 배치**한다 (가용분·쿼터에 맞춘 동적 절반 — 실현치는 sidecar 의 `priority` 참조).
+  - **누출 0 (설계 불변식)**: EXP07 test 는 EXP05 test 의 `(episode, step)` 키를 myset 포맷으로 재현해 만든 **자체 파일**이고 (id/ood 배정은 EXP05 승계), 그 test 키 union 을 **train 두 풀에서 전량 제외**한다 → 교차목적을 포함해 `EXP07 train ∩ EXP07 test = 0`. 빌더의 `verify()` 가 이 불변식을 fail-closed 로 검사한다.
+  - **이미지 remap**: `myset/images/episode_{N}_step_{M}.jpg` → `AndroidControl/images/episode_{N:06d}_step_{M}.jpg` (zero-pad 6), `home.jpg` → `AndroidControl/images/home.jpg`. 즉 EXP07 도 이미지는 공용 `AndroidControl/images/` 를 참조한다 (하드 제약 12 의 prefix 규약 그대로).
+  - **diff v2 1:0.2 는 데이터-빌드 시점 인라인이라 실험군 격리**다: `ADDED 1.0 / MODIFIED 1.0 / UNCHANGED 0.2` 가중이 EXP07 train jsonl 에만 박혀 EXP02(v1)·EXP05(v2 1:0.25) 에 영향이 없다. 학습측 배선은 EXP05 와 동일하게 stage1 YAML 의 `use_diff_token_weighted_loss: true` 뿐이다 (§3 diff loss 절).
+  - 재빌드는 `--source-dir` / `--seed` 로 한다 (`W_UNCHANGED=0.2` · metric v2 는 불변식으로 고정). 과거 잠정본이 남긴 EXP05 심링크는 빌더의 `cleanup_legacy_symlinks()` 가 제거한다 — 그 시절의 `--links-only` 플래그는 **없어졌다**.
 
 ### MC 데이터 상태 (2026-07-14 — 프로덕션 코퍼스 아님)
 
@@ -352,7 +391,7 @@ page 지문 오염 (S-9) 으로 의도적으로 제외했고, 수집기의 page_
 ### 분할 규칙 (`scripts/split_data.py`)
 
 - **App partition** (`compute_app_partition`, 원본 `episodes_meta.jsonl` 기준): Stage 2 행 수를 budget 으로 `(id_apps, ood_apps)` 를 **한 번** 계산하고 Stage 1 이 같은 partition 을 재사용한다. → **Stage 2 OOD 앱은 Stage 1 train 에 한 번도 등장하지 않는다** (world-modeling 이 OOD 앱을 보지 못함). EXP02~05 는 EXP01 산출 멤버십을 미러하므로 이 partition 을 그대로 승계한다 (별도 계산 없음).
-- **AC_EXP01**: source 는 항상 원본 `data/AndroidControl/`, 산출은 `data/AndroidControl_EXP01/`. 선행 `filter_long_samples.py --dataset AC_EXP01` 가 mm-expanded length > cutoff 인 row 를 제거해 **원본 폴더 안에** `_filtered.jsonl` 3 개를 만든다 (Qwen3-VL `get_rope_index` broadcast 회피). split 은 **`_filtered` 만 입력으로 쓴다** (Stage 2 source 누락 시 hard-fail). `state_pred` 는 random, `action_pred` / Stage 2 는 **action_type stratified**. ratio (state:action ∈ {7:3, 5:5, 3:7}) 로 혼합한 stage1 train 3 종 + 같은 partition 의 Stage 2 split (기본 15K / 3K / 3K) 을 한 번에 산출. `--exp01-train-total` 이 Stage 1 train 합계 (기본 50K).
+- **AC_EXP01**: source 는 항상 원본 `data/AndroidControl/`, 산출은 `data/AndroidControl_EXP01/`. 선행 `filter_long_samples.py --dataset AC_EXP01` 가 mm-expanded length > cutoff 인 row 를 제거해 **원본 폴더 안에** `EXP01_stage1_{state,action}.jsonl` + `EXP01_stage2.jsonl` 3 개를 만든다 (Qwen3-VL `get_rope_index` broadcast 회피). split 은 **이 `EXP01_*` 만 입력으로 쓴다** (Stage 2 source 누락 시 hard-fail). `state_pred` 는 random, `action_pred` / Stage 2 는 **action_type stratified**. ratio (state:action ∈ {7:3, 5:5, 3:7}) 로 혼합한 stage1 train 3 종 + 같은 partition 의 Stage 2 split (기본 15K / 3K / 3K) 을 한 번에 산출. `--exp01-train-total` 이 Stage 1 train 합계 (기본 50K).
   - **ratio 차원은 데이터가 아니라 계보로 흐른다**: stage2 데이터는 3 ratio 가 **공유**하고, ratio 는 "Stage 1 ratio merged 가 Stage 2 의 base" 라는 계보로만 갈라진다. 산출물은 `outputs/AndroidControl_EXP01/…/{MODEL}_ratio{37,55,73}_…` suffix 로 분리된다.
   - Stage 2 학습 데이터의 last-message wrapping (`<thought>…</thought>\n<action>{...}</action>`) 은 `_parse_action_payload` regex helper 가 분리한다.
 - **MC**: 메타 없음 → random split (`--stage1-ratio`, 기본 0.95).
@@ -408,7 +447,7 @@ page 지문 오염 (S-9) 으로 의도적으로 제외했고, 수집기의 page_
 
 빌드 정본은 [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py) (mirror → diff-loss 가중치 → 원자 교체) 이며 tokenizer / revision / 가중 상수 / 집계를 `<train>.meta.json` sidecar 에 기록한다. 실측 분포는 문서가 아니라 sidecar 에서 읽는다:
 ```bash
-cat data/AndroidControl_EXP05/implicit-world-modeling_stage1_train.jsonl.meta.json
+cat data/AndroidControl_EXP05/stage1_train.jsonl.meta.json
 ```
 
 ### LLaMA-Factory 등록 (`configs/lf_dataset/dataset_info.json`)
@@ -425,6 +464,7 @@ cat data/AndroidControl_EXP05/implicit-world-modeling_stage1_train.jsonl.meta.js
 | AC_EXP02 / AC_EXP03 | stage1 train + dual-task test + stage2 (train/test_id/test_ood) |
 | **AC_EXP04** | **미등록 — 키가 하나도 없다. §2 경고 블록 참조.** |
 | AC_EXP05 | stage1 train + dual-task test + **stage2 (train/test_id/test_ood)** (2026-07-15 등록, `_STAGE1_ONLY` 에서 제거) |
+| **AC_EXP07** | **8키 전부 자체 경로** = stage1 train + stage1 test_{id,ood}_{state,action} 4 + stage2 train/test_id/test_ood — 모든 `file_name` 이 `../../data/AndroidControl_EXP07/…` 를 가리킨다 (EXP05 포인터·심링크 없음). **이 8 키는 손으로 넣은 게 아니라 `build_exp07_data.py::register_dataset_info()` 가 빌드할 때 정본에 써넣는다** — 유일한 예외적 쓰기 경로다 (함정 13 의 "런타임 변조 금지" 는 학습·평가 런타임을 말한다; 빌드 타임 등록은 결과를 커밋한다). |
 | MC | `IWM-MC_stage1_{train,test}` (`_SINGLE_TEST`) |
 | MB | `IWM-MB_stage{1,2}` (평가 전용, 정적 등록) |
 
@@ -440,17 +480,17 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 
 - JSONL **파일 경로**는 `../../data/{DATASET_NAME}/...` **상대 경로**로 등록한다.
 - ⚠️ **함정 15 — JSONL 내부 `images` 값은 `{DATASET_NAME}/images/...` prefix 를 반드시 유지한다.** 이 contract 는 위 심링크 + 절대 `--dataset_dir` 조합과 맞물려 있어, prefix 가 없으면 `Image.open()` 이 cwd 기준으로 풀려 실패한다. 그리고 **`--dataset_dir` 에 상대 경로를 주면** HF datasets 캐시 오염으로 `FileNotFoundError` 가 날 수 있다.
-- 정본에는 과거 스키마의 사문화된 키 (`IWM-AC_*`, `IWM-AC_2_*`) 가 남아 있고 그 파일들은 실재하지 않는다. `require_dataset_registered` 는 **키 존재만** 보므로 무해하다 — 쓰지 말 것.
+- 과거 스키마의 사문화된 키 (`IWM-AC_stage*` 6 · `IWM-AC_2_*` 4) 는 **제거 완료 (2026-07-25)** — 파일이 실재하지 않는 등록은 정본에 하나도 없다. 이제 전 키가 실파일로 resolve 한다.
 
 ### 이름 규약
 
-| | AC_EXP01 | AC_EXP02~05 | MC | MB |
+| | AC_EXP01 | AC_EXP02~07 | MC | MB |
 |---|---|---|---|---|
-| `data/` 디렉토리 | `AndroidControl_EXP01` | `AndroidControl_EXP0{2..5}` | `MonkeyCollection` | `MobiBench` |
-| shell 코드 | `AC_EXP01` (→ `AC_EXP01_ratio{37,55,73}` expand) | `AC_EXP0{2..5}` | `MC` | `MB` (eval 전용) |
-| LF prefix | `IWM-AC_EXP01` | `IWM-AC_EXP0{2..5}` | `IWM-MC` | `IWM-MB` |
-| `outputs/` 최상위 | `AndroidControl_EXP01` (ratio 는 model dir suffix) | `AndroidControl_EXP0{2..5}` | `MC` | — (TRAIN_DS 산하 `on-MB/`) |
-| HF slug | `ac-exp01-ratio{37,55,73}-` | `ac-exp0{2..5}-` | `mc-` | `mb-` (dormant) |
+| `data/` 디렉토리 | `AndroidControl_EXP01` | `AndroidControl_EXP0{2..7}` | `MonkeyCollection` | `MobiBench` |
+| shell 코드 | `AC_EXP01` (→ `AC_EXP01_ratio{37,55,73}` expand) | `AC_EXP0{2..7}` | `MC` | `MB` (eval 전용) |
+| LF prefix | `IWM-AC_EXP01` | `IWM-AC_EXP0{2..7}` | `IWM-MC` | `IWM-MB` |
+| `outputs/` 최상위 | `AndroidControl_EXP01` (ratio 는 model dir suffix) | `AndroidControl_EXP0{2..7}` | `MC` | — (TRAIN_DS 산하 `on-MB/`) |
+| HF slug | `ac-exp01-ratio{37,55,73}-` | `ac-exp0{2..7}-` | `mc-` | `mb-` (dormant) |
 
 원본 `AndroidControl` (AC) 은 **학습/평가 entry 가 아니다** — `DS_DATADIR` 에 등재되지 않으며 source 자산으로만 쓰인다. 메타 추출은 `scripts/extract_androidcontrol_metadata.py` (TFRecord → 다수결, `pip install android-env` 필요), 스크린샷은 `scripts/extract_androidcontrol_images.py` (GCS REST API, TF 의존 없음).
 
@@ -475,6 +515,8 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 
 - **`stage1_train.sh`** — YAML `configs/train/IWM-{DS}/stage1_${MODE}/{MODEL}_world-model.yaml` + `FORCE_TORCHRUN=1 NNODES=1 NPROC_PER_NODE=…` + GPU 트리오·`dataset_dir`/`media_dir` **런타임 override**.
 - **`stage1_merge.sh`** — `adapters/…/checkpoint-*` **전수 loop**. 각 ckpt 의 `trainer_state.json.epoch` → `epoch-{E}/`. `--no-hf-upload` 시 `export_hub_model_id` 를 생략해 local export 만. **checkpoint 없는 슬롯은 `[WARN]` SKIP** (실패가 아니라 스킵 — sweep 친화). 요약에 `merged / skipped / failed` 카운트.
+
+> ⓘ **fractional epoch 라벨 (EXP07 stage1).** EXP07 stage1 은 `save_strategy: steps` + `save_steps: 0.25` 라 epoch 경계가 아닌 **0.25 단위**로 체크포인트를 남긴다 → `ckpt_epoch_from_dir` (`trainer_state.json.epoch` 을 float 로 읽음) 이 라벨을 **0.25 / 0.5 / 0.75 / 1** 로 확장하고, `epoch-{E}/` 디렉토리·eval `--epochs` 도 소수를 허용한다. **EXP01–06 은 정수 epoch 표기·동작 그대로**다 (회귀 byte-diff 0 검증). 이 라벨이 `--stage1-epoch` 로 Stage 2 world-model variant 의 상류 계보에 그대로 전달된다.
 - **`stage1_eval.sh`** — Phase A (zero-shot `base`) + Phase B (`--epochs`, 기본 `1,2,3` merged sweep). model path 는 `resolve_eval_model_path` 가 **local merged dir 우선 + HF Hub fallback** 으로 결정 (merged 이므로 adapter 인자·`max_lora_rank` 불필요). marker (`hungarian_metrics.json`) 존재 unit 은 skip.
   - **without_open_app 자동 산출**: 정규 score 직후 **추론 재실행 없이** `--exclude-action open_app` 로 한 번 더 채점해 GT `open_app` 행을 양쪽에서 동시 drop 한 sibling 디렉토리 (`on-{EVAL_DS}-without-open_app/`) 를 idempotent 하게 만든다. 필터 test JSONL 은 `data/{DATADIR}/` 에 영구 보존한다. **state branch 만** — action 채점기는 미지원.
 
@@ -488,6 +530,8 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 - **`stage2_merge.sh`** — Full FT 는 checkpoint 자체가 전체 모델 (adapter 블록 없음), LoRA 는 `model_name_or_path: {base}` + `adapter_name_or_path: {ckpt}` + `finetuning_type: lora`.
 - **`stage2_eval.sh`** — `--variants` 로 `base` / `{full|lora}_base` / `{full|lora}_world_model` 선택. EVAL_DS=AC_EXP01/02/03/05 는 ID+OOD 동시 추론 → 3 섹션, MB 는 single-pair 1 섹션. **AC_EXP05 는 xy 통일 액션 스페이스라 `_action_eval.py score --coord-mode xy` 로 채점**한다 (stage1_eval 의 EXP05 분기와 동일; 나머지 EXP 는 플래그 없이 index 채점). marker (`action_metrics.json`) 존재 unit 은 variant × EVAL_DS 별 독립 skip.
   - **`--epochs` 에 `0` 포함 (opt-in)**: `{full|lora}_world_model` 의 epoch-0 = stage2 미학습 베이스라인 (= stage1 merged 와 동일 모델). `{full|lora}_base` 는 stage1 계보가 없어 epoch-0 이 `base` 와 중복 → 경고 후 skip. 기본 `1,2,3` 에는 미포함.
+
+> ⓘ **merge X 변형 (`world-model-adapter`) — EXP07 한정 opt-in.** 일반 world-model variant 는 stage1 어댑터를 **merge 한** local merged dir 을 base 로 삼지만(merge O), EXP07 은 `_DATASET_CONFIG["AndroidControl_EXP07"]["stage2_adapter_variant"] = True` 로 `stage2_lora` 에 **merge 하지 않는** 변형을 하나 더 렌더한다. 그 YAML (`…/stage2_lora/{MODEL}_world-model-adapter.yaml`) 은 `model_name_or_path` 를 **원본 base 그대로** 두고 `adapter_name_or_path: __STAGE1_ADAPTER__` placeholder 만 둔다 — `stage2_train.sh` 가 런타임에 stage1 LoRA 어댑터 checkpoint 경로로 sed 치환해 base 위에 얹어 이어학습한다 (merge 스텝 없음). 산출은 `…_world-model_from_adapter-ep{E1}/` 로 `from_full`/`from_lora` 와 대칭 분리되고, HF slug 는 `_common.sh::hf_repo_id_stage2_world_model_adapter` 가 조립한다 (`…world-model-stage1-lora-epoch{E1}-stage2-lora-adapter-epoch{E2}`). eval 변형 `lora_world_model_adapter` 는 `STAGE2_EXTRA_VARIANTS` 라 **기본 sweep 에 미포함** — `--variants lora_world_model_adapter` 로 명시할 때만 채점된다.
 
 ### CLI 계약 — 어떤 인자가 무엇을 결정하는가
 
@@ -518,7 +562,7 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 raw JSONL + screenshots
   → extract_androidcontrol_images.py     (data/AndroidControl/images/ : GCS REST → PNG, TF 의존 없음)
   → extract_androidcontrol_metadata.py   (episodes_meta.jsonl : primary_app 다수결)
-  → filter_long_samples.py --dataset AC_EXP01     (원본 폴더에 _filtered.jsonl 3 개)
+  → filter_long_samples.py --dataset AC_EXP01     (원본 폴더에 EXP01_*.jsonl 3 개)
   → split_data.py  /  mirror_experiment.py  /  build_exp05_data.py     (§3 계보)
   → configs/lf_dataset/dataset_info.json          (커밋 정본 — 런타임 등록 아님)
 
@@ -564,8 +608,9 @@ outputs/{OUT_DS}/                # AndroidControl_EXP0{1..5} | MC.  AC_EXP01 의
 | Stage 1 | `SaFD-00/{short}-{slug}world-model-stage1-{M1}-epoch{E1}` |
 | Stage 2 base | `SaFD-00/{short}-{slug}base-stage2-{M2}-epoch{E2}` |
 | Stage 2 world | `SaFD-00/{short}-{slug}world-model-stage1-{M1}-epoch{E1}-stage2-{M2}-epoch{E2}` |
+| Stage 2 world (merge X, EXP07) | `SaFD-00/{short}-{slug}world-model-stage1-lora-epoch{E1}-stage2-lora-adapter-epoch{E2}` |
 
-조립은 `_common.sh::hf_repo_id_stage1` / `hf_repo_id_stage2_base` / `hf_repo_id_stage2_world_model` 로 단일화. eval 의 model path 해석은 `resolve_eval_model_path {stage1|stage2_base|stage2_world}` 가 **local merged dir 우선 + HF fallback** 으로 처리한다 → local merge 한 머신에서 같은 머신 안에서 바로 eval 까지 이어 돌 수 있다 (`HF_TOKEN` 불필요).
+조립은 `_common.sh::hf_repo_id_stage1` / `hf_repo_id_stage2_base` / `hf_repo_id_stage2_world_model` (+ EXP07 merge X 는 `hf_repo_id_stage2_world_model_adapter`) 로 단일화. eval 의 model path 해석은 `resolve_eval_model_path {stage1|stage2_base|stage2_world}` 가 **local merged dir 우선 + HF fallback** 으로 처리한다 → local merge 한 머신에서 같은 머신 안에서 바로 eval 까지 이어 돌 수 있다 (`HF_TOKEN` 불필요).
 
 ---
 
@@ -579,7 +624,7 @@ outputs/{OUT_DS}/                # AndroidControl_EXP0{1..5} | MC.  AC_EXP01 의
 - metric: `avg_hungarian_f1` (1차), `avg_bleu`, `avg_rouge_l` 등
 - single-pair (`--test/--pred`) 와 ID/OOD (`--test-id/--pred-id/--test-ood/--pred-ood`) 모두 지원 — ID/OOD 모드는 `overall` / `in_domain` / `out_of_domain` 3 섹션.
 
-> **dual-task 분기 (Stage 1 한정)**: EVAL_DS 가 AC_EXP01~AC_EXP05 (`_DUAL_TASK_TEST`) 이면 `state_pred` 와 `action_pred` 를 **각각 독립 채점**한다 — `on-{DS}-state/hungarian_metrics.json` (Stage1 채점기) + `on-{DS}-action/action_metrics.json` (**Stage2 채점기**). 각 task 가 (id, ood) 2 파일을 가지므로 inference 는 4 회. without_open_app sibling 은 state branch 만.
+> **dual-task 분기 (Stage 1 한정)**: EVAL_DS 가 AC_EXP01~AC_EXP05 · AC_EXP07 (`_DUAL_TASK_TEST`) 이면 `state_pred` 와 `action_pred` 를 **각각 독립 채점**한다 — `on-{DS}-state/hungarian_metrics.json` (Stage1 채점기) + `on-{DS}-action/action_metrics.json` (**Stage2 채점기**). 각 task 가 (id, ood) 2 파일을 가지므로 inference 는 4 회. without_open_app sibling 은 state branch 만.
 > **Stage 2 의 EVAL_DS 는 dual-task 가 아니다** — 일반 action prediction 으로 `stage2_test_{id,ood}.jsonl` 을 함께 채점해 3 섹션을 낸다. AC_EXP01 의 test 4 파일은 ratio 와 무관하다 (ratio 차원은 학습 산출물에만 박힌다).
 
 ### Stage 2 — `action_metrics.json`
@@ -627,6 +672,20 @@ EXP01~04 채점 결과가 **불변**이도록 **opt-in 플래그**로 구현했�
 | input_text / type | 좌표 무관 |
 
 > ⚠️ **함정 18 — bbox 채점은 pred 가 GT 와 같은 840×1876 절대 픽셀 공간임을 가정한다.** 모델이 다른 좌표 공간으로 답하면 (§2 함정 4) 채점이 조용히 전부 오답이 된다.
+
+### thought 유사도 메트릭 (`thought_metrics.json`) — Stage 2 자동 hook
+
+Stage 2 pred 의 `<thought>…</thought>` 텍스트가 GT thought 와 얼마나 가까운지를 잰다. **행동 정확도(SA)와 독립**이며, `stage2_eval.sh` 가 action 채점(`action_metrics.json`) **직후 자동으로** `scripts/thought_eval.py` 를 호출해 같은 `on-{EVAL_DS}/` 아래 `thought_metrics.json` 을 남긴다 (별도 추론 없음 — pred/label 재사용). EXP07 이 이 메트릭을 스펙에 명시적으로 넣지만, hook 자체는 Stage 2 eval 전반에 배선돼 있다.
+
+- **GT 소스**: pred 파일의 `label` 필드에서 thought 를 뽑는다. **GT-thought 가 없는 행은 `n` 에서 제외**되고, 대상 행이 하나도 없으면(no-op) 파일을 만들지 않는다 (파이프라인 비차단).
+- **구조**: `overall` / `in_domain` / `out_of_domain` 3 섹션 × 각 섹션에 `n`, `missing_thought_{n,ratio}`, 세 지표의 `mean`/`std`:
+  - **`cosine`** — 문장 임베딩 코사인 유사도. **1차 지표(정본)**. 기본 임베딩 모델 `all-MiniLM-L6-v2`, `--embed-model` 로 교체 가능.
+  - **`rouge_l`** — LCS 기반 ROUGE-L (자체 구현).
+  - **`bleu`** — `sacrebleu` (0~1 정규화).
+
+> ⚠️ **함정 — thought eval 이 유의미하려면 실행 env 에 `sentence-transformers`·`sacrebleu` 가 있어야 한다.** 둘 다 `pyproject.toml` 에 등재돼 `.venv` 는 충족하지만 conda env 는 **별도 설치**가 필요하다. 미설치 시 `cosine`/`bleu` 는 `null`, `rouge_l` 만 산출되며 **파이프라인은 차단되지 않는다** — "cosine 이 비었다" 를 성능 결론으로 읽지 마라.
+
+정본은 `scripts/thought_eval.py` (회귀 테스트 `tests/test_thought_eval.py`). 실험 결과 수치는 Notion `🧪 Experiments` DB 가 정본이다 — 여기엔 정의만 둔다.
 
 ---
 
