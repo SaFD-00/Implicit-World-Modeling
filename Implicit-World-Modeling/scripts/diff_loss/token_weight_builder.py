@@ -244,7 +244,7 @@ def build_token_weights(
         if weight == 1.0:
             continue  # 기본값 그대로이므로 스킵
 
-        for tok_i, (tok_cs, tok_ce) in enumerate(offset_mapping):
+        for tok_i, (tok_cs, _tok_ce) in enumerate(offset_mapping):
             # 토큰의 시작 위치가 element 범위 안이면 weight 부여
             # (경계 토큰이 element 끝+개행을 합쳐 토크나이즈된 경우도 포함)
             if tok_cs >= char_start and tok_cs < char_end:

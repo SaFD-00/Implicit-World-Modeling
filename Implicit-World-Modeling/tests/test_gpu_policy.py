@@ -180,7 +180,9 @@ def test_half_batch_rule_general():
     for gpu_type, nproc in GPU_COMBOS:
         for size_class in SIZE_CLASSES:
             for mode in MODES:
-                base = resolve_gpu_policy(gpu_type, nproc, size_class, "AndroidControl_EXP01", mode)
+                base = resolve_gpu_policy(
+                    gpu_type, nproc, size_class, "AndroidControl_EXP01", mode
+                )
                 exempt = _expects_no_offload(gpu_type, size_class, mode)
                 expected = (
                     base.per_device_train_batch_size
@@ -193,7 +195,9 @@ def test_half_batch_rule_general():
                     "AndroidControl_EXP05",
                     "AndroidControl_EXP06",
                 ):
-                    halved = resolve_gpu_policy(gpu_type, nproc, size_class, half_ds, mode)
+                    halved = resolve_gpu_policy(
+                        gpu_type, nproc, size_class, half_ds, mode
+                    )
                     assert halved.per_device_train_batch_size == expected, (
                         gpu_type,
                         nproc,
@@ -217,8 +221,16 @@ def test_mode_only_matters_for_large_mem_7b(gpu_type, nproc, size_class, ds_name
     """
     full = resolve_gpu_policy(gpu_type, nproc, size_class, ds_name, "full")
     lora = resolve_gpu_policy(gpu_type, nproc, size_class, ds_name, "lora")
-    full_trio = (full.per_device_train_batch_size, full.gradient_accumulation_steps, full.deepspeed)
-    lora_trio = (lora.per_device_train_batch_size, lora.gradient_accumulation_steps, lora.deepspeed)
+    full_trio = (
+        full.per_device_train_batch_size,
+        full.gradient_accumulation_steps,
+        full.deepspeed,
+    )
+    lora_trio = (
+        lora.per_device_train_batch_size,
+        lora.gradient_accumulation_steps,
+        lora.deepspeed,
+    )
 
     mode_splits = gpu_type in LARGE_MEM_GPUS and size_class == "7-9B"
     if mode_splits:
@@ -289,10 +301,14 @@ def test_allow_no_offload_optout_returns_non_offload_with_warning():
 def test_committed_train_corpus_matches_baseline_policy():
     train_dir = REPO / "configs" / "train"
     if not train_dir.is_dir():
-        pytest.skip(f"configs/train not found at {train_dir} — commit corpus gate skipped.")
+        pytest.skip(
+            f"configs/train not found at {train_dir} — commit corpus gate skipped."
+        )
 
     yaml_files = sorted(train_dir.rglob("*.yaml"))
-    train_yamls = [f for f in yaml_files if "per_device_train_batch_size" in f.read_text()]
+    train_yamls = [
+        f for f in yaml_files if "per_device_train_batch_size" in f.read_text()
+    ]
     if not train_yamls:
         pytest.skip(
             f"No train YAML with 'per_device_train_batch_size' under {train_dir} "
@@ -306,8 +322,14 @@ def test_committed_train_corpus_matches_baseline_policy():
     trios: set[tuple[int, int, str]] = set()
     for f in train_yamls:
         text = f.read_text()
-        pdbs_m, ga_m, ds_m = pdbs_re.search(text), ga_re.search(text), ds_re.search(text)
-        assert pdbs_m and ga_m and ds_m, f"{f}: missing per_device/grad_accum/deepspeed key"
+        pdbs_m, ga_m, ds_m = (
+            pdbs_re.search(text),
+            ga_re.search(text),
+            ds_re.search(text),
+        )
+        assert pdbs_m and ga_m and ds_m, (
+            f"{f}: missing per_device/grad_accum/deepspeed key"
+        )
         trios.add((int(pdbs_m.group(1)), int(ga_m.group(1)), Path(ds_m.group(1)).name))
 
     # as-trained 74 개는 하한이다 — 생성기가 EXP03/04 와 3b/4b 확장분을 추가하므로 코퍼스는 자란다.
@@ -316,7 +338,9 @@ def test_committed_train_corpus_matches_baseline_policy():
     assert len(train_yamls) >= 74, (
         f"as-trained 74 개가 하한인데 {len(train_yamls)} 개뿐 — 커밋 코퍼스가 유실됐다"
     )
-    assert len(trios) == 1, f"non-uniform (pdbs, ga, deepspeed-basename) trio across corpus: {trios}"
+    assert len(trios) == 1, (
+        f"non-uniform (pdbs, ga, deepspeed-basename) trio across corpus: {trios}"
+    )
 
     pdbs, ga, ds_basename = next(iter(trios))
     baseline = resolve_gpu_policy("RTX5090", 2, "7-9B", "AndroidControl_EXP01", "full")

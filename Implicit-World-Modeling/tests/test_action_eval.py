@@ -15,6 +15,7 @@ Run:
 
 from __future__ import annotations
 
+import importlib
 import json
 import sys
 import tempfile
@@ -23,8 +24,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
-
-import importlib
 
 _action_eval = importlib.import_module("_action_eval")
 evaluate_single = _action_eval.evaluate_single
@@ -403,7 +402,6 @@ class StepAccuracyAggregate(unittest.TestCase):
             "<thought>open the app</thought>\n"
             '<action>{"action_type":"open_app","app_name":"Gmail"}</action>'
         )
-        pairs = [({"action_type": "open_app", "app_name": "Gmail"}, wrapped)]
         gt_f = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
         pr_f = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
         gt_f.write(json.dumps({"messages": [{"from": "gpt", "value": wrapped}]}) + "\n")
