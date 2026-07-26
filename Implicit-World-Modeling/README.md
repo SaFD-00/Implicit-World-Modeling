@@ -143,10 +143,11 @@ bash scripts/stage2_train.sh --model qwen2.5-vl-3b --dataset AC_EXP06 \
 EXP05 와 **같은 절대 픽셀 좌표계**를 쓰지만 **데이터 계보는 EXP05 파생이 아니다** — 0725 myset 필터링본에서 자체 빌드한다. 자격은 `qwen2.5-vl-3b` 단독 (7B 제외).
 
 ```bash
-# 1) 원천 3 파일을 배치 → data/AndroidControl/ (공유 원본 디렉토리, ARCHITECTURE §3 규칙 2)
-#    EXP07_stage1_state.jsonl   65,408  state-pred
-#    EXP07_stage2.jsonl         88,387  downstream (with_history) — stage1 down·action test 도 여기서 파생
-#    EXP07_open_aug.jsonl          100  open 증강 (home.jpg) — s1/s2 균등 50 씩
+# 1) 원천 3 파일을 배치 → data/AndroidControl/ (공유 원본 디렉토리, ARCHITECTURE §3 규칙 2·5)
+#    EXP07_stage1_state.jsonl   state-pred
+#    EXP07_stage2.jsonl         downstream (with_history) — stage1 down·action test 도 여기서 파생
+#    EXP07_open_aug.jsonl       open 증강 (home.jpg) — s1/s2 균등 분배
+#    행수는 디스크에서 센다: wc -l data/AndroidControl/EXP07_*.jsonl
 
 # 2) 빌드 정본 — train 2 + 자체 test 6 + sidecar. 누출 0 불변식을 fail-closed 로 검사.
 #    ⚠ 이 빌더는 커밋 정본 configs/lf_dataset/dataset_info.json 에 EXP07 8키를 함께 써넣는다
