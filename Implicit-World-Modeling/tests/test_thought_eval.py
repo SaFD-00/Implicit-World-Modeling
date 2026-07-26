@@ -21,7 +21,19 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import sacrebleu as _sacrebleu
+
+# sacrebleu 는 eval 전용 의존성이라 환경에 따라 없다 (학습/평가 conda env 실측 부재).
+# 최상단 hard-import 로 두면 스위트 전체가 collection 에서 죽으므로 optional 로 잡고,
+# BLEU 값을 실제로 검증하는 테스트만 skip 한다 — 나머지 커버리지는 그대로 유지된다.
+# (thought_eval 본체는 load_bleu_module() 로 이미 graceful degradation 한다.)
+try:
+    import sacrebleu as _sacrebleu
+except ImportError:  # pragma: no cover - 환경 의존
+    _sacrebleu = None
+
+requires_sacrebleu = pytest.mark.skipif(
+    _sacrebleu is None, reason="sacrebleu 미설치 (eval 전용 의존성)"
+)
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
@@ -105,6 +117,7 @@ class TestRougeL:
 
 
 # ── BLEU (sacrebleu, 0~1 정규화) ──────────────────────────────────────────
+@requires_sacrebleu
 class TestBleu:
     def test_exact_match_is_one(self):
         # sacrebleu exact match -> 100.0 (부동소수점 오차 미세) -> /100 = 1.0
@@ -141,6 +154,7 @@ class TestLoadBleuModuleDegradation:
         monkeypatch.setitem(sys.modules, "sacrebleu", None)
         assert thought_eval.load_bleu_module() is None
 
+    @requires_sacrebleu
     def test_load_success_returns_module(self):
         mod = thought_eval.load_bleu_module()
         assert mod is not None
@@ -245,6 +259,7 @@ class TestEvaluateThoughts:
         assert result["std_cosine"] is not None
         assert 0.0 <= result["mean_cosine"] <= 1.0
 
+    @requires_sacrebleu
     def test_missing_row_gets_zero_for_all_metrics(self):
         # 2번째 행(missing) 은 rouge/bleu/cosine 모두 0 이어야 하므로, 첫 행이
         # exact-match(1.0) 인 것과 평균이 정확히 절반이 되는지로 간접 검증.

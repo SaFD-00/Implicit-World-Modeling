@@ -22,9 +22,16 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-from llamafactory.extras.constants import IGNORE_INDEX
-from llamafactory.train.sft.trainer import CustomSeq2SeqTrainer
-from llamafactory.train.trainer_utils import diff_token_weighted_loss_func
+
+# llamafactory 는 학습 런타임 전용 의존성이라 lint/test 용 .venv 에는 없다. 모듈 최상단
+# import 로 두면 collection 단계에서 스위트 전체가 죽으므로, import 전에 skip 한다.
+pytest.importorskip(
+    "llamafactory", reason="llamafactory 미설치 (학습 런타임 전용 의존성)"
+)
+
+from llamafactory.extras.constants import IGNORE_INDEX  # noqa: E402
+from llamafactory.train.sft.trainer import CustomSeq2SeqTrainer  # noqa: E402
+from llamafactory.train.trainer_utils import diff_token_weighted_loss_func  # noqa: E402
 
 # diff loss v2 가중 체계 (scripts/diff_loss/token_weight_builder_v2.py)
 W_DIFF = 1.0  # ADDED / MODIFIED
