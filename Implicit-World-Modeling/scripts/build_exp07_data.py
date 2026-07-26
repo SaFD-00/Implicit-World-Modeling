@@ -2,11 +2,18 @@
 """AC_EXP07 stage1/stage2 train+test 데이터 정본 빌더 — 신규 0725 소스 (myset), 누출 0.
 
 이 스크립트가 **AC_EXP07 train/test jsonl 의 유일한 커밋된 생성 경로**다.
-소스는 조병웅 제공 0725 필터링본(``data/AndroidControl_EXP07_src/``), 세 파일에서 파생한다:
+소스는 조병웅 제공 0725 필터링본(myset)이며, 2026-07-26 부터 공유 원본 디렉토리
+``data/AndroidControl/`` 에 명명규칙(ARCHITECTURE §3 규칙 2 — 공유 디렉토리의 변형본은
+``EXP{NN}_`` 접두)대로 평탄하게 놓인다. 세 파일에서 파생한다:
 
-  stage1/all_samples_state_pred_0725_filtered_v2.jsonl            65,408  state-pred (NEXT_STATE_PREDICTION, img1, gpt=XML)
-  stage2/all_samples_sharegpt_0725_filtered_with_history_v5.jsonl 88,387  downstream (NEXT_ACTION_PREDICTION, img1, gpt=<thought><action>)
-  stage2/results_sharegpt.jsonl                                     100  open 증강 (전부 open, home.jpg)
+  EXP07_stage1_state.jsonl   65,408  state-pred (NEXT_STATE_PREDICTION, img1, gpt=XML)
+  EXP07_stage2.jsonl         88,387  downstream (NEXT_ACTION_PREDICTION, img1, gpt=<thought><action>)
+                                     — stage2 15K 가 주 소비자지만 stage1 down 10K·stage1 action test 도
+                                       같은 풀에서 나온다 (§3 규칙 3: 접두는 최초 소비 EXP 하나).
+  EXP07_open_aug.jsonl          100  open 증강 (전부 open, home.jpg) — s1/s2 에 50 씩 균등 분배라 stage 중립명.
+
+⚠ ``--source-dir`` 는 이제 **공유 디렉토리**(``data/AndroidControl/``)를 가리킨다. 빌더는 위 세
+이름만 열므로 같은 디렉토리의 다른 EXP 자산에는 손대지 않는다.
 
 산출 (``data/AndroidControl_EXP07/``):
   train  stage1_train.jsonl  50,000 = state 40,000(가중) + downstream 10,000(이미지 제거)
@@ -34,7 +41,7 @@
 Usage
 -----
   .venv/bin/python scripts/build_exp07_data.py
-  .venv/bin/python scripts/build_exp07_data.py --source-dir data/AndroidControl_EXP07_src --seed 7
+  .venv/bin/python scripts/build_exp07_data.py --source-dir data/AndroidControl --seed 7
 """
 
 from __future__ import annotations
@@ -66,10 +73,10 @@ DEFAULT_SEED = 7
 MAX_DEGENERATE_FRAC = 0.30
 
 # ── 파일명 ────────────────────────────────────────────────────────────────
-SRC_STATE = "stage1/all_samples_state_pred_0725_filtered_v2.jsonl"
-SRC_DOWN = "stage2/all_samples_sharegpt_0725_filtered_with_history_v5.jsonl"
-SRC_AUG = "stage2/results_sharegpt.jsonl"
-SRC_DEFAULT_SUBDIR = "AndroidControl_EXP07_src"
+SRC_STATE = "EXP07_stage1_state.jsonl"
+SRC_DOWN = "EXP07_stage2.jsonl"
+SRC_AUG = "EXP07_open_aug.jsonl"
+SRC_DEFAULT_SUBDIR = "AndroidControl"
 
 OUT_SUBDIR = "AndroidControl_EXP07"
 EXP05_SUBDIR = "AndroidControl_EXP05"

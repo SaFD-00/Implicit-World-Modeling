@@ -48,9 +48,11 @@ mkdir -p "$LOG_DIR"
 LF_DATASET_DIR="$BASE_DIR/configs/lf_dataset"
 
 # data/ 에 새 데이터셋이 생기면 상대 심링크를 자기치유로 추가한다 (git 에 커밋할 것).
-# 단 `*_src` 는 빌더 입력 전용 원천 디렉토리(예: data/AndroidControl_EXP07_src/)라
-# dataset_info 에 등록 키가 하나도 없다 — 심링크를 만들면 커밋된 심링크 팜에 아무도
-# 참조하지 않는 항목이 늘고 스크립트를 돌릴 때마다 git status 가 더러워지므로 제외한다.
+# 단 `*_src` 는 빌더 입력 전용 원천 디렉토리라 dataset_info 에 등록 키가 하나도 없다 —
+# 심링크를 만들면 커밋된 심링크 팜에 아무도 참조하지 않는 항목이 늘고 스크립트를 돌릴
+# 때마다 git status 가 더러워지므로 제외한다. (이 가드를 부른 `AndroidControl_EXP07_src/`
+# 는 2026-07-26 에 소스가 data/AndroidControl/ 로 이동하며 사라졌지만, 다음 `_src` 를
+# 위해 규칙은 남긴다.)
 for _ds_dir in "$BASE_DIR"/data/*/; do
   [ -d "$_ds_dir" ] || continue
   _ds_name=$(basename "$_ds_dir")
