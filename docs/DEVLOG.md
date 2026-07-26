@@ -3,6 +3,20 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-26 — IWM: EXP07 stage1 LoRA 학습 착수(A100×2 확보) + walkthrough 노트북 은퇴(Cell 7 → build_exp02_data.py 이관)
+
+앞 엔트리에서 **GPU 부재로 대기**하던 EXP07 학습을, GPU 2 장이 유휴가 된 시점에 실제로 착수했다. 병행해 사용자 지시로 **walkthrough 노트북을 은퇴**시키고 노트북에만 있던 유일 로직(EXP02 데이터 생성)만 스크립트로 이관했다.
+
+- **EXP07 stage1 LoRA 학습 착수**: conda `implicit-world-modeling`, tmux 세션 `exp07-s1`, `CUDA_HOME=<env prefix>`(nvcc 12.8 = torch cu12.8, 가드 통과) 로 `scripts/stage1_train.sh --model qwen2.5-vl-3b --dataset AC_EXP07 --stage1-mode lora`. **A100×2** 라 gpu_policy 가 pdbs=2·grad_accum=16·`ds_z3_config`(no-offload — CPUAdam 불필요) 주입 → **global batch 64**, 총 ≈781 step, `save_steps 0.25`. config 는 커밋본 그대로(LoRA r64/α128/lr1e-5, diff loss v1). 진행보고는 세션 전용 cron(매시 :07). 앞 엔트리의 **P6(GPU 확보)** 가 닫혔다.
+- **노트북 은퇴 — 정본 로직은 이미 전부 코드에 있었다**: `implicit-world-modeling.ipynb`(73셀)는 대부분 `scripts/*.sh` 예시 호출 + 읽기전용 통계/등록검증 셀이었다. 삭제하고 파이프라인 단계 → 정본 스크립트 매핑을 [ARCHITECTURE §1](../Implicit-World-Modeling/ARCHITECTURE.md#1-실행-구조) 에 표로 남겼다.
+- **유일 이관 — Cell 7 → `scripts/build_exp02_data.py`**: AC_EXP02 데이터의 **유일 생성기**(§3 함정 10)라 드롭 불가였다. diff loss **v1**(`preprocess_dataset.py`, W=(added 2.0, modified 2.0, unchanged 1.0)) 로 AC_EXP01 ratio73 train 에 `token_weights` 부여 + test/stage2 7 파일 복사, 멱등. `build_exp0N_data.py` 네이밍 규칙에 맞췄고 v2 는 절대 쓰지 않는다(재현성). 검증: `--help` 정상, 기존 산출 존재 → 전량 skip(멱등 확인).
+- **드롭한 노트북 전용 셀 — 손실 없음**: eval-loss/Hungarian 리포트(.md)·플롯(.png)·**BEST_CHECKPOINT 자동 선정**은 EXP01/02 전용 레거시다. BEST_CHECKPOINT 개념은 **이미 merge 경로에서 제거**됐고(epoch 는 `trainer_state.json.epoch` 로 결정) 현행 채점 정본은 `_hungarian_eval.py`·`_action_eval.py`·`thought_eval.py`(stage{1,2}_eval.sh 경유)라 중복이었다.
+- **동반 함정 정리**: 07-25 의 EXP07 `_DUAL_TASK_TEST` 함정은 **증상이 뜨던 유일한 곳이 노트북 등록검증 셀**이었는데, 노트북 은퇴 + `_DUAL_TASK_TEST` 편입(07-25)으로 **이중 소멸**했다 — ARCHITECTURE §3 의 해당 함정 서술을 그에 맞게 갱신.
+- 변경: 신규 `Implicit-World-Modeling/scripts/build_exp02_data.py`, 삭제 `Implicit-World-Modeling/implicit-world-modeling.ipynb`, 문서 `Implicit-World-Modeling/{README,ARCHITECTURE,AGENTS}.md` · 루트 `README.md` · `docs/DEVLOG.md`.
+- 결과/검증: `gen_configs --check` **193 YAML 일치**(노트북 삭제 무영향) · `build_exp02_data.py` 멱등 skip 확인 · 학습 프로세스 2 rank 기동·토크나이징 진행(크래시 0). 잔여 노트북 링크 grep = 은퇴를 명시하는 새 서술만 남음.
+- 후속: **P5** conda env `sacrebleu` 부재(stage2 eval bleu null)는 여전히 미해소. 학습 완주 후 stage1 eval → stage2 로 진행.
+- 카테고리: devlog
+
 ## 2026-07-26 — IWM: 07-25 잔존 P2·P3 해소 + EXP07 학습 前 관통 검증(스모크가 실제 블로커 2건 발굴) — 학습 자체는 GPU 점유로 미착수
 
 07-25 엔트리의 후속 **P2**(테스트 importorskip 가드)·**P3**(EXP07 sidecar 구경로)를 닫고, "eval sh 는 정적 검증만" 이던 상태를 GPU 없이 갈 수 있는 데까지 밀었다. **그 과정에서 EXP07 stage2 를 실제로 막고 있던 결함 2 건이 드러났다** — 스모크의 목적이 이것이었으므로 수정까지 했다. **학습(stage1 → baseline eval → stage2)은 착수하지 못했다**: 로컬 GPU 2 장을 타인 프로세스가 점유 중이다(아래 근거).

@@ -84,7 +84,7 @@ python scripts/split_data.py --dataset AC_EXP01 --exp01-ratios 3:7,5:5,7:3 --exp
 
 ### AC_EXP02 — diff loss v1 (Stage 1)
 
-데이터 생성의 정본 경로는 **노트북 Section 0 의 "AC_EXP02 diff loss 데이터 준비" 셀**이다 (멱등). 이 셀이 `scripts/diff_loss/preprocess_dataset.py` (**v1**) 로 AC_EXP01 ratio73 train 에 `token_weights` 를 부여하고, test / Stage 2 파일은 AC_EXP01 에서 복사한다 (동일 평가셋 → 공정 비교).
+데이터 생성의 정본 경로는 **`scripts/build_exp02_data.py`** 다 (멱등). 이 스크립트가 `scripts/diff_loss/preprocess_dataset.py` (**v1**) 로 AC_EXP01 ratio73 train 에 `token_weights` 를 부여하고, test / Stage 2 파일은 AC_EXP01 에서 복사한다 (동일 평가셋 → 공정 비교).
 
 > v1/v2 를 섞으면 조용히 깨진다 — 규칙은 [AGENTS 하드 제약 8·9](./AGENTS.md), 근거는 [ARCHITECTURE §3 "diff loss"](./ARCHITECTURE.md#3-데이터와-설정-계약).
 
@@ -320,11 +320,21 @@ pytest tests/ -v
 
 ---
 
-## 6. 노트북
+## 6. 실행 오케스트레이션
 
-[`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) 는 **thin wrapper** 다 — 정본 로직은 전부 코드에 있다. Section 매핑과 주의사항 (Section 2 등록 셀의 미마이그레이션 잔재 포함) 은 [ARCHITECTURE §1 "노트북"](./ARCHITECTURE.md#1-실행-구조).
+노트북(`implicit-world-modeling.ipynb`)은 **은퇴했다** (2026-07-26). 정본 로직은 전부 코드에 있고, 예전 노트북은 `scripts/*.sh` 예시 호출을 묶은 thin wrapper 였다. 파이프라인은 shell 스크립트로 실행한다:
 
-다른 모델/모드/DS 는 **cell 을 추가하지 말고 shell 인자만 바꾼다.**
+```
+scripts/setup_llamafactory.sh --install --verify   # 0. 환경 (LF clone + 패치 적용)
+python scripts/build_exp02_data.py                 #    AC_EXP02 데이터 생성 (diff loss v1, 멱등)
+python -m implicit_world_modeling.gen_configs --check   #    학습 YAML SSoT 대조 (CI 게이트)
+scripts/stage1_train.sh  --model M --dataset DS --stage1-mode {full|lora}
+scripts/stage1_merge.sh  --model M --dataset DS ...     # merge + HF Hub push
+scripts/stage1_eval.sh   --train-dataset DS --eval-datasets ...
+scripts/stage2_train.sh  / stage2_merge.sh / stage2_eval.sh   # 동일 패턴
+```
+
+다른 모델/모드/DS 는 **shell 인자 (`--model` / `--dataset` / `--stage{1,2}-mode`) 만 바꾼다.** 데이터 빌더는 실험군별로 `scripts/build_exp0N_data.py` (EXP02/EXP05/EXP07) 를 쓴다.
 
 ---
 

@@ -118,9 +118,9 @@
 
 working tree 를 직접 고치지 말고 `patches/llamafactory/` 에 `.patch` 를 추가한다 (하드 제약 1). `LlamaFactory/pyproject.toml` 은 **건드리지 않는다** — transformers pin 은 우리 `pyproject.toml` 의 `[project.optional-dependencies] llamafactory` 에서 값과 그 위 주석을 함께 바꾼다.
 
-### 노트북
+### 실행 오케스트레이션
 
-**thin wrapper 다 — cell 을 추가하지 마라.** 정본 로직은 전부 코드에 있고, 다른 모델/모드/DS 는 shell 인자 (`--model` / `--dataset` / `--stage{1,2}-mode`) 만 바꿔 실행한다. 학습 YAML 생성은 노트북 소관이 아니다 (`gen_configs`). Merge YAML 은 사전 생성하지 않는다 (merge 스크립트가 runtime 에 만든다). Section 매핑: [§1 노트북](./ARCHITECTURE.md#1-실행-구조).
+**노트북은 은퇴했다 (2026-07-26) — 되살리지 마라.** 파이프라인은 전부 `scripts/` 로 실행한다: 다른 모델/모드/DS 는 shell 인자 (`--model` / `--dataset` / `--stage{1,2}-mode`) 만 바꾼다. 데이터는 실험군별 `scripts/build_exp0N_data.py`, 학습 YAML 은 `gen_configs` (손으로 만들지 마라), Merge YAML 은 merge 스크립트가 runtime 에 만든다. 단계 → 정본 스크립트 매핑: [§1 실행 오케스트레이션](./ARCHITECTURE.md#1-실행-구조).
 
 ### 문서
 

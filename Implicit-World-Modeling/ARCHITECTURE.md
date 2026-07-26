@@ -17,7 +17,7 @@
 | LF 부트스트랩 | `bash scripts/setup_llamafactory.sh --install --verify` (clone → pin `99464b3d034fd19fa73486f05e3b64b963e1b423` → `patches/llamafactory/*.patch` 적용 → editable 설치 → `MANIFEST.sha256` 검증; 멱등) |
 | 학습/export | `llamafactory-cli train` / `llamafactory-cli export` |
 | 추론 | `LlamaFactory/scripts/vllm_infer.py` (HF safetensors / PEFT adapter 를 그대로 로드) |
-| 오케스트레이션 | [`implicit-world-modeling.ipynb`](./implicit-world-modeling.ipynb) (walkthrough) + [`scripts/`](./scripts) (반복 실행) |
+| 오케스트레이션 | [`scripts/`](./scripts) — 파이프라인 전 단계가 shell/py 스크립트다 (walkthrough 노트북은 2026-07-26 은퇴). |
 
 - `transformers>=4.57.1,<4.58` — vllm 0.11.2 의 `transformers<5` 제약 ∩ LF 서브프로젝트 `<=5.2.0`, 그리고 Qwen3-VL processor 가 4.57+ 도입. 정본은 `pyproject.toml` 의 `[project.optional-dependencies] llamafactory`.
 - `deepspeed` · `vllm` · `bitsandbytes` 모두 같은 env 에 설치된다.
@@ -36,7 +36,7 @@
 | [`implicit_world_modeling/gen_configs.py`](./implicit_world_modeling/gen_configs.py) | **학습 YAML 생성기** — `--write` (재생성) / `--check` (커밋본 byte 대조 + orphan 검출, CI 게이트). 산출: `configs/train/IWM-{DS}/stage{1,2}_{full,lora}/`. |
 | [`scripts/gpu_policy.py`](./scripts/gpu_policy.py) | **GPU 정책 SSoT** — `resolve_gpu_policy(gpu_type, nproc, size_class, ds_name, mode)` → batch / grad_accum / deepspeed. |
 | [`scripts/_common.sh`](./scripts/_common.sh) | 공통 path·DS 매핑·모델 레지스트리·자격/등록 가드·`build_infer_cmd`·HF repo id 헬퍼. |
-| [`scripts/stage{1,2}_{train,merge,eval}.sh`](./scripts) | `--model MODEL --dataset DS` 플래그 CLI. 커밋된 YAML (`configs/train/`) 과 dataset_dir 정본 (`configs/lf_dataset/`) 을 소비 — 노트북 실행 이력에 의존하지 않는다. |
+| [`scripts/stage{1,2}_{train,merge,eval}.sh`](./scripts) | `--model MODEL --dataset DS` 플래그 CLI. 커밋된 YAML (`configs/train/`) 과 dataset_dir 정본 (`configs/lf_dataset/`) 만 소비 — 특정 실행 이력에 의존하지 않는다 (갓 clone 한 머신에서도 성립). |
 
 학습 YAML 의 개수·내용 정합은 문서가 아니라 생성기가 보증한다:
 
@@ -46,25 +46,26 @@ python -m implicit_world_modeling.gen_configs --check   # 커밋본과 byte 대�
 
 > **orphan 도 실패다.** 생성기가 만들지 않는데 디스크에 있는 YAML 은 **자격 테이블이 틀렸다는 신호**이므로 `--check` 가 exit 1 한다.
 
-### 노트북
+### 실행 오케스트레이션 (노트북 은퇴)
 
-노트북은 **thin wrapper** 다 — 정본 로직은 전부 코드에 있다. **Section 매핑의 정본은 여기다** (README·AGENTS 는 이 절로 링크만 한다).
+walkthrough 노트북(`implicit-world-modeling.ipynb`)은 **2026-07-26 은퇴했다.** 정본 로직은 전부 코드에 있었고, 노트북은 `scripts/*.sh` 예시 호출 + 읽기전용 통계 셀을 묶은 thin wrapper 였다. 파이프라인 단계 → 정본 스크립트 매핑:
 
-| Section | 노트북 markdown 헤더 | 하는 일 |
-|---|---|---|
-| 0 | Environment Setup | 환경/설정 + **AC_EXP02 diff loss 데이터 준비** (v1 — EXP02 데이터의 유일 생성기, §3 함정 10) |
-| **1** | `## 1. Stage 1 Data Preparation` | `configs/lf_dataset/dataset_info.json` **대조 (read-only — 아무것도 쓰지 않는다)** + 통계 출력 |
-| **2** | `## 2. Stage 2 Data Preparation` | Stage 2 등록 셀 — **미마이그레이션 잔재** (아래 참조) + 통계 출력 |
-| 3–5 | Stage 1 | SFT → merge → eval |
-| 6–8 | Stage 2 | SFT → merge → eval |
+| 단계 | 정본 스크립트 |
+|---|---|
+| 환경 셋업 | `scripts/setup_llamafactory.sh --install --verify` |
+| 데이터 생성 | 실험군별 `scripts/build_exp0N_data.py` (EXP02/EXP05/EXP07) — EXP02 는 diff loss v1 (§3 함정 10) |
+| 학습 YAML 대조 | `python -m implicit_world_modeling.gen_configs --check` |
+| Stage 1/2 | `scripts/stage{1,2}_{train,merge,eval}.sh --model M --dataset DS --stage{1,2}-mode {full|lora}` |
 
-Section 3/4/6/7 은 **단일 변형 walkthrough** (`qwen3-vl-8b`) 이고, 다른 모델/모드/DS 는 cell 을 추가하지 말고 shell 인자만 바꾼다.
+다른 모델/모드/DS 는 **shell 인자만 바꾼다** (예전엔 cell 을 추가하지 말라고 했던 그 규칙).
 
-> ⚠️ **Section 2 의 Stage 2 등록 셀은 아직 마이그레이션되지 않았다.** 그 셀은 여전히 `LlamaFactory/data/dataset_info.json` (LF clone 안의 **죽은 사본**) 에 in-place 기록한다 — 정본 `configs/lf_dataset/dataset_info.json` 은 건드리지 않으므로 **무해하지만 실행할 이유도 없다** (그 파일은 이제 아무도 읽지 않는다 — §3 함정 13). 노트북 Section 1 의 markdown 이 스스로 이 경고를 달고 있다.
+은퇴하며 함께 사라진 노트북 전용 잔재:
+- **AC_EXP02 데이터 생성 셀(구 Cell 7)** → `scripts/build_exp02_data.py` 로 이관 (유일 생성기 지위 유지, §3 함정 10).
+- **읽기전용 통계/등록 검증 셀** → 드롭. `dataset_info.json` 정본은 `configs/lf_dataset/` 커밋본이고 대조는 `_common.sh::verify_dataset_info()` 가 source 시점에 한다 (§3 함정 13).
+- **eval 리포트/플롯 + `BEST_CHECKPOINT` 자동 선정 셀** → 드롭 (EXP01/02 전용 레거시). `BEST_CHECKPOINT` 개념은 이미 merge 경로에서 제거됐고 epoch 번호는 `trainer_state.json.epoch` 의 `int(round(...))` 로 결정된다. 현행 채점 정본은 `scripts/_hungarian_eval.py` · `_action_eval.py` · `thought_eval.py` (stage{1,2}_eval.sh 경유).
+- **구 Stage 2 등록 셀**은 LF clone 안 죽은 사본에 쓰던 무해·무의미 잔재였다 — 은퇴로 자연 소멸.
 
-- **학습 YAML 생성은 노트북이 하지 않는다** — `gen_configs` 소관.
-- **`dataset_info.json` 은 런타임 등록이 아니라 `configs/lf_dataset/` 의 커밋 정본이다** (§3).
-- **Merge YAML 은 사전 생성하지 않는다** — `stage{1,2}_merge.sh` 가 runtime 에 임시 YAML 을 만든다. `BEST_CHECKPOINT` 개념은 제거됐고 epoch 번호는 `trainer_state.json.epoch` 의 `int(round(...))` 로 결정된다.
+- **학습 YAML 생성은 `gen_configs` 소관이다** (스크립트/사람이 손으로 만들지 않는다).
 
 ---
 
@@ -360,7 +361,7 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
 
 > ✅ **해소된 함정 (2026-07-25) — EXP07 은 `_DUAL_TASK_TEST` 에 편입됐다.** 그 전까지 EXP07 은 디스크·`dataset_info` 에 dual-task test 4 종을 다 갖고도 세트에서 빠져 있어, `build_configs()` 가 else 분기를 타 **미등록 키** `IWM-AC_EXP07_stage1_test_{id,ood}` 를 `ds_s1_test_*` 에 담았다 (실제 등록명은 `…_test_{id,ood}_{state,action}` 4 개다).
 > - **학습·평가는 그때도 무증상**이었다 — 셸이 이름을 직접 조립하기 때문이다 (`stage1_eval.sh` 의 `${eval_prefix}_stage1_test_{id,ood}_${task}`), 그리고 stage1 YAML 은 `dataset:` (train) 만 참조한다. 그래서 편입 후에도 **커밋된 YAML 은 한 글자도 안 바뀐다** (`gen_configs` 는 `ds_s1_train`/`ds_s2_train` 만 읽고, EXP07 은 `ac3_ratio` 가 없어 두 분기의 렌더 결과가 문자열 동일).
-> - **증상이 있던 곳은 노트북의 등록 검증 셀**이다 — `_expected_keys()` 가 같은 `_DUAL_TASK_TEST` 분기를 미러하므로 EXP07 에 대해 없는 bare 키를 "기대" 하고 실재하는 4 키를 누락으로 봤다. 노트북은 세트를 `lf_registry` 에서 import 하므로 **레지스트리 수정만으로 함께 해소된다** (노트북 무수정).
+> - **증상이 있던 유일한 곳은 (은퇴한) 노트북의 등록 검증 셀**이었다 — `_expected_keys()` 가 같은 `_DUAL_TASK_TEST` 분기를 미러해 EXP07 에 대해 없는 bare 키를 "기대" 하고 실재하는 4 키를 누락으로 봤다. 그 셀은 2026-07-26 노트북 은퇴로 사라졌고, `_DUAL_TASK_TEST` 편입으로 근본 원인도 해소돼 **이 함정은 이중으로 소멸했다.**
 
 - **EXP03 미러**: EXP01 ratio73 산출 파일을 한 줄씩 읽어 `(episode, step)` 키로 좌표 원천의 대응 레코드를 골라 **동일 순서로** write. UI 트리는 `index="N"` 대신 `bounds="[x1,y1][x2,y2]" point="[cx,cy]"`, 액션은 `point=[x,y]`. **본문만 좌표이고 이미지 경로는 EXP01 것을 채택**한다. 원천에 없는 키 (~0.8–1.7%) 는 제외 → EXP01 과 `(episode, step)` 1:1 대응이나 행 수는 소폭 작다.
 - **EXP04 미러**: EXP03 와 **동일 멤버십·좌표 표현**, 프롬프트만 업그레이드 (action space `scroll(direction, point)` → `swipe(start, end)`, role 문구 "represented as html-style XML", `[SWIPE]` 규칙). **EXP04 pool ⊆ EXP03 pool** 이라 멤버십 drift 가 없다.
@@ -424,7 +425,7 @@ page 지문 오염 (S-9) 으로 의도적으로 제외했고, 수집기의 page_
 
 > ⚠️ **함정 9 — EXP05 에 v1 을 쓰면 diff loss 가 조용히 무력화된다.** **EXP05 HTML 에는 `index` 속성이 아예 없다** (실측: index 0 개, bounds 48 개). v1 builder 는 `index="..."` 를 regex 로 **필수 요구**하므로, v1 을 EXP05 에 쓰면 에러 없이 모든 토큰이 baseline 으로 방치된다.
 
-> ⚠️ **함정 10 — v1 4 파일을 삭제하지 마라. 데드 코드가 아니다.** 노트북 Cell 7 이 **EXP02 데이터의 유일한 생성기**이고, v1 재실행은 저장된 `token_weights` 와 **40/40 일치**한다 (v2 로 돌리면 17/40). v1 의 경계 비대칭 버그도 **EXP02 재현성 보존을 위해 의도적으로 고치지 않는다.**
+> ⚠️ **함정 10 — v1 4 파일을 삭제하지 마라. 데드 코드가 아니다.** `scripts/build_exp02_data.py` (구 노트북 Cell 7 이관본) 가 이 v1 (`scripts/diff_loss/preprocess_dataset.py`) 로 **EXP02 데이터를 생성하는 유일 경로**이고, v1 재실행은 저장된 `token_weights` 와 **40/40 일치**한다 (v2 로 돌리면 17/40). v1 의 경계 비대칭 버그도 **EXP02 재현성 보존을 위해 의도적으로 고치지 않는다** (빌더는 `preprocess_dataset_v2.py` 를 절대 쓰지 않는다).
 
 > ⚠️ **함정 11 — baseline skip 이 diff 토큰을 삼킨다.** `token_weight_builder` 의 baseline 은 `[1.0]*n_asst` 이고 `if weight == 1.0: continue` 로 기본값을 스킵하는 구조다. **신규 체계에서는 diff weight 가 바로 그 1.0** 이라, 스킵 때문에 diff 토큰이 baseline (0.25) 에 방치되는 함정이 있었다. v2 는 baseline 을 `wmap["UNCHANGED"]` 에서 유도하고 스킵 조건을 `if weight == base` 로 바꿔 해결했다. **action 샘플의 uniform-1.0 분기가 빠지면 "diff 없음 → 전부 0.25" 로 잘못 처리된다.**
 
@@ -699,7 +700,7 @@ Stage 2 pred 의 `<thought>…</thought>` 텍스트가 GT thought 와 얼마나 
 
 ## 7. 중요한 운영 제약
 
-- **`implicit_world_modeling/` 패키지에 학습·평가 실행 로직은 없다** — 레지스트리 SSoT (`lf_registry.py`) 와 YAML 생성기 (`gen_configs.py`) 뿐이다. 실행 로직은 `scripts/` 와 노트북에 있다.
+- **`implicit_world_modeling/` 패키지에 학습·평가 실행 로직은 없다** — 레지스트리 SSoT (`lf_registry.py`) 와 YAML 생성기 (`gen_configs.py`) 뿐이다. 실행 로직은 전부 `scripts/` 에 있다.
 - **모델 추가 시**: `lf_registry._MODEL_CONFIG` + `_common.sh` 의 `MODEL_ID`/`MODEL_TEMPLATE`/`ALL_MODELS` 를 **동시에** 고치고 `gen_configs --write` 로 YAML 을 재생성해 커밋한다. 새 family 라면 `MODEL_FAMILY_CONFIG` 에 image budget 을 **먼저** 등록해야 하고 (`_img_cfg` 가 `KeyError` 를 낸다), `build_infer_cmd` 의 template 분기 (factor / mm_min) 도 함께 갱신한다.
 - **하이퍼파라미터는 `_MODEL_CONFIG` 에 직접 쓰지 마라** — `_DATASET_CONFIG` baseline (또는 `_SIZE_CONFIG_AC` tier) 에서 바꾼다. `hparam_overrides` 는 모델별 delta 전용.
 - Stage 2 world-model variant 는 `--stage1-epoch N` 의 로컬 merged dir 이 **반드시 선행**돼야 한다 (stage1_train → stage1_merge).

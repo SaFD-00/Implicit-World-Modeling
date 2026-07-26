@@ -47,7 +47,7 @@ Implicit-World-Modeling/                 # ← 모노레포 루트 (this README)
 cd Implicit-World-Modeling
 conda create -n implicit-world-modeling python=3.12 -y && conda activate implicit-world-modeling
 pip install -e ".[llamafactory]" && pip install -e ./LlamaFactory
-#   → 이후 실행은 implicit-world-modeling.ipynb 또는 scripts/stage{1,2}_{train,merge,eval}.sh
+#   → 이후 실행은 scripts/ (build_exp0N_data.py · stage{1,2}_{train,merge,eval}.sh)
 
 # 데이터 수집기 — uv
 cd Monkey-Collector
