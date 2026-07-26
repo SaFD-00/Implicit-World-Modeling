@@ -210,6 +210,8 @@ Qwen 계열은 **세대마다 native 좌표 규약이 반전됐다** (Qwen2-VL �
 
 **왜 좌표 실험군만 24576 인가**: 같은 전이를 `index="N"` 대신 `point=[x,y]` 로 적어 시퀀스가 ~2~2.5x 길다. `cutoff_len=10000` 에서는 ~10% 가 잘리고 ~0.3% 가 위 크래시를 냈다 (EXP01 ratio73 은 max 9059, 잘림 0%). EXP03 멤버십은 EXP01 ratio73 (index 기준 ≤10000 으로 이미 필터된 집합) 의 좌표 미러라 팽창 상한이 묶여 있어, **필터 없이 cutoff 만 24576 으로 올리면 잘림·크래시·데이터 손실 0** 이 성립한다. EXP04 ⊆ EXP03, EXP05 도 동일 멤버십이라 이 성질을 승계한다. EXP06 (EXP05 의 비증강 Stage-2 대조군) 도 같은 절대 픽셀 좌표 규약과 24576/24576 cutoff 를 승계한다. 평가측도 24576 으로 맞춰 입력 truncation 0 을 보장한다 (vLLM `max_model_len = cutoff + max_new_tokens` 증가 → KV cache 메모리↑·throughput↓; 필요 시 `VLLM_GPU_MEM_UTIL`).
 
+> ⚠️ **함정 14 — EXP07 은 bounded membership 이 아니다. 빌더가 직접 길이 필터를 해야 한다.** EXP03~06 이 "필터 없이 cutoff 24576 이면 손실 0" 인 건 멤버십이 EXP01 ratio73 (index ≤10000 사전필터본) 의 미러라 팽창 상한이 묶여서다. **EXP07 은 별도 0725 myset 소스라 그 상한이 없다** — NEXT_STATE_PREDICTION 의 gpt 출력(전체 UI XML)이 최대 51,852 토큰까지 나온다. 초기 `build_exp07_data.py` 는 필터가 없어, `cutoff_len` 초과 샘플이 학습 dataloader 에서 **잘리기 전 `image_grid_thw` vs 잘린 input_ids 불일치**로 죽었다 (Qwen2.5-VL: `Image features and image tokens do not match: tokens 2010, features 4020` — 배치 pdbs=2 의 한 샘플에서 이미지 placeholder 2010 개가 통째로 truncation, 이미지는 전부 1080×2400 동일이라 순수 길이 문제다; Qwen3-VL 이면 함정 6 의 `get_rope_index` shape mismatch 로 같은 원인이 다르게 뜬다). **수정(2026-07-26)**: `build_exp07_data.py` 가 `filter_long_samples.build_length_fn` 을 재사용해 **샘플링 전** state/downstream 풀에서 mm-expanded>cutoff 를 제외한다 (누출 0·40000/10000/15000 유지, 실현치 sidecar `length_filter`). `filter_long_samples.py` 본체는 AC_EXP01/02/03 만 대상이라 EXP07 은 빌더 내장 필터로 처리한다 — **새 소스로 실험군을 추가할 때 이 필터를 잊으면 학습이 죽는다.**
+
 측정 (필터링은 하지 않고 측정만):
 ```bash
 python scripts/filter_long_samples.py --dataset AC_EXP03 --threshold 24576 --report-only

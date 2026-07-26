@@ -3,6 +3,20 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-26 — IWM: EXP07 stage1 학습 step16 크래시 → 근본원인(길이 미필터) 규명 + build_exp07 빌드타임 길이 필터 추가 + 재빌드·재학습
+
+착수한 EXP07 stage1 LoRA 학습이 **step 16 에서 죽었다**. GPU/OOM 이 아니라 **데이터 길이** 문제였고, 빌더에 길이 필터를 내장해 재빌드·재학습했다.
+
+- **크래시**: `ValueError: Image features and image tokens do not match: tokens 2010, features 4020` (Qwen2.5-VL `get_placeholder_mask`, step 16/782). GPU 는 크래시 후 0/0.
+- **오진 배제**: 40,000 고유 이미지 전수 스캔 → **전부 단일프레임 RGB JPEG, 손상 0, 크기 전부 1080×2400 동일**. 멀티프레임·오버사이즈 가설 기각. 동일 이미지인데 step 1 이 아니라 step 16 에서 죽는다는 사실이 **per-sample(=시퀀스 길이) 원인**을 지목했다.
+- **근본원인 확정**: `IMG_TOK(1080×2400@cap 1605632)=2010` 이 에러의 `tokens:2010` 과 정확히 일치. `pdbs=2` → 배치당 이미지 2개 = `2×2010=4020 features`. 표본 5000 중 6개(0.1%)가 `cutoff_len`(24576) 초과(최대 **51,852** 토큰)이고 그중 이미지 placeholder 가 cutoff 뒤로 밀리는 샘플이 있었다. 배치의 한 샘플에서 이미지 2010 placeholder 가 통째로 truncation → input_ids 2010 vs pixel_values 4020 → 죽음. NEXT_STATE_PREDICTION 의 gpt 출력(전체 UI XML)이 초장문의 원인. `filter_long_samples.py` docstring 이 이 실패모드(잘리기 전 `image_grid_thw` vs 잘린 input_ids)를 그대로 기술한다.
+- **왜 EXP05 는 멀쩡했나**: EXP03~06 은 EXP01 ratio73(index ≤10000 사전필터본)의 미러라 팽창 상한이 묶여 필터 없이도 손실 0. **EXP07 은 별도 0725 myset 소스라 그 상한이 없다** — `filter_long_samples.py` 는 AC_EXP01/02/03 만 대상이라 EXP07 이 어느 필터도 거치지 않았다.
+- **수정 (빌드타임 필터)**: `build_exp07_data.py` 에 `filter_long_samples.build_length_fn`(LlamaFactory collator 길이와 일치) 재사용한 필터를 **샘플링 전** 단계에 추가 — state/downstream 풀에서 mm-expanded>cutoff 제외. **누출 0·40000/10000/15000 카운트 불변식 유지**(풀에서 제거만). 상수화(`CUTOFF_LEN`/`IMG_MAX_PIXELS`/`IMG_MIN_PIXELS`), sidecar 에 `length_filter` 실현치 기록, docstring §7 추가. ARCHITECTURE §4 에 **함정 14** 로 남겼다.
+- **재빌드 결과**: **state 71 + downstream 36 = 107개 drop**(~0.1%), stage1 50,000 = state 40,000(deg 6.94%) + down 10,000, stage2 15,000, **누출 0, 전 계약 만족**. 재학습을 새 로그(`...205248.log`)로 재시작(step 16 통과가 검증 지점).
+- 변경: `Implicit-World-Modeling/scripts/build_exp07_data.py` · `Implicit-World-Modeling/ARCHITECTURE.md` · `docs/DEVLOG.md`. (`data/` 는 비추적 — 재빌드 산출물은 커밋 대상 아님.)
+- 진행보고: `/loop 30m` cron(:13·:43). 학습 완료 후 계획: `stage1_merge.sh` 로 epoch별 HF 업로드 + stage1_eval 을 2 GPU 분할 실행.
+- 카테고리: devlog
+
 ## 2026-07-26 — IWM: EXP07 stage1 LoRA 학습 착수(A100×2 확보) + walkthrough 노트북 은퇴(Cell 7 → build_exp02_data.py 이관)
 
 앞 엔트리에서 **GPU 부재로 대기**하던 EXP07 학습을, GPU 2 장이 유휴가 된 시점에 실제로 착수했다. 병행해 사용자 지시로 **walkthrough 노트북을 은퇴**시키고 노트북에만 있던 유일 로직(EXP02 데이터 생성)만 스크립트로 이관했다.
