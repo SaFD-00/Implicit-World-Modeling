@@ -143,10 +143,13 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 # 테스트 — 2026-07-26 부터 `pytest tests` 가 **두 env 모두에서 플래그 없이** 돈다
 # (--ignore 불필요). 무거운 선택 의존성은 importorskip/skipif 로 가려지므로 카운트가
 # env 마다 다른 것이 정상이다:
-#   conda `implicit-world-modeling` (학습·평가 env) : 685 passed / 15 skipped  ← sacrebleu 부재 → BLEU 6건 skip
+#   conda `implicit-world-modeling` (학습·평가 env) : 691 passed / 9 skipped
 #   .venv                          (lint·test env) : 681 passed / 10 skipped  ← llamafactory 부재 → double_ce 모듈 skip
-# 즉 **어느 한 env 의 그린도 전량 검증이 아니다.** diff-loss 를 건드렸으면 conda 에서,
-# thought/BLEU 를 건드렸으면 .venv 에서 반드시 한 번 더 돌려라.
+# conda 의 9 skip 은 전부 test_mirror_experiment 의 **무조건 skip**(원본 삭제됨)이라
+# 양 env 에서 동일하게 빠진다. 즉 **conda 그린 = 조건부 skip 0 = 전량 검증**이고,
+# `.venv` 그린만 부분 검증(diff-loss 미검증)이다. diff-loss 를 건드렸으면 conda 에서
+# 반드시 한 번 더 돌려라. (2026-07-26 conda 에 sacrebleu 설치 전에는 conda 도
+# BLEU 6건이 빠져 685/15 였다 — 그 시기 로그를 지금 값과 혼동하지 말 것.)
 pytest tests -q
 pytest tests/test_gpu_policy.py tests/test_gen_configs.py -q          # GPU 매트릭스 + always-offload 불변식
 pytest tests/test_action_eval.py tests/test_action_eval_xy.py -q      # Stage 2 채점 (index / xy 모드)

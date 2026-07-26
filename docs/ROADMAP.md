@@ -145,7 +145,7 @@ EXP05 의 **비증강(증강 X) Stage-2 대조군**. 좌표/budget/`--coord-mode
 **차단·쟁점**:
 - **로컬 GPU 가 없다 (2026-07-26 현재, 학습을 막는 유일한 요인)**: RTX 5090 2 장을 **다른 사용자(`byeongung.cho`)의 sglang 서버 2 개**가 상시 점유 중이라 (PID 7318·7328, 33 시간 가동, 카드당 여유 **3.2/3.1 GiB**) qwen2.5-vl-3b LoRA 조차 올라가지 않는다 — `cutoff_len 24576` × vocab 151936 의 lm_head logits 만 bf16 로 ~7.5 GiB 다. ZeRO-3·CPU offload 로도 못 줄이고 `SMOKE=1` 은 `max_samples/max_steps` 만 줄여 cutoff 를 그대로 두므로 역시 OOM 이다. **남의 프로세스를 죽이지 말 것** — 카드가 비기를 기다리거나(협의) 원격으로 가야 한다.
 - 재빌드는 `python scripts/build_exp07_data.py --source-dir <dir> --seed 7` 로 한다 (`W_UNCHANGED=0.2`·metric v2 는 빌더 불변식으로 고정). 소스가 바뀌면 test 도 함께 다시 구워지므로 **누출 0 불변식은 빌더가 매번 재검사**한다. **`--revision` 을 반드시 고정하라** (sidecar 의 `revision_resolved`, 현재 `66285546…`) — 기본값 `None` 은 Hub HEAD 를 다시 해석하므로 토크나이저가 바뀌면 `token_weights` 가 조용히 달라진다.
-- thought eval 이 유의미하려면 실행 env 에 `sentence-transformers`·`sacrebleu` 가 필요하다 (pyproject 등재 — `.venv` 충족, conda env 는 별도 설치). 미설치 시 cosine/bleu null·ROUGE-L 만 산출, 파이프라인 비차단. **2026-07-26 실측**: conda env 는 `sentence-transformers` 있음 / `sacrebleu` **없음** → 현재 돌리면 cosine 정상·**bleu 만 null**. 설치는 `--no-deps` 로 (평범한 `pip install` 은 numpy 를 올려 torch/vLLM 을 깨뜨릴 수 있다).
+- ~~thought eval 의존성 (`sentence-transformers`·`sacrebleu`) 미충족~~ → **2026-07-26 해소**. conda env 에 `pip install --no-deps sacrebleu portalocker tabulate colorama` 로 설치(sacrebleu 2.6.0 · portalocker 3.2.0 · colorama 0.4.6, tabulate 는 이미 충족). `pip freeze` 차분 추가 3 줄뿐 — numpy 2.2.6 / torch 2.8.0+cu128 / vLLM 0.11.0 불변. EXP07 test 300 쌍 오라클에서 cosine/rouge_l/**bleu** 모두 산출 확인, conda `pytest tests` 691 passed / 9 skipped (조건부 skip 0). **env 재구성 시에도 반드시 `--no-deps`** — 평범한 `pip install` 은 numpy 를 올려 torch/vLLM 을 깨뜨릴 수 있다.
 
 ---
 

@@ -686,9 +686,11 @@ Stage 2 pred 의 `<thought>…</thought>` 텍스트가 GT thought 와 얼마나 
   - **`rouge_l`** — LCS 기반 ROUGE-L (자체 구현).
   - **`bleu`** — `sacrebleu` (0~1 정규화).
 
-> ⚠️ **함정 — thought eval 이 유의미하려면 실행 env 에 `sentence-transformers`·`sacrebleu` 가 있어야 한다.** 둘 다 `pyproject.toml` 에 등재돼 `.venv` 는 충족하지만 conda env 는 **별도 설치**가 필요하다. 미설치 시 `cosine`/`bleu` 는 `null`, `rouge_l` 만 산출되며 **파이프라인은 차단되지 않는다** — "cosine 이 비었다" 를 성능 결론으로 읽지 마라.
+> ⚠️ **함정 — thought eval 이 유의미하려면 실행 env 에 `sentence-transformers`·`sacrebleu` 가 있어야 한다.** 둘 다 `pyproject.toml` 에 등재돼 `.venv` 는 충족하지만, conda env 는 이들이 자동으로 따라오지 않으므로 **새로 만들 때마다 별도 설치**가 필요하다. 미설치 시 `cosine`/`bleu` 는 `null`, `rouge_l` 만 산출되며 **파이프라인은 차단되지 않는다** — "cosine 이 비었다" 를 성능 결론으로 읽지 마라.
 >
-> 2026-07-26 실측(eval 을 실제로 돌리는 conda env `implicit-world-modeling`): `sentence-transformers` **있음** · `sacrebleu` **없음** → 지금 stage2 eval 을 돌리면 `cosine` 은 정상 산출되고 **`bleu` 만 `null`** 이다. 설치는 `pip install --no-deps sacrebleu portalocker tabulate colorama` 처럼 **의존성을 끌어오지 않는 형태**로 하라 — 평범한 `pip install sacrebleu` 는 `numpy` 를 올려 같은 env 의 torch/vLLM 을 깨뜨릴 수 있다. 또한 `tests/test_thought_eval.py` 의 BLEU 테스트 6 건은 `sacrebleu` 부재 시 **skip** 되므로, conda env 의 pytest 그린은 **BLEU 미검증 상태의 그린**이다.
+> **현재 conda env `implicit-world-modeling` 은 충족 상태다** (2026-07-26 설치·실측): `sentence-transformers` 있음, `sacrebleu` **2.6.0** · `portalocker` 3.2.0 · `colorama` 0.4.6 설치됨(`tabulate` 0.10.0 은 이미 충족돼 미변경). EXP07 test 300 쌍 오라클 실행에서 `cosine`/`rouge_l`/`bleu` 모두 산출을 확인했다.
+>
+> **env 를 재구성할 때 설치 방법은 반드시 `pip install --no-deps sacrebleu portalocker tabulate colorama`** — 의존성을 끌어오지 않는 형태여야 한다. 평범한 `pip install sacrebleu` 는 `numpy` 를 올려 같은 env 의 torch/vLLM 을 깨뜨릴 수 있다. `--no-deps` 로 빠지는 나머지 의존성(`regex`·`lxml`·`numpy`)은 이 env 에 이미 있어 위 4 개만으로 충분했다. 실제로 `--no-deps` 설치 후 `pip freeze` 차분은 **추가 3 줄뿐이고 numpy 2.2.6 / torch 2.8.0+cu128 / vLLM 0.11.0 은 그대로**였다.
 
 정본은 `scripts/thought_eval.py` (회귀 테스트 `tests/test_thought_eval.py`). 실험 결과 수치는 Notion `🧪 Experiments` DB 가 정본이다 — 여기엔 정의만 둔다.
 
