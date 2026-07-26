@@ -36,6 +36,12 @@
    그 test 키 union 을 **train 두 풀에서 전량 제외** → EXP07 train ∩ EXP07 test = 0 (교차목적 포함).
    test 는 EXP07 자체 파일(EXP05 심링크 대체). id/ood 는 EXP05 배정 승계.
 
+7. **길이 필터**: mm-expanded 길이 > ``cutoff_len``(24576) 인 이미지-보유 샘플은 학습
+   dataloader 에서 죽으므로(잘리기 전 image_grid_thw vs 잘린 input_ids 불일치 →
+   Qwen2.5-VL "Image features and image tokens do not match") **샘플링 전에 두 풀에서
+   제외**한다. ``scripts/filter_long_samples.py`` 의 길이 계산(build_length_fn)을 재사용해
+   LlamaFactory collator 길이와 일치시킨다. 제외 실현치는 sidecar 의 ``length_filter`` 참조.
+
 **W 상수 불변식**: UNCHANGED=0.2. **metric v2 고정**. 샘플은 ``--seed`` 로 재현.
 
 Usage
@@ -57,6 +63,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent
 PROJ = SCRIPTS.parent
 sys.path.insert(0, str(SCRIPTS / "diff_loss"))
+sys.path.insert(0, str(SCRIPTS))  # filter_long_samples (길이 필터) import 용
 
 # ── 불변식 ──────────────────────────────────────────────────────────────────
 W_ADDED = 1.0
@@ -71,6 +78,16 @@ N_S2 = 15000
 AUG_PER_STAGE = 50
 DEFAULT_SEED = 7
 MAX_DEGENERATE_FRAC = 0.30
+
+# ── 길이 필터 (mm-expanded > cutoff 인 이미지-보유 샘플을 build 시점에 제외) ─────
+# EXP07 stage{1,2} 학습 YAML 과 동일한 값. 이 길이를 넘는 이미지-보유 샘플은 학습
+# dataloader 에서 잘리기 *전* 의 image_grid_thw 로 위치를 만들어, 잘린 input_ids 의
+# image_pad 수와 vision feature 수가 어긋나 죽는다 (Qwen2.5-VL:
+# "Image features and image tokens do not match"). scripts/filter_long_samples.py 와
+# 같은 근본책 — 풀에서 초과 샘플을 빼 40000/10000/15000 은 필터된 풀에서 채운다.
+CUTOFF_LEN = 24576
+IMG_MAX_PIXELS = 1605632
+IMG_MIN_PIXELS = 3136
 
 # ── 파일명 ────────────────────────────────────────────────────────────────
 SRC_STATE = "EXP07_stage1_state.jsonl"
@@ -225,6 +242,32 @@ def strip_action_images(rec: dict, src: str, i: int) -> dict:
     if any("[Screenshot]" in m["value"] for m in new_msgs):
         _abort(f"{src}:{i} 변환 후 [Screenshot] 잔존")
     return {"messages": new_msgs, "images": []}
+
+
+# ── 길이 필터 ────────────────────────────────────────────────────────────────
+
+
+def filter_pool_by_length(pool, length_of, media_dir, cutoff, *, label):
+    """이미지-보유 형태의 mm-expanded 길이 > cutoff 인 레코드를 pool 에서 제거.
+
+    pool = [(rec, ...) ...] 튜플 리스트. rec 은 원본(myset 경로)이므로 remap 후 길이를
+    잰다 (state=이미지유지, downstream=stage2 이미지-보유 형태 = 더 긴 쪽 → stage1-down
+    stripped 은 이보다 짧아 함께 보장된다). 이미지 열기 실패 레코드는 보수적으로 제외한다.
+    풀에서 제거만 하므로 누출 0·층화 카운트 불변식은 그대로 유지된다.
+    """
+    kept: list = []
+    dropped: list[int] = []
+    for t in pool:
+        L = length_of(remap_record(dict(t[0])), media_dir)
+        if L is None or L > cutoff:
+            dropped.append(L if L is not None else -1)
+        else:
+            kept.append(t)
+    print(
+        f"[len-filter] {label}: {len(pool)} → keep {len(kept)}, "
+        f"drop {len(dropped)} (mm-expanded > {cutoff})"
+    )
+    return kept, dropped
 
 
 # ── 층화 배분 ────────────────────────────────────────────────────────────────
@@ -492,6 +535,30 @@ def build(
         f"action id/ood={len(action_test['id'])}/{len(action_test['ood'])}"
     )
 
+    # ── mm-expanded 길이 필터 (cutoff 초과 이미지-보유 샘플 제거) ─────────────
+    # 학습 dataloader 가 죽는 근본 원인(길이>cutoff → image_grid_thw vs 잘린 input_ids
+    # 불일치)을 build 시점에 원천 차단한다. 풀에서 제거만 하므로 누출 0 은 유지되고,
+    # 40000/10000/15000 은 필터된 풀에서 채운다 (풀에 충분한 여유가 있어야 함 — 없으면
+    # sample_* 가 fail-closed 로 죽는다). test 는 무손실이라 필터하지 않는다.
+    from filter_long_samples import build_length_fn  # noqa: PLC0415
+    from transformers import AutoProcessor  # noqa: PLC0415
+
+    _proc = AutoProcessor.from_pretrained(
+        model, revision=revision, trust_remote_code=True
+    )
+    _length_of = build_length_fn(
+        _proc, image_max_pixels=IMG_MAX_PIXELS, image_min_pixels=IMG_MIN_PIXELS
+    )
+    _media_dir = (
+        out_dir.parent
+    )  # remap 경로 "AndroidControl/images/..." 의 기준 (=data/)
+    state_pool, state_drop = filter_pool_by_length(
+        state_pool, _length_of, _media_dir, CUTOFF_LEN, label="state"
+    )
+    down_pool, down_drop = filter_pool_by_length(
+        down_pool, _length_of, _media_dir, CUTOFF_LEN, label="downstream"
+    )
+
     # ── 샘플링 ──────────────────────────────────────────────────────────────
     state_sel, state_meta = sample_state(state_pool, N_STATE, seed)
     s1_down, s2_sel, down_meta = sample_downstream_joint(down_pool, aug, seed)
@@ -569,6 +636,14 @@ def build(
             "action_ood": len(action_test["ood"]),
         },
         "leakage_free": "EXP05 test 키 union 을 train 두 풀에서 제외 (EXP07 train ∩ test = 0)",
+        "length_filter": {
+            "cutoff_len": CUTOFF_LEN,
+            "image_max_pixels": IMG_MAX_PIXELS,
+            "image_min_pixels": IMG_MIN_PIXELS,
+            "state_dropped": len(state_drop),
+            "downstream_dropped": len(down_drop),
+            "note": "mm-expanded > cutoff_len 인 이미지-보유 샘플을 풀에서 제외 (샘플링 전)",
+        },
     }
     meta_path.write_text(
         json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
