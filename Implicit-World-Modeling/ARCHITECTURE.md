@@ -304,14 +304,15 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
   ├── EXP03_stage1_{action,state}.jsonl                     # EXP03 원천 (0–1000 정규화 좌표)
   ├── EXP03_stage2.jsonl                                    # EXP03 stage2 원천
   ├── EXP05_stage1_{action,state}.jsonl                     # EXP05 원천 (절대 픽셀, Drive '0711_버젼')
+  ├── EXP07_stage1_state.jsonl                              # ★ EXP07 원천 — 계보 다름 (0725 myset, EXP01 파생 아님)
+  ├── EXP07_stage2.jsonl                                    #   downstream(with_history). stage2 15K 가 주 소비자,
+  │                                                         #   stage1 down 10K·stage1 action test 도 같은 풀 (규칙 3)
+  ├── EXP07_open_aug.jsonl                                  #   open 증강 (home.jpg) — s1/s2 에 50 씩 균등 → stage 중립명
   ├── episodes_meta.jsonl         # primary_app = 전경 앱 package_name
   └── images/                     # ★ 유일한 이미지 디렉토리 — EXP01~EXP07 전부가 "AndroidControl/images/..." 로 참조
       ⚠ EXP04 원천 (EXP04_stage1_{action,state}.jsonl) 은 디스크에 없다 → 재빌드 불가 (§2 경고 블록)
-
-data/AndroidControl_EXP07_src/    # EXP07 전용 원천 (0725 myset 필터링본) — 학습/평가 entry 아님
-  ├── stage1/all_samples_state_pred_0725_filtered_v2.jsonl              # state-pred
-  ├── stage2/all_samples_sharegpt_0725_filtered_with_history_v5.jsonl   # downstream (with_history)
-  └── stage2/results_sharegpt.jsonl                                     # open 증강 (home.jpg)
+      ⚠ 이 디렉토리의 파일이 전부 위 원천 3 종에서 파생된 건 아니다 — EXP01/03/05 계열은 원천 파생이지만
+        **EXP07_\* 는 0725 myset 이라는 별도 provenance 스트림**이다 (아래 계보도 참조).
 
   AC_EXP01  = filter_long_samples → split_data.py       (Stage1 ratio mix 3 종 + Stage2 ID/OOD)
      │
@@ -320,7 +321,7 @@ data/AndroidControl_EXP07_src/    # EXP07 전용 원천 (0725 myset 필터링본
      │      └── AC_EXP04 = EXP03 + stage1 프롬프트 업그레이드     (--experiment exp04, stage1-only)
      └── AC_EXP05 = ratio73 멤버십의 절대 픽셀 미러 + diff loss v2 (build_exp05_data.py; stage2 는 2026-07-15 별도 도입 → build_exp05_stage2_data.py)
 
-  AC_EXP07  = EXP01 계보 밖 — AndroidControl_EXP07_src/ 에서 자체 빌드 (build_exp07_data.py, seed 7)
+  AC_EXP07  = EXP01 계보 밖 — AndroidControl/EXP07_*.jsonl (0725 myset) 에서 자체 빌드 (build_exp07_data.py, seed 7)
      ├── train  : stage1 50K (state 40K 가중 + downstream 10K 이미지제거) + stage2 15K   ← 전부 myset 원천
      ├── test   : 자체 6 종 (stage1 state 2 · stage1 action 2 · stage2 2)
      └── EXP05 의존은 test 정의뿐 — EXP05 test 의 (episode, step) 키를 myset 포맷으로
@@ -363,7 +364,7 @@ data/AndroidControl_EXP07_src/    # EXP07 전용 원천 (0725 myset 필터링본
 - **EXP03 미러**: EXP01 ratio73 산출 파일을 한 줄씩 읽어 `(episode, step)` 키로 좌표 원천의 대응 레코드를 골라 **동일 순서로** write. UI 트리는 `index="N"` 대신 `bounds="[x1,y1][x2,y2]" point="[cx,cy]"`, 액션은 `point=[x,y]`. **본문만 좌표이고 이미지 경로는 EXP01 것을 채택**한다. 원천에 없는 키 (~0.8–1.7%) 는 제외 → EXP01 과 `(episode, step)` 1:1 대응이나 행 수는 소폭 작다.
 - **EXP04 미러**: EXP03 와 **동일 멤버십·좌표 표현**, 프롬프트만 업그레이드 (action space `scroll(direction, point)` → `swipe(start, end)`, role 문구 "represented as html-style XML", `[SWIPE]` 규칙). **EXP04 pool ⊆ EXP03 pool** 이라 멤버십 drift 가 없다.
 - **EXP05 미러**: 절대 픽셀 좌표. 출력 이미지 경로는 EXP01 의 `AndroidControl/images/...` 재사용 (source 의 `myset/images/...` 는 매칭 키 추출용).
-- **EXP07 빌드**: 빌드 정본 [`scripts/build_exp07_data.py`](./scripts/build_exp07_data.py) — **EXP07 train/test jsonl 의 유일한 커밋된 생성 경로**다. 원천은 `data/AndroidControl_EXP07_src/` 의 0725 myset 필터링본 3 파일 (state-pred · with_history downstream · open 증강) 이고, EXP05 파일은 **읽지 않는다** (test 키 추출 예외 — 아래). 산출 (train 2 · test 6 · stage1 sidecar 1) 전부 `data/AndroidControl_EXP07/` 안의 **실파일**이다 — 데이터 파일 심링크는 없다. (헷갈리지 말 것: `configs/lf_dataset/AndroidControl_EXP07 → ../../data/AndroidControl_EXP07` **dataset_dir 심링크는 다른 것이고 반드시 필요하다** — `_common.sh` 가 만든다.)
+- **EXP07 빌드**: 빌드 정본 [`scripts/build_exp07_data.py`](./scripts/build_exp07_data.py) — **EXP07 train/test jsonl 의 유일한 커밋된 생성 경로**다. 원천은 `data/AndroidControl/` 의 0725 myset 필터링본 3 파일 (`EXP07_stage1_state` state-pred · `EXP07_stage2` with_history downstream · `EXP07_open_aug` open 증강) 이고, 같은 디렉토리의 EXP05 파일은 **읽지 않는다** (test 키 추출 예외 — 아래). 산출 (train 2 · test 6 · stage1 sidecar 1) 전부 `data/AndroidControl_EXP07/` 안의 **실파일**이다 — 데이터 파일 심링크는 없다. (헷갈리지 말 것: `configs/lf_dataset/AndroidControl_EXP07 → ../../data/AndroidControl_EXP07` **dataset_dir 심링크는 다른 것이고 반드시 필요하다** — `_common.sh` 가 만든다.)
   - **train 구성** (빌더 상수): stage1 50K = state 40K (이미지 유지, diff v2 가중) + downstream 10K (**이미지 제거**), stage2 15K = downstream (이미지 유지, 무가중). 두 downstream 풀은 **비중복** (with_history 풀을 disjoint 분할, action 비율 largest-remainder) 이고, open 증강과 answer-terminate 행을 각 stage 에 **우선 배치**한다 (가용분·쿼터에 맞춘 동적 절반 — 실현치는 sidecar 의 `priority` 참조).
   - **누출 0 (설계 불변식)**: EXP07 test 는 EXP05 test 의 `(episode, step)` 키를 myset 포맷으로 재현해 만든 **자체 파일**이고 (id/ood 배정은 EXP05 승계), 그 test 키 union 을 **train 두 풀에서 전량 제외**한다 → 교차목적을 포함해 `EXP07 train ∩ EXP07 test = 0`. 빌더의 `verify()` 가 이 불변식을 fail-closed 로 검사한다.
   - **이미지 remap**: `myset/images/episode_{N}_step_{M}.jpg` → `AndroidControl/images/episode_{N:06d}_step_{M}.jpg` (zero-pad 6), `home.jpg` → `AndroidControl/images/home.jpg`. 즉 EXP07 도 이미지는 공용 `AndroidControl/images/` 를 참조한다 (하드 제약 12 의 prefix 규약 그대로).
