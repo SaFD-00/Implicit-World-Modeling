@@ -140,7 +140,14 @@ python -m implicit_world_modeling.gen_configs --check
 python -c "from implicit_world_modeling.lf_registry import eligible_models as e; print(e('AndroidControl_EXP05'))"
 python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'));print(sorted(d))"
 
-# 테스트
+# 테스트 — 2026-07-26 부터 `pytest tests` 가 **두 env 모두에서 플래그 없이** 돈다
+# (--ignore 불필요). 무거운 선택 의존성은 importorskip/skipif 로 가려지므로 카운트가
+# env 마다 다른 것이 정상이다:
+#   conda `implicit-world-modeling` (학습·평가 env) : 685 passed / 15 skipped  ← sacrebleu 부재 → BLEU 6건 skip
+#   .venv                          (lint·test env) : 681 passed / 10 skipped  ← llamafactory 부재 → double_ce 모듈 skip
+# 즉 **어느 한 env 의 그린도 전량 검증이 아니다.** diff-loss 를 건드렸으면 conda 에서,
+# thought/BLEU 를 건드렸으면 .venv 에서 반드시 한 번 더 돌려라.
+pytest tests -q
 pytest tests/test_gpu_policy.py tests/test_gen_configs.py -q          # GPU 매트릭스 + always-offload 불변식
 pytest tests/test_action_eval.py tests/test_action_eval_xy.py -q      # Stage 2 채점 (index / xy 모드)
 pytest tests/test_diff_loss_v2.py tests/test_diff_loss_double_ce.py tests/test_mirror_experiment.py -q

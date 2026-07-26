@@ -253,6 +253,8 @@ gradient_accumulation_steps = 64 / (per_device × nproc)      ← resolve_gpu_po
 > `DEEPSPEED_NO_OFFLOAD` / `--allow-no-offload` 는 **정책이 offload 를 켜는 조합(7-9B full / RTX5090)에서 강제로 끄는 opt-out** 이다 (미실측 경고 동반). 80GB × (3-4B | lora) 는 이 플래그 없이도 기본이 no-offload 다.
 >
 > 파생: `_common.sh` 의 CUDA/nvcc 가드는 offload 여부와 무관하게 **항상** 건다 — 정책상 offload 를 쓰는 조합(7-9B / RTX5090)이 CPUAdam JIT 빌드를 타기 때문이다. 80GB×3-4B 처럼 offload 를 끄는 경로에서는 불필요하지만, 가드는 조합을 모른 채 source 시점에 돌므로 그대로 통과시켜야 한다. 탈출구: `LF_CUDA_GUARD_SKIP=1`. `CUDA_HOME` 이 torch 와 다른 cu 버전이면 여기서 막힌다 (`CUDA_HOME=<cu12.8 toolkit>` 로 지정).
+>
+> 2026-07-26 실측 — **이 가드는 conda env 활성화에 의존한다**: 가드의 기본값 `/usr/local/cuda` 는 이 머신에 **존재하지 않고**, `conda activate implicit-world-modeling` 이 `CUDA_HOME` 을 env prefix 로 세팅해 주기 때문에(그 안의 `nvcc` 가 12.8 = `torch.version.cuda` 12.8) 통과한다. env 를 활성화하지 않고 스크립트를 부르면 `_common.sh` 가 먼저 "conda env 가 활성화되지 않았습니다" 로 죽고, `CUDA_HOME` 만 지운 채로 부르면 이 nvcc 가드가 죽는다 — **둘 다 정상 동작**이며 학습 실패가 아니다.
 
 > ⚠️ **함정 8 — 커밋 YAML 은 GPU-불변 baseline 이다. 하드웨어가 바뀌어도 YAML 을 재생성하지 않는다.**
 > `configs/train/**` 는 **RTX5090×2 프로필** (`per_device=1`, `grad_accum=32`) 로 고정 emit 된다. 다른 GPU 조합은 **런타임 override** 로 주입한다 (`llamafactory-cli train cfg.yaml key=value` — LF `hparams/parser.py` 의 OmegaConf merge). `stage{1,2}_train.sh` 가 `_common.sh::resolve_overrides` 로 GPU 트리오 + `dataset_dir` / `media_dir` 절대경로를 붙인다:
@@ -684,6 +686,8 @@ Stage 2 pred 의 `<thought>…</thought>` 텍스트가 GT thought 와 얼마나 
   - **`bleu`** — `sacrebleu` (0~1 정규화).
 
 > ⚠️ **함정 — thought eval 이 유의미하려면 실행 env 에 `sentence-transformers`·`sacrebleu` 가 있어야 한다.** 둘 다 `pyproject.toml` 에 등재돼 `.venv` 는 충족하지만 conda env 는 **별도 설치**가 필요하다. 미설치 시 `cosine`/`bleu` 는 `null`, `rouge_l` 만 산출되며 **파이프라인은 차단되지 않는다** — "cosine 이 비었다" 를 성능 결론으로 읽지 마라.
+>
+> 2026-07-26 실측(eval 을 실제로 돌리는 conda env `implicit-world-modeling`): `sentence-transformers` **있음** · `sacrebleu` **없음** → 지금 stage2 eval 을 돌리면 `cosine` 은 정상 산출되고 **`bleu` 만 `null`** 이다. 설치는 `pip install --no-deps sacrebleu portalocker tabulate colorama` 처럼 **의존성을 끌어오지 않는 형태**로 하라 — 평범한 `pip install sacrebleu` 는 `numpy` 를 올려 같은 env 의 torch/vLLM 을 깨뜨릴 수 있다. 또한 `tests/test_thought_eval.py` 의 BLEU 테스트 6 건은 `sacrebleu` 부재 시 **skip** 되므로, conda env 의 pytest 그린은 **BLEU 미검증 상태의 그린**이다.
 
 정본은 `scripts/thought_eval.py` (회귀 테스트 `tests/test_thought_eval.py`). 실험 결과 수치는 Notion `🧪 Experiments` DB 가 정본이다 — 여기엔 정의만 둔다.
 

@@ -140,11 +140,12 @@ EXP05 의 **비증강(증강 X) Stage-2 대조군**. 좌표/budget/`--coord-mode
 - **데이터 빌드 (2026-07-25 실데이터)** — 빌드 정본 [`scripts/build_exp07_data.py`](../Implicit-World-Modeling/scripts/build_exp07_data.py). 원천은 0725 myset 필터링본 3 파일(`data/AndroidControl_EXP07_src/`)이고 **EXP05 파생이 아니다**. train 2(stage1 50K / stage2 15K) + **자체 test 6종** 전부 실파일 — EXP05 심링크·포인터는 폐기됐다. **누출 0**: EXP05 test 의 `(episode, step)` 키를 재현해 test 를 굽고 그 union 을 train 두 풀에서 전량 제외 → `train ∩ test = 0` (빌더 `verify()` 가 fail-closed 검사). 두 downstream 풀(stage1 10K / stage2 15K)도 **비중복**. 행수·분포는 sidecar 에서 읽는다: `cat data/AndroidControl_EXP07/stage1_train.jsonl.meta.json`.
 - **thought 유사도 메트릭 배선** — `stage2_eval.sh` 가 action 채점 직후 자동 hook 으로 산출 ([§6](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭)).
 
-**남은 것**: **학습 실행** — 데이터·인프라 완비, **학습 이력 0** (dry-run 까지 검증). GPU 학습은 별도 플랜.
+**남은 것**: **학습 실행** — 데이터·인프라 완비, **학습 이력 0**. 2026-07-26 에 `DRY_RUN=1` 로 stage1(full/lora)·stage2(base/world-model/adapter)·merge 경로를 관통 검증했고, 채점기 3종(hungarian `--match-mode pos` / action `--coord-mode xy` / thought)은 EXP07 test 실데이터 300 쌍 **오라클**(GT 를 예측으로 그대로 투입)로 **실행 검증**(parse 100%, 전 지표 1.0)했다 — 검증된 것은 채점 로직 절반뿐이고, 실제 예측을 만드는 `vllm_infer.py` 는 GPU 를 요구해 **미실행**이다. 남은 것은 GPU 연산(학습 + vLLM 추론) 전부다.
 
 **차단·쟁점**:
-- 재빌드는 `python scripts/build_exp07_data.py --source-dir <dir> --seed 7` 로 한다 (`W_UNCHANGED=0.2`·metric v2 는 빌더 불변식으로 고정). 소스가 바뀌면 test 도 함께 다시 구워지므로 **누출 0 불변식은 빌더가 매번 재검사**한다.
-- thought eval 이 유의미하려면 실행 env 에 `sentence-transformers`·`sacrebleu` 가 필요하다 (pyproject 등재 — `.venv` 충족, conda env 는 별도 설치). 미설치 시 cosine/bleu null·ROUGE-L 만 산출, 파이프라인 비차단.
+- **로컬 GPU 가 없다 (2026-07-26 현재, 학습을 막는 유일한 요인)**: RTX 5090 2 장을 **다른 사용자(`byeongung.cho`)의 sglang 서버 2 개**가 상시 점유 중이라 (PID 7318·7328, 33 시간 가동, 카드당 여유 **3.2/3.1 GiB**) qwen2.5-vl-3b LoRA 조차 올라가지 않는다 — `cutoff_len 24576` × vocab 151936 의 lm_head logits 만 bf16 로 ~7.5 GiB 다. ZeRO-3·CPU offload 로도 못 줄이고 `SMOKE=1` 은 `max_samples/max_steps` 만 줄여 cutoff 를 그대로 두므로 역시 OOM 이다. **남의 프로세스를 죽이지 말 것** — 카드가 비기를 기다리거나(협의) 원격으로 가야 한다.
+- 재빌드는 `python scripts/build_exp07_data.py --source-dir <dir> --seed 7` 로 한다 (`W_UNCHANGED=0.2`·metric v2 는 빌더 불변식으로 고정). 소스가 바뀌면 test 도 함께 다시 구워지므로 **누출 0 불변식은 빌더가 매번 재검사**한다. **`--revision` 을 반드시 고정하라** (sidecar 의 `revision_resolved`, 현재 `66285546…`) — 기본값 `None` 은 Hub HEAD 를 다시 해석하므로 토크나이저가 바뀌면 `token_weights` 가 조용히 달라진다.
+- thought eval 이 유의미하려면 실행 env 에 `sentence-transformers`·`sacrebleu` 가 필요하다 (pyproject 등재 — `.venv` 충족, conda env 는 별도 설치). 미설치 시 cosine/bleu null·ROUGE-L 만 산출, 파이프라인 비차단. **2026-07-26 실측**: conda env 는 `sentence-transformers` 있음 / `sacrebleu` **없음** → 현재 돌리면 cosine 정상·**bleu 만 null**. 설치는 `--no-deps` 로 (평범한 `pip install` 은 numpy 를 올려 torch/vLLM 을 깨뜨릴 수 있다).
 
 ---
 
