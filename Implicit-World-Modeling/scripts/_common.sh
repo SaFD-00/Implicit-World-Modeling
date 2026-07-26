@@ -334,6 +334,7 @@ Options:
   --no-hf-upload       Hugging Face 업로드를 생략하고 local merge/export 만 수행.
                        merge 스크립트에서만 의미가 있다.
   --stage1-epoch N     Stage 2 world-model variant 가 상류 base 로 삼을 Stage 1 epoch.
+                       정수 또는 소수 (EXP07 stage1 은 save_steps=0.25 → 0.25|0.5|0.75|1).
                        stage2_{train,merge,eval}.sh 전용.
   --epochs LIST        콤마로 구분된 epoch 정수 리스트 (기본: 1,2,3)
                        stage{1,2}_eval.sh 에서 HF Hub merged repo sweep 대상.
@@ -366,10 +367,15 @@ EOF
   esac
   HF_UPLOAD="$hf_upload_arg"
 
+  # --stage1-epoch 는 ckpt_epoch_from_dir 가 만든 라벨과 문자열로 대조되고 그대로
+  # 디렉토리명(epoch-{E})·HF repo id 에 박힌다. EXP07 stage1 은 save_steps=0.25 라
+  # 라벨이 0.25/0.5/0.75/1 이므로 소수를 허용해야 stage2 world-model·merge X 경로가
+  # 그 체크포인트를 지목할 수 있다 (parse_eval_args --epochs 와 같은 완화).
+  # 정수 입력의 동작은 불변.
   STAGE1_EPOCH=""
   if [[ -n "$stage1_epoch_arg" ]]; then
-    if ! [[ "$stage1_epoch_arg" =~ ^[0-9]+$ ]]; then
-      echo "Error: --stage1-epoch must be a positive integer (got '$stage1_epoch_arg')." >&2
+    if ! [[ "$stage1_epoch_arg" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      echo "Error: --stage1-epoch must be a positive integer or decimal (got '$stage1_epoch_arg')." >&2
       exit 2
     fi
     STAGE1_EPOCH="$stage1_epoch_arg"
@@ -511,6 +517,7 @@ Options:
   --stage1-mode MODE      full | lora (기본: full) — world-model variant 의 상류 Stage1 모드.
   --stage2-mode MODE      full | lora (기본: lora) — Stage 2 merge/eval 전용.
   --stage1-epoch N        Stage 2 world-model variant 의 HF repo 계보 번호.
+                          정수 또는 소수 (EXP07 stage1 = save_steps 0.25 분수 체크포인트).
   --epochs LIST           콤마 구분 정수 리스트 (기본: 1,2,3) — sweep 대상 epoch.
   --variants LIST         콤마 구분 평가 변형 목록.
                           Stage1: base, full_world_model, lora_world_model
@@ -588,10 +595,11 @@ EOF
     *) echo "Error: --stage2-mode must be full | lora (got '$stage2_mode_arg')." >&2; exit 2 ;;
   esac
 
+  # parse_args 와 동일한 이유로 소수 라벨 허용 (EXP07 stage1 = save_steps 0.25).
   STAGE1_EPOCH=""
   if [[ -n "$stage1_epoch_arg" ]]; then
-    if ! [[ "$stage1_epoch_arg" =~ ^[0-9]+$ ]]; then
-      echo "Error: --stage1-epoch must be a positive integer (got '$stage1_epoch_arg')." >&2
+    if ! [[ "$stage1_epoch_arg" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      echo "Error: --stage1-epoch must be a positive integer or decimal (got '$stage1_epoch_arg')." >&2
       exit 2
     fi
     STAGE1_EPOCH="$stage1_epoch_arg"
