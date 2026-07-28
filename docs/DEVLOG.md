@@ -3,6 +3,12 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-28 — IWM: EXP07 stage2 LoRA rank 64→16 (사용자 지시)
+
+EXP07 stage2 LoRA rank 를 64→**16** 으로 (alpha 128→32, α=2r 유지) — 사용자 지시. registry(정본) 수정 + `gen_configs --write` 로 stage2 lora YAML 재생성, `--check` 통과(193 YAML). merge O/X 통일(stage2 rank=stage1 rank 64)이던 종전 근거는 사용자 결정으로 철회 — stage2 는 stage1(64) 과 독립된 rank 16 을 쓴다. stage1 rank 64 는 그대로. 변경: `Implicit-World-Modeling/implicit_world_modeling/lf_registry.py` + `configs/train/IWM-AC_EXP07/stage2_lora/` 4 YAML(base·world-model-lora·world-model-full·world-model-adapter) + `Implicit-World-Modeling/ARCHITECTURE.md`. stage2_full full-FT variant 은 lora_rank 없어 무영향.
+
+- 카테고리: devlog
+
 ## 2026-07-26 — IWM: EXP07 stage1 학습 step16 크래시 → 근본원인(길이 미필터) 규명 + build_exp07 빌드타임 길이 필터 추가 + 재빌드·재학습
 
 착수한 EXP07 stage1 LoRA 학습이 **step 16 에서 죽었다**. GPU/OOM 이 아니라 **데이터 길이** 문제였고, 빌더에 길이 필터를 내장해 재빌드·재학습했다.

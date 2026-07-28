@@ -469,8 +469,8 @@ _DATASET_CONFIG = {
             "eval_strategy": "epoch",
             "eval_steps": None,
             "per_device_eval_batch_size": 4,
-            "lora_rank": 64,
-            "lora_alpha": 128,  # merge O/X 통일 — merge X 가 stage1 rank 64 를 구조 상속
+            "lora_rank": 16,
+            "lora_alpha": 32,  # α = 2r 관례 (rank 16). 사용자 지시로 stage2 rank 를 stage1(64)과 분리
             "lora_dropout": 0.1,
             "weight_decay": 0.01,
             "max_grad_norm": 1.0,

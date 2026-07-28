@@ -284,7 +284,7 @@ gradient_accumulation_steps = 64 / (per_device × nproc)      ← resolve_gpu_po
 | **Stage 2 (LoRA)** | **5.0e-5** | 3 | **32 / 64** | **0.1** | 0.03 | 0.01 | 1.0 | cosine |
 | **Stage 2 (full)** | **1.5e-5** | 3 | — | — | 0.03 | 0.01 | 1.0 | cosine |
 
-> **EXP07 은 이 baseline 을 `_DATASET_CONFIG["AndroidControl_EXP07"]` 에서 벗어난다** (size/model tier 는 여전히 빈 dict — DS baseline 만 다르다). Stage 1 = lr 1.0e-5 · **1 epoch** · LoRA **64 / 128** · dropout 0.05 · `save_strategy: steps` + `save_steps: 0.25` (→ fractional 체크포인트, 아래 각주). Stage 2 (LoRA) = lr 5.0e-5 · 3 epoch · LoRA **64 / 128** · dropout 0.1. Stage 2 (full) 은 baseline 과 동일 (1.5e-5 · 3 epoch). 값 재확인: `python -c "from implicit_world_modeling.lf_registry import _DATASET_CONFIG as D; import json; print(json.dumps({k:D['AndroidControl_EXP07'][k] for k in ('stage1','stage2')}, default=str, ensure_ascii=False))"`
+> **EXP07 은 이 baseline 을 `_DATASET_CONFIG["AndroidControl_EXP07"]` 에서 벗어난다** (size/model tier 는 여전히 빈 dict — DS baseline 만 다르다). Stage 1 = lr 1.0e-5 · **1 epoch** · LoRA **64 / 128** · dropout 0.05 · `save_strategy: steps` + `save_steps: 0.25` (→ fractional 체크포인트, 아래 각주). Stage 2 (LoRA) = lr 5.0e-5 · 3 epoch · LoRA **16 / 32** (rank/alpha, 사용자 지시 2026-07-28 — 종전 64/128; stage1 rank 와 독립) · dropout 0.1. Stage 2 (full) 은 baseline 과 동일 (1.5e-5 · 3 epoch). 값 재확인: `python -c "from implicit_world_modeling.lf_registry import _DATASET_CONFIG as D; import json; print(json.dumps({k:D['AndroidControl_EXP07'][k] for k in ('stage1','stage2')}, default=str, ensure_ascii=False))"`
 
 > Stage 2 full 의 `1.5e-5` 는 `_DATASET_CONFIG` 가 아니라 `gen_configs.render_stage2()` 안에 하드코드돼 있다 (LoRA 대비 안정화).
 >

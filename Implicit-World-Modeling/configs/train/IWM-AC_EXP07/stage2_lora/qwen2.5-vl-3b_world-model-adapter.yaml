@@ -10,8 +10,8 @@ stage: sft
 do_train: true
 finetuning_type: lora
 freeze_vision_tower: true
-lora_rank: 64
-lora_alpha: 128
+lora_rank: 16
+lora_alpha: 32
 lora_target: all
 lora_dropout: 0.1
 
