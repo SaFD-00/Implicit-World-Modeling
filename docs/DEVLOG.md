@@ -3,6 +3,29 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-07-28 — IWM: EXP07 stage2 base 학습 착수 — rank 16→8 + 길이 미필터 크래시 재현(stage2 판) → 재빌드
+
+사용자 지시로 **stage1 없이 stage2 만 학습**하는 variant(`lora_base`)를 착수했고, 학습이 두 번 죽은 끝에 원인이 **앞 엔트리(2026-07-26)의 길이 미필터 문제와 동일**함을 확인해 재빌드했다.
+
+- **rank 16→8** (alpha 32→16, α=2r 유지) — 사용자 지시. 정본 `lf_registry.py` 의 EXP07 stage2 dict 수정 → `gen_configs --write` 로 stage2_lora YAML 4종 재생성, **`--check` 통과(193 YAML, written=4/unchanged=189)**. ⚠️ 최초에 YAML 을 직접 편집했다가 되돌렸다 — **YAML 은 생성물이고 정본은 registry** 다(앞 엔트리가 명시). stage1 rank 64 는 불변이므로 **stage1(64) 과 stage2(8) 의 rank 가 다르다** — world-model variant 비교 때 감안할 것.
+- **학습 2회 실패, 원인은 rank 가 아니라 데이터**: ① r64 → step 5 CUDA OOM, ② r16 → step 5 동일 실패. **rank 를 1/4 로 줄여도 죽는 지점이 같다**는 게 단서였다. 로컬 `data/AndroidControl_EXP07/` 가 2026-07-26 01:35 빌드본(sidecar 에 `length_filter` 키 없음 = **필터 전**)이어서 앞 엔트리의 수정이 반영돼 있지 않았다. stage2_train 실측 max **66,513자**(EXP05 28,351 의 2.3배). 즉 함정 14 는 stage1 전용이 아니라 **stage2 에서도 그대로 재현된다**.
+- **교훈**: OOM 이라고 메모리 파라미터(rank·`gpu_memory_utilization`)부터 만지면 안 된다. **같은 step 에서 반복 실패하면 특정 샘플을 의심하라.** 이번엔 rank 를 두 번 내리는 동안 원인이 데이터에 있었다.
+- **조치**: 정본 빌더로 재빌드(`--revision 66285546…` 고정, seed 7 기본). 재빌드 후 stage2 base 학습 재시작 → merge → eval(base 기준선 포함) 예정.
+- 변경: `implicit_world_modeling/lf_registry.py` · `configs/train/IWM-AC_EXP07/stage2_lora/` 4 YAML · `Implicit-World-Modeling/ARCHITECTURE.md` · `docs/DEVLOG.md`.
+- 카테고리: devlog
+
+## 2026-07-28 — IWM: eval 전체 재계산(13잡 완주) + 추론 비결정성 규명 + 8b tensor-parallel
+
+현재 코드·현재 test 기준으로 eval 을 전면 재계산했다(2026-07-26 20:23 ~ 07-28 01:44 KST, 약 29시간). **13/13 잡 완주, metrics 31개, 실패 0.** 기존 90 leaf 는 재채점 결과 **0 changed / 90 identical**(bit-identical)로 현재 코드에서도 유효함을 확인했다.
+
+- **발견 ①: eval 추론이 재현 불가능했다.** `vllm_infer.py` 기본값이 `temperature=0.95 / top_p=0.7 / top_k=50 / seed=None` 인데 `_common.sh` 의 `INFER_CMD` 가 아무것도 덮어쓰지 않았다. 동일 base 모델 × 동일 test 교차검증에서 **prompt·label 100% 일치인데 predict 는 7.3%(id)/5.8%(ood) 만 일치**, 6000 샘플 집계도 step_accuracy 0.4140 vs 0.4072(**±0.7%p**), `cond_*` 는 최대 3.5%p 흔들렸다. → `--seed ${VLLM_SEED:-42}` 주입(샘플링 자체는 유지). ⚠️ **경계**: 기존 90 leaf 전부와 그날 큐 #1·#2·#3·#7 은 seed 없이 생성됐다 — 여러 실행의 수치를 한 보고서에 나란히 놓을 때 명시할 것.
+- **발견 ②: qwen3-vl-8b × EXP03 는 32GB 카드 1장에 안 들어간다.** `gpu_memory_utilization` 0.80 → KV cache 2.10 GiB(필요 3.52)로 엔진 기동 실패, 0.93 → KV 6.27 GiB 확보되나 `_compute_deepstack_embeds` 에서 런타임 OOM, 0.95 는 더 나쁨(**양쪽으로 막힌 구조**). `max_model_len` 을 낮추면 EXP03 프롬프트가 잘려 결과가 오염되므로 쓸 수 없다. → `vllm_config` 에 `tensor_parallel_size` 노출(`VLLM_TP_SIZE`, 기본 1 이라 기존 동작 불변), **TP=2 로 KV 10.55 GiB × 2(153,632 tokens) 확보해 전량 성공**. 부수 효과로 카드당 전력이 400~450W → **230~280W** 로 내려갔다(통신 동기화 대기).
+- **발견 ③: `macro_step_accuracy` 는 단일 샘플에 오염될 수 있다.** 8b 의 macro 가 lora_base→lora_wm 에서 +10.96%p 올랐는데, type 별로 뜯어보니 **`navigate_home` 단 1개 샘플**(0.0→1.0)이 9 type 평균에 100/9 ≈ 11.1%p 를 밀어 넣은 결과였다. **macro 인용 시 per_type count 를 반드시 함께 볼 것**(EXP03 에 n=1, n=18 인 type 존재).
+- **연구 결과**: world model 이 action 예측을 돕는가 → **7b 는 예**(step_accuracy +3.34%p, n≥100 인 7 type 전부 개선, 단일샘플 제외 macro +5.30%p), **8b 는 확인 안 됨**(±0.7%p 노이즈 범위). state 예측은 **두 모델 모두 크게 개선**(hungarian_ea 8b 0.1444→0.3101 / 7b 0.0097→0.2935)되고 **도착점이 수렴**하며, BLEU·ROUGE-L 은 불변인데 hungarian 만 올라 **표면 텍스트가 아니라 구조를 학습**함이 두 모델에서 독립 재현됐다.
+- **사고 1건**: 7b `EXP03 stage1 base` 가 910/929 지점에서 `EngineCore died unexpectedly` 로 크래시(CUDA 에러 없이 프로세스만 소멸 — 시스템 OOM killer 유력하나 syslog 권한 없어 미확증). 재시도로 복구.
+- 변경: `Implicit-World-Modeling/scripts/_common.sh`(`753c4e4`). 상세 보고서·분석은 `.claude/eval-rerun/` (gitignored).
+- 카테고리: devlog
+
 ## 2026-07-28 — IWM: EXP07 stage2 LoRA rank 64→16 (사용자 지시)
 
 EXP07 stage2 LoRA rank 를 64→**16** 으로 (alpha 128→32, α=2r 유지) — 사용자 지시. registry(정본) 수정 + `gen_configs --write` 로 stage2 lora YAML 재생성, `--check` 통과(193 YAML). merge O/X 통일(stage2 rank=stage1 rank 64)이던 종전 근거는 사용자 결정으로 철회 — stage2 는 stage1(64) 과 독립된 rank 16 을 쓴다. stage1 rank 64 는 그대로. 변경: `Implicit-World-Modeling/implicit_world_modeling/lf_registry.py` + `configs/train/IWM-AC_EXP07/stage2_lora/` 4 YAML(base·world-model-lora·world-model-full·world-model-adapter) + `Implicit-World-Modeling/ARCHITECTURE.md`. stage2_full full-FT variant 은 lora_rank 없어 무영향.
