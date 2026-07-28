@@ -1023,6 +1023,12 @@ resolve_stage1_variants() {
 build_infer_cmd() {
   local model_short="$1" model_path="$2" ds_name="$3" \
         test_jsonl="$4" template="$5" save_rel="$6" matrix_rel="$7"
+  # 생성 토큰 예산 (8번째 인자, 기본 2048). state prediction (전체 UI XML) 은
+  # 라벨이 최대 ~11k 토큰이라 vllm_infer 기본값 1024 로는 69% 가 잘려 Hungarian F1
+  # 이 무효화된다(2026-07-29 실측: state 라벨 max=11218/p99=6559, predict 가 정확히
+  # 1024 에서 하드 컷). 호출부가 task 를 알고 있으므로 state/hungarian 은 데이터
+  # 최대치를 덮는 12288, action(라벨 max=441) 은 기본 2048 을 넘긴다.
+  local max_new_tokens="${8:-2048}"
   local enable_thinking_flag=""
   if [[ "$template" == qwen3_vl* || "$template" == qwen3_5* ]]; then
     enable_thinking_flag="--enable_thinking False"
@@ -1067,6 +1073,7 @@ build_infer_cmd() {
       --dataset_dir '$LF_DATASET_DIR' \
       --template $template \
       --cutoff_len $infer_cutoff \
+      --max_new_tokens $max_new_tokens \
       --image_max_pixels $mm_max \
       --seed ${VLLM_SEED:-42} \
       $enable_thinking_flag \

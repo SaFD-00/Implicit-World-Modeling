@@ -83,14 +83,19 @@ run_exp01_eval() {
     fi
     subtag="${subtag}_on-${eval_ds}-${task}"
 
+    local infer_mnt
     if [[ "$task" == "state" ]]; then
       scorer="_hungarian_eval.py"
       metrics_name="hungarian_metrics.json"
       mode_flag="$state_mode_flag"
+      # state 예측 = 전체 UI XML (라벨 max ~11k 토큰) → 데이터 최대치를 덮는 예산.
+      infer_mnt=12288
     else
       scorer="_action_eval.py"
       metrics_name="action_metrics.json"
       mode_flag="$action_mode_flag"
+      # action 예측 = action JSON (라벨 max ~440 토큰) → 기본 예산으로 충분.
+      infer_mnt=2048
     fi
 
     if skip_if_done "$subtag" "$out_dir/$metrics_name"; then
@@ -111,12 +116,12 @@ run_exp01_eval() {
     build_infer_cmd "$model_short" "$hub_id" "$ds_test_id" \
       "$test_id" "$template" \
       "$out_rel/generated_predictions_id.jsonl" \
-      "$out_rel/predict_results_id.json"
+      "$out_rel/predict_results_id.json" "$infer_mnt"
     local infer_id="$INFER_CMD"
     build_infer_cmd "$model_short" "$hub_id" "$ds_test_ood" \
       "$test_ood" "$template" \
       "$out_rel/generated_predictions_ood.jsonl" \
-      "$out_rel/predict_results_ood.json"
+      "$out_rel/predict_results_ood.json" "$infer_mnt"
     local infer_ood="$INFER_CMD"
 
     run_logged "$subtag" \
@@ -198,10 +203,11 @@ run_variant_epoch_eval_on() {
     exit 1
   fi
 
+  # MC/MB 는 state transition (hungarian) 단일 파일 → state 예측 예산 적용.
   build_infer_cmd "$model_short" "$hub_id" "$ds_test" \
     "$test_jsonl" "$template" \
     "$out_rel/generated_predictions.jsonl" \
-    "$out_rel/predict_results.json"
+    "$out_rel/predict_results.json" 12288
 
   run_logged "$tag" \
     bash -c "cd '$LF_ROOT' && mkdir -p '$out_rel' && \
