@@ -469,8 +469,8 @@ _DATASET_CONFIG = {
             "eval_strategy": "epoch",
             "eval_steps": None,
             "per_device_eval_batch_size": 4,
-            "lora_rank": 16,
-            "lora_alpha": 32,  # α = 2r 관례 (rank 16). 사용자 지시로 stage2 rank 를 stage1(64)과 분리
+            "lora_rank": 8,
+            "lora_alpha": 16,  # α = 2r 관례 (rank 8). 사용자 지시로 stage2 rank 를 stage1(64)과 분리 (64→16→8)
             "lora_dropout": 0.1,
             "weight_decay": 0.01,
             "max_grad_norm": 1.0,
