@@ -1054,6 +1054,13 @@ build_infer_cmd() {
   if [[ "$ds_name" == IWM-AC_EXP03* || "$ds_name" == IWM-AC_EXP04* || "$ds_name" == IWM-AC_EXP05* || "$ds_name" == IWM-AC_EXP06* || "$ds_name" == IWM-AC_EXP07* ]]; then
     infer_cutoff=24576
   fi
+  # 생성 시드. vllm_infer.py 의 기본값은 temperature=0.95 / top_p=0.7 / top_k=50 / seed=None 이라
+  # 시드를 안 주면 같은 모델·같은 입력에도 매 실행 출력이 달라진다. 2026-07-26 실측:
+  # 동일 base 모델 × 동일 test(prompt·label 100% 일치)인데 predict 는 7.3%(id)/5.8%(ood) 만 일치했고,
+  # 6000 샘플 집계에서도 step_accuracy 가 0.4140 vs 0.4072 (±0.7%p) 로 흔들렸다.
+  # → SamplingParams(seed=) 로 고정해 재현 가능하게 만든다 (샘플링 자체는 유지).
+  # 주의: 이 시드 도입(2026-07-26) 이전에 만들어진 predictions 는 seed 없이 생성된 것이라
+  # 재-inference 해도 재현되지 않는다. 자세한 내용은 .claude/eval-rerun/샘플링-재현성-분석.md 참조.
   INFER_CMD="python scripts/vllm_infer.py \
       --model_name_or_path '$model_path' \
       --dataset '$ds_name' \
@@ -1061,8 +1068,9 @@ build_infer_cmd() {
       --template $template \
       --cutoff_len $infer_cutoff \
       --image_max_pixels $mm_max \
+      --seed ${VLLM_SEED:-42} \
       $enable_thinking_flag \
-      --vllm_config '{\"gpu_memory_utilization\": ${VLLM_GPU_MEM_UTIL:-0.80}, \"mm_processor_kwargs\": {\"min_pixels\": $mm_min, \"max_pixels\": $mm_max}}' \
+      --vllm_config '{\"gpu_memory_utilization\": ${VLLM_GPU_MEM_UTIL:-0.80}, \"tensor_parallel_size\": ${VLLM_TP_SIZE:-1}, \"mm_processor_kwargs\": {\"min_pixels\": $mm_min, \"max_pixels\": $mm_max}}' \
       --save_name        '$save_rel' \
       --matrix_save_name '$matrix_rel'"
 }
