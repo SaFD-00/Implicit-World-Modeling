@@ -207,6 +207,26 @@ def test_half_batch_rule_general():
                     )
 
 
+def test_exp07_force_half_batch_overrides_no_offload_exemption():
+    """EXP07 은 no-offload 조합(A100/H100 × 3-4B)이어도 pdbs 를 강제로 절반으로 낮춘다.
+
+    offload 면제 근거는 optimizer state 메모리지만, half-batch 는 activation
+    (LM head logits) 메모리 문제라 독립이다. EXP07(1080×2400 + cutoff 24576)은
+    pdbs=2 에서 logits 단일 할당 OOM 하여(2026-07-28 stage2 base 실측) 강제 절반.
+    offload 는 여전히 꺼져 있어야 한다 (ds_z3_config, 3-4B optimizer 는 80GB 에 들어감).
+    """
+    for gpu_type in ("A100", "H100"):
+        for mode in ("full", "lora"):
+            p = resolve_gpu_policy(gpu_type, 2, "3-4B", "AndroidControl_EXP07", mode)
+            assert p.per_device_train_batch_size == 1, (gpu_type, mode)
+            assert p.gradient_accumulation_steps == 32, (gpu_type, mode)
+            assert p.offload is False, (gpu_type, mode)
+            # global batch 불변식 유지
+            assert (
+                p.per_device_train_batch_size * p.gradient_accumulation_steps * 2 == 64
+            )
+
+
 # --- 4. mode 축: 80GB × 7-9B 에서만 full ≠ lora ------------------------------
 
 

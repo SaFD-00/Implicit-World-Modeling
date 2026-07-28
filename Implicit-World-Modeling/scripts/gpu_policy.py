@@ -109,6 +109,14 @@ _HALF_BATCH_DATASETS: frozenset[str] = frozenset(
     }
 )
 
+# no-offload 조합이어도 half-batch 면제를 다시 취소하는 데이터셋 (강제 절반).
+# offload 면제 근거는 optimizer/model state 메모리지만, half-batch 는 activation
+# (LM head logits = seq_len × vocab) 메모리 문제다 — 두 축은 독립이다. EXP07 은
+# 1080×2400 이미지 + cutoff 24576 라 pdbs=2 에서 step28 에 logits 23.77GiB 단일
+# 할당으로 확정 OOM 했다 (2026-07-28 stage2 base 실측). 그래서 offload 는 끈 채
+# (3-4B optimizer 는 80GB 에 들어감) pdbs 만 강제로 1(ga 32)로 낮춘다.
+_FORCE_HALF_BATCH_DATASETS: frozenset[str] = frozenset({"AndroidControl_EXP07"})
+
 # 80GB GPU (A100/H100) 에서 offload 를 끄고 half-batch 예외도 면제하는 조합.
 # 근거는 모듈 docstring (a)~(d). 두 결정은 같은 메모리 실측에서 나오므로 함께 판정한다.
 _LARGE_MEM_GPU_TYPES: frozenset[str] = frozenset({"A100", "H100"})
@@ -221,7 +229,10 @@ def resolve_gpu_policy(
 
     per_device = _BASE_PER_DEVICE_BS[gpu_type]
     # no-offload 조합은 offload 를 끄고도 여유가 있어 half-batch 예외를 면제한다.
-    if ds_name in _HALF_BATCH_DATASETS and not no_offload_combo:
+    # 단 _FORCE_HALF_BATCH_DATASETS (EXP07) 는 activation(logits) OOM 때문에 면제를
+    # 다시 취소한다 — offload 결정과 독립적으로 pdbs 를 절반으로 낮춘다.
+    force_half = ds_name in _FORCE_HALF_BATCH_DATASETS
+    if ds_name in _HALF_BATCH_DATASETS and (not no_offload_combo or force_half):
         per_device = max(1, per_device // 2)
 
     denom = per_device * nproc
