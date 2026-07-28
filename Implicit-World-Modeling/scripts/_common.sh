@@ -442,8 +442,10 @@ EOF
     echo "Error: --epochs 값이 비어있습니다." >&2; exit 2
   fi
   for _e in "${EPOCHS[@]}"; do
-    if ! [[ "$_e" =~ ^[0-9]+$ ]]; then
-      echo "Error: --epochs 는 콤마로 구분된 정수여야 합니다 (got: '$epochs_arg')." >&2
+    # 정수 + 소수 라벨(0.25/0.5/0.75) 허용 — save_steps<1 실험군(EXP07)의 분수 epoch
+    # 체크포인트를 평가할 수 있어야 한다 (--stage1-epoch 완화와 동일 규칙, l.383/607).
+    if ! [[ "$_e" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      echo "Error: --epochs 는 콤마로 구분된 숫자여야 합니다 (정수 또는 0.25 등 소수; got: '$epochs_arg')." >&2
       exit 2
     fi
   done
