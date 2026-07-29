@@ -288,6 +288,10 @@ gradient_accumulation_steps = 64 / (per_device × nproc)      ← resolve_gpu_po
 
 > Stage 2 full 의 `1.5e-5` 는 `_DATASET_CONFIG` 가 아니라 `gen_configs.render_stage2()` 안에 하드코드돼 있다 (LoRA 대비 안정화).
 >
+> ⚠️ **함정 15 — EXP07 은 v1/v2 두 버전이다 (2026-07-29). 위 `AndroidControl_EXP07` 키는 이제 `AndroidControl_EXP07_v1`/`_v2` 다.** 버전은 experiment/데이터 디렉토리가 아니라 **model 아티팩트 이름 끝 trailing `_v1`/`_v2`**(HF는 끝 `-v1`/`-v2`)에 붙는다. **공유(버전 없음)**: output 부모 `AndroidControl_EXP07`, 데이터 디렉토리 `data/AndroidControl_EXP07`, config subfolder `configs/train/IWM-AC_EXP07`, **모든 test 파일**(v1≡v2 공통). **버전별 차이는 데이터뿐**: v1 = state 40K(diff `W_UNCHANGED`=0.2) + down 10K, v2 = state 24K(`W_UNCHANGED`=0.05) + down 6K (8:2 유지) + **95% 복사-편향 필터**(state 예측에서 next≈current, diff v2 UNCHANGED비율 ≥0.95 제거 ≈12%; train+공통test). 구현: lf_registry `model_run_suffix`/`config_version_suffix` 등 4필드, `_common.sh` `ds_version_suffix`/`ds_config_subfolder`(v→공유 IWM-AC_EXP07) + 학습/merge/eval 스크립트 배선, `build_exp07_data.py --version {v1,v2}`. `eligible_models('AndroidControl_EXP07_v1')`/`_v2` 각각 `['qwen2.5-vl-3b']`. `gen_configs --check` = **202**(v1 9 + v2 9). 값 재확인 시 위 명령의 키를 `AndroidControl_EXP07_v1` 로.
+>
+> ⚠️ **함정 16 — stage eval 의 생성 토큰 예산 (2026-07-29, 커밋 6a4b59e).** `build_infer_cmd` 가 `--max_new_tokens` 를 안 넘겨 `vllm_infer` 기본 **1024** 로 생성되던 탓에, **state prediction(전체 UI XML) 출력이 1024 토큰에서 하드컷**됐다 (state test 라벨 max=11218 / p50=1664 → **69% 초과**, Hungarian F1 무효). action(라벨 max 441)은 무영향. 수정: task 별 예산 — state/hungarian(dual-task state, MC/MB) **12288**, action **2048**. 이 버그 이전의 EXP07 state F1(0.32~0.58)은 전부 무효이며 재-inference 필요하다 (action step_acc 는 유효).
+>
 > 설계 근거 (dropout 0.1 유지): 과거 실측에서 dropout 0.10 이 저빈도 action type 을 불안정하게 만든다는 관측이 있으나, **EXP01 기존 stage2 어댑터 (d0.1 / 5e-5) 와의 동일조건 비교를 우선**해 baseline 을 유지한다 — 그래야 EXP02 stage2 만 재학습해도 EXP01 전체 (학습/eval) 를 보존할 수 있다.
 
 `freeze_vision_tower: true` 는 등록된 모델 전부. Full FT 분기에서 `vision_tower|vision_model|visual|image_encoder` 키워드를 포함한 named parameter 를 `requires_grad=False` 처리한 뒤 frozen 텐서/파라미터 수를 stderr 로 출력한다.
