@@ -68,7 +68,7 @@ run_exp01_eval() {
   # AC_EXP05 는 xy 통일 액션 스페이스 + index 속성 없는 HTML 이라 채점 모드가 다르다.
   # 나머지 EXP 는 플래그를 붙이지 않아 기존 채점 경로 그대로.
   local state_mode_flag="" action_mode_flag=""
-  if [[ "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP07" ]]; then
+  if [[ "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP07_v1" || "$eval_ds" == "AC_EXP07_v2" ]]; then
     state_mode_flag="--match-mode pos"
     action_mode_flag="--coord-mode xy"
   fi
@@ -168,8 +168,8 @@ run_variant_epoch_eval_on() {
   local model_short="$1" train_ds="$2" variant="$3" epoch="$4" hub_id="$5" \
         out_rel_base="$6" template="$7" eval_ds="$8"
 
-  # AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / AC_EXP05 / AC_EXP07 는 task 별 독립 채점이라 별도 helper 위임.
-  if [[ "$eval_ds" == "AC_EXP01" || "$eval_ds" == "AC_EXP02" || "$eval_ds" == "AC_EXP03" || "$eval_ds" == "AC_EXP04" || "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP07" ]]; then
+  # AC_EXP01 / AC_EXP02 / AC_EXP03 / AC_EXP04 / AC_EXP05 / AC_EXP07_v1 / AC_EXP07_v2 는 task 별 독립 채점이라 별도 helper 위임.
+  if [[ "$eval_ds" == "AC_EXP01" || "$eval_ds" == "AC_EXP02" || "$eval_ds" == "AC_EXP03" || "$eval_ds" == "AC_EXP04" || "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP07_v1" || "$eval_ds" == "AC_EXP07_v2" ]]; then
     run_exp01_eval "$model_short" "$train_ds" "$variant" "$epoch" "$hub_id" \
                    "$out_rel_base" "$template" "$eval_ds"
     return $?
@@ -242,7 +242,10 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   # 모델 디렉토리에는 ds_model_suffix (AC_EXP01_ratio*=_ratio{37,55,73}) 를 붙인다.
   OUT_DS="$(ds_outputs_code "$TRAIN_DS")"
   EVAL_SFX="$(ds_model_suffix "$TRAIN_DS")"
-  EVAL_DIR_REL="../outputs/${OUT_DS}/eval/${MODEL_SHORT}${EVAL_SFX}/stage1_eval"
+  # VER(_v1): EXP07 버전 태그. v1/v2 eval 산출물이 같은 공유 부모(AndroidControl_EXP07)
+  # 아래에서 겹치지 않도록 모델 eval 디렉토리 이름 끝에 버전을 붙인다 (그 외 DS 는 빈 문자열).
+  EVAL_VER="$(ds_version_suffix "$TRAIN_DS")"
+  EVAL_DIR_REL="../outputs/${OUT_DS}/eval/${MODEL_SHORT}${EVAL_SFX}${EVAL_VER}/stage1_eval"
 
   for VARIANT in "${VARIANTS[@]}"; do
     case "$VARIANT" in

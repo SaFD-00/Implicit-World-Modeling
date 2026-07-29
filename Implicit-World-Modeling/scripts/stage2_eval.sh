@@ -46,7 +46,7 @@ TRAIN_DS="$TRAIN_DATASET"
 case "$TRAIN_DS" in
   # AC_EXP04 stage2 보류 — 데이터/등록 키 없음 (현재 *) 분기로 거부). 도입 시 case + 아래 에러문에 AC_EXP04 포함.
   # AC_EXP05 = xy 통일 액션 스페이스 실험군 — action 채점 시 --coord-mode xy (run_variant_epoch_eval_on 참조).
-  AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02|AC_EXP03|AC_EXP05|AC_EXP06|AC_EXP07) ;;
+  AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02|AC_EXP03|AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2) ;;
   MC)
     echo "[!] Stage 2 는 MonkeyCollection(MC) 학습 데이터를 갖지 않습니다 (got '$TRAIN_DS')." >&2
     echo "    --train-dataset 는 AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP05 만 사용하세요." >&2
@@ -79,7 +79,7 @@ run_variant_epoch_eval_on() {
   # AC_EXP05 는 xy 통일 액션 스페이스라 action 채점 모드가 다르다 (stage1_eval 과 동일).
   # 나머지 EXP 는 플래그 없이 기존 index 채점 경로 그대로.
   local action_mode_flag=""
-  if [[ "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP06" || "$eval_ds" == "AC_EXP07" ]]; then
+  if [[ "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP06" || "$eval_ds" == "AC_EXP07_v1" || "$eval_ds" == "AC_EXP07_v2" ]]; then
     action_mode_flag="--coord-mode xy"
   fi
 
@@ -157,7 +157,10 @@ for MODEL_SHORT in "${MODELS[@]}"; do
   # AC_EXP01 ratio variant 만 model 디렉토리에 _ratio{37,55,73} suffix 를 붙여 충돌 방지.
   OUT_DS="$(ds_outputs_code "$TRAIN_DS")"
   EVAL_SFX="$(ds_model_suffix "$TRAIN_DS")"
-  EVAL_DIR_REL="../outputs/${OUT_DS}/eval/${MODEL_SHORT}${EVAL_SFX}/stage2_eval"
+  # VER(_v1): EXP07 버전 태그. v1/v2 eval 산출물이 같은 공유 부모(AndroidControl_EXP07)
+  # 아래에서 겹치지 않도록 모델 eval 디렉토리 이름 끝에 버전을 붙인다 (그 외 DS 는 빈 문자열).
+  EVAL_VER="$(ds_version_suffix "$TRAIN_DS")"
+  EVAL_DIR_REL="../outputs/${OUT_DS}/eval/${MODEL_SHORT}${EVAL_SFX}${EVAL_VER}/stage2_eval"
 
   for VARIANT in "${VARIANTS[@]}"; do
     case "$VARIANT" in

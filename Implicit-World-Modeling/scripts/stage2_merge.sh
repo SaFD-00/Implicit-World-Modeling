@@ -47,6 +47,8 @@ for MODEL_SHORT in "${MODELS[@]}"; do
     # AC_EXP01 ratio variant: outputs/AndroidControl_EXP01 단일 부모 + model dir 에 _ratio{37,55,73} suffix.
     OUT_DS="$(ds_outputs_code "$DS")"
     SFX="$(ds_model_suffix "$DS")"
+    # VER(_v1): stage2 model-variant 이름 맨 끝 버전 태그 (EXP07). LOCAL_DIR 와 맞춘다.
+    VER="$(ds_version_suffix "$DS")"
 
     # Stage 1 local merged base (world-model variant 전용). --stage1-epoch 기반.
     # ds_stage1_source 로 stage1 계보 소스 DS 를 해석한다 (예: AC_EXP06 → AC_EXP05,
@@ -55,12 +57,15 @@ for MODEL_SHORT in "${MODELS[@]}"; do
     S1_SRC_DS="$(ds_stage1_source "$DS")"
     S1_OUT_DS="$(ds_outputs_code "$S1_SRC_DS")"
     S1_SFX="$(ds_model_suffix "$S1_SRC_DS")"
+    # S1_VER(_v1): stage1 merged model-variant 버전 태그. S1_WINNER_ABS(local_merged_epoch_dir)
+    # 가 S1_SRC_DS 로 버전을 붙이므로 world-model variant 의 base 로 쓰는 REL 도 같은 버전으로 맞춘다.
+    S1_VER="$(ds_version_suffix "$S1_SRC_DS")"
     S1_WINNER_AVAILABLE=0
     S1_WINNER_ABS=""
     S1_WINNER_REL=""
     if [[ -n "$STAGE1_EPOCH" ]]; then
       S1_WINNER_ABS="$(local_merged_epoch_dir stage1 "$MODEL_SHORT" "$S1_SRC_DS" "$STAGE1_MODE" "$STAGE1_EPOCH")"
-      S1_WINNER_REL="../outputs/${S1_OUT_DS}/merged/${MODEL_SHORT}${S1_SFX}_stage1_${STAGE1_MODE}_world-model/epoch-${STAGE1_EPOCH}"
+      S1_WINNER_REL="../outputs/${S1_OUT_DS}/merged/${MODEL_SHORT}${S1_SFX}_stage1_${STAGE1_MODE}_world-model${S1_VER}/epoch-${STAGE1_EPOCH}"
       if [ -d "$S1_WINNER_ABS" ]; then
         S1_WINNER_AVAILABLE=1
       else
@@ -105,8 +110,8 @@ for MODEL_SHORT in "${MODELS[@]}"; do
       fi
 
       ADAPTER_SUFFIX="${VARIANT_ADAPTER_SUFFIX[$VARIANT]}"
-      TRAIN_DIR="$BASE_DIR/outputs/${OUT_DS}/adapters/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}"
-      TRAIN_DIR_REL="../outputs/${OUT_DS}/adapters/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}"
+      TRAIN_DIR="$BASE_DIR/outputs/${OUT_DS}/adapters/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}${VER}"
+      TRAIN_DIR_REL="../outputs/${OUT_DS}/adapters/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}${VER}"
 
       shopt -s nullglob
       CKPTS=("$TRAIN_DIR"/checkpoint-*/)
@@ -142,7 +147,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
           HUB_ID=""
           TARGET_DESC="local-only"
         fi
-        MERGED_REL="../outputs/${OUT_DS}/merged/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}/epoch-${EPOCH}"
+        MERGED_REL="../outputs/${OUT_DS}/merged/${MODEL_SHORT}${SFX}_stage2_${ADAPTER_SUFFIX}${VER}/epoch-${EPOCH}"
         LOCAL_DIR="$(local_merged_epoch_dir stage2 "$MODEL_SHORT" "$DS" "$ADAPTER_SUFFIX" "$EPOCH")"
         ADAPTER_REL="${TRAIN_DIR_REL}/${CKPT_NAME}"
 

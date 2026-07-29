@@ -43,8 +43,11 @@ for MODEL_SHORT in "${MODELS[@]}"; do
     # AC_EXP01 ratio variant 는 outputs/AndroidControl_EXP01/ 단일 부모 + model dir 에 _ratio{37,55,73} suffix.
     OUT_DS="$(ds_outputs_code "$DS")"
     SFX="$(ds_model_suffix "$DS")"
+    # VER(_v1): model-variant 이름 맨 끝 버전 태그 (EXP07). LOCAL_DIR(local_merged_epoch_dir)
+    # 가 DS 로 버전을 붙이므로 여기 REL 경로도 같은 버전으로 맞춘다. 그 외 DS 는 빈 문자열.
+    VER="$(ds_version_suffix "$DS")"
     # LF cwd 기준 상대경로 (= BASE_DIR 기준 "outputs/...").
-    TRAIN_DIR_REL="../outputs/${OUT_DS}/adapters/${MODEL_SHORT}${SFX}_stage1_${STAGE1_MODE}_world-model"
+    TRAIN_DIR_REL="../outputs/${OUT_DS}/adapters/${MODEL_SHORT}${SFX}_stage1_${STAGE1_MODE}_world-model${VER}"
     TRAIN_DIR="$LF_ROOT/$TRAIN_DIR_REL"
 
     shopt -s nullglob
@@ -72,7 +75,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
         HUB_ID=""
         TARGET_DESC="local-only"
       fi
-      MERGED_REL="../outputs/${OUT_DS}/merged/${MODEL_SHORT}${SFX}_stage1_${STAGE1_MODE}_world-model/epoch-${EPOCH}"
+      MERGED_REL="../outputs/${OUT_DS}/merged/${MODEL_SHORT}${SFX}_stage1_${STAGE1_MODE}_world-model${VER}/epoch-${EPOCH}"
       LOCAL_DIR="$(local_merged_epoch_dir stage1 "$MODEL_SHORT" "$DS" "$STAGE1_MODE" "$EPOCH")"
       CKPT_REL="./${TRAIN_DIR_REL}/${CKPT_NAME}"
 

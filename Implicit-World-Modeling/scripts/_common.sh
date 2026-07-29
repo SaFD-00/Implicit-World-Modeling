@@ -174,7 +174,8 @@ declare -A DS_PREFIX=(
   [AC_EXP04]="IWM-AC_EXP04"
   [AC_EXP05]="IWM-AC_EXP05"
   [AC_EXP06]="IWM-AC_EXP06"
-  [AC_EXP07]="IWM-AC_EXP07"
+  [AC_EXP07_v1]="IWM-AC_EXP07"
+  [AC_EXP07_v2]="IWM-AC_EXP07"
   [MC]="IWM-MC"
 )
 declare -A HF_SLUG=(
@@ -187,7 +188,8 @@ declare -A HF_SLUG=(
   [AC_EXP04]="ac-exp04-"
   [AC_EXP05]="ac-exp05-"
   [AC_EXP06]="ac-exp06-"
-  [AC_EXP07]="ac-exp07-"
+  [AC_EXP07_v1]="ac-exp07-"
+  [AC_EXP07_v2]="ac-exp07-"
   [MC]="mc-"
 )
 declare -A DS_DATADIR=(
@@ -210,9 +212,12 @@ declare -A DS_DATADIR=(
   [AC_EXP05]="AndroidControl_EXP05"
   # AC_EXP06 = EXP05 계열(절대 픽셀 xy) 비증강 대조군, Stage 2 전용.
   [AC_EXP06]="AndroidControl_EXP06"
-  # AC_EXP07 = EXP05 계열(절대 픽셀 xy) 3B 한정 실험군 — stage1 baseline + stage2 merge O/X 비교.
+  # AC_EXP07_v1 = EXP05 계열(절대 픽셀 xy) 3B 한정 실험군 — stage1 baseline + stage2 merge O/X 비교.
   # 자체 stage1 을 가지며(ds_stage1_source 미매핑), stage2_lora 에 merge X 변형(world-model-adapter) 추가.
-  [AC_EXP07]="AndroidControl_EXP07"
+  # trailing _v1 은 model/train 아티팩트에만 붙고, data 디렉토리는 공유(버전 없음).
+  [AC_EXP07_v1]="AndroidControl_EXP07"
+  # AC_EXP07_v2 = v1 과 동형(데이터만 다름). data 디렉토리·test 는 v1 과 공유.
+  [AC_EXP07_v2]="AndroidControl_EXP07"
   [MC]="MonkeyCollection"
 )
 
@@ -229,7 +234,7 @@ ds_outputs_code() {
     AC_EXP04) echo "AndroidControl_EXP04" ;;
     AC_EXP05) echo "AndroidControl_EXP05" ;;
     AC_EXP06) echo "AndroidControl_EXP06" ;;
-    AC_EXP07) echo "AndroidControl_EXP07" ;;
+    AC_EXP07_v1|AC_EXP07_v2) echo "AndroidControl_EXP07" ;;
     *) echo "$1" ;;
   esac
 }
@@ -250,6 +255,40 @@ ds_model_suffix() {
     AC_EXP01_ratio37) echo "_ratio37" ;;
     AC_EXP01_ratio55) echo "_ratio55" ;;
     AC_EXP01_ratio73) echo "_ratio73" ;;
+    *) echo "" ;;
+  esac
+}
+
+# DS 키 → model-variant 이름 맨 끝(local merged/adapter 디렉토리)에 붙일 버전 접미사.
+# EXP07 버전 태깅: adapters/merged 의 model-variant 이름 끝에 _v1 (data/test/output 부모는 공유).
+# 향후 _v2 는 여기 한 줄 추가. 다른 DS 는 빈 문자열 → 경로 불변.
+ds_version_suffix() {
+  case "$1" in
+    AC_EXP07_v1) echo "_v1" ;;
+    AC_EXP07_v2) echo "_v2" ;;
+    *) echo "" ;;
+  esac
+}
+
+# DS 키 → configs/train/ 아래 config subfolder 이름.
+# 버전 태그 DS(AC_EXP07_v1, 향후 _v2)는 config subfolder 를 공유한다 — data/test/output
+# 부모와 마찬가지로 버전 접미사를 떼어 `IWM-AC_EXP07` 을 가리킨다 (버전 구분은 config
+# *파일명*의 trailing _v1 이 담당). 그 외 DS(ratio variant 포함)는 기존대로 `IWM-${ds}`.
+ds_config_subfolder() {
+  local ds="$1"
+  local ver; ver="$(ds_version_suffix "$ds")"
+  if [[ -n "$ver" ]]; then
+    echo "IWM-${ds%$ver}"
+  else
+    echo "IWM-${ds}"
+  fi
+}
+
+# DS 키 → HF repo id 맨 끝에 붙일 버전 접미사 (레지스트리 hf_version_suffix 대응, dash 형).
+ds_hf_version() {
+  case "$1" in
+    AC_EXP07_v1) echo "-v1" ;;
+    AC_EXP07_v2) echo "-v2" ;;
     *) echo "" ;;
   esac
 }
@@ -420,7 +459,8 @@ EOF
     AC_EXP04) DATASETS=(AC_EXP04) ;;
     AC_EXP05) DATASETS=(AC_EXP05) ;;
     AC_EXP06) DATASETS=(AC_EXP06) ;;
-    AC_EXP07) DATASETS=(AC_EXP07) ;;
+    AC_EXP07_v1) DATASETS=(AC_EXP07_v1) ;;
+    AC_EXP07_v2) DATASETS=(AC_EXP07_v2) ;;
     MC)       DATASETS=(MC) ;;
     AC_EXP01)
       DATASETS=()
@@ -550,7 +590,7 @@ EOF
     echo "Error: --train-dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC)." >&2; exit 2
   fi
   case "$train_arg" in
-    AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07|MC) TRAIN_DATASET="$train_arg" ;;
+    AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2|MC) TRAIN_DATASET="$train_arg" ;;
     AC_EXP01)
       # AC_EXP01 은 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
       # 미지정 시 ratio55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
@@ -587,7 +627,7 @@ EOF
     fi
     for _d in "${EVAL_DATASETS[@]}"; do
       case "$_d" in
-        AC_EXP01|AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07|MC|MB) ;;
+        AC_EXP01|AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2|MC|MB) ;;
         *) echo "Error: --eval-datasets item '$_d' invalid (use AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC | MB)." >&2; exit 2 ;;
       esac
     done
@@ -879,8 +919,8 @@ PY
 #   ex: SaFD-00/qwen3-vl-8b-ac-exp01-ratio37-world-model-stage1-lora-epoch1
 hf_repo_id_stage1() {
   local model_short="$1" ds="$2" mode="$3" epoch="$4"
-  printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s' \
-    "$model_short" "${HF_SLUG[$ds]}" "$mode" "$epoch"
+  printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s%s' \
+    "$model_short" "${HF_SLUG[$ds]}" "$mode" "$epoch" "$(ds_hf_version "$ds")"
 }
 
 # Stage 2 (base variant):
@@ -888,8 +928,8 @@ hf_repo_id_stage1() {
 #   ex: SaFD-00/qwen3-vl-8b-ac-exp01-ratio37-base-stage2-lora-epoch1
 hf_repo_id_stage2_base() {
   local model_short="$1" ds="$2" mode2="$3" epoch2="$4"
-  printf 'SaFD-00/%s-%sbase-stage2-%s-epoch%s' \
-    "$model_short" "${HF_SLUG[$ds]}" "$mode2" "$epoch2"
+  printf 'SaFD-00/%s-%sbase-stage2-%s-epoch%s%s' \
+    "$model_short" "${HF_SLUG[$ds]}" "$mode2" "$epoch2" "$(ds_hf_version "$ds")"
 }
 
 # Stage 2 (world-model variant — Stage 1 계보 포함):
@@ -897,8 +937,8 @@ hf_repo_id_stage2_base() {
 #   ex: SaFD-00/qwen3-vl-8b-ac-exp01-ratio37-world-model-stage1-lora-epoch3-stage2-lora-epoch1
 hf_repo_id_stage2_world_model() {
   local model_short="$1" ds="$2" mode1="$3" epoch1="$4" mode2="$5" epoch2="$6"
-  printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s-stage2-%s-epoch%s' \
-    "$model_short" "${HF_SLUG[$ds]}" "$mode1" "$epoch1" "$mode2" "$epoch2"
+  printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s-stage2-%s-epoch%s%s' \
+    "$model_short" "${HF_SLUG[$ds]}" "$mode1" "$epoch1" "$mode2" "$epoch2" "$(ds_hf_version "$ds")"
 }
 
 # Stage 2 (world-model-adapter variant — merge X: stage1 LoRA 어댑터를 병합하지 않고
@@ -907,8 +947,8 @@ hf_repo_id_stage2_world_model() {
 #   SaFD-00/{short}-{slug}world-model-stage1-{mode1}-epoch{E1}-stage2-{mode2}-adapter-epoch{E2}
 hf_repo_id_stage2_world_model_adapter() {
   local model_short="$1" ds="$2" mode1="$3" epoch1="$4" mode2="$5" epoch2="$6"
-  printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s-stage2-%s-adapter-epoch%s' \
-    "$model_short" "${HF_SLUG[$ds]}" "$mode1" "$epoch1" "$mode2" "$epoch2"
+  printf 'SaFD-00/%s-%sworld-model-stage1-%s-epoch%s-stage2-%s-adapter-epoch%s%s' \
+    "$model_short" "${HF_SLUG[$ds]}" "$mode1" "$epoch1" "$mode2" "$epoch2" "$(ds_hf_version "$ds")"
 }
 
 # --- Local merged 디렉토리 경로 ---------------------------------------------
@@ -923,11 +963,13 @@ local_merged_epoch_dir() {
   local stage="$1" model_short="$2" ds="$3" variant_key="$4" epoch="$5"
   local out_ds; out_ds="$(ds_outputs_code "$ds")"
   local sfx;    sfx="$(ds_model_suffix "$ds")"
+  # ver(_v1): model-variant 이름 맨 끝(epoch 디렉토리 앞)에 붙는다. EXP07 버전 태깅.
+  local ver;    ver="$(ds_version_suffix "$ds")"
   case "$stage" in
-    stage1) printf '%s/outputs/%s/merged/%s%s_stage1_%s_world-model/epoch-%s' \
-              "$BASE_DIR" "$out_ds" "$model_short" "$sfx" "$variant_key" "$epoch" ;;
-    stage2) printf '%s/outputs/%s/merged/%s%s_stage2_%s/epoch-%s' \
-              "$BASE_DIR" "$out_ds" "$model_short" "$sfx" "$variant_key" "$epoch" ;;
+    stage1) printf '%s/outputs/%s/merged/%s%s_stage1_%s_world-model%s/epoch-%s' \
+              "$BASE_DIR" "$out_ds" "$model_short" "$sfx" "$variant_key" "$ver" "$epoch" ;;
+    stage2) printf '%s/outputs/%s/merged/%s%s_stage2_%s%s/epoch-%s' \
+              "$BASE_DIR" "$out_ds" "$model_short" "$sfx" "$variant_key" "$ver" "$epoch" ;;
     *) echo "[!] local_merged_epoch_dir: unknown stage '$stage'" >&2; return 1 ;;
   esac
 }

@@ -158,7 +158,8 @@ _DUAL_TASK_TEST = {
     "AndroidControl_EXP03",
     "AndroidControl_EXP04",
     "AndroidControl_EXP05",
-    "AndroidControl_EXP07",
+    "AndroidControl_EXP07_v1",
+    "AndroidControl_EXP07_v2",
 }
 
 # AC_EXP01 ratio (state:action) → split_data.py 가 산출하는 train 파일 stem
@@ -436,13 +437,21 @@ _DATASET_CONFIG = {
     # (world-model-adapter = merge X: stage1 LoRA 어댑터를 병합하지 않고 base 위에
     # 얹어 stage2 를 잇는다) 을 둔다. 그 변형은 EXP07 stage2_lora 에서만 렌더된다
     # (`stage2_adapter_variant` opt-in 플래그 + mode=="lora" 게이트, gen_configs).
-    "AndroidControl_EXP07": {
+    "AndroidControl_EXP07_v1": {
         "lf_subfolder": "IWM-AC_EXP07",
         "ds_prefix": "IWM-AC_EXP07",
         "output_prefix": "AndroidControl_EXP07/",
         "hf_slug": "ac-exp07-",
         # stage2 merge X 변형(world-model-adapter)을 EXP07 한정으로 opt-in.
         "stage2_adapter_variant": True,
+        # === 버전 태깅 (trailing _v1) — 향후 _v2 추가 예정 ===
+        # experiment 부모(AndroidControl_EXP07)·데이터 디렉토리·test 파일은 공유(버전 없음).
+        # 버전은 model 아티팩트 이름 끝(adapters/merged/eval), train dataset 키/파일,
+        # config 파일명, HF repo 이름 끝에만 붙는다.
+        "model_run_suffix": "_v1",  # adapters/merged/eval model-variant 이름 맨 끝
+        "hf_version_suffix": "-v1",  # 레지스트리 HF 이름 맨 끝
+        "train_stem_suffix": "_v1",  # train dataset 키/파일 stem (test 는 불변)
+        "config_version_suffix": "_v1",  # gen_configs YAML 파일명 (다른 DS 엔 영향 없음)
         "stage1": {
             "lr": "1.0e-5",
             "epochs": 1,
@@ -471,6 +480,57 @@ _DATASET_CONFIG = {
             "per_device_eval_batch_size": 4,
             "lora_rank": 8,
             "lora_alpha": 16,  # α = 2r 관례 (rank 8). 사용자 지시로 stage2 rank 를 stage1(64)과 분리 (64→16→8)
+            "lora_dropout": 0.1,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+        },
+    },
+    # AC_EXP07_v2 — EXP07 의 v2 데이터 실험군. v1 과 **동형**(하이퍼파라미터·자격·
+    # stage2 merge O/X 변형 전부 동일)이되 학습 데이터만 다르다 (diff UNCHANGED 0.05,
+    # state 24K + down 6K = 30K, 95% 복사-편향 필터). experiment 부모(AndroidControl_EXP07)·
+    # 데이터 디렉토리·test 파일은 v1 과 공유하고, 버전은 model/train 아티팩트·config
+    # 파일명·HF repo 이름 끝에만 붙는다 (trailing _v2 / -v2).
+    "AndroidControl_EXP07_v2": {
+        "lf_subfolder": "IWM-AC_EXP07",
+        "ds_prefix": "IWM-AC_EXP07",
+        "output_prefix": "AndroidControl_EXP07/",
+        "hf_slug": "ac-exp07-",
+        # stage2 merge X 변형(world-model-adapter)을 EXP07 한정으로 opt-in (v1 대칭).
+        "stage2_adapter_variant": True,
+        # === 버전 태깅 (trailing _v2) — v1 과 대칭 ===
+        "model_run_suffix": "_v2",  # adapters/merged/eval model-variant 이름 맨 끝
+        "hf_version_suffix": "-v2",  # 레지스트리 HF 이름 맨 끝
+        "train_stem_suffix": "_v2",  # train dataset 키/파일 stem (test 는 불변)
+        "config_version_suffix": "_v2",  # gen_configs YAML 파일명 (다른 DS 엔 영향 없음)
+        "stage1": {
+            "lr": "1.0e-5",
+            "epochs": 1,
+            "warmup_ratio": 0.03,
+            "save_strategy": "steps",
+            "save_steps": 0.25,  # float — transformers 가 총 스텝 대비 비율로 해석
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 64,
+            "lora_alpha": 128,  # α = 2r 관례
+            "lora_dropout": 0.05,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+            "use_diff_token_weighted_loss": True,  # Stage 1 diff loss (state-pred 가중)
+        },
+        "stage2": {
+            "lr": "5.0e-5",
+            "epochs": 3,
+            "warmup_ratio": 0.03,
+            "save_strategy": "epoch",
+            "save_steps": None,
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 8,
+            "lora_alpha": 16,  # α = 2r 관례 (rank 8). v1 과 동일 (64→16→8)
             "lora_dropout": 0.1,
             "weight_decay": 0.01,
             "max_grad_norm": 1.0,
@@ -571,7 +631,9 @@ DATASET_MODEL_ELIGIBILITY: dict[str, frozenset[str]] = {
     "AndroidControl_EXP06": frozenset(_QWEN2_5_VL_FAMILY),
     # EXP07 은 절대 픽셀 EXP05 계열 + 3B 한정 실험이다 (사용자 스펙). EXP05 처럼
     # family 전체가 아니라 Qwen2.5-VL-3B 단독 자격이다.
-    "AndroidControl_EXP07": frozenset({"qwen2.5-vl-3b"}),
+    "AndroidControl_EXP07_v1": frozenset({"qwen2.5-vl-3b"}),
+    # EXP07_v2 는 v1 과 동형 — 같은 절대 픽셀 표현·3B 단독 자격.
+    "AndroidControl_EXP07_v2": frozenset({"qwen2.5-vl-3b"}),
 }
 
 
@@ -610,7 +672,8 @@ _LONG_CUTOFF_DS = (
     "AndroidControl_EXP04",
     "AndroidControl_EXP05",
     "AndroidControl_EXP06",
-    "AndroidControl_EXP07",
+    "AndroidControl_EXP07_v1",
+    "AndroidControl_EXP07_v2",
 )
 
 
@@ -658,13 +721,26 @@ def build_configs() -> dict[str, dict[str, dict]]:
             if ds_name.startswith("AndroidControl_EXP01"):
                 c["data_dir"] = os.path.join(BASE_DIR, "data", "AndroidControl_EXP01")
 
+            # EXP07 버전 variant(_v1, 향후 _v2)는 data/AndroidControl_EXP07 를 공유한다
+            # (데이터 디렉토리·test 는 버전 무관 공유; 버전은 model/train 아티팩트에만).
+            if ds_name.startswith("AndroidControl_EXP07"):
+                c["data_dir"] = os.path.join(BASE_DIR, "data", "AndroidControl_EXP07")
+
+            # 버전 접미사 (EXP07_v1 만 값이 있고 다른 DS 는 "" → byte 불변).
+            #   train_sfx : train dataset 키/파일 stem 끝 (test 키는 불변)
+            #   hf_ver    : 레지스트리 HF repo 이름 끝
+            #   run_sfx   : adapters/merged model-variant 이름 맨 끝
+            train_sfx = cfg.get("train_stem_suffix", "")
+            hf_ver = cfg.get("hf_version_suffix", "")
+            run_sfx = cfg.get("model_run_suffix", "")
+
             # dual-task DS: train 은 ratio 별 분기, test 는 task × split 4 파일.
             if ds_name in _DUAL_TASK_TEST or ds_name.startswith("AndroidControl_EXP01"):
                 r = cfg.get("ac3_ratio", "")
                 c["ds_s1_train"] = (
-                    f"{c['ds_prefix']}_stage1_train_{r}"
+                    f"{c['ds_prefix']}_stage1_train_{r}{train_sfx}"
                     if r
-                    else f"{c['ds_prefix']}_stage1_train"
+                    else f"{c['ds_prefix']}_stage1_train{train_sfx}"
                 )
                 c["ds_s1_test_id_state"] = f"{c['ds_prefix']}_stage1_test_id_state"
                 c["ds_s1_test_ood_state"] = f"{c['ds_prefix']}_stage1_test_ood_state"
@@ -675,15 +751,15 @@ def build_configs() -> dict[str, dict[str, dict]]:
                 c["ds_s1_test_ood"] = c["ds_s1_test_ood_state"]
                 c["ds_s1_test"] = c["ds_s1_test_id"]
             elif ds_name in _SINGLE_TEST:
-                c["ds_s1_train"] = f"{c['ds_prefix']}_stage1_train"
+                c["ds_s1_train"] = f"{c['ds_prefix']}_stage1_train{train_sfx}"
                 c["ds_s1_test"] = f"{c['ds_prefix']}_stage1_test"
             else:
-                c["ds_s1_train"] = f"{c['ds_prefix']}_stage1_train"
+                c["ds_s1_train"] = f"{c['ds_prefix']}_stage1_train{train_sfx}"
                 c["ds_s1_test_id"] = f"{c['ds_prefix']}_stage1_test_id"
                 c["ds_s1_test_ood"] = f"{c['ds_prefix']}_stage1_test_ood"
                 c["ds_s1_test"] = c["ds_s1_test_id"]
 
-            c["ds_s2_train"] = f"{c['ds_prefix']}_stage2_train"
+            c["ds_s2_train"] = f"{c['ds_prefix']}_stage2_train{train_sfx}"
             if ds_name in _SINGLE_TEST:
                 c["ds_s2_test"] = f"{c['ds_prefix']}_stage2_test"
             else:
@@ -695,19 +771,21 @@ def build_configs() -> dict[str, dict[str, dict]]:
             # stage1 을 잇는 DS 만 "stage1_hf_slug" 로 override 한다 (EXP06 → ac-exp05-).
             s1_slug = cfg.get("stage1_hf_slug", c["hf_slug"])
             c["hf_s1_model_full"] = (
-                f"SaFD-00/{mcfg['short_name']}-{s1_slug}stage1-full-world-model"
+                f"SaFD-00/{mcfg['short_name']}-{s1_slug}stage1-full-world-model{hf_ver}"
             )
             c["hf_s1_model_lora"] = (
-                f"SaFD-00/{mcfg['short_name']}-{s1_slug}stage1-lora-world-model"
+                f"SaFD-00/{mcfg['short_name']}-{s1_slug}stage1-lora-world-model{hf_ver}"
             )
             c["hf_s1_model"] = c["hf_s1_model_full"]
 
-            c["hf_s2_base"] = f"SaFD-00/{mcfg['short_name']}-{c['hf_slug']}stage2-base"
+            c["hf_s2_base"] = (
+                f"SaFD-00/{mcfg['short_name']}-{c['hf_slug']}stage2-base{hf_ver}"
+            )
             c["hf_s2_world_full"] = (
-                f"SaFD-00/{mcfg['short_name']}-{c['hf_slug']}stage2-full-world-model"
+                f"SaFD-00/{mcfg['short_name']}-{c['hf_slug']}stage2-full-world-model{hf_ver}"
             )
             c["hf_s2_world_lora"] = (
-                f"SaFD-00/{mcfg['short_name']}-{c['hf_slug']}stage2-lora-world-model"
+                f"SaFD-00/{mcfg['short_name']}-{c['hf_slug']}stage2-lora-world-model{hf_ver}"
             )
             c["hf_s2_world"] = c["hf_s2_world_full"]
 
@@ -717,53 +795,54 @@ def build_configs() -> dict[str, dict[str, dict]]:
             mshort_dir = mshort + c.get("model_dir_suffix", "")
 
             c["save_s1_full"] = (
-                f"../outputs/{ds_code}/adapters/{mshort_dir}_stage1_full_world-model"
+                f"../outputs/{ds_code}/adapters/{mshort_dir}_stage1_full_world-model{run_sfx}"
             )
             c["save_s1_lora"] = (
-                f"../outputs/{ds_code}/adapters/{mshort_dir}_stage1_lora_world-model"
+                f"../outputs/{ds_code}/adapters/{mshort_dir}_stage1_lora_world-model{run_sfx}"
             )
             c["out_s1_merged_full"] = (
-                f"../outputs/{ds_code}/merged/{mshort_dir}_stage1_full_world-model"
+                f"../outputs/{ds_code}/merged/{mshort_dir}_stage1_full_world-model{run_sfx}"
             )
             c["out_s1_merged_lora"] = (
-                f"../outputs/{ds_code}/merged/{mshort_dir}_stage1_lora_world-model"
+                f"../outputs/{ds_code}/merged/{mshort_dir}_stage1_lora_world-model{run_sfx}"
             )
             c["save_s1"] = c["save_s1_full"]
             c["out_s1_merged"] = c["out_s1_merged_full"]
 
             for m2 in ("full", "lora"):
+                # run_sfx(_v1)는 model-variant 이름 맨 끝(placeholder ep 뒤 포함)에 붙는다.
                 c[f"save_s2_{m2}_base"] = (
-                    f"../outputs/{ds_code}/adapters/{mshort_dir}_stage2_{m2}_base"
+                    f"../outputs/{ds_code}/adapters/{mshort_dir}_stage2_{m2}_base{run_sfx}"
                 )
                 c[f"save_s2_{m2}_world_from_full"] = (
                     f"../outputs/{ds_code}/adapters/{mshort_dir}_stage2_{m2}"
-                    "_world-model_from_full-ep__STAGE1_EPOCH__"
+                    f"_world-model_from_full-ep__STAGE1_EPOCH__{run_sfx}"
                 )
                 c[f"save_s2_{m2}_world_from_lora"] = (
                     f"../outputs/{ds_code}/adapters/{mshort_dir}_stage2_{m2}"
-                    "_world-model_from_lora-ep__STAGE1_EPOCH__"
+                    f"_world-model_from_lora-ep__STAGE1_EPOCH__{run_sfx}"
                 )
                 # merge X 계보 (world-model-adapter): stage1 어댑터를 병합하지 않고
                 # base 위에 얹는다. EXP07 stage2_lora 에서만 렌더되지만 (gen_configs),
                 # 키는 from_full/from_lora 와 대칭으로 전 DS 에 만들어 둔다 (무해).
                 c[f"save_s2_{m2}_world_from_adapter"] = (
                     f"../outputs/{ds_code}/adapters/{mshort_dir}_stage2_{m2}"
-                    "_world-model_from_adapter-ep__STAGE1_EPOCH__"
+                    f"_world-model_from_adapter-ep__STAGE1_EPOCH__{run_sfx}"
                 )
                 c[f"out_s2_merged_{m2}_base"] = (
-                    f"../outputs/{ds_code}/merged/{mshort_dir}_stage2_{m2}_base"
+                    f"../outputs/{ds_code}/merged/{mshort_dir}_stage2_{m2}_base{run_sfx}"
                 )
                 c[f"out_s2_merged_{m2}_world_from_full"] = (
                     f"../outputs/{ds_code}/merged/{mshort_dir}_stage2_{m2}"
-                    "_world-model_from_full-ep__STAGE1_EPOCH__"
+                    f"_world-model_from_full-ep__STAGE1_EPOCH__{run_sfx}"
                 )
                 c[f"out_s2_merged_{m2}_world_from_lora"] = (
                     f"../outputs/{ds_code}/merged/{mshort_dir}_stage2_{m2}"
-                    "_world-model_from_lora-ep__STAGE1_EPOCH__"
+                    f"_world-model_from_lora-ep__STAGE1_EPOCH__{run_sfx}"
                 )
                 c[f"out_s2_merged_{m2}_world_from_adapter"] = (
                     f"../outputs/{ds_code}/merged/{mshort_dir}_stage2_{m2}"
-                    "_world-model_from_adapter-ep__STAGE1_EPOCH__"
+                    f"_world-model_from_adapter-ep__STAGE1_EPOCH__{run_sfx}"
                 )
             c["save_s2_base"] = c["save_s2_lora_base"]
             c["save_s2_world_from_full"] = c["save_s2_lora_world_from_full"]

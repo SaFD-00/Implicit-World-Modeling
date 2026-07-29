@@ -1,5 +1,5 @@
 ### model
-model_name_or_path: SaFD-00/qwen2.5-vl-3b-ac-exp07-stage1-lora-world-model
+model_name_or_path: SaFD-00/qwen2.5-vl-3b-ac-exp07-stage1-full-world-model-v1
 trust_remote_code: true
 image_max_pixels: 1605632
 image_min_pixels: 3136
@@ -7,11 +7,15 @@ image_min_pixels: 3136
 ### method
 stage: sft
 do_train: true
-finetuning_type: full
+finetuning_type: lora
 freeze_vision_tower: true
+lora_rank: 8
+lora_alpha: 16
+lora_target: all
+lora_dropout: 0.1
 
 ### dataset
-dataset: IWM-AC_EXP07_stage2_train
+dataset: IWM-AC_EXP07_stage2_train_v1
 template: qwen2_vl
 cutoff_len: 24576
 overwrite_cache: false
@@ -19,7 +23,7 @@ preprocessing_num_workers: 16
 media_dir: ../data
 
 ### output
-output_dir: ../outputs/AndroidControl_EXP07/adapters/qwen2.5-vl-3b_stage2_full_world-model_from_lora-ep__STAGE1_EPOCH__
+output_dir: ../outputs/AndroidControl_EXP07/adapters/qwen2.5-vl-3b_stage2_lora_world-model_from_full-ep__STAGE1_EPOCH___v1
 logging_steps: 1
 save_strategy: epoch
 save_total_limit: 5
@@ -29,7 +33,7 @@ overwrite_output_dir: true
 ### train
 per_device_train_batch_size: 1
 gradient_accumulation_steps: 32
-learning_rate: 1.5e-05
+learning_rate: 5.0e-5
 num_train_epochs: 3
 lr_scheduler_type: cosine
 warmup_ratio: 0.03

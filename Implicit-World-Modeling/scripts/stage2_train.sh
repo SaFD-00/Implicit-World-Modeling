@@ -47,7 +47,10 @@ resolve_stage1_base() {
   fi
   local out_ds; out_ds="$(ds_outputs_code "$src")"
   local sfx;    sfx="$(ds_model_suffix "$src")"
-  echo "../outputs/${out_ds}/merged/${model_short}${sfx}_stage1_${mode}_world-model/epoch-${epoch}"
+  # ver(_v1): stage1 merged model-variant 이름 맨 끝(epoch 앞). abs(local_merged_epoch_dir)
+  # 가 src 로 버전을 붙이므로 rel 도 src 기준 버전으로 맞춰 동일 경로를 낸다.
+  local ver;    ver="$(ds_version_suffix "$src")"
+  echo "../outputs/${out_ds}/merged/${model_short}${sfx}_stage1_${mode}_world-model${ver}/epoch-${epoch}"
 }
 
 resolve_stage1_adapter() {
@@ -61,8 +64,10 @@ resolve_stage1_adapter() {
   local src; src="$(ds_stage1_source "$ds")"
   local out_ds; out_ds="$(ds_outputs_code "$src")"
   local sfx;    sfx="$(ds_model_suffix "$src")"
-  local train_dir_rel="../outputs/${out_ds}/adapters/${model_short}${sfx}_stage1_lora_world-model"
-  local train_dir="$BASE_DIR/outputs/${out_ds}/adapters/${model_short}${sfx}_stage1_lora_world-model"
+  # ver(_v1): stage1 어댑터 model-variant 이름 맨 끝. out_ds/sfx 와 동일하게 src 기준.
+  local ver;    ver="$(ds_version_suffix "$src")"
+  local train_dir_rel="../outputs/${out_ds}/adapters/${model_short}${sfx}_stage1_lora_world-model${ver}"
+  local train_dir="$BASE_DIR/outputs/${out_ds}/adapters/${model_short}${sfx}_stage1_lora_world-model${ver}"
   if [ ! -d "$train_dir" ]; then
     echo "[!] Missing Stage 1 adapter dir: $train_dir" >&2
     echo "    (stage1 소스 DS: ${src}, from --dataset ${ds})" >&2
@@ -95,7 +100,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
     # merge X 변형(world-model-adapter): stage1 LoRA 어댑터를 병합하지 않고 이어학습.
     # lora×lora 조합 + 해당 YAML 이 있는 DS(EXP07) 에서만 opt-in 으로 추가한다.
     if [[ "$STAGE2_MODE" == "lora" && "$STAGE1_MODE" == "lora" \
-          && -f "$BASE_DIR/configs/train/IWM-${DS}/stage2_lora/${MODEL_SHORT}_world-model-adapter.yaml" ]]; then
+          && -f "$BASE_DIR/configs/train/$(ds_config_subfolder "$DS")/stage2_lora/${MODEL_SHORT}_world-model-adapter$(ds_version_suffix "$DS").yaml" ]]; then
       VARIANTS_LOCAL+=("world-model-adapter")
     fi
     # --variants 로 일부 variant 만 선택 (예: world-model-lora).
@@ -119,7 +124,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
       fi
 
       # YAML 정본은 repo 가 소유한다 (LF/examples/custom 이 아니라 configs/train).
-      YAML_ABS="$BASE_DIR/configs/train/IWM-${DS}/stage2_${STAGE2_MODE}/${MODEL_SHORT}_${VARIANT}.yaml"
+      YAML_ABS="$BASE_DIR/configs/train/$(ds_config_subfolder "$DS")/stage2_${STAGE2_MODE}/${MODEL_SHORT}_${VARIANT}$(ds_version_suffix "$DS").yaml"
       require_model_eligible "$MODEL_SHORT" "${DS_DATADIR[$DS]}"
       require_yaml "$YAML_ABS" "python -m implicit_world_modeling.gen_configs --write 로 생성하세요"
       RUN_YAML="$YAML_ABS"

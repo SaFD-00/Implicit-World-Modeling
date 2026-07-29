@@ -301,6 +301,9 @@ def generate_all(
             cfg = ds_cfgs[model_key]
             size_class = _MODEL_CONFIG[model_key]["size"]
             subfolder = cfg["lf_subfolder"]
+            # 버전 태깅 (EXP07_v1 만 값이 있고 다른 DS 는 "" → 파일명 byte 불변).
+            # config 디렉토리(subfolder)는 공유하고 파일명 끝에만 붙는다.
+            cfg_ver = cfg.get("config_version_suffix", "")
 
             for mode in ("full", "lora"):
                 policy = resolve_gpu_policy(
@@ -313,14 +316,14 @@ def generate_all(
                 # Stage 1 학습 데이터가 없는 DS (EXP06) 는 stage1 렌더 skip —
                 # stage1 체크포인트는 다른 실험군 (EXP05) 것을 잇는다.
                 if ds_name not in _STAGE2_ONLY:
-                    rel = f"{subfolder}/stage1_{mode}/{model_key}_world-model.yaml"
+                    rel = f"{subfolder}/stage1_{mode}/{model_key}_world-model{cfg_ver}.yaml"
                     out[rel] = render_stage1(cfg, mode, policy)
 
                 # Stage 2 를 지원하지 않는 DS (MC / EXP04) 는 skip.
                 if ds_name in _STAGE1_ONLY:
                     continue
                 for variant, content in render_stage2(cfg, mode, policy).items():
-                    rel = f"{subfolder}/stage2_{mode}/{model_key}_{variant}.yaml"
+                    rel = f"{subfolder}/stage2_{mode}/{model_key}_{variant}{cfg_ver}.yaml"
                     out[rel] = content
     return out
 

@@ -105,7 +105,8 @@ _HALF_BATCH_DATASETS: frozenset[str] = frozenset(
         "AndroidControl_EXP04",
         "AndroidControl_EXP05",
         "AndroidControl_EXP06",
-        "AndroidControl_EXP07",
+        "AndroidControl_EXP07_v1",
+        "AndroidControl_EXP07_v2",
     }
 )
 
@@ -115,7 +116,9 @@ _HALF_BATCH_DATASETS: frozenset[str] = frozenset(
 # 1080×2400 이미지 + cutoff 24576 라 pdbs=2 에서 step28 에 logits 23.77GiB 단일
 # 할당으로 확정 OOM 했다 (2026-07-28 stage2 base 실측). 그래서 offload 는 끈 채
 # (3-4B optimizer 는 80GB 에 들어감) pdbs 만 강제로 1(ga 32)로 낮춘다.
-_FORCE_HALF_BATCH_DATASETS: frozenset[str] = frozenset({"AndroidControl_EXP07"})
+_FORCE_HALF_BATCH_DATASETS: frozenset[str] = frozenset(
+    {"AndroidControl_EXP07_v1", "AndroidControl_EXP07_v2"}
+)
 
 # 80GB GPU (A100/H100) 에서 offload 를 끄고 half-batch 예외도 면제하는 조합.
 # 근거는 모듈 docstring (a)~(d). 두 결정은 같은 메모리 실측에서 나오므로 함께 판정한다.

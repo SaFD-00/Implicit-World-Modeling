@@ -614,8 +614,23 @@
       "system_tag": "system"
     }
   },
-  "IWM-AC_EXP07_stage1_train": {
-    "file_name": "../../data/AndroidControl_EXP07/stage1_train.jsonl",
+  "IWM-AC_EXP07_stage1_train_v1": {
+    "file_name": "../../data/AndroidControl_EXP07/stage1_train_v1.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
+  },
+  "IWM-AC_EXP07_stage1_train_v2": {
+    "file_name": "../../data/AndroidControl_EXP07/stage1_train_v2.jsonl",
     "formatting": "sharegpt",
     "columns": {
       "messages": "messages",
@@ -689,8 +704,23 @@
       "system_tag": "system"
     }
   },
-  "IWM-AC_EXP07_stage2_train": {
-    "file_name": "../../data/AndroidControl_EXP07/stage2_train.jsonl",
+  "IWM-AC_EXP07_stage2_train_v1": {
+    "file_name": "../../data/AndroidControl_EXP07/stage2_train_v1.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
+  },
+  "IWM-AC_EXP07_stage2_train_v2": {
+    "file_name": "../../data/AndroidControl_EXP07/stage2_train_v2.jsonl",
     "formatting": "sharegpt",
     "columns": {
       "messages": "messages",

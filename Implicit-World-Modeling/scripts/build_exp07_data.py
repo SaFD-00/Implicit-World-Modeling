@@ -42,20 +42,27 @@
    제외**한다. ``scripts/filter_long_samples.py`` 의 길이 계산(build_length_fn)을 재사용해
    LlamaFactory collator 길이와 일치시킨다. 제외 실현치는 sidecar 의 ``length_filter`` 참조.
 
-**W 상수 불변식**: UNCHANGED=0.2. **metric v2 고정**. 샘플은 ``--seed`` 로 재현.
+**W 상수 / 버전**: ``--version v1``(기본) = UNCHANGED 0.2·state 40K·down 10K,
+``--version v2`` = UNCHANGED 0.05·state 24K·down 6K + 95% 복사-편향 필터 (state 풀).
+두 버전은 experiment 부모·데이터 디렉토리·test 파일을 공유하고 train 파일/등록 키만
+버전 접미사(_v1/_v2)로 갈린다. **metric v2 고정**. 샘플은 ``--seed`` 로 재현.
 
 Usage
 -----
   .venv/bin/python scripts/build_exp07_data.py
   .venv/bin/python scripts/build_exp07_data.py --source-dir data/AndroidControl --seed 7
+  .venv/bin/python scripts/build_exp07_data.py --version v2
+  .venv/bin/python scripts/build_exp07_data.py --filter-common-test   # 공통 state test 제자리 필터
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
 import random
 import re
+import shutil
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -72,12 +79,42 @@ W_UNCHANGED = 0.2
 METRIC_VERSION = "v2"
 DEFAULT_MODEL = "Qwen/Qwen2.5-VL-3B-Instruct"
 
+# 아래 상수는 v1 프로파일의 기본값이다. --version 에 따라 apply_version_profile 이
+# W_UNCHANGED / N_STATE / N_S1_DOWN / TRAIN{1,2}_NAME / TRAIN_KEY_SUFFIX 를 스위치한다
+# (N_S2 는 두 버전 공통). OUT_SUBDIR·test 파일은 버전 무관 공유라 건드리지 않는다.
 N_STATE = 40000
 N_S1_DOWN = 10000
 N_S2 = 15000
 AUG_PER_STAGE = 50
 DEFAULT_SEED = 7
 MAX_DEGENERATE_FRAC = 0.30
+
+# 95% 복사-편향 필터 임계값 (v2 state 풀·--filter-common-test 공용).
+COPY_FILTER_THR = 0.95
+COPY_FILTER_PROCS = 16
+
+# 버전별 프로파일. v1 은 기존 상수와 byte 동일(회귀 불변), v2 는 diff 가중·샘플 수·
+# train 파일명/키 접미사를 바꾸고 95% 복사-편향 필터를 켠다.
+VERSION_PROFILES = {
+    "v1": {
+        "w_unchanged": 0.2,
+        "n_state": 40000,
+        "n_s1_down": 10000,
+        "train1": "stage1_train_v1.jsonl",
+        "train2": "stage2_train_v1.jsonl",
+        "key_suffix": "_v1",
+        "copy_filter": False,
+    },
+    "v2": {
+        "w_unchanged": 0.05,
+        "n_state": 24000,
+        "n_s1_down": 6000,
+        "train1": "stage1_train_v2.jsonl",
+        "train2": "stage2_train_v2.jsonl",
+        "key_suffix": "_v2",
+        "copy_filter": True,
+    },
+}
 
 # ── 길이 필터 (mm-expanded > cutoff 인 이미지-보유 샘플을 build 시점에 제외) ─────
 # EXP07 stage{1,2} 학습 YAML 과 동일한 값. 이 길이를 넘는 이미지-보유 샘플은 학습
@@ -97,8 +134,11 @@ SRC_DEFAULT_SUBDIR = "AndroidControl"
 
 OUT_SUBDIR = "AndroidControl_EXP07"
 EXP05_SUBDIR = "AndroidControl_EXP05"
-TRAIN1_NAME = "stage1_train.jsonl"
-TRAIN2_NAME = "stage2_train.jsonl"
+# 버전 태깅(trailing _v1/_v2): train 파일/등록 키에만 붙는다. test 파일은 버전 무관 공유(불변).
+# 아래 3 개는 v1 기본값이며 apply_version_profile 이 --version 에 따라 갱신한다.
+TRAIN1_NAME = "stage1_train_v1.jsonl"
+TRAIN2_NAME = "stage2_train_v1.jsonl"
+TRAIN_KEY_SUFFIX = "_v1"
 
 # EXP07 test 산출 파일 (우리 형식)
 TEST_STATE = {"id": "stage1_test_id_state.jsonl", "ood": "stage1_test_ood_state.jsonl"}
@@ -268,6 +308,54 @@ def filter_pool_by_length(pool, length_of, media_dir, cutoff, *, label):
         f"drop {len(dropped)} (mm-expanded > {cutoff})"
     )
     return kept, dropped
+
+
+# ── 95% 복사-편향 필터 (v2 state 풀 + --filter-common-test 공용) ──────────────
+
+
+def _copy_ratio_of_rec(rec: dict) -> float:
+    """레코드의 current(human) → future(gpt) HTML diff 의 UNCHANGED 비율.
+
+    current = human 메시지의 'Current UI State:' 이후 (없으면 human 전체),
+    future  = gpt 메시지. 둘 다 strip. diff v2 (metric v2) 로 분류한 뒤
+    UNCHANGED / (ADDED+MODIFIED+UNCHANGED) 를 반환한다 (분모 0 이면 1.0 = 전부 복사).
+    """
+    from hungarian_diff_v2 import classify_diff, summarize_diff  # noqa: PLC0415
+
+    human = _msg(rec, "human")
+    gpt = _msg(rec, "gpt")
+    if "Current UI State:" in human:
+        cur = human.split("Current UI State:", 1)[1].strip()
+    else:
+        cur = human.strip()
+    fut = gpt.strip()
+    d = summarize_diff(classify_diff(cur, fut))
+    tot = d["ADDED"] + d["MODIFIED"] + d["UNCHANGED"]
+    return d["UNCHANGED"] / tot if tot else 1.0
+
+
+def filter_pool_by_copy(pool, thr=COPY_FILTER_THR, *, label, procs=COPY_FILTER_PROCS, rec_of=None):
+    """복사-편향(current==future 에 가까운) 레코드를 pool 에서 제거.
+
+    각 레코드의 UNCHANGED 비율 ≥ thr 이면 제거한다. pool 원소는 (state 풀의)
+    튜플이거나 (test 필터의) 원본 dict 일 수 있어 rec_of 로 레코드를 뽑는다
+    (기본 tuple[0]). multiprocessing.Pool 로 병렬 채점한다. (kept, n_dropped) 반환.
+    """
+    if rec_of is None:
+        rec_of = lambda t: t[0]  # noqa: E731
+    recs = [rec_of(t) for t in pool]
+    if recs:
+        with multiprocessing.Pool(procs) as mp:
+            ratios = mp.map(_copy_ratio_of_rec, recs)
+    else:
+        ratios = []
+    kept = [t for t, r in zip(pool, ratios) if r < thr]
+    n_dropped = len(pool) - len(kept)
+    print(
+        f"[copy-filter] {label}: {len(pool)} → keep {len(kept)}, "
+        f"drop {n_dropped} (UNCHANGED 비율 ≥ {thr})"
+    )
+    return kept, n_dropped
 
 
 # ── 층화 배분 ────────────────────────────────────────────────────────────────
@@ -457,6 +545,7 @@ def build(
     model: str,
     revision: str | None,
     seed: int,
+    version: str = "v1",
 ) -> dict:
     from preprocess_dataset_v2 import preprocess  # noqa: PLC0415
 
@@ -559,6 +648,17 @@ def build(
         down_pool, _length_of, _media_dir, CUTOFF_LEN, label="downstream"
     )
 
+    # ── 95% 복사-편향 필터 (v2 전용, state 풀에만) ──────────────────────────
+    # current≈future 인 state prediction 샘플(복사만 하면 되는)을 풀에서 제거한다.
+    # 길이 필터 뒤·샘플링 전에 적용해 N_STATE 는 필터된 풀에서 채운다 (부족하면
+    # sample_state 가 fail-closed). down 풀·test 는 적용하지 않는다 (복사편향은
+    # state prediction 개념). 공통 state test 는 별도 --filter-common-test 모드가 처리.
+    copy_dropped = 0
+    if version == "v2":
+        state_pool, copy_dropped = filter_pool_by_copy(
+            state_pool, COPY_FILTER_THR, label="state(copy-bias)"
+        )
+
     # ── 샘플링 ──────────────────────────────────────────────────────────────
     state_sel, state_meta = sample_state(state_pool, N_STATE, seed)
     s1_down, s2_sel, down_meta = sample_downstream_joint(down_pool, aug, seed)
@@ -644,6 +744,14 @@ def build(
             "downstream_dropped": len(down_drop),
             "note": "mm-expanded > cutoff_len 인 이미지-보유 샘플을 풀에서 제외 (샘플링 전)",
         },
+        "copy_filter": {
+            "version": version,
+            "enabled": version == "v2",
+            "threshold": COPY_FILTER_THR,
+            "state_dropped": copy_dropped,
+            "note": "UNCHANGED/(ADDED+MODIFIED+UNCHANGED) ≥ threshold 인 state 레코드를 풀에서 제외 (v2 전용, 길이필터 뒤·샘플링 전)",
+        },
+        "w_unchanged": W_UNCHANGED,
     }
     meta_path.write_text(
         json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -680,8 +788,8 @@ def _entry(rel_path: str) -> dict:
 def register_dataset_info(info_path: Path) -> list[str]:
     e = f"../../data/{OUT_SUBDIR}"
     entries = {
-        "IWM-AC_EXP07_stage1_train": _entry(f"{e}/{TRAIN1_NAME}"),
-        "IWM-AC_EXP07_stage2_train": _entry(f"{e}/{TRAIN2_NAME}"),
+        f"IWM-AC_EXP07_stage1_train{TRAIN_KEY_SUFFIX}": _entry(f"{e}/{TRAIN1_NAME}"),
+        f"IWM-AC_EXP07_stage2_train{TRAIN_KEY_SUFFIX}": _entry(f"{e}/{TRAIN2_NAME}"),
         "IWM-AC_EXP07_stage1_test_id_state": _entry(f"{e}/{TEST_STATE['id']}"),
         "IWM-AC_EXP07_stage1_test_ood_state": _entry(f"{e}/{TEST_STATE['ood']}"),
         "IWM-AC_EXP07_stage1_test_id_action": _entry(f"{e}/{TEST_ACTION['id']}"),
@@ -823,6 +931,50 @@ def verify(out_dir: Path, res: dict) -> int:
     return 0
 
 
+# ── 버전 프로파일 / 공통 test 필터 ───────────────────────────────────────────
+
+
+def apply_version_profile(version: str) -> None:
+    """--version 프로파일을 모듈 전역에 반영한다.
+
+    v1(기본)은 기존 상수와 byte 동일이라 회귀 불변. v2 는 diff 가중(W_UNCHANGED)·
+    샘플 수(N_STATE/N_S1_DOWN)·train 파일명/등록 키 접미사를 바꾼다. N_S2·OUT_SUBDIR·
+    test 파일은 두 버전 공유라 건드리지 않는다.
+    """
+    global W_UNCHANGED, N_STATE, N_S1_DOWN, TRAIN1_NAME, TRAIN2_NAME, TRAIN_KEY_SUFFIX
+    p = VERSION_PROFILES[version]
+    W_UNCHANGED = p["w_unchanged"]
+    N_STATE = p["n_state"]
+    N_S1_DOWN = p["n_s1_down"]
+    TRAIN1_NAME = p["train1"]
+    TRAIN2_NAME = p["train2"]
+    TRAIN_KEY_SUFFIX = p["key_suffix"]
+
+
+def filter_common_state_test(out_dir: Path) -> None:
+    """공통 state test(id/ood)에 95% 복사-편향 필터를 제자리 적용 (.bak 백업).
+
+    build() 와 독립인 --filter-common-test 모드 전용. id/ood state test 만 대상이며
+    action/stage2 test 는 불변이다. 각 파일을 같은 filter_pool_by_copy 로직으로
+    필터해 원본을 ``.bak`` 로 백업한 뒤 제자리 덮어쓴다.
+    """
+    for sp in ("id", "ood"):
+        p = out_dir / TEST_STATE[sp]
+        if not p.is_file():
+            _abort(f"공통 state test 없음: {p}")
+        records = _read_jsonl(p)
+        kept, n_drop = filter_pool_by_copy(
+            records, COPY_FILTER_THR, label=f"test_state_{sp}", rec_of=lambda r: r
+        )
+        bak = p.with_name(p.name + ".bak")
+        shutil.copy2(p, bak)
+        _write_jsonl(p, kept)
+        print(
+            f"[filter-common-test] {sp}: {len(records)} → keep {len(kept)}, "
+            f"drop {n_drop}; backup {bak.name}"
+        )
+
+
 # ── main ───────────────────────────────────────────────────────────────────
 
 
@@ -837,18 +989,47 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", default=DEFAULT_MODEL)
     p.add_argument("--revision", default=None)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    p.add_argument(
+        "--version",
+        choices=("v1", "v2"),
+        default="v1",
+        help="데이터 프로파일 (v1 기본; v2 = diff UNCHANGED 0.05·state 24K·down 6K·95%% 복사필터)",
+    )
+    p.add_argument(
+        "--filter-common-test",
+        action="store_true",
+        help="공통 state test(id/ood)에 95%% 복사-편향 필터를 제자리 적용 (.bak 백업). build 와 독립.",
+    )
     args = p.parse_args(argv)
+
+    apply_version_profile(args.version)
 
     out_dir: Path = args.data_root / OUT_SUBDIR
     exp05_dir: Path = args.data_root / EXP05_SUBDIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[src] {args.source_dir}\n[out] {out_dir}\n[seed] {args.seed}\n")
+    # --filter-common-test 는 build 와 독립인 제자리 필터 모드다 (버전 무관).
+    if args.filter_common_test:
+        print(f"[filter-common-test] out_dir={out_dir}  thr={COPY_FILTER_THR}\n")
+        filter_common_state_test(out_dir)
+        print("\nDone (filter-common-test).")
+        return 0
+
+    print(
+        f"[src] {args.source_dir}\n[out] {out_dir}\n[seed] {args.seed}\n"
+        f"[version] {args.version}\n"
+    )
     # ★ 심링크 먼저 제거 — build 가 test 파일을 쓸 때 EXP05 향 심링크를 따라가
     #   타깃을 덮어쓰는 사고를 원천 차단한다 (_write_jsonl 방어와 이중 안전).
     cleanup_legacy_symlinks(out_dir)
     res = build(
-        args.source_dir, out_dir, exp05_dir, args.model, args.revision, args.seed
+        args.source_dir,
+        out_dir,
+        exp05_dir,
+        args.model,
+        args.revision,
+        args.seed,
+        args.version,
     )
 
     keys = register_dataset_info(PROJ / "configs" / "lf_dataset" / "dataset_info.json")
