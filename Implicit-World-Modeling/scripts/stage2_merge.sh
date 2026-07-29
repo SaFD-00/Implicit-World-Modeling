@@ -99,7 +99,7 @@ for MODEL_SHORT in "${MODELS[@]}"; do
     # 자기 stage2 ckpt 부재 시 아래 CKPTS 체크로 자연스럽게 skip.
     VARIANTS_TO_MERGE=(base world_model)
     if [[ "$STAGE2_MODE" == "lora" && "$STAGE1_MODE" == "lora" && -n "$STAGE1_EPOCH" \
-          && -f "$BASE_DIR/configs/train/IWM-${DS}/stage2_lora/${MODEL_SHORT}_world-model-adapter.yaml" ]]; then
+          && -f "$BASE_DIR/configs/train/$(ds_config_subfolder "$DS")/stage2_lora/${MODEL_SHORT}_world-model-adapter$(ds_version_suffix "$DS").yaml" ]]; then
       VARIANTS_TO_MERGE+=(adapter)
     fi
 
