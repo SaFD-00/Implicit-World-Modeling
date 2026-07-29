@@ -227,7 +227,8 @@ def test_family_eligibility(generated: dict[str, str]) -> None:
             assert "qwen3-vl" not in rel, f"EXP06 에 Qwen3-VL 유입: {rel}"
 
     # EXP07 (절대 픽셀 EXP05 계열 + 3B 한정) — Qwen2.5-VL-3B 단독 자격. family 아님.
-    assert eligible_models("AndroidControl_EXP07") == ["qwen2.5-vl-3b"]
+    assert eligible_models("AndroidControl_EXP07_v1") == ["qwen2.5-vl-3b"]
+    assert eligible_models("AndroidControl_EXP07_v2") == ["qwen2.5-vl-3b"]
     for rel in generated:
         if rel.startswith("IWM-AC_EXP07/"):
             assert rel.split("/")[-1].startswith("qwen2.5-vl-3b_"), (
@@ -288,23 +289,25 @@ def test_exp07_adapter_variant_only_in_exp07_stage2_lora(
     다른 DS/stage/mode 의 어느 YAML 에도 adapter placeholder 가 새면 안 된다.
     """
     adapter_files = sorted(
-        rel for rel in generated if rel.endswith("_world-model-adapter.yaml")
+        rel for rel in generated if "_world-model-adapter" in Path(rel).name
     )
+    # EXP07 v1/v2 두 버전 각각 adapter 변형을 렌더한다 (trailing _v1/_v2).
     assert adapter_files == [
-        "IWM-AC_EXP07/stage2_lora/qwen2.5-vl-3b_world-model-adapter.yaml"
+        "IWM-AC_EXP07/stage2_lora/qwen2.5-vl-3b_world-model-adapter_v1.yaml",
+        "IWM-AC_EXP07/stage2_lora/qwen2.5-vl-3b_world-model-adapter_v2.yaml",
     ], adapter_files
 
-    content = generated[adapter_files[0]]
+    content = generated[adapter_files[0]]  # v1
     assert "model_name_or_path: Qwen/Qwen2.5-VL-3B-Instruct\n" in content
     assert "adapter_name_or_path: __STAGE1_ADAPTER__\n" in content
     assert (
         "output_dir: ../outputs/AndroidControl_EXP07/adapters/"
-        "qwen2.5-vl-3b_stage2_lora_world-model_from_adapter-ep__STAGE1_EPOCH__\n"
+        "qwen2.5-vl-3b_stage2_lora_world-model_from_adapter-ep__STAGE1_EPOCH___v1\n"
     ) in content
 
-    # placeholder 는 이 파일 밖으로 새지 않는다.
+    # placeholder 는 adapter 변형 파일(v1/v2) 밖으로 새지 않는다.
     for rel, c in generated.items():
-        if rel != adapter_files[0]:
+        if rel not in adapter_files:
             assert "adapter_name_or_path" not in c, rel
 
 
@@ -387,8 +390,14 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
         if is_small or is_lora:
             # 80GB × (3-4B | lora) → no-offload + half-batch 면제 → 전 DS 에서 pdbs=2, ga=16.
             assert EXPECTED_DS_NO_OFFLOAD in content, rel
-            assert "per_device_train_batch_size: 2" in content, rel
-            assert "gradient_accumulation_steps: 16" in content, rel
+            if rel.startswith("IWM-AC_EXP07/"):
+                # EXP07(v1/v2) 은 긴 시퀀스 activation OOM 때문에 no-offload 여도
+                # half-batch 를 강제한다 (_FORCE_HALF_BATCH_DATASETS) → pdbs=1, ga=32.
+                assert "per_device_train_batch_size: 1" in content, rel
+                assert "gradient_accumulation_steps: 32" in content, rel
+            else:
+                assert "per_device_train_batch_size: 2" in content, rel
+                assert "gradient_accumulation_steps: 16" in content, rel
             if not is_small:
                 seen_7b_lora_no_offload = True
         else:
@@ -420,15 +429,15 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
 
 
 def test_generated_count(generated: dict[str, str]) -> None:
-    """as-trained 74 − 자격박탈 2 + 신규 121 = 193 (EXP06 12 + EXP07 9 포함).
+    """as-trained 74 − 자격박탈 2 + 신규 130 = 202 (EXP06 12 + EXP07 v1/v2 18 포함).
 
     개수를 하드코딩하지 않는다 — 자격 정의(DATASET_MODEL_ELIGIBILITY)의 결과이지
     독립적 사실이 아니기 때문이다. 자격을 바꾸면 개수는 따라 바뀌는 게 정상이고,
     이 테스트가 잡아야 할 것은 "생성기가 자격과 어긋나게 만드는가" 다.
     """
-    # 신규 121 = 기존 확장 100 + EXP06 stage2 12 (2 모델 × 2 모드 × 3 variant)
-    #          + EXP07 9 (3B 단독: stage1 full/lora 2 + stage2 full 3 + stage2 lora 4).
-    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 121
+    # 신규 130 = 기존 확장 100 + EXP06 stage2 12 (2 모델 × 2 모드 × 3 variant)
+    #          + EXP07 v1/v2 18 (버전당 3B 단독 9: stage1 full/lora 2 + stage2 full 3 + stage2 lora 4).
+    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 130
 
     # 생성된 모든 YAML 이 자격 집합 안에 있는가 (자격 밖 조합을 만들지 않는가)
     for rel in generated:

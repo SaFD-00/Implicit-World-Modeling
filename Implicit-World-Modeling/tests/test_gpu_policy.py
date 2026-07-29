@@ -215,9 +215,10 @@ def test_exp07_force_half_batch_overrides_no_offload_exemption():
     pdbs=2 에서 logits 단일 할당 OOM 하여(2026-07-28 stage2 base 실측) 강제 절반.
     offload 는 여전히 꺼져 있어야 한다 (ds_z3_config, 3-4B optimizer 는 80GB 에 들어감).
     """
-    for gpu_type in ("A100", "H100"):
+    for ds in ("AndroidControl_EXP07_v1", "AndroidControl_EXP07_v2"):
+      for gpu_type in ("A100", "H100"):
         for mode in ("full", "lora"):
-            p = resolve_gpu_policy(gpu_type, 2, "3-4B", "AndroidControl_EXP07", mode)
+            p = resolve_gpu_policy(gpu_type, 2, "3-4B", ds, mode)
             assert p.per_device_train_batch_size == 1, (gpu_type, mode)
             assert p.gradient_accumulation_steps == 32, (gpu_type, mode)
             assert p.offload is False, (gpu_type, mode)
