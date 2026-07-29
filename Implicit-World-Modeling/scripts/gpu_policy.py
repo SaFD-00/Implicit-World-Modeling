@@ -105,6 +105,10 @@ _HALF_BATCH_DATASETS: frozenset[str] = frozenset(
         "AndroidControl_EXP04",
         "AndroidControl_EXP05",
         "AndroidControl_EXP06",
+        # EXP07: gen_configs 는 버전 키(_v1/_v2)로 렌더하지만 런타임 override
+        # (resolve_overrides → stage{1,2}_train.sh)는 공유 DS_DATADIR
+        # "AndroidControl_EXP07"(버전 없음)를 넘긴다. 두 경로 모두 잡으려면 공유 키도 등록.
+        "AndroidControl_EXP07",
         "AndroidControl_EXP07_v1",
         "AndroidControl_EXP07_v2",
     }
@@ -117,7 +121,12 @@ _HALF_BATCH_DATASETS: frozenset[str] = frozenset(
 # 할당으로 확정 OOM 했다 (2026-07-28 stage2 base 실측). 그래서 offload 는 끈 채
 # (3-4B optimizer 는 80GB 에 들어감) pdbs 만 강제로 1(ga 32)로 낮춘다.
 _FORCE_HALF_BATCH_DATASETS: frozenset[str] = frozenset(
-    {"AndroidControl_EXP07_v1", "AndroidControl_EXP07_v2"}
+    {
+        # 공유 DS_DATADIR(런타임) + 버전 키(gen_configs) 모두 등록 — 위 주석 참조.
+        "AndroidControl_EXP07",
+        "AndroidControl_EXP07_v1",
+        "AndroidControl_EXP07_v2",
+    }
 )
 
 # 80GB GPU (A100/H100) 에서 offload 를 끄고 half-batch 예외도 면제하는 조합.
