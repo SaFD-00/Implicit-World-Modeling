@@ -517,7 +517,9 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 | [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py) | **EXP05 빌드 정본** (mirror → diff-loss 가중 → 원자 교체 + sidecar) |
 | [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) | Stage 1 metric (`score` 서브커맨드) |
 | [`scripts/_action_eval.py`](./scripts/_action_eval.py) | Stage 2 metric, ID/OOD/overall 3 섹션 |
-| [`scripts/eval_viewer.py`](./scripts/eval_viewer.py) | 비교 HTML 빌더. `--include EXP:MODEL` 다중 spec — 단일 EXP 자체 비교 + EXP 간 동급 stage cross-compare (산출 `outputs/_compare/stage{N}_eval/`) |
+| [`scripts/eval_viewer.py`](./scripts/eval_viewer.py) | 비교 HTML 빌더. `--include EXP:MODEL` 다중 spec — ① **pairs 모드**(기본): 단일 EXP 자체 비교 + EXP 간 동급 stage cross-compare (산출 `outputs/_compare/stage{N}_eval/`) ② **site 모드**(`--site`): EXP 별 정성 비교 사이트 (산출 `outputs/_compare/{on_ac_expNN}_stage{N}_{state\|action}_compare/`) |
+| [`scripts/_compare_site.py`](./scripts/_compare_site.py) | site 모드 빌더 (프롬프트 파서 · 표본 추출 · 행 단위 채점 · HTML/README 템플릿) |
+| [`scripts/rebuild_compare_sites.sh`](./scripts/rebuild_compare_sites.sh) | outputs/ 를 스캔해 EXP 별 사이트 일괄 재생성 (GPU 미사용) |
 | [`scripts/remote_launch.sh`](./scripts/remote_launch.sh) + `configs/remote/run.template.yaml` | 원격 클러스터 제출 — **제공자 중립** (코드에 플랫폼 이름 없음, 제출 커맨드는 `.env` 의 `REMOTE_SUBMIT_CMD` 템플릿). **UNVALIDATED — 실행 이력 0** |
 
 ### Stage 1

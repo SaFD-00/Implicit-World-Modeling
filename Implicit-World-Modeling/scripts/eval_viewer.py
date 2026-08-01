@@ -1,14 +1,21 @@
 """Build pair-aligned HTML comparison of Stage 1/2 eval outputs.
 
-각 (stage × logical-dataset) 별로 (EXP × MODEL × variant) prediction 을 하나의
-HTML 로 묶고, in-page checkbox 로 column/row 를 토글한다. 같은 EXP 안의 비교
-와 EXP 간 동일 stage 비교를 단일 CLI (`--include EXP:MODEL ...`) 로 처리한다.
+두 가지 산출 모드가 있다.
+
+**pairs 모드 (기본)** — 각 (stage × logical-dataset) 별로 (EXP × MODEL × variant)
+prediction 전량을 하나의 HTML 로 묶고, in-page checkbox 로 column/row 를 토글한다.
+
+**site 모드 (`--site`)** — EXP 별 정성 비교 사이트를 만든다. stage × task 조합마다
+자체 완결형 index.html + README.md 한 벌이고, 표본을 시드 고정으로 뽑아 정본 채점기
+점수(Hungarian / step-accuracy / thought ROUGE-L)를 카드에 함께 싣는다. 이미지는 제외.
 
 Output
 ------
-Single spec  : outputs/{DS_DATADIR(exp)}/eval/{model}/stage{N}_eval/pairs_*.html
-Multi spec   : outputs/_compare/stage{N}_eval/pairs_*.html
-(같은 위치에 `pairs_summary.md` 도 생성.)
+pairs · single spec : outputs/{DS_DATADIR(exp)}/eval/{model}/stage{N}_eval/pairs_*.html
+pairs · multi spec  : outputs/_compare/stage{N}_eval/pairs_*.html
+                      (같은 위치에 `pairs_summary.md` 도 생성.)
+site                : outputs/_compare/{on_ac_expNN}_stage{N}_{state|action}_compare/
+                      {index.html, README.md}  + outputs/_compare/index.html (목록)
 
 Examples
 --------
@@ -18,6 +25,11 @@ Examples
 
     # 다중 EXP cross-compare — outputs/_compare/ 에 산출
     python scripts/eval_viewer.py --include AC_EXP01:qwen3-vl-8b_ratio73 AC_EXP02:qwen3-vl-8b
+
+    # EXP 별 정성 비교 사이트 (stage1 state/action + stage2)
+    python scripts/eval_viewer.py --site --include AC_EXP02:qwen3-vl-8b
+    python scripts/eval_viewer.py --site --samples 30 --seed 42 \\
+        --include AC_EXP05:qwen2.5-vl-3b AC_EXP07_v1:qwen2.5-vl-3b_v1
 
     # 데이터셋/variant 필터
     python scripts/eval_viewer.py --include AC_EXP02:qwen3-vl-8b \\
@@ -36,17 +48,25 @@ import argparse
 import html
 import json
 import re
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _compare_site  # noqa: E402
 
 # DS key → outputs/ 직속 디렉토리 (scripts/_common.sh::DS_DATADIR 와 정합).
+# AC_EXP07_v1/_v2 는 model/train 아티팩트만 버전이 갈리고 data 디렉토리는 공유한다.
 DS_DATADIR: dict[str, str] = {
     "AC_EXP01": "AndroidControl_EXP01",
     "AC_EXP02": "AndroidControl_EXP02",
     "AC_EXP03": "AndroidControl_EXP03",
     "AC_EXP04": "AndroidControl_EXP04",
     "AC_EXP05": "AndroidControl_EXP05",
+    "AC_EXP06": "AndroidControl_EXP06",
+    "AC_EXP07_v1": "AndroidControl_EXP07",
+    "AC_EXP07_v2": "AndroidControl_EXP07",
     "MC": "MonkeyCollection",
 }
 
@@ -275,12 +295,19 @@ EVAL_DATASETS: dict[int, dict[str, dict[str, dict]]] = {
             **_mb_stage1_entries(),
             **_mc_stage1_entries(),
         },
+        # AC_EXP06 은 Stage 2 전용 대조군이라 stage1 entry 가 없다.
+        "AC_EXP07_v1": _ac_stage1_entries("AC_EXP07_v1"),
+        "AC_EXP07_v2": _ac_stage1_entries("AC_EXP07_v2"),
         "MC": {**_mc_stage1_entries(), **_mb_stage1_entries()},
     },
     2: {
         "AC_EXP01": {**_ac_stage2_entries("AC_EXP01"), **_mb_stage2_entries()},
         "AC_EXP02": {**_ac_stage2_entries("AC_EXP02"), **_mb_stage2_entries()},
         "AC_EXP03": {**_ac_stage2_entries("AC_EXP03"), **_mb_stage2_entries()},
+        "AC_EXP05": _ac_stage2_entries("AC_EXP05"),
+        "AC_EXP06": _ac_stage2_entries("AC_EXP06"),
+        "AC_EXP07_v1": _ac_stage2_entries("AC_EXP07_v1"),
+        "AC_EXP07_v2": _ac_stage2_entries("AC_EXP07_v2"),
     },
 }
 
@@ -612,6 +639,136 @@ def build_summary_md(
     return "\n".join(out)
 
 
+def task_of(entry: dict) -> str:
+    """logical entry → 사이트 kind ('state' | 'action').
+
+    화면 레이아웃은 여기서 정하지 않는다 — EXP07 stage1 `-action` 처럼 같은 kind 인데
+    프롬프트 구조가 다른 경우가 있어 `_compare_site.detect_layout` 이 실물로 판정한다.
+    """
+    return "state" if entry["metric_keys"] == STATE_METRIC_KEYS else "action"
+
+
+def run_site_mode(args: argparse.Namespace, specs: list[tuple[str, str]]) -> None:
+    """EXP 별 정성 비교 사이트를 outputs/_compare/ 아래에 만든다.
+
+    site 는 EXP 단위다 — 같은 EXP 의 여러 MODEL 은 하나의 사이트 안에서 setting 으로
+    나란히 놓인다 (같은 test 를 쓰므로 행이 정렬된다). EXP 가 다르면 test 자체가
+    달라 행이 정렬되지 않으므로 사이트를 나눈다.
+    """
+    compare_root = REPO / "outputs" / "_compare"
+    built = 0
+
+    by_exp: dict[str, list[str]] = {}
+    for exp, model in specs:
+        by_exp.setdefault(exp, []).append(model)
+
+    for stage in args.stages:
+        eval_subdir = STAGE_CONFIG[stage]["eval_subdir"]
+        for exp, models in by_exp.items():
+            entries = EVAL_DATASETS[stage].get(exp, {})
+            if not entries:
+                print(f"skip site stage{stage}/{exp}: 등록된 logical key 없음")
+                continue
+
+            groups: dict[str, list[str]] = {}
+            for key, entry in entries.items():
+                if args.datasets is not None and key not in args.datasets:
+                    continue
+                groups.setdefault(task_of(entry), []).append(key)
+
+            key_order = {k: i for i, k in enumerate(entries)}
+            for task, keys in groups.items():
+                settings_by_id: dict[str, dict] = {}
+                splits: list[dict] = []
+                for key in sorted(keys, key=lambda k: key_order[k]):
+                    entry = entries[key]
+                    dirs: dict[str, Path] = {}
+                    metrics: dict[str, dict] = {}
+                    ids: list[str] = []
+                    for model in models:
+                        eval_root = (
+                            REPO
+                            / "outputs"
+                            / DS_DATADIR[exp]
+                            / "eval"
+                            / model
+                            / eval_subdir
+                        )
+                        discovered = discover_variants(
+                            eval_root, entry["dir"], entry["pred"]
+                        )
+                        if args.variants is not None:
+                            discovered = [v for v in discovered if v in args.variants]
+                        for v in discovered:
+                            sid = f"{model}|{v}"
+                            dirs[sid] = eval_root / v / entry["dir"]
+                            metrics[sid] = load_metrics(
+                                dirs[sid], entry["metric_files"]
+                            )
+                            ids.append(sid)
+                            settings_by_id.setdefault(
+                                sid, {"id": sid, "model": model, "vpath": v}
+                            )
+                    if not ids:
+                        continue
+                    splits.append(
+                        {
+                            "key": key,
+                            "pred_filename": entry["pred"],
+                            "test_path": entry.get("test"),
+                            "setting_ids": ids,
+                            "dirs": dirs,
+                            "metrics": metrics,
+                        }
+                    )
+
+                if not splits:
+                    print(f"skip site stage{stage}/{exp}/{task}: variant 없음")
+                    continue
+
+                multi_model = len({s["model"] for s in settings_by_id.values()}) > 1
+                settings = sorted(
+                    settings_by_id.values(),
+                    key=lambda s: _compare_site.setting_sort_key(
+                        s["model"], s["vpath"]
+                    ),
+                )
+                for s in settings:
+                    s["label"] = _compare_site.humanize_setting(
+                        s["model"], s["vpath"], multi_model
+                    )
+                rank = {s["id"]: i for i, s in enumerate(settings)}
+                for sp in splits:
+                    sp["setting_ids"].sort(key=lambda sid: rank[sid])
+
+                out_dir = compare_root / _compare_site.site_dirname(exp, stage, task)
+                stats = _compare_site.build_site(
+                    stage=stage,
+                    exp=exp,
+                    kind=task,
+                    settings=settings,
+                    splits=splits,
+                    metric_keys=entries[splits[0]["key"]]["metric_keys"],
+                    out_dir=out_dir,
+                    samples=args.samples,
+                    seed=args.seed,
+                )
+                built += 1
+                print(
+                    f"wrote {stats['path'].relative_to(REPO)}  "
+                    f"settings={stats['n_settings']}  splits={stats['n_splits']}  "
+                    f"samples={stats['n_samples']}  "
+                    f"size={stats['size'] / 1024 / 1024:.1f}MB"
+                )
+
+    if built:
+        idx = _compare_site.write_root_index(compare_root)
+        if idx is not None:
+            print(f"wrote {idx.relative_to(REPO)}")
+    else:
+        print("사이트를 하나도 만들지 못했습니다 — --include / --stages 를 확인하세요.")
+
+
 def parse_spec(s: str) -> tuple[str, str]:
     if ":" not in s:
         raise SystemExit(
@@ -663,6 +820,24 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="처리할 variant_path 화이트리스트 (예: base 'lora_world-model/epoch-3'). 기본 = auto-discover.",
     )
+    p.add_argument(
+        "--site",
+        action="store_true",
+        help="EXP 별 정성 비교 사이트(index.html + README.md)를 outputs/_compare/ 에 만든다. "
+        "stage × task(state/action) 별로 한 벌씩, 표본은 시드 고정 추출.",
+    )
+    p.add_argument(
+        "--samples",
+        type=int,
+        default=20,
+        help="--site 모드에서 분할(ID/OOD/woa)마다 뽑을 표본 수 (기본 20).",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="--site 모드의 표본 추출 시드 (기본 42 — 같은 시드면 같은 표본).",
+    )
     return p.parse_args()
 
 
@@ -670,6 +845,10 @@ def main() -> None:
     args = parse_args()
     specs: list[tuple[str, str]] = [parse_spec(s) for s in args.include]
     multi = len(specs) > 1
+
+    if args.site:
+        run_site_mode(args, specs)
+        return
 
     for stage in args.stages:
         eval_subdir = STAGE_CONFIG[stage]["eval_subdir"]

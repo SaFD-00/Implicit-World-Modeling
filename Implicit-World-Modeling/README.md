@@ -306,7 +306,35 @@ python scripts/eval_viewer.py --include AC_EXP02:qwen3-vl-8b --stages 2 \
 
 `--include EXP:MODEL` 의 `MODEL` 은 `outputs/<DS_DATADIR(EXP)>/eval/` 아래 실제 디렉토리 명이다 (AC_EXP01 은 `qwen3-vl-8b_ratio73` 처럼 ratio suffix 포함).
 
-> **cross-compare 는 화이트리스트로 막지 않는다** — `eval_viewer` 는 등록된 EXP 라면 뭐든 다중 spec 에 받고, 유일한 게이트는 **런타임 행 수 일치 검사**다 (`eval_viewer.py:483-489` — 행 수가 다르면 `SystemExit`). AC_EXP03/04/05 는 EXP01/EXP02 와 행 수가 달라 그 조합은 실패하므로 **사실상 단독 조회로 쓴다.** AC_EXP05 는 Stage 1 전용이라 `--stages 2` 로는 아무것도 나오지 않는다.
+> **cross-compare 는 화이트리스트로 막지 않는다** — `eval_viewer` 는 등록된 EXP 라면 뭐든 다중 spec 에 받고, 유일한 게이트는 **런타임 행 수 일치 검사**다 (행 수가 다르면 `SystemExit`). AC_EXP03/04/05 는 EXP01/EXP02 와 행 수가 달라 그 조합은 실패하므로 **사실상 단독 조회로 쓴다.**
+
+### EXP 별 정성 비교 사이트 (`--site`)
+
+`pairs_*.html` 이 예측 전량 덤프라면, `--site` 는 **읽을 수 있게 만든 비교 화면**이다. 표본을 시드 고정으로 뽑아 자체 완결형 `index.html` + `README.md` 한 벌을 EXP 마다 만든다 (이미지는 싣지 않는다).
+
+```bash
+# outputs/ 를 스캔해 EXP 별로 전부 재생성 (권장) — GPU 미사용
+bash scripts/rebuild_compare_sites.sh          # -n 이면 조립된 --include 만 출력
+bash scripts/rebuild_compare_sites.sh EXP07    # EXP 키 부분 문자열 필터
+
+# 개별 지정 — 같은 EXP 의 여러 MODEL 은 한 사이트 안에서 세팅으로 나란히 놓인다
+python scripts/eval_viewer.py --site --include AC_EXP03:qwen3-vl-8b AC_EXP03:qwen2.5-vl-7b
+python scripts/eval_viewer.py --site --samples 30 --seed 42 --stages 1 \
+    --include AC_EXP05:qwen2.5-vl-3b
+```
+
+산출은 `outputs/_compare/` 아래 EXP × stage × task 별 디렉토리이고, 목록 페이지는 `outputs/_compare/index.html` 이다.
+
+| 사이트 | 화면 |
+|---|---|
+| `..._stage1_state_compare` | Current UI State \| GT Next State 와이어프레임 + 세팅별 예측 (Diff / 와이어프레임 / 원문) |
+| `..._stage1_action_compare` | Current \| Next UI State + 세팅별 액션 (GT 대비 필드 대조) |
+| `..._stage2_action_compare` | Task Instruction · Action History \| Current UI State + 세팅별 thought + action |
+
+- **카드 점수는 정본 채점기 값이다** — state 는 `_hungarian_eval.compute_hungarian_acc`, action 은 `_action_eval.evaluate_single{,_xy}`, thought 는 `thought_eval.rouge_l_f1`. 위쪽 aggregate 표와 정의가 같아서 나란히 읽을 수 있다 (표본 집계 표도 함께 뜬다).
+- **분할**은 그 EXP 에 등록된 logical key 전부다 (ID / OOD / woa …). 세팅이 없는 분할은 그 분할에서만 빠진다.
+- **레이아웃은 프롬프트 실물로 판정한다** — EXP07 의 stage1 `-action` 은 `# Mode: NEXT_ACTION_PREDICTION` 이라 two-state 역추론이 아니라 stage2 와 같은 화면으로 뜬다.
+- 프롬프트를 못 읽거나 세팅 간 prompt/label 이 다르면 **빌드가 실패한다** (조용히 빈 화면을 내지 않는다).
 
 ---
 
