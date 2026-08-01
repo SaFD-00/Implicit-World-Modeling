@@ -47,6 +47,9 @@ DS_DATADIR: dict[str, str] = {
     "AC_EXP03": "AndroidControl_EXP03",
     "AC_EXP04": "AndroidControl_EXP04",
     "AC_EXP05": "AndroidControl_EXP05",
+    "AC_EXP06": "AndroidControl_EXP06",
+    "AC_EXP07_v1": "AndroidControl_EXP07",
+    "AC_EXP07_v2": "AndroidControl_EXP07",
     "MC": "MonkeyCollection",
 }
 
@@ -275,12 +278,19 @@ EVAL_DATASETS: dict[int, dict[str, dict[str, dict]]] = {
             **_mb_stage1_entries(),
             **_mc_stage1_entries(),
         },
+        # AC_EXP06 은 Stage 2 전용 대조군이라 stage1 entry 가 없다.
+        "AC_EXP07_v1": _ac_stage1_entries("AC_EXP07_v1"),
+        "AC_EXP07_v2": _ac_stage1_entries("AC_EXP07_v2"),
         "MC": {**_mc_stage1_entries(), **_mb_stage1_entries()},
     },
     2: {
         "AC_EXP01": {**_ac_stage2_entries("AC_EXP01"), **_mb_stage2_entries()},
         "AC_EXP02": {**_ac_stage2_entries("AC_EXP02"), **_mb_stage2_entries()},
         "AC_EXP03": {**_ac_stage2_entries("AC_EXP03"), **_mb_stage2_entries()},
+        "AC_EXP05": _ac_stage2_entries("AC_EXP05"),
+        "AC_EXP06": _ac_stage2_entries("AC_EXP06"),
+        "AC_EXP07_v1": _ac_stage2_entries("AC_EXP07_v1"),
+        "AC_EXP07_v2": _ac_stage2_entries("AC_EXP07_v2"),
     },
 }
 
