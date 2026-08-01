@@ -38,7 +38,13 @@ if str(_SCRIPTS) not in sys.path:
 
 import _action_eval  # noqa: E402
 import _hungarian_eval  # noqa: E402
+import _state_diff_eval  # noqa: E402
 import thought_eval  # noqa: E402
+from _prompt_sections import (  # noqa: E402
+    REQUIRED_SECTIONS,
+    SECTION_MARKERS,
+    parse_prompt,
+)
 
 REPO = _SCRIPTS.parent
 KST = timezone(timedelta(hours=9))
@@ -54,7 +60,8 @@ except ImportError:  # bs4 없는 환경 — 파서 단위 테스트만 돌 때
 
 # state 예측이 vllm 기본값 1024 토큰에서 잘리던 버그의 수정 시각 (UTC).
 # 이보다 오래된 leaf 의 state prediction 은 하드 컷이라 hungarian 계열 수치가 무효다.
-MAX_NEW_TOKENS_FIX_UTC = datetime(2026, 7, 28, 23, 38, tzinfo=UTC)
+# 정본은 `_state_diff_eval` — 절단 판정을 두 군데 두면 언젠가 조용히 갈린다.
+MAX_NEW_TOKENS_FIX_UTC = _state_diff_eval.MAX_NEW_TOKENS_FIX_UTC
 
 # xy 통일 액션 스페이스 계열 — 채점 모드가 다르다 (scripts/stage1_eval.sh 와 정합).
 XY_FAMILY = {"AC_EXP05", "AC_EXP06", "AC_EXP07_v1", "AC_EXP07_v2"}
@@ -67,36 +74,10 @@ TASK_TITLE = {
 
 
 # ── 프롬프트 파싱 ────────────────────────────────────────────────────────
-# GT 프롬프트는 두 계열이다 (2026-08-01 전수 실측):
-#   A) EXP01~04 : '## Current State' / '## Next State' / '## Action'
-#   B) EXP05~07 : 'Current UI State:' / 'Next UI State:' / 'Action:' /
-#                 'Task Instruction:' / 'Action History:'
-# 한 계열만 보는 파서는 다른 계열에서 조용히 빈 문자열을 돌려준다 — 그 실패 모드가
-# woa 필터 사고였으므로 여기서는 계열을 모두 등록하고 실패를 카운트해 터뜨린다.
-_SECTION_MARKERS: list[tuple[str, str]] = [
-    ("current_state", r"^##\s*Current State\s*$"),
-    ("current_state", r"^Current UI State:\s*$"),
-    ("next_state", r"^##\s*Next State\s*$"),
-    ("next_state", r"^Next UI State:\s*$"),
-    ("action", r"^##\s*Action\s*$"),
-    ("action", r"^Action:\s*$"),
-    ("instruction", r"^Task Instruction:\s*$"),
-    ("history", r"^Action History:\s*$"),
-]
-_MARKER_RE = re.compile(
-    "|".join(f"(?P<g{i}>{pat})" for i, (_, pat) in enumerate(_SECTION_MARKERS)),
-    re.MULTILINE,
-)
-_SCREENSHOT_LINE_RE = re.compile(r"^\[[^\]\n]*Screenshot\]\s*$", re.MULTILINE)
-_ROLE_USER_RE = re.compile(r"^user\s*$", re.MULTILINE)
-_ROLE_ASSISTANT_RE = re.compile(r"^assistant\s*$", re.MULTILINE)
-
-# 필수 섹션 — 없으면 파싱 실패로 집계한다.
-REQUIRED_SECTIONS = {
-    "state": ("current_state", "action"),
-    "action": ("current_state", "next_state"),
-    "stage2": ("current_state", "instruction"),
-}
+# 파서 본체는 `_prompt_sections` 한 벌뿐이다 — 여기와 `_state_diff_eval` 이 각자
+# 복제본을 들면 계열이 하나 더 생겼을 때 한쪽만 고쳐지고 다른 쪽이 조용히 틀린다.
+# (그 실패 모드가 woa 필터 사고였다.) 아래 이름들은 기존 호출부 호환용 재수출이다.
+_SECTION_MARKERS = SECTION_MARKERS
 
 
 def detect_layout(prompt: str, kind: str) -> str:
@@ -114,30 +95,6 @@ def detect_layout(prompt: str, kind: str) -> str:
     if sections.get("instruction"):
         return "stage2"
     return "action"
-
-
-def parse_prompt(prompt: str) -> dict[str, str]:
-    """prompt 문자열의 user 파트를 섹션 dict 로 분해한다. 실패 시 빈 값이 남는다."""
-    body = prompt
-    m_user = _ROLE_USER_RE.search(body)
-    if m_user is not None:
-        body = body[m_user.end() :]
-    for m_asst in reversed(list(_ROLE_ASSISTANT_RE.finditer(body))):
-        body = body[: m_asst.start()]
-        break
-
-    hits = []
-    for m in _MARKER_RE.finditer(body):
-        idx = int(m.lastgroup[1:])
-        hits.append((m.start(), m.end(), _SECTION_MARKERS[idx][0]))
-
-    out: dict[str, str] = {}
-    for i, (_, end, name) in enumerate(hits):
-        stop = hits[i + 1][0] if i + 1 < len(hits) else len(body)
-        chunk = _SCREENSHOT_LINE_RE.sub("", body[end:stop]).strip()
-        if chunk and name not in out:
-            out[name] = chunk
-    return out
 
 
 def _parse_action_blob(raw: str):
