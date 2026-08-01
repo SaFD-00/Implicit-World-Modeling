@@ -45,20 +45,21 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import sys
 from collections import Counter
 from pathlib import Path
 
-# bs4 / munkres 는 score 서브커맨드에서만 사용. 지연 로딩.
+# bs4 / 할당 솔버는 score 서브커맨드에서만 사용. 지연 로딩.
 BeautifulSoup = None  # type: ignore
 NavigableString = None  # type: ignore
-Munkres = None  # type: ignore
+_solve = None  # type: ignore
 
 
 def _lazy_deps():
-    """bs4 / munkres 를 지연 로드. score 서브커맨드 진입 시 한 번 호출."""
-    global BeautifulSoup, NavigableString, Munkres
+    """bs4 / Hungarian 솔버를 지연 로드. score 서브커맨드 진입 시 한 번 호출."""
+    global BeautifulSoup, NavigableString, _solve
     if BeautifulSoup is None:
         from bs4 import BeautifulSoup as _BS
 
@@ -67,10 +68,39 @@ def _lazy_deps():
         from bs4 import NavigableString as _NS
 
         NavigableString = _NS
-    if Munkres is None:
-        from munkres import Munkres as _M
+    if _solve is None:
+        _solve = _make_solver()
 
-        Munkres = _M
+
+def _make_solver():
+    """Hungarian 할당 솔버를 고른다 — scipy(C) 우선, 없으면 munkres(순수 파이썬).
+
+    munkres 는 순수 파이썬이라 비용 행렬이 커지면 급격히 느려진다. 2026-07-30 실측:
+    200×200 은 2.5초인데 600×600 은 **123초**(scipy 대비 12,496배)다. state 예측 트리는
+    p99 가 1,000 노드를 넘어서, EXP01 7B 한 leaf 채점에 **11시간 이상**이 걸렸다.
+
+    ⚠️ 두 구현은 **완전히 같은 값을 주지 않는다.** 최적 총비용은 같지만 동점 쌍의 배정이
+    갈릴 수 있어, 위치 기반 지표가 미세하게 움직인다. 2026-07-30 EXP07 v2 ep1(n=3,941)
+    실측 비교: `hung_f1`·`prec`·`ea`·`text`·`em` 은 **완전 동일**, `pos` 만 4번째 소수점에서
+    +0.0002~0.0004 차이. 사용자 승인(2026-07-31) 후 scipy 로 통일하고 기존 산출물도
+    재채점해 한 체제로 맞췄다 — 두 구현의 값을 섞어 비교하지 말 것.
+
+    그래서 scipy 는 pyproject 의 정식 의존성이다. munkres 분기는 그 의존성이 빠진
+    환경에서도 채점이 죽지 않게 하는 안전망일 뿐이고, 정본 산출 경로가 아니다.
+    """
+    try:
+        import numpy as np
+        from scipy.optimize import linear_sum_assignment
+
+        def solve(padded):
+            r, c = linear_sum_assignment(np.asarray(padded, dtype=float))
+            return list(zip(r.tolist(), c.tolist()))
+
+        return solve
+    except ImportError:  # scipy 가 없는 환경 대비한 안전망
+        from munkres import Munkres
+
+        return lambda padded: Munkres().compute(padded)
 
 
 # ── Hungarian Metric 상수 (Cell 25 상수 복제) ──────────────────────────────
@@ -252,7 +282,7 @@ def _hungarian_match(pred, gt, match_mode="index"):
     padded = [row + [threshold * 2] * (size - len(row)) for row in matrix]
     while len(padded) < size:
         padded.append([threshold * 2] * size)
-    indexes = Munkres().compute(padded)
+    indexes = _solve(padded)
     pairs = []
     for i, j in indexes:
         if i < n and j < m and matrix[i][j] < threshold:
@@ -433,40 +463,78 @@ def evaluate_pairs(gt_entries, pred_entries, match_mode="index"):
     }
 
 
-# ── open_app 등 GT action.type 기준 행 필터링 ────────────────────────────
+# ── open_app 등 GT action type 기준 행 필터링 ────────────────────────────
+# GT 의 action 표현은 데이터셋마다 두 계열이고 키 이름도 다르다 (2026-07-30 전수 실측):
+#   A) EXP01/02/03 : '## Action\n{"action_type": "open_app", "app_name": "..."}'
+#   B) EXP05/07    : 'Action:\n<action>{"action": "open", "app_name": "..."}</action>'
+# 이전 구현은 A 의 마커만 찾고 .get("type") 만 읽었다. A 는 키가 action_type 이고 B 는
+# 마커·키가 둘 다 달라서 두 계열 모두 None 을 돌려줬고, 그 결과 --exclude-action 이
+# 전 실험에서 단 한 행도 거르지 못했다 — on-*-state-without-open_app 산출물이
+# on-*-state 와 byte-identical(9/9) 이었던 원인이 이것이다.
 ACTION_MARKER = "## Action\n"
+ACTION_TAG_RE = re.compile(r"<action>(.*?)</action>", re.S)
+_TYPE_KEYS = ("action_type", "type", "action")
+
+# xy 통합 액션 스페이스(EXP05/07)에서 open_app 이 open 으로 개명됐다. 같은 행에 같은
+# app_name 을 실어 나르는 동일 액션이라, --exclude-action open_app 이 양쪽을 함께
+# 걸러야 EXP 간 ablation 정의가 일치한다.
+ACTION_ALIASES = {"open": "open_app"}
 
 
 def _gt_action_type(rec):
-    """GT entry 의 user 메시지에서 ## Action 블록 type 을 추출."""
+    """GT entry 의 user 메시지에서 action type 을 뽑아 정규화된 이름으로 돌려준다."""
     text = rec["messages"][1]["value"]
+    blobs = []
     idx = text.find(ACTION_MARKER)
-    if idx < 0:
-        return None
-    raw = text[idx + len(ACTION_MARKER) :].strip()
-    try:
-        return json.loads(raw).get("type")
-    except json.JSONDecodeError:
-        return None
+    if idx >= 0:
+        blobs.append(text[idx + len(ACTION_MARKER) :].strip())
+    m = ACTION_TAG_RE.search(text)
+    if m:
+        blobs.append(m.group(1).strip())
+    for raw in blobs:
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(d, dict):
+            continue
+        for key in _TYPE_KEYS:
+            val = d.get(key)
+            if isinstance(val, str):
+                return ACTION_ALIASES.get(val, val)
+    return None
 
 
 def _filter_pairs(gts, preds, exclude_action):
     """exclude_action 과 일치하는 GT 행을 양쪽에서 동시 drop."""
     if not exclude_action:
         return list(gts), list(preds)
-    keep = [i for i, gt in enumerate(gts) if _gt_action_type(gt) != exclude_action]
+    target = ACTION_ALIASES.get(exclude_action, exclude_action)
+    keep = [i for i, gt in enumerate(gts) if _gt_action_type(gt) != target]
     return [gts[i] for i in keep], [preds[i] for i in keep]
 
 
 def _write_jsonl_idempotent(records, path):
-    """이미 존재하면 no-op. 없으면 atomic 하게 jsonl 저장."""
+    """이미 존재하면 no-op. 없으면 atomic 하게 jsonl 저장.
+
+    filtered-test-dir 은 여러 leaf 가 공유하므로, 배치 재산출(rebuild_woa_metrics.sh)
+    에서 같은 datadir 을 노리는 프로세스가 동시에 이 경로를 쓴다. 직접 open("w") 하면
+    반쯤 쓰인 파일을 다른 프로세스가 exists() 로 보고 넘어가 잘린 jsonl 이 남는다.
+    임시 파일에 다 쓴 뒤 rename 하면 관측되는 상태는 "없음" 아니면 "완성본" 뿐이다.
+    """
     p = Path(path)
     if p.exists():
         return
     p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("w", encoding="utf-8") as f:
-        for r in records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    tmp = p.with_name(f".{p.name}.tmp-{os.getpid()}")
+    try:
+        with tmp.open("w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        os.replace(tmp, p)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def _filtered_test_name(src_path, exclude_action):

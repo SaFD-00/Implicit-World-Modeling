@@ -28,6 +28,12 @@ dependencies = [
   "sentencepiece",
   "tiktoken",
   "beautifulsoup4",
+  # _hungarian_eval.py 의 정본 할당 솔버. 디스크의 hungarian_metrics.json 은 전부
+  # scipy 로 산출됐고, munkres 로 떨어지면 동점 배정이 갈려 `pos` 가 소수 4째 자리에서
+  # 움직인다. 빠지면 지표가 조용히 어긋나므로 명시 의존성이어야 한다.
+  "scipy",
+  # scripts/diff_loss/hungarian_metric{,_v2}.py 가 hard-import (학습 시 token weight
+  # 생성기). _hungarian_eval.py 에서는 scipy 부재 시 폴백으로만 쓴다.
   "munkres",
   "rouge",
   "lxml",
