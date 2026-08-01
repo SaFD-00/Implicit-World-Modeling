@@ -31,6 +31,8 @@
 #   _hungarian_eval.py score --exclude-action open_app 한 번을 더 돌려
 #   sibling on-{EVAL_DS}-without-open_app/ 디렉토리에 필터된 jsonl + 메트릭을 산출.
 #   skip marker 가 별도라서 정규/필터 각각 독립 idempotent.
+#   EVAL_SKIP_WOA=1 로 이 단계를 통째로 끌 수 있다 — GPU 를 안 쓰면서 job 을 붙잡는
+#   구간이라, 배치로 몰아 돌리려면 scripts/rebuild_woa_metrics.sh 를 쓴다.
 #   주의: AC_EXP01-action 분기는 _action_eval.py 가 --exclude-action 미지원이라 woa 미산출.
 #
 # 산출물:
@@ -73,8 +75,12 @@ run_exp01_eval() {
     action_mode_flag="--coord-mode xy"
   fi
 
+  # EVAL_TASKS (공백 구분, 기본 "state action") 로 task 를 좁힐 수 있다. state 와 action 은
+  # skip marker / 산출 디렉토리가 서로 독립이라, 두 값을 각각 다른 GPU 프로세스에 배정해
+  # (CUDA_VISIBLE_DEVICES=0 EVAL_TASKS=state / =1 EVAL_TASKS=action) 병렬 평가가 가능하다.
+  # 미설정 시 기존 동작(state → action 순차) 그대로.
   local task subtag scorer metrics_name mode_flag
-  for task in state action; do
+  for task in ${EVAL_TASKS:-state action}; do
     local out_rel="${out_rel_base}/on-${eval_ds}-${task}"
     local out_dir="$LF_ROOT/$out_rel"
     subtag="${SCRIPT_TAG}_${model_short}_${train_ds}_${variant}"
@@ -113,6 +119,29 @@ run_exp01_eval() {
     local ds_test_id="${eval_prefix}_stage1_test_id_${task}"
     local ds_test_ood="${eval_prefix}_stage1_test_ood_${task}"
 
+    # EVAL_SKIP_SCORE=1 이면 생성만 하고 채점은 배치(scripts/rebuild_eval_metrics.sh)로
+    # 미룬다. 채점은 단일 스레드 CPU 작업인데 job 안에 있으면 그동안 GPU 가 통째로 논다 —
+    # 2026-07-30 실측으로 EXP01 7B ep1 은 생성 2h41m + 채점 2h08m 이라 wall 의 44% 가
+    # GPU 유휴였다. 이때는 metrics 가 안 생기므로 skip 기준을 predictions 완성 여부로
+    # 바꾼다. vLLM 은 split 을 다 돌고 나서야 jsonl 을 쓰므로 "줄 수 == test 행 수"가
+    # 완성의 충분조건이다 (반쯤 쓰인 파일은 줄 수가 모자라 다시 생성된다).
+    #
+    # ⚠️ 줄 수만으로 판단하면 안 된다. 재측정 대기 중인 구 predictions 는 1024 로 잘렸거나
+    # 시드 없이 뽑혔어도 **행 수는 온전**하다 (2026-07-30 실측 37 leaf). 줄 수만 보면 그것들을
+    # "완성"으로 오인해 재생성을 건너뛰고, 배치가 무효 predictions 를 채점해 정본 자리에
+    # 쓴다. 그래서 이 코드 경로가 직접 남긴 마커(.gen_done)가 있을 때만 건너뛴다.
+    if [[ "${EVAL_SKIP_SCORE:-0}" == "1" && -f "$out_dir/.gen_done" ]]; then
+      local n_id n_ood
+      n_id=$(wc -l < "$out_dir/generated_predictions_id.jsonl" 2>/dev/null || echo 0)
+      n_ood=$(wc -l < "$out_dir/generated_predictions_ood.jsonl" 2>/dev/null || echo 0)
+      if [ "$n_id" -eq "$(wc -l < "$test_id")" ] && [ "$n_ood" -eq "$(wc -l < "$test_ood")" ]; then
+        echo "[=] [$subtag] skip (생성 완료 마커 확인 ${n_id}/${n_ood} · 채점은 배치 위임)" >&2
+        continue
+      fi
+      echo "[!] [$subtag] .gen_done 은 있으나 predictions 가 불완전(${n_id}/${n_ood}) — 재생성한다" >&2
+      rm -f "$out_dir/.gen_done"
+    fi
+
     build_infer_cmd "$model_short" "$hub_id" "$ds_test_id" \
       "$test_id" "$template" \
       "$out_rel/generated_predictions_id.jsonl" \
@@ -124,10 +153,7 @@ run_exp01_eval() {
       "$out_rel/predict_results_ood.json" "$infer_mnt"
     local infer_ood="$INFER_CMD"
 
-    run_logged "$subtag" \
-      bash -c "cd '$LF_ROOT' && mkdir -p '$out_rel' && \
-        $infer_id && \
-        $infer_ood && \
+    local score_step=" && \
         python '$BASE_DIR/scripts/$scorer' score \
           --test-id  '$test_id' \
           --pred-id  '$out_dir/generated_predictions_id.jsonl' \
@@ -135,9 +161,23 @@ run_exp01_eval() {
           --pred-ood '$out_dir/generated_predictions_ood.jsonl' \
           $mode_flag \
           --output   '$out_dir/$metrics_name'"
+    # 채점을 미룰 때는 대신 생성 완료 마커를 남긴다. 이 마커가 "이 predictions 는 현재
+    # 예산·시드 설정으로 방금 뽑은 것"이라는 유일한 증거이고, 배치 채점의 대상 선정 기준이다.
+    if [[ "${EVAL_SKIP_SCORE:-0}" == "1" ]]; then
+      score_step=" && printf 'generated_at=%s\\nmax_new_tokens=%s\\nseed=%s\\nmodel=%s\\n' \\
+        \"\$(date -u +%FT%TZ)\" '$infer_mnt' \"\${VLLM_SEED:-42}\" '$hub_id' > '$out_dir/.gen_done'"
+    fi
+
+    run_logged "$subtag" \
+      bash -c "cd '$LF_ROOT' && mkdir -p '$out_rel' && \
+        $infer_id && \
+        $infer_ood${score_step}"
 
     # without_open_app sibling: state task 만 (hungarian_eval 만 --exclude-action 지원).
-    if [[ "$task" == "state" ]]; then
+    # EVAL_SKIP_WOA=1 이면 건너뛴다. 이 채점은 GPU 를 한 톨도 안 쓰면서 job 을 30~60 분
+    # 붙잡고, 그동안 이 GPU 는 논다. 추론 재실행이 필요 없는 순수 재채점이라
+    # scripts/rebuild_woa_metrics.sh 로 나중에 CPU 만 써서 일괄 산출해도 결과가 같다.
+    if [[ "$task" == "state" && "${EVAL_SKIP_WOA:-0}" != "1" && "${EVAL_SKIP_SCORE:-0}" != "1" ]]; then
       local out_rel_woa="${out_rel}-without-open_app"
       local out_dir_woa="$LF_ROOT/$out_rel_woa"
       local tag_woa="${subtag}_without_open_app"
@@ -221,7 +261,8 @@ run_variant_epoch_eval_on() {
   local out_rel_woa="${out_rel}-without-open_app"
   local out_dir_woa="$LF_ROOT/$out_rel_woa"
   local tag_woa="${tag}_without_open_app"
-  if ! skip_if_done "$tag_woa" "$out_dir_woa/hungarian_metrics.json"; then
+  if [[ "${EVAL_SKIP_WOA:-0}" != "1" ]] && \
+     ! skip_if_done "$tag_woa" "$out_dir_woa/hungarian_metrics.json"; then
     run_logged "$tag_woa" \
       bash -c "cd '$LF_ROOT' && mkdir -p '$out_rel_woa' && \
         python '$BASE_DIR/scripts/_hungarian_eval.py' score \
