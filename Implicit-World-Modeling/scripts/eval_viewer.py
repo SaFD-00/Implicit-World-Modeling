@@ -84,7 +84,33 @@ STATE_METRIC_KEYS = [
     "avg_hungarian_pos",
     "predict_bleu-4",
     "predict_rouge-l",
+    # ── state-diff (copy-bias) 진단 — state_diff_metrics.json ──────────────
+    # hungarian 계열은 예측 전체를 GT 전체와 맞춘다. next-state 는 current 와 대부분
+    # 겹치므로 **current 를 베끼기만 해도 f1 이 높다.** 아래 키가 그 구분을 만든다.
+    # avg_copy_excess 가 판별량 — 0 근처면 "GT 가 겹치는 만큼만 겹쳤다", 큰 양수면
+    # "바뀌었어야 할 자리까지 베꼈다". 2026-07-28 23:38 UTC 이전 leaf 는 예측이
+    # 1024 로 잘려 element 수가 줄어 copy_rate 가 과소평가되므로 산출하지 않는다
+    # (그래서 구 leaf 는 이 컬럼이 비는 게 정상이다).
+    "avg_diff_recall",
+    "avg_added_recall",
+    "avg_modified_recall",
+    "avg_unchanged_recall",
+    "avg_diff_f1",
+    "avg_copy_rate_pred",
+    "avg_copy_rate_gt",
+    "avg_copy_excess",
+    "copy_near_rate",
+    "unclosed_root_rate",
 ]
+
+
+# state leaf 의 metric_files 에 공통으로 붙는 state-diff 산출. section 은 호출부에서
+# hungarian_metrics.json 과 **같은 값**을 준다 — load_metrics 의 section 조회는 부재를
+# silent skip 하므로, 어긋나면 표에 빈칸만 뜨고 아무도 오류를 못 본다.
+def _state_diff_file(section: str | None) -> tuple[str, str | None]:
+    return ("state_diff_metrics.json", section)
+
+
 ACTION_METRIC_KEYS = [
     "total",
     "parse_rate",
@@ -115,6 +141,7 @@ def _ac_stage1_entries(exp: str) -> dict:
             "metric_files": [
                 ("predict_results_id.json", None),
                 ("hungarian_metrics.json", "in_domain"),
+                _state_diff_file("in_domain"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -125,6 +152,7 @@ def _ac_stage1_entries(exp: str) -> dict:
             "metric_files": [
                 ("predict_results_ood.json", None),
                 ("hungarian_metrics.json", "out_of_domain"),
+                _state_diff_file("out_of_domain"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -135,6 +163,7 @@ def _ac_stage1_entries(exp: str) -> dict:
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "in_domain"),
+                _state_diff_file("in_domain"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -145,6 +174,7 @@ def _ac_stage1_entries(exp: str) -> dict:
             "metric_files": [
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "out_of_domain"),
+                _state_diff_file("out_of_domain"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -182,6 +212,8 @@ def _mb_stage1_entries() -> dict:
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", None),  # single-pair: top-level flat
                 ("hungarian_metrics.json", "overall"),  # 호환: 혹시 nested 면 overall
+                _state_diff_file(None),
+                _state_diff_file("overall"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -193,6 +225,8 @@ def _mb_stage1_entries() -> dict:
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", None),
                 ("hungarian_metrics.json", "overall"),
+                _state_diff_file(None),
+                _state_diff_file("overall"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -210,6 +244,8 @@ def _mc_stage1_entries() -> dict:
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", None),
                 ("hungarian_metrics.json", "overall"),
+                _state_diff_file(None),
+                _state_diff_file("overall"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },

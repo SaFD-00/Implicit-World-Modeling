@@ -8,6 +8,9 @@ Ported from the Stage 1 evaluation section of the project notebook
 Subcommand
 ----------
 score   : prediction.jsonl 의 평균 메트릭 계산 → hungarian_metrics.json 저장.
+          같은 실행에서 sibling `state_diff_metrics.json`(copy-bias 진단)도 함께 낸다
+          — state 예측은 current state 를 베끼기만 해도 hungarian_f1 이 높게 나오므로
+          두 지표를 같이 봐야 "예측"과 "복사"가 갈린다. `--skip-state-diff` 로 끈다.
           ID/OOD 파일이 주어지면 overall/in_domain/out_of_domain 3-섹션 출력.
           --exclude-action ACTION 으로 GT action.type==ACTION 행을 양쪽에서 동시 drop
           후 메트릭 계산. 정규 eval 의 generated_predictions*.jsonl 을 그대로 입력으로
@@ -669,6 +672,59 @@ def _cmd_score(args):
         with pr_path.open("w", encoding="utf-8") as f:
             json.dump(predict_results, f, ensure_ascii=False, indent=4)
         print(f"[score] saved: {pr_path}")
+
+    # ── state-diff (copy-bias) 진단을 같은 실행에서 함께 산출 ──────────────
+    # hungarian_metrics.json 에 키를 더하지 않고 sibling 파일로 낸다. 기존 30개
+    # 산출물이 없는 키를 갖게 되면 스키마 세계가 둘로 갈리고 eval_viewer 의
+    # STATE_METRIC_KEYS·노션 표가 전부 영향받는다. predict_results.json 과 같은 패턴.
+    #
+    # 정본 산출(hungarian_metrics.json)을 **먼저 쓴 뒤에** 계산한다. state-diff 는
+    # 프롬프트 파싱 실패를 조용히 넘기지 않고 터뜨리는데, 그때 정본 채점까지 날아가면
+    # 안 되기 때문이다.
+    if not args.skip_state_diff:
+        rc = _write_state_diff(args, out_path, split_mode, match_mode, exclude)
+        if rc:
+            return rc
+    return 0
+
+
+def _write_state_diff(args, out_path, split_mode, match_mode, exclude) -> int:
+    """state_diff_metrics.json 을 hungarian_metrics.json 과 같은 섹션 구조로 저장."""
+    import _state_diff_eval as _sd
+
+    sd_path = out_path.parent / "state_diff_metrics.json"
+
+    # 절단(1024) 예측은 copy_rate 를 **한쪽으로** 과소평가하므로 아예 내지 않는다.
+    # 가드는 채점 경로 안에 있어야 한다 — 백필 스크립트에만 두면
+    # rebuild_woa_metrics.sh → 이 함수 경로가 그대로 통과해 편향된 산출물이 생긴다.
+    reason = _sd.truncated_reason(args.pred, args.pred_id, args.pred_ood)
+    if reason:
+        print(f"[score] state-diff 건너뜀 — {reason}", file=sys.stderr)
+        return 0
+
+    try:
+        if split_mode:
+            gt_id, pr_id = _filter_pairs(
+                _load_jsonl(args.test_id), _load_jsonl(args.pred_id), exclude
+            )
+            gt_ood, pr_ood = _filter_pairs(
+                _load_jsonl(args.test_ood), _load_jsonl(args.pred_ood), exclude
+            )
+            sd_metrics = _sd.build_metrics(gt_id, pr_id, gt_ood, pr_ood, match_mode)
+            for sec in ("overall", "in_domain", "out_of_domain"):
+                _sd._print_row(sec, sd_metrics[sec])
+        else:
+            gts, preds = _filter_pairs(
+                _load_jsonl(args.test), _load_jsonl(args.pred), exclude
+            )
+            sd_metrics = _sd.evaluate_pairs(gts, preds, match_mode)
+            _sd._print_row("all", sd_metrics)
+    except _sd.StateDiffError as e:
+        print(f"[score] state-diff 실패 — {sd_path} 미생성: {e}", file=sys.stderr)
+        return 3
+    with sd_path.open("w", encoding="utf-8") as f:
+        json.dump(sd_metrics, f, ensure_ascii=False, indent=2)
+    print(f"[score] saved: {sd_path}")
     return 0
 
 
@@ -731,6 +787,15 @@ def main():
         dest="filtered_pred_dir",
         help="--exclude-action 과 함께. 필터된 prediction jsonl 을 이 디렉토리에 "
         "generated_predictions{,_id,_ood}.jsonl 로 idempotent 저장.",
+    )
+    p_score.add_argument(
+        "--skip-state-diff",
+        action="store_true",
+        dest="skip_state_diff",
+        help="state_diff_metrics.json 산출을 건너뛴다. 기본값은 정본 채점과 **함께** "
+        "내는 것이다 — state 예측은 current state 를 베끼기만 해도 hungarian_f1 이 "
+        "높게 나오므로, 두 지표는 같이 봐야 의미가 있다. 절단(2026-07-28 23:38 UTC "
+        "이전) 예측을 재채점할 때처럼 copy_rate 가 과소평가되는 게 확실한 경우에만 끈다.",
     )
     p_score.set_defaults(func=_cmd_score)
 
