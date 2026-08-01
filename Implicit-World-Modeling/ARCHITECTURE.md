@@ -515,7 +515,10 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 | [`scripts/filter_long_samples.py`](./scripts/filter_long_samples.py) | mm-expanded length > cutoff 제거 (`--report-only` 로 측정만). `--image-max-pixels` 기본값 2097152 는 **Qwen3-VL 기준** — Qwen2.5-VL 대상이면 1605632 로 override |
 | [`scripts/mirror_experiment.py`](./scripts/mirror_experiment.py) | `--experiment {exp03,exp04,exp05}` 통합 미러 (EXP01 ratio73 멤버십 → 좌표 표현) |
 | [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py) | **EXP05 빌드 정본** (mirror → diff-loss 가중 → 원자 교체 + sidecar) |
-| [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) | Stage 1 metric (`score` 서브커맨드) |
+| [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) | Stage 1 metric (`score` 서브커맨드). `state_diff_metrics.json` 도 같은 실행에서 함께 낸다 |
+| [`scripts/_state_diff_eval.py`](./scripts/_state_diff_eval.py) | Stage 1 copy-bias 진단 (`copy_excess` / `diff_recall`) — 백필용 `score` CLI 겸용 |
+| [`scripts/_prompt_sections.py`](./scripts/_prompt_sections.py) | 프롬프트 두 계열(`## Current State` / `Current UI State:`) 섹션 파서 — **한 벌만 존재해야 한다** (§6 woa 사고) |
+| [`scripts/rebuild_state_diff_metrics.sh`](./scripts/rebuild_state_diff_metrics.sh) | 구 leaf 의 `state_diff_metrics.json` 백필 (GPU 미사용, 절단 leaf 자동 제외) |
 | [`scripts/_action_eval.py`](./scripts/_action_eval.py) | Stage 2 metric, ID/OOD/overall 3 섹션 |
 | [`scripts/eval_viewer.py`](./scripts/eval_viewer.py) | 비교 HTML 빌더. `--include EXP:MODEL` 다중 spec — ① **pairs 모드**(기본): 단일 EXP 자체 비교 + EXP 간 동급 stage cross-compare (산출 `outputs/_compare/stage{N}_eval/`) ② **site 모드**(`--site`): EXP 별 정성 비교 사이트 (산출 `outputs/_compare/{on_ac_expNN}_stage{N}_{state\|action}_compare/`) |
 | [`scripts/_compare_site.py`](./scripts/_compare_site.py) | site 모드 빌더 (프롬프트 파서 · 표본 추출 · 행 단위 채점 · HTML/README 템플릿) |
@@ -639,6 +642,31 @@ outputs/{OUT_DS}/                # AndroidControl_EXP0{1..5} | MC.  AC_EXP01 의
 
 > **dual-task 분기 (Stage 1 한정)**: EVAL_DS 가 AC_EXP01~AC_EXP05 · AC_EXP07 (`_DUAL_TASK_TEST`) 이면 `state_pred` 와 `action_pred` 를 **각각 독립 채점**한다 — `on-{DS}-state/hungarian_metrics.json` (Stage1 채점기) + `on-{DS}-action/action_metrics.json` (**Stage2 채점기**). 각 task 가 (id, ood) 2 파일을 가지므로 inference 는 4 회. without_open_app sibling 은 state branch 만.
 > **Stage 2 의 EVAL_DS 는 dual-task 가 아니다** — 일반 action prediction 으로 `stage2_test_{id,ood}.jsonl` 을 함께 채점해 3 섹션을 낸다. AC_EXP01 의 test 4 파일은 ratio 와 무관하다 (ratio 차원은 학습 산출물에만 박힌다).
+
+### Stage 1 보조 — `state_diff_metrics.json` (copy-bias 진단, 2026-08-01 신설)
+
+`hungarian_f1` 만으로는 **"예측했다" 와 "입력을 베꼈다" 가 구분되지 않는다.** next-state 는 current state 와 대부분 겹치므로 — 한 번의 클릭이 화면 전체를 바꾸지는 않으므로 — current 를 그대로 출력하기만 해도 f1 이 높게 나온다. 그래서 채점기에 **current state 를 세 번째 인자로** 주는 보조 지표를 뒀다.
+
+정본은 [`scripts/_state_diff_eval.py`](./scripts/_state_diff_eval.py) 이고, **`_hungarian_eval.py score` 가 같은 실행에서 sibling `state_diff_metrics.json` 을 함께 낸다** (`--skip-state-diff` 로만 끈다). 섹션 구조는 `hungarian_metrics.json` 과 동일하다.
+
+| 키 | 뜻 |
+|---|---|
+| `avg_copy_excess` | **판별량.** `copy_rate_pred − copy_rate_gt`. 0 근처면 "GT 가 겹치는 만큼만 겹쳤다", 큰 양수면 "바뀌었어야 할 자리까지 베꼈다" |
+| `avg_diff_recall` | GT 의 변경분(MODIFIED+ADDED) 중 예측이 맞힌 비율 — 헤드라인 |
+| `avg_added_recall` | ADDED 만. current 에 없던 요소라 **순수 예측력** |
+| `avg_modified_recall` / `avg_unchanged_recall` | 나머지 두 층 |
+| `avg_diff_f1` | precision 분모를 pred-side diff 로 대칭화한 F1 (recall 과 정의가 다른 별도 키) |
+| `avg_copy_rate_pred` / `avg_copy_rate_gt` | 예측·GT 가 각각 current 와 겹치는 비율 |
+| `copy_near_rate` | 예측이 current 와 사실상 동일(`hungarian_f1 ≥ 0.98`)한 행의 비율 |
+| `unclosed_root_rate` | 예측이 root tag 를 안 닫고 끝난 비율 — 절단 sanity |
+
+- **recall 3 층은 정본 `avg_hungarian_rec` 의 정확한 분해다** — `pred↔gt` 매칭을 한 번만 하고 GT 를 diff 유형으로 나눠 세기 때문이다. `tests/test_state_diff_eval.py::TestStratumInvariant` 가 이 항등식을 고정한다. diff 부분집합을 따로 매칭하면 UNCHANGED 에 붙었어야 할 예측 요소가 MODIFIED 로 재배정되며 recall 이 부풀어 성질이 깨진다.
+- **`copy_rate` 를 단독으로 읽지 마라.** 완벽한 예측도 `copy_rate_pred` 가 0.78 쯤 나온다 (GT 자체가 그만큼 겹치므로). 반드시 `copy_excess` 로 본다.
+- **UNCHANGED 판정은 `diff_loss/hungarian_diff_v2` 와 의도적으로 다르다.** 그쪽은 `match_cost ≤ 0.05` 인데 그 임계는 pos cost 스케일 기준이라 index 모드에서는 index 만 밀린 요소가 MODIFIED 로 새어 EXP01 과 EXP05 가 비교 불가가 된다. 여기서는 mode 독립 기준(`text_sim == 1.0`)을 쓴다. `diff_loss/` 는 학습 데이터 생성 경로라 건드리지 않는다 (§7 함정 10).
+- **`n_gt_added` 같은 층 크기는 EXP 간 비교 불가다.** 층 분류가 매칭 임계값에 의존하는데 그 임계가 모드마다 다르다: 텍스트가 통째로 바뀌면 cost 가 정확히 `W_TEXT`(1.5)인데 index 의 `MATCH_THRESHOLD` 도 1.5 이고 판정이 `cost < threshold` 라 매칭이 떨어져 **ADDED**, pos 는 threshold 1.7 이라 **MODIFIED** 다. **같은 `index` 모드 안에서도 갈린다** — EXP01 은 진짜 `index` 속성을 갖지만 EXP03/04 는 `bounds` 만 있어 index cost 가 항상 0 으로 죽어 있다 (정본 채점기의 기존 동작이며 여기서 고치지 않는다). recall 값 자체는 층 분해라 안전하다.
+
+> ⚠️ **함정 19 — 절단(1024) leaf 에는 산출하지 않는다.** 2026-07-28 23:38 UTC 이전 예측은 잘려서 element 수가 줄고, 그러면 `copy_rate_pred` 가 **과소평가**된다 — 하필 이 지표가 재려는 방향으로 편향되어 실제보다 "덜 베낀 것처럼" 보인다. hungarian 계열이 그냥 무효인 것과 달리 **한쪽으로 틀린다.**
+> 가드는 **채점기 안**에 있다 — `_state_diff_eval.truncated_reason()` 이 `score` 진입부에서 검사하고, `_hungarian_eval._write_state_diff` 도 같은 함수를 부른다. 백필 스크립트에만 뒀다면 `rebuild_woa_metrics.sh → _hungarian_eval score` 경로가 그대로 통과해 편향된 산출물이 woa sibling 에 생겼을 것이다. 경계 상수 `MAX_NEW_TOKENS_FIX_UTC` 의 정본도 `_state_diff_eval` 한 곳이고 `_compare_site` 가 그것을 재수출한다. `--include-truncated` 로만 강제한다. **구 leaf 에 이 컬럼이 비는 것은 정상이다.**
 
 ### Stage 2 — `action_metrics.json`
 

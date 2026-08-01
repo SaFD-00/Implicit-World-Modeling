@@ -3,6 +3,15 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-08-01 — IWM: state-diff(copy-bias) 채점기 신설 — `hung_f1` 이 "예측"과 "입력 복사"를 못 가르던 문제
+
+next-state 는 current state 와 대부분 겹쳐(GT 기준 `copy_rate_gt` 0.77~0.79) **current 를 그대로 베끼기만 해도 `hung_f1` 이 높게 나온다** — 학습이 world model 을 배운 건지 "입력 복사" 지름길을 배운 건지 기존 지표로는 구분할 수 없었다. current 를 세 번째 인자로 받는 보조 채점기를 신설하고, 정본 채점 실행이 sibling `state_diff_metrics.json` 을 항상 함께 내도록 배선했다. 판별량은 GT 기준선을 뺀 `copy_excess`, 헤드라인은 `diff_recall`(정본 `avg_hungarian_rec` 의 층 분해)이다.
+
+- 변경: `Implicit-World-Modeling/scripts/_state_diff_eval.py`·`_prompt_sections.py`·`rebuild_state_diff_metrics.sh`·`tests/test_state_diff_eval.py`(신규 4) + `scripts/_hungarian_eval.py`·`_compare_site.py`·`eval_viewer.py`·`Implicit-World-Modeling/{ARCHITECTURE,AGENTS}.md`(수정 5). 메트릭 정의 정본은 [§6 메트릭](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭).
+- 커밋: 미커밋(후속 `/git:push`). 상세는 [revise 기록](../.claude/devlog/2026-08-01_13-08-56_state-diff-copy-bias-metric.md) (gitignored 로컬).
+- 결과/검증: `pytest tests` conda 731 passed/9 skipped · `.venv` 721/10 · ruff 클린 · 26 leaf × 3 섹션 `total` 정합 불일치 0건. 첫 산출에서 EXP05 Full FT `copy_excess` **−0.008**(복사에 안 기댐) vs EXP07 1ep LoRA **+0.065~0.076**(아직 베낌). 백필 26/28 leaf — EXP03 7B base 2 leaf 는 degenerate 예측이 index 모드를 때려 장시간 실행.
+- 카테고리: devlog
+
 ## 2026-07-28 — IWM: EXP07 stage2 base 학습 착수 — rank 16→8 + 길이 미필터 크래시 재현(stage2 판) → 재빌드
 
 사용자 지시로 **stage1 없이 stage2 만 학습**하는 variant(`lora_base`)를 착수했고, 학습이 두 번 죽은 끝에 원인이 **앞 엔트리(2026-07-26)의 길이 미필터 문제와 동일**함을 확인해 재빌드했다.

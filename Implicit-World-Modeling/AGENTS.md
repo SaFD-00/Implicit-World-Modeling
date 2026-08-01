@@ -36,6 +36,7 @@
 11. **`configs/lf_dataset/dataset_info.json` 은 커밋된 정본이다 — 런타임에 쓰지 마라.** LF 안의 `data/dataset_info.json` 을 변조하던 방식은 재클론에 증발해서 은퇴했다. [§3 함정 13](./ARCHITECTURE.md#3-데이터와-설정-계약)
 12. **JSONL 의 `images` 값은 `{DATASET_NAME}/images/...` prefix 를 유지하고, `--dataset_dir` 에는 절대경로를 넘겨라.** prefix 가 빠지면 `Image.open()` 이 cwd 기준으로 풀려 실패하고, 상대 `--dataset_dir` 은 HF datasets 캐시 오염으로 `FileNotFoundError` 를 낸다. [§3 함정 15](./ARCHITECTURE.md#3-데이터와-설정-계약)
 13. **EXP05 bbox 채점은 pred 가 GT 와 같은 절대 픽셀 공간임을 가정한다.** 모델이 다른 좌표 공간으로 답하면 채점이 조용히 전부 오답이 된다. [§6 함정 18](./ARCHITECTURE.md#6-메트릭)
+13b. **state 예측을 `hungarian_f1` 만으로 판단하지 마라 — "예측"과 "입력 복사"가 구분되지 않는다.** next-state 는 current state 와 대부분 겹치므로 current 를 그대로 베껴도 f1 이 높다 (2026-08-01 실측: EXP05 zero-shot base 는 `copy_rate_pred` 0.986·`added_recall` 0.011 인데도 f1 0.19 가 나온다). `state_diff_metrics.json` 의 **`copy_excess`** 와 함께 읽는다. `copy_rate` 단독도 금지 — 완벽한 예측도 GT 자체가 겹치는 만큼 높게 나온다. 절단(1024) leaf 에는 산출하지 않는다 (copy_rate 가 한쪽으로 과소평가된다). [§6 state_diff_metrics.json · 함정 19](./ARCHITECTURE.md#6-메트릭)
 14. **YAML 이 있다고 돌릴 수 있는 게 아니다.** 가드는 YAML 유무가 아니라 **dataset_info 등록 여부**를 본다 (`require_yaml` 이 내부에서 `require_dataset_registered` 를 호출한다 — [§3 함정 14](./ARCHITECTURE.md#3-데이터와-설정-계약)). EXP03/04 YAML 은 as-trained 가 아니라 **생성기 재구성본**이다 — [§7 함정 20](./ARCHITECTURE.md#7-중요한-운영-제약).
 15. **EXP05 는 로컬에서 학습할 수 없다** (OOM + 수일 단위 소요, 실측). 본 학습은 원격 A100/H100 — 단 제출 스크립트는 **UNVALIDATED** 다. [§7 함정 19](./ARCHITECTURE.md#7-중요한-운영-제약)
 15b. **EXP06 = EXP05 의 비증강 Stage-2 대조군**이다 (좌표/budget/`--coord-mode xy` 규약을 EXP05 에서 승계). `lf_registry` 에 **등록 완료**됐고(2026-07-20) 모델 자격 코드 가드 (하드 제약 2) 가 EXP05 와 동일하게 **Qwen2.5-VL 계열 전용**으로 걸린다 — 다른 family 는 `require_model_eligible()` 이 학습 진입 전 `exit 1` 한다. **EXP06 자체엔 stage1 체크포인트가 없다** — stage2 world-model variant 는 `stage1_hf_slug: "ac-exp05-"` override + 셸 `ds_stage1_source()` 로 **EXP05 stage1 을 그대로 승계**한다 (stage2 산출물 네이밍은 `ac-exp06-` 그대로 유지). [§2 자격 매트릭스 각주](./ARCHITECTURE.md#2-모델-설정)
@@ -153,6 +154,7 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 pytest tests -q
 pytest tests/test_gpu_policy.py tests/test_gen_configs.py -q          # GPU 매트릭스 + always-offload 불변식
 pytest tests/test_action_eval.py tests/test_action_eval_xy.py -q      # Stage 2 채점 (index / xy 모드)
+pytest tests/test_state_diff_eval.py -q                               # Stage 1 copy-bias 진단 (배선 self-test + 층 분해 불변식)
 pytest tests/test_diff_loss_v2.py tests/test_diff_loss_double_ce.py tests/test_mirror_experiment.py -q
 
 # LF 부트스트랩 (pin + 패치 적용 상태)
