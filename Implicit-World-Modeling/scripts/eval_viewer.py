@@ -96,6 +96,15 @@ STATE_METRIC_KEYS = [
     "avg_modified_recall",
     "avg_unchanged_recall",
     "avg_diff_f1",
+    # change 축 — "변화 자체를 맞혔나". 위 recall 층은 GT 요소를 분모로 잡아 **없어져야
+    # 할 요소**를 못 세고, hit 판정이 매칭뿐이라 자리만 맞고 내용이 틀려도 맞힌 게 된다.
+    # change_f1 은 pred/gt 양쪽에서 같은 절차로 변화 항목을 뽑아 내용 일치까지 본다.
+    # avg_n_change_gt 를 함께 읽어야 "몇 개 중 몇 개"인지 드러난다.
+    "avg_change_prec",
+    "avg_change_recall",
+    "avg_change_f1",
+    "avg_n_change_gt",
+    "avg_n_change_pred",
     "avg_copy_rate_pred",
     "avg_copy_rate_gt",
     "avg_copy_excess",
