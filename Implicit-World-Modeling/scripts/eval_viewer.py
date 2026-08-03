@@ -100,9 +100,14 @@ STATE_METRIC_KEYS = [
     # 할 요소**를 못 세고, hit 판정이 매칭뿐이라 자리만 맞고 내용이 틀려도 맞힌 게 된다.
     # change_f1 은 pred/gt 양쪽에서 같은 절차로 변화 항목을 뽑아 내용 일치까지 본다.
     # avg_n_change_gt 를 함께 읽어야 "몇 개 중 몇 개"인지 드러난다.
+    # **avg_change_f1_null 없이 avg_change_f1 만 읽지 말 것** — 이 축의 바닥은 0 이
+    # 아니다. 빈 예측은 current 를 전부 지운 것으로 분류돼 gt_deleted 와 공짜로 겹치고,
+    # 그 바닥값이 데이터에 따라 0.2~0.4 다. 실제로 EXP07v1 학습 모델(0.114)은 바닥
+    # (0.258)에 진다 — null 열을 빼면 그게 "base > trained" 로 읽힌다.
     "avg_change_prec",
     "avg_change_recall",
     "avg_change_f1",
+    "avg_change_f1_null",
     "avg_n_change_gt",
     "avg_n_change_pred",
     "avg_copy_rate_pred",

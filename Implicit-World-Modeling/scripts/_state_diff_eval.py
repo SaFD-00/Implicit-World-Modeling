@@ -402,7 +402,14 @@ def summarize_diff(diff_result: list[dict]) -> dict[str, int]:
 
 
 # ── change 축 (변화 자체를 예측했는가) ───────────────────────────────────
-_CHANGE_METRIC_KEYS = ("change_prec", "change_recall", "change_f1")
+# `change_f1_null` 은 지표가 아니라 **눈금**이다. 복사기(=current 그대로)는 정의상 0.0
+# 이지만 반대쪽 퇴화 — "아무것도 안 낸다" — 는 0 이 아니다: 빈 예측은 current 전체를
+# 지운 것으로 분류되고, 화면 전환은 실제로 current 의 상당 부분을 지우므로 그 교집합이
+# 공짜 hit 이 된다. 2026-08-04 실측(200행): 빈 예측이 EXP01 0.383 · EXP05 0.235 ·
+# EXP07v1 0.258 을 받는다. 같은 leaf 의 **학습된** 모델이 EXP07v1 0.114 라 바닥에 진다.
+# 그래서 change_f1 은 바닥값을 옆에 두지 않으면 읽을 수 없다 (0 기준으로 읽으면
+# "base > trained" 가 결과처럼 보인다 — 그건 결과가 아니라 눈금 없이 읽은 것이다).
+_CHANGE_METRIC_KEYS = ("change_prec", "change_recall", "change_f1", "change_f1_null")
 
 
 def compute_change_items(
@@ -411,6 +418,7 @@ def compute_change_items(
     pred_els: list[dict],
     gt_els: list[dict],
     pairs_pg: list[tuple],
+    n_cur: int,
 ) -> dict:
     """current 대비 바뀐 항목을 pred/gt 양쪽에서 뽑아 맞춰 본다.
 
@@ -430,6 +438,11 @@ def compute_change_items(
       - 한쪽만 비면 0.0 이다. **None 으로 빼면 안 된다**: C_pred 가 비는 행이 곧
         복사기이고, C_gt 가 비는데 C_pred 가 차 있으면 환각이다. 둘 다 이 지표가
         잡으라고 만든 것인데 정의불능으로 빼면 평균에서 사라진다.
+
+    `change_f1_null` 은 같은 행에서 pred 를 빈 문자열로 놓았을 때의 값이다 (빈 예측은
+    current 전체가 DELETED 로 분류되므로 hits = |gt_deleted|, n_pred = n_cur — 매칭이
+    필요 없어 Hungarian 을 한 번 더 돌리지 않는다). **change_f1 과 정확히 같은 행에서만
+    정의한다** — 정의 구간이 어긋나면 두 평균의 분모가 달라져 나란히 못 읽는다.
     """
     gt_changed = {
         d["gt_idx"] for d in diff_gt if d["diff_type"] in ("ADDED", "MODIFIED")
@@ -459,10 +472,16 @@ def compute_change_items(
     prec = hits / n_pred if n_pred else 0.0
     rec = hits / n_gt if n_gt else 0.0
     f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+
+    # 퇴화 눈금 — 빈 예측(= current 를 전부 지웠다고 분류되는 예측)의 같은 행 점수.
+    prec0 = len(gt_deleted) / n_cur if n_cur else 0.0
+    rec0 = len(gt_deleted) / n_gt if n_gt else 0.0
+    f1_null = 2 * prec0 * rec0 / (prec0 + rec0) if (prec0 + rec0) > 0 else 0.0
     return {
         "change_prec": round(prec, 4),
         "change_recall": round(rec, 4),
         "change_f1": round(f1, 4),
+        "change_f1_null": round(f1_null, 4),
         **counts,
     }
 
@@ -495,9 +514,11 @@ def compute_state_diff(
       diff_prec / diff_f1
           precision 분모를 **pred-side diff**(current 와 매칭되지 않은 예측 요소)로
           잡아 대칭화한 값. recall 과 다른 정의이므로 키를 분리해 둔다.
-      change_prec / change_recall / change_f1
+      change_prec / change_recall / change_f1 / change_f1_null
           "current 대비 무엇이 바뀌었나"를 pred/gt 양쪽에서 같은 절차로 뽑아 맞춘 값.
           DELETED 축과 내용 임계(τ)를 포함한다 (`compute_change_items` 참고).
+          `_null` 은 같은 행에서 **빈 예측**이 받는 점수 = 이 축의 퇴화 바닥.
+          change_f1 은 이 값과 나란히 읽어야 한다 (0 이 바닥이 아니다).
       copy_rate_pred / copy_rate_gt / copy_excess
           예측·GT 가 각각 current 와 겹치는 비율과 그 차이. `copy_excess` 가 판별량.
       copy_exact / copy_near
@@ -597,7 +618,11 @@ def compute_state_diff(
     # (`_hungarian_match(cur, X)` 로 통일. 아래 pairs_pc 는 인자 순서가 반대라 재사용
     #  하면 동점 배정이 갈릴 수 있고, 그러면 두 집합이 같은 절차의 산물이 아니게 된다.)
     diff_pred = _classify_from_els(cur_els, pred_els, match_mode, strict_pos=strict_pos)
-    row.update(compute_change_items(diff_gt, diff_pred, pred_els, gt_els, pairs_pg))
+    row.update(
+        compute_change_items(
+            diff_gt, diff_pred, pred_els, gt_els, pairs_pg, len(cur_els)
+        )
+    )
 
     # pred ↔ current: 복사량 + pred-side diff 산출
     if pred_els and cur_els:
@@ -635,17 +660,24 @@ def compute_state_diff(
 # `compute_hungarian_acc` 의 except 가 그걸 삼켜 **전 행 0점**을 조용히 돌려준다
 # (2026-08-01 실측: 표본 f1 0.0 vs aggregate 0.71). 행 단위로는 구분할 수 없으므로
 # 데이터와 무관한 고정 XML 로 배선만 검사한다.
+# cur 에는 **gt 에서 사라지는 요소**가 반드시 하나 있어야 한다 (`img`/`gone`).
+# 없으면 `gt_deleted` 가 공집합이 되고, 그러면 change 축의 지배항인 DELETED 가
+# self-test 를 한 번도 통과하지 않는다 — 빈 예측 퇴화를 probe 가 구조적으로 못 본다.
+# 태그를 `img` 로 둔 것은 의도다: 같은 `p` 로 두면 gt 의 "brand new" 와 짝이 맞아
+# ADDED 가 사라지고(copy_excess 0), 위치를 멀리 밀어도 tag 가 같으면 cost 상한이
+# W_TEXT+W_POS=1.9 라 임계 1.7 을 못 넘긴다. tag 불일치는 W_TAG=3.0 이라 확실하다.
 _PROBE = {
     "index": {
         "cur": '<node index="0"><button index="1" aria-label="OK"/>'
-        '<p index="2">hello</p></node>',
+        '<p index="2">hello</p><img index="4">gone</img></node>',
         "gt": '<node index="0"><button index="1" aria-label="OK"/>'
         '<p index="2">world</p><p index="3">brand new</p></node>',
     },
     "pos": {
         "cur": '<node bounds="[0,0][10,10]" point="[5,5]">'
         '<button bounds="[1,1][5,5]" point="[3,3]">OK</button>'
-        '<p bounds="[6,6][9,9]" point="[7,7]">hello</p></node>',
+        '<p bounds="[6,6][9,9]" point="[7,7]">hello</p>'
+        '<img bounds="[6,30][9,34]" point="[7,32]">gone</img></node>',
         "gt": '<node bounds="[0,0][10,10]" point="[5,5]">'
         '<button bounds="[1,1][5,5]" point="[3,3]">OK</button>'
         '<p bounds="[6,6][9,9]" point="[7,7]">world</p>'
@@ -696,6 +728,22 @@ def assert_scorer_wired(
         raise StateDiffError(
             f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
             f"정답 probe 의 change_f1={perfect['change_f1']} — 1.0 이어야 합니다."
+        )
+    # 퇴화 눈금 — 빈 예측은 current 를 전부 지운 것으로 분류되어 gt_deleted 와 공짜로
+    # 겹친다. 0 이 나오면 probe 에 DELETED 가 없다는 뜻이고(=`_PROBE` 훼손), 그러면
+    # change_f1 을 0 기준으로 읽게 된다. 두 끝(0.0/1.0) 만으로는 이 축이 안 잡힌다.
+    empty = compute_state_diff("", probe["gt"], probe["cur"], match_mode, **opts)
+    if not 0.0 < empty["change_f1"] < perfect["change_f1"]:
+        raise StateDiffError(
+            f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
+            f"빈 예측 probe 의 change_f1={empty['change_f1']} — "
+            "0 초과 1 미만이어야 합니다 (probe 에 DELETED 가 없으면 0 이 됩니다)."
+        )
+    if empty["change_f1"] != empty["change_f1_null"]:
+        raise StateDiffError(
+            f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
+            f"빈 예측의 change_f1={empty['change_f1']} 과 "
+            f"change_f1_null={empty['change_f1_null']} 이 달라 눈금이 어긋납니다."
         )
 
 
@@ -798,7 +846,7 @@ def _print_row(label: str, m: dict) -> None:
         f"unch_rec={m['avg_unchanged_recall']:.4f}  "
         f"copy={m['avg_copy_rate_pred']:.4f}(gt {m['avg_copy_rate_gt']:.4f})  "
         f"excess={m['avg_copy_excess']:+.4f}  "
-        f"change_f1={m['avg_change_f1']:.4f}"
+        f"change_f1={m['avg_change_f1']:.4f}(null {m['avg_change_f1_null']:.4f})"
     )
 
 
