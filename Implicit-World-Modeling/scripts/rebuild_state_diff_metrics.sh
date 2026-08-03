@@ -16,17 +16,19 @@
 #
 # 왜 절단 leaf 를 제외하나 — 이 스크립트의 핵심 판단
 # --------------------------------------------------
-# 2026-07-28 23:38 UTC 이전 예측은 vllm 기본값 1024 토큰에서 하드 컷됐다
-# (`--max_new_tokens` 미주입 버그, 커밋 6a4b59e). 잘린 예측은 element 수가 줄어
-# **copy_rate_pred 를 과소평가**한다 — 하필 이 지표가 재려는 방향("얼마나 베꼈나")
-# 으로 편향되므로, 절단 leaf 의 copy_excess 는 실제보다 낮게, 즉 실제보다 좋게
-# 보인다. hungarian 계열처럼 "무효"인 정도가 아니라 **한쪽으로 틀린다.**
-# 그래서 경계 이전 leaf 는 산출하지 않는다. 표에 컬럼이 비는 게 정직하다.
+# 일부 예측은 vllm 기본값 1024 토큰에서 하드 컷됐다 (`--max_new_tokens` 미주입 버그,
+# 커밋 6a4b59e). 잘린 예측은 element 수가 줄어 **copy_rate_pred 를 과소평가**한다 —
+# 하필 이 지표가 재려는 방향("얼마나 베꼈나")으로 편향되므로, 절단 leaf 의
+# copy_excess 는 실제보다 낮게, 즉 실제보다 좋게 보인다. hungarian 계열처럼 "무효"인
+# 정도가 아니라 **한쪽으로 틀린다.** 그래서 절단 leaf 는 산출하지 않는다.
+# 표에 컬럼이 비는 게 정직하다.
 #
-# **진짜 가드는 채점기 안에 있다** (`_state_diff_eval.truncated_reason`, `score` 진입부).
-# 여기 필터는 dry-run 목록을 정직하게 보여주기 위한 선별일 뿐이다 — 백필 스크립트에만
-# 두면 `rebuild_woa_metrics.sh → _hungarian_eval score` 경로가 그대로 통과해 편향된
-# 산출물이 woa sibling 에 생긴다. 경계 상수도 `_state_diff_eval` 한 곳이 정본이다.
+# 절단 판정은 `_state_diff_eval.truncated_reason` 이 **prediction 내용을 실측**해서
+# 한다 (mtime 기준이 아니다 — 그 규칙은 멀쩡한 2026-05~06 EXP01 leaf 를 부당하게
+# 막았다). 채점기 안(`score` 진입부)에도 같은 가드가 있다 — 백필 스크립트에만 두면
+# `rebuild_woa_metrics.sh → _hungarian_eval score` 경로가 그대로 통과해 편향된
+# 산출물이 woa sibling 에 생긴다. 여기 필터는 그 함수를 **그대로 불러서** 대상을
+# 고른다. 판정을 다시 구현하면 두 목록이 언젠가 조용히 갈린다.
 #
 # usage: rebuild_state_diff_metrics.sh [-j N] [-n] [-f] [--include-truncated] [FILTER]
 #   -j N                동시 실행 수 (기본 4). 채점기는 사실상 단일 스레드다.
@@ -89,8 +91,10 @@ if [ "${#LEAVES[@]}" -eq 0 ]; then
   exit 0
 fi
 
-# ── 2) 절단 경계 필터 (dry-run 표시용 — 강제는 채점기가 한다) ──────────────
-# 경계 시각은 _state_diff_eval 이 정본. mtime 은 leaf 의 prediction 파일 것을 본다.
+# ── 2) 절단 필터 (여기서 뺀 leaf 는 채점되지 않는다 — 표시용이 아니라 게이트다) ──
+# 판정은 채점기와 **같은 함수**(_state_diff_eval.truncated_reason)가 한다. 이 스크립트가
+# 판정을 다시 구현하고 있던 탓에, 채점기를 실측 기준으로 고쳐도 leaf 가 채점기에
+# 도달조차 못 하는 상태였다.
 declare -a KEPT=()
 if [ "$INCLUDE_TRUNCATED" -eq 1 ]; then
   KEPT=("${LEAVES[@]}")
@@ -102,25 +106,21 @@ else
     [ -n "$leaf" ] && KEPT+=("$leaf")
   done < <(python - "${LEAVES[@]}" <<'PY'
 import os, sys
-from datetime import UTC, datetime
 sys.path.insert(0, os.path.join(os.getcwd(), "scripts"))
-from _state_diff_eval import MAX_NEW_TOKENS_FIX_UTC as FIX
+from _state_diff_eval import truncated_reason
 
 skipped = []
 for leaf in sys.argv[1:]:
     pred = os.path.join(leaf, "generated_predictions_id.jsonl")
-    if datetime.fromtimestamp(os.path.getmtime(pred), tz=UTC) >= FIX:
+    reason = truncated_reason(pred)
+    if reason is None:
         print(leaf)
     else:
-        skipped.append(leaf)
+        skipped.append((leaf, reason))
 if skipped:
-    print(
-        f"[=] 절단(1024) 경계 {FIX:%Y-%m-%d %H:%M} UTC 이전이라 제외: "
-        f"{len(skipped)} leaf",
-        file=sys.stderr,
-    )
-    for s in skipped:
-        print(f"      {s}", file=sys.stderr)
+    print(f"[=] 절단(1024)이라 제외: {len(skipped)} leaf", file=sys.stderr)
+    for leaf, reason in skipped:
+        print(f"      {leaf}\n        └ {reason}", file=sys.stderr)
 PY
   )
 fi

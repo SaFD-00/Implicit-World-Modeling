@@ -52,13 +52,28 @@ MODIFIED 가 되어, EXP01 과 EXP05 의 숫자가 조용히 비교 불가가 �
 
 무엇을 채점 대상에서 빼야 하나
 ------------------------------
-`max_new_tokens` 1024 절단 시각(`MAX_NEW_TOKENS_FIX_UTC`) **이전** leaf 는 채점하지
-않는다. 잘린 예측은 요소 수가 줄어 `copy_rate_pred` 를 **과소평가**하는데, 하필
-측정하려는 방향으로 편향되어 실제보다 좋게 보인다 — hungarian 계열이 그냥 무효인
-것과 달리 한쪽으로 틀린다. 가드는 `truncated_reason()` 이고 **`score` 진입부와
-`_hungarian_eval._write_state_diff` 양쪽이 같은 함수를 부른다.** 백필 스크립트에만
-뒀다면 `rebuild_woa_metrics.sh` 경로가 그대로 통과했을 자리다. 경계 상수의 정본도
-이 모듈이며 `_compare_site` 가 여기서 재수출한다.
+`max_new_tokens` 1024 에서 잘린 leaf 는 채점하지 않는다. 잘린 예측은 요소 수가 줄어
+`copy_rate_pred` 를 **과소평가**하는데, 하필 측정하려는 방향으로 편향되어 실제보다
+좋게 보인다 — hungarian 계열이 그냥 무효인 것과 달리 한쪽으로 틀린다.
+
+판정은 **예측 토큰 수 실측**이다 (`truncated_reason()`): 정확히 1024 토큰인 행이
+전체의 5% 이상이면 절단. 자유 생성은 특정 길이에 몰리지 않으므로 상한에 쌓인 모드가
+지문이다. 앞서 쓰던 두 기준이 2026-08-03 전수 실측으로 차례로 반증됐다.
+
+1. **mtime** (`MAX_NEW_TOKENS_FIX_UTC` 이전이면 절단) — 절단은 날짜가 아니라 추론
+   실행 경로를 따른다. 같은 2026-05~06 산출물 안에 정상과 절단이 섞여 있다.
+2. **문자 길이** (predict 최대가 짧으면 절단) — **양방향으로 틀린다.** EXP02
+   `base/on-AC_EXP01-state` 는 predict 최장이 29,286자인데 그 행이 정확히 1024
+   토큰이다(꼬리의 공백 수천 개가 문자 수만 부풀렸다) → 절단을 놓친다. 반대로 EXP02
+   `lora_world-model/epoch-1` 은 최장 5,567자로 짧지만 절단의 근거는 길이가 아니라
+   37.9% 가 정확히 1024 토큰이라는 사실이다.
+
+문자 기준이 더 위험하다 — mtime 의 과잉 거부와 달리 **잘린 것을 통과시킨다.**
+
+가드는 **`score` 진입부와 `_hungarian_eval._write_state_diff` 양쪽이 같은 함수를
+부른다.** 백필 스크립트에만 뒀다면 `rebuild_woa_metrics.sh` 경로가 그대로 통과했을
+자리다. 판정의 정본도 이 모듈이며 `_compare_site` 와 `rebuild_state_diff_metrics.sh`
+가 여기서 가져다 쓴다.
 
 Subcommand
 ----------
@@ -87,17 +102,149 @@ from _prompt_sections import parse_prompt  # noqa: E402
 COPY_NEAR_F1 = 0.98
 
 # state 예측이 vllm 기본값 1024 토큰에서 잘리던 버그의 수정 시각 (커밋 6a4b59e).
-# **이 상수의 정본은 여기다** — `_compare_site` 가 여기서 import 한다. 절단 판정이
-# 두 군데 있으면 언젠가 조용히 갈린다.
+# **판정에는 쓰지 않는다** — 절단은 날짜가 아니라 추론 실행 경로를 따르며, 이 시각
+# 이전에도 절단 없는 leaf 가 많다 (모듈 docstring 의 반증 사례). 길이를 잴 수 없을
+# 때의 폴백과 이력 참조용으로만 남긴다. `_compare_site` 가 여기서 import 한다.
 MAX_NEW_TOKENS_FIX_UTC = datetime(2026, 7, 28, 23, 38, tzinfo=UTC)
+
+# 구 `max_new_tokens` 기본값. 절단의 지문은 "예측 토큰 수가 정확히 이 값인 행이
+# 대량으로 존재한다"이다 — 자유 생성은 특정 값에 몰리지 않는다.
+LEGACY_MAX_NEW_TOKENS = 1024
+# 그 모드에 몇 할이 몰리면 절단으로 볼 것인가. 2026-08-03 전수 실측의 마진:
+#   절단 state leaf 14개  → 0.2913 ~ 0.7116
+#   정상 state leaf 19개  → 0.0000 ~ 0.0015
+#   비-state leaf 97개    → 0.0000 ~ 0.0030 (미학습 base 의 발산 생성이 상한)
+# 두 무리가 두 자릿수 배율로 떨어져 있어 0.05 는 어느 쪽으로도 여유가 크다.
+TRUNC_MODE_SHARE = 0.05
+
+# 예측을 만든 모델의 tokenizer 로 세야 한다. `_common.sh:297 MODEL_ID` 와 동기 유지.
+_MODEL_ID = {
+    "qwen3-vl-8b": "Qwen/Qwen3-VL-8B-Instruct",
+    "qwen3-vl-4b": "Qwen/Qwen3-VL-4B-Instruct",
+    "qwen2.5-vl-7b": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "qwen2.5-vl-3b": "Qwen/Qwen2.5-VL-3B-Instruct",
+}
+
+# (path, mtime_ns, size) → (모드 행 수, 전체 행 수).
+# 같은 leaf 를 여러 번 판정하는 호출자(`_compare_site` 19 사이트)를 위한 것이다.
+_MODE_SHARE_CACHE: dict[tuple[str, int, int], tuple[int, int]] = {}
+_TOKENIZERS: dict[str, object] = {}
+
+
+def _model_key_for(path: str) -> str | None:
+    """prediction 경로에서 모델 키를 뽑는다 (`outputs/<EXP>/eval/<model>[_변형]/...`).
+
+    `qwen3-vl-8b_ratio37` 처럼 변형 접미사가 붙으므로 prefix 로 맞춘다. 못 찾으면
+    None — 호출자가 mtime 폴백으로 넘어간다.
+    """
+    parts = Path(path).parts
+    if "eval" not in parts:
+        return None
+    idx = parts.index("eval") + 1
+    if idx >= len(parts):
+        return None
+    d = parts[idx]
+    for key in sorted(_MODEL_ID, key=len, reverse=True):
+        if d == key or d.startswith(key + "_"):
+            return key
+    return None
+
+
+def _token_lengths(texts: list[str], model_key: str) -> list[int]:
+    """`texts` 각각의 토큰 수. transformers 는 **여기서만** 늦게 로드한다.
+
+    `_hungarian_eval._lazy_deps()` 와 같은 이유다 — 모듈 top-level 에서 import 하면
+    채점기 전체가 transformers 에 묶인다. 테스트는 이 함수를 갈아끼운다.
+    """
+    from transformers import AutoTokenizer
+
+    if model_key not in _TOKENIZERS:
+        _TOKENIZERS[model_key] = AutoTokenizer.from_pretrained(
+            _MODEL_ID[model_key], local_files_only=True
+        )
+    tok = _TOKENIZERS[model_key]
+    return [len(ids) for ids in tok(texts, add_special_tokens=False)["input_ids"]]
+
+
+def _mode_share(path: str) -> tuple[int, int] | None:
+    """(토큰 수가 정확히 `LEGACY_MAX_NEW_TOKENS` 인 행 수, 전체 행 수). 못 재면 None.
+
+    jsonl 이 50 MB 급이라 **배치 단위로 스트리밍**한다 — 전량을 메모리에 올리지 않는다.
+    """
+    model_key = _model_key_for(path)
+    if model_key is None:
+        return None
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return None
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    cached = _MODE_SHARE_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    n_mode = n_rows = 0
+    batch: list[str] = []
+
+    def _flush() -> None:
+        nonlocal n_mode, n_rows
+        if not batch:
+            return
+        lens = _token_lengths(batch, model_key)
+        n_rows += len(lens)
+        n_mode += sum(1 for n in lens if n == LEGACY_MAX_NEW_TOKENS)
+        batch.clear()
+
+    try:
+        with Path(path).open(encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(obj, dict):
+                    continue
+                batch.append(obj.get("predict") or obj.get("output") or "")
+                if len(batch) >= 128:
+                    _flush()
+            _flush()
+    except (OSError, UnicodeDecodeError, ImportError, ValueError):
+        return None
+    if not n_rows:
+        return None
+
+    _MODE_SHARE_CACHE[key] = (n_mode, n_rows)
+    return n_mode, n_rows
 
 
 def truncated_reason(*pred_paths: str) -> str | None:
-    """절단 경계 이전 prediction 이면 사유 문자열, 아니면 None.
+    """절단(1024)된 prediction 이면 사유 문자열, 아니면 None.
 
     잘린 예측은 element 수가 줄어 `copy_rate_pred` 를 **과소평가**한다 — 하필 이
     지표가 재려는 방향("얼마나 베꼈나")으로 편향되어 실제보다 좋게 보인다.
     hungarian 계열이 그냥 무효인 것과 달리 **한쪽으로 틀리므로** 아예 산출하지 않는다.
+
+    판정은 **토큰 실측**이다: 예측 토큰 수가 정확히 `LEGACY_MAX_NEW_TOKENS` 인 행이
+    전체의 `TRUNC_MODE_SHARE` 이상이면 절단. 자유 생성은 특정 길이에 몰리지 않으므로
+    "상한에 대량으로 쌓인 모드"가 절단의 지문이다. 틀린 기준 둘이 이미 반증됐다:
+
+    - **mtime 은 틀렸다.** 절단은 날짜가 아니라 추론 실행 경로를 따른다 — 2026-05~06
+      산출물 중에도 정상(EXP01 `qwen2.5-vl-7b_ratio73/base`)과 절단이 섞여 있다.
+    - **문자 길이는 양방향으로 틀렸다.** false negative: EXP02 `base/on-AC_EXP01-state`
+      는 predict 최장이 29,286자인데 그 행의 토큰이 **정확히 1024** 다 (꼬리의 공백
+      수천 개가 문자 수만 부풀렸다). false positive: EXP02 `lora_world-model/epoch-1`
+      은 최장 5,567자로 짧아 "잘렸다"처럼 보이지만, 실제로 잘린 근거는 길이가 아니라
+      **37.9% 가 정확히 1024 토큰**이라는 사실이다.
+
+    `max_tok <= 1024` 를 조건으로 넣으면 안 된다. 디토크나이즈→재토크나이즈는 길이를
+    보존하지 않아 절단 leaf 에도 1024 를 몇 토큰 넘긴 행이 **1개** 섞인다 (EXP01
+    `ratio73/lora/epoch-3` 1060, EXP02 `epoch-1` 1025, `epoch-2` 1030). 그 세 leaf 는
+    1024-토큰 행의 96% 가 루트 태그를 못 닫고 끝나(나머지 행은 0.8%) 절단이 확실하다.
+
+    tokenizer 를 못 구하면(모델 미해석·로컬 캐시 없음) `MAX_NEW_TOKENS_FIX_UTC` 로
+    폴백한다 — 문자 기준으로는 절대 물러서지 않는다.
 
     가드가 **채점 경로 안에** 있어야 하는 이유: 백필 스크립트에만 두면
     `rebuild_woa_metrics.sh` → `_hungarian_eval score` 경로가 그대로 통과해,
@@ -106,15 +253,27 @@ def truncated_reason(*pred_paths: str) -> str | None:
     for p in pred_paths:
         if not p:
             continue
-        try:
-            mtime = datetime.fromtimestamp(Path(p).stat().st_mtime, tz=UTC)
-        except OSError:
+        scanned = _mode_share(p)
+        if scanned is None:
+            # 토큰을 못 쟀다 (파일 없음·빈 파일·모델 미해석·tokenizer 부재).
+            try:
+                mtime = datetime.fromtimestamp(Path(p).stat().st_mtime, tz=UTC)
+            except OSError:
+                continue
+            if mtime < MAX_NEW_TOKENS_FIX_UTC:
+                return (
+                    f"{Path(p).name} 의 예측 토큰 수를 못 쟀고 mtime 이 절단(1024) 수정 "
+                    f"{MAX_NEW_TOKENS_FIX_UTC:%Y-%m-%d %H:%M} UTC 이전 "
+                    f"({mtime:%Y-%m-%d %H:%M} UTC) — copy_rate 가 과소평가된다"
+                )
             continue
-        if mtime < MAX_NEW_TOKENS_FIX_UTC:
+        n_mode, n_rows = scanned
+        share = n_mode / n_rows
+        if share >= TRUNC_MODE_SHARE:
             return (
-                f"{Path(p).name} 이 절단(1024) 경계 "
-                f"{MAX_NEW_TOKENS_FIX_UTC:%Y-%m-%d %H:%M} UTC 이전 "
-                f"({mtime:%Y-%m-%d %H:%M} UTC) — copy_rate 가 과소평가된다"
+                f"{Path(p).name} 이 절단(1024)됐다 — 예측 {n_rows}행 중 {n_mode}행"
+                f"({share:.1%})이 정확히 {LEGACY_MAX_NEW_TOKENS} 토큰 "
+                f"(임계 {TRUNC_MODE_SHARE:.0%}): copy_rate 가 과소평가된다"
             )
     return None
 

@@ -58,9 +58,10 @@ try:
 except ImportError:  # bs4 없는 환경 — 파서 단위 테스트만 돌 때
     pass
 
-# state 예측이 vllm 기본값 1024 토큰에서 잘리던 버그의 수정 시각 (UTC).
-# 이보다 오래된 leaf 의 state prediction 은 하드 컷이라 hungarian 계열 수치가 무효다.
-# 정본은 `_state_diff_eval` — 절단 판정을 두 군데 두면 언젠가 조용히 갈린다.
+# state 예측이 vllm 기본값 1024 토큰에서 잘리던 버그의 수정 시각 (UTC). 이력 참조용
+# 이고 **판정에는 쓰지 않는다** — 절단 여부는 `_state_diff_eval.truncated_reason` 이
+# prediction 내용을 실측해 가른다. 정본은 `_state_diff_eval` — 절단 판정을 두 군데
+# 두면 언젠가 조용히 갈린다 (실제로 갈려서 멀쩡한 EXP01 leaf 를 부당하게 막았다).
 MAX_NEW_TOKENS_FIX_UTC = _state_diff_eval.MAX_NEW_TOKENS_FIX_UTC
 
 # xy 통일 액션 스페이스 계열 — 채점 모드가 다르다 (scripts/stage1_eval.sh 와 정합).
@@ -323,10 +324,7 @@ def build_site(
                     "has_metrics": (leaf / metric_filename).is_file(),
                 }
             )
-            if (
-                kind == "state"
-                and datetime.fromtimestamp(mtime, tz=UTC) < MAX_NEW_TOKENS_FIX_UTC
-            ):
+            if kind == "state" and _state_diff_eval.truncated_reason(str(pred_path)):
                 truncated_leaves.append(str(leaf.relative_to(REPO)))
 
         lengths = {st["id"]: len(preds[st["id"]]) for st in split_settings}
@@ -592,10 +590,10 @@ def render_readme(data: dict, provenance: list[dict], truncated: list[str]) -> s
     if truncated:
         lines += [
             "",
-            "> ⚠️ **절단 경고** — 아래 leaf 의 state prediction 은 `max_new_tokens` 수정"
-            " (`6a4b59e`, 2026-07-29 08:38 KST) 이전 산출이라 1024 토큰에서 하드 컷됐을 수"
-            " 있다. 그 경우 화면의 예측과 hungarian 계열 점수는 모델 성능이 아니라 절단의"
-            " 결과다.",
+            "> ⚠️ **절단 경고** — 아래 leaf 의 state prediction 은 `max_new_tokens` 기본값"
+            " 1024 토큰에서 하드 컷됐다 (`6a4b59e` 이전 실행). 예측의 상당수가 **정확히"
+            " 1024 토큰**인 것을 실측해 판정했다 — 화면의 예측과 hungarian 계열 점수는"
+            " 모델 성능이 아니라 절단의 결과다.",
             "",
         ]
         lines += [f"> - `{p}`" for p in truncated]
