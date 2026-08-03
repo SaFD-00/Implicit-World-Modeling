@@ -306,6 +306,140 @@ class TestChangeF1(unittest.TestCase):
                 self.assertIsNone(still["change_f1"], "양쪽 다 변화 없음 = 정의불능")
 
 
+class TestChangeF1NullFloor(unittest.TestCase):
+    """change_f1 의 바닥은 0 이 아니다 — 그 눈금(`change_f1_null`)을 고정한다.
+
+    복사기는 0.0 이지만 **반대쪽 퇴화**인 빈 예측은 그렇지 않다: 아무것도 안 내면
+    current 전체를 지운 것으로 분류되고, 화면 전환은 실제로 current 의 상당 부분을
+    지우므로 그 교집합이 공짜 hit 이 된다. 2026-08-04 실측(각 200행)에서 빈 예측이
+    EXP01 0.383 · EXP05 0.235 · EXP07v1 0.258 을 받았고, 같은 leaf 의 **학습된**
+    EXP07v1 lora ep1 은 0.114 라 바닥에 진다. 눈금 없이 0 기준으로 읽으면 그게
+    "base > trained" 라는 결과처럼 보인다 — 그래서 두 값은 항상 같이 나와야 한다.
+    """
+
+    # 사라지는 요소가 있는 픽스처. 상단 MODES 는 DELETED 가 0 이라 이 축이 안 켜진다.
+    DEL_IDX = (
+        '<node index="0"><button index="1"/><p index="2">old row</p></node>',
+        '<node index="0"><button index="1"/>'
+        '<span index="3">fresh banner</span></node>',
+    )
+    DEL_POS = (
+        '<node bounds="[0,0][10,10]" point="[5,5]">'
+        '<button bounds="[1,1][5,5]" point="[3,3]">OK</button>'
+        '<p bounds="[6,6][9,9]" point="[7,7]">old row</p></node>',
+        '<node bounds="[0,0][10,10]" point="[5,5]">'
+        '<button bounds="[1,1][5,5]" point="[3,3]">OK</button>'
+        '<span bounds="[6,20][9,24]" point="[7,22]">fresh banner</span></node>',
+    )
+    DELS = {"index": DEL_IDX, "pos": DEL_POS}
+
+    def test_empty_prediction_outscores_the_copier(self):
+        """빈 예측 > 복사기(0.0). 이 지표의 퇴화가 한쪽만이 아니라는 증거."""
+        for mode, (cur, gt) in self.DELS.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(
+                    _sd.summarize_diff(_sd.classify_diff(cur, gt, mode))["DELETED"],
+                    1,
+                    "픽스처에 사라지는 요소가 있어야 이 축이 켜진다",
+                )
+                empty = _sd.compute_state_diff("", gt, cur, mode)
+                copier = _sd.compute_state_diff(cur, gt, cur, mode)
+                self.assertEqual(copier["change_f1"], 0.0)
+                self.assertGreater(
+                    empty["change_f1"],
+                    copier["change_f1"],
+                    "아무것도 안 내면 '전부 지웠다'로 분류돼 공짜 hit 을 받는다",
+                )
+
+    def test_null_is_exactly_the_empty_prediction_score(self):
+        """`change_f1_null` 은 정의상 같은 행에서 빈 예측이 받는 점수다.
+
+        닫힌 식(hits=|gt_deleted|, n_pred=n_cur)으로 계산하므로 파이프라인을 한 번
+        더 태운 값과 **정확히** 같아야 한다. 어긋나면 눈금이 지표와 다른 것을 잰다.
+        """
+        for mode, (cur, gt) in self.DELS.items():
+            with self.subTest(mode=mode):
+                empty = _sd.compute_state_diff("", gt, cur, mode)
+                self.assertEqual(empty["change_f1"], empty["change_f1_null"])
+                # 눈금은 예측과 무관 — 같은 행이면 어떤 예측에서도 같은 값이다.
+                for pred in (cur, gt, ""):
+                    r = _sd.compute_state_diff(pred, gt, cur, mode)
+                    self.assertEqual(r["change_f1_null"], empty["change_f1_null"])
+
+    def test_index_floor_is_hand_checkable(self):
+        """손으로 검산되는 값 하나를 못으로 박는다.
+
+        cur 는 button/p 2요소다 (루트 `node` 는 `extract_elements` 가 뽑지 않는다).
+        GT 는 p 를 지우고 span 을 넣는다.
+        빈 예측: hits=|gt_deleted|=1, n_pred=n_cur=2, n_gt=ADDED1+DELETED1=2
+        → prec 1/2, rec 1/2, f1 = 0.5
+        """
+        cur, gt = self.DEL_IDX
+        r = _sd.compute_state_diff("", gt, cur, "index")
+        self.assertEqual(r["n_cur"], 2)
+        self.assertEqual(r["n_change_gt"], 2)
+        self.assertEqual(r["n_change_pred"], 2)
+        self.assertEqual(r["change_f1_null"], 0.5)
+
+    def test_null_defined_on_exactly_the_same_rows_as_change_f1(self):
+        """정의 구간이 어긋나면 두 평균의 분모가 달라져 나란히 못 읽는다."""
+        for mode, cur, gt in MODES:
+            with self.subTest(mode=mode):
+                still = _sd.compute_state_diff(cur, cur, cur, mode)
+                self.assertIsNone(still["change_f1"], "양쪽 다 변화 없음 = 정의불능")
+                self.assertIsNone(still["change_f1_null"], "눈금도 같이 빠져야 한다")
+        rows = [
+            _sd.compute_state_diff(p, g, c, "index")
+            for p, g, c in (
+                ("", GT_IDX, CUR_IDX),
+                (CUR_IDX, GT_IDX, CUR_IDX),
+                (CUR_IDX, CUR_IDX, CUR_IDX),  # 변화 없는 행 — 양쪽 다 빠진다
+            )
+        ]
+        agg = _sd.aggregate(rows)
+        self.assertEqual(agg["n_change_f1_null"], agg["n_change_f1"])
+        self.assertEqual(agg["n_change_f1"], 2)
+
+    def test_self_test_catches_a_probe_without_deletions(self):
+        """`_PROBE` 에서 DELETED 가 빠지면 배선 self-test 가 터져야 한다.
+
+        구 probe 의 pos 는 실제로 DELETED 가 0 이었다 — 그러면 빈 예측의 change_f1
+        이 0.0 이 되어 이 축의 지배항을 self-test 가 **구조적으로 못 본다**.
+        (구 index probe 는 DELETED 가 1 이었지만, 어느 쪽이든 빈 예측을 찍는
+         assert 자체가 없어 퇴화 바닥은 검사되지 않았다.)
+        """
+        no_del = {
+            "cur": '<node index="0"><button index="1" aria-label="OK"/></node>',
+            "gt": '<node index="0"><button index="1" aria-label="OK"/>'
+            '<p index="3">brand new</p></node>',
+        }
+        self.assertEqual(
+            _sd.summarize_diff(_sd.classify_diff(no_del["cur"], no_del["gt"], "index"))[
+                "DELETED"
+            ],
+            0,
+        )
+        original = _sd._PROBE["index"]
+        _sd._PROBE["index"] = no_del
+        try:
+            with self.assertRaises(_sd.StateDiffError) as ctx:
+                _sd.assert_scorer_wired("index")
+            self.assertIn("빈 예측", str(ctx.exception))
+        finally:
+            _sd._PROBE["index"] = original
+
+    def test_shipped_probe_exercises_deletions_in_both_modes(self):
+        """정본 probe 자체가 두 모드 모두에서 DELETED 를 통과시키는가."""
+        for mode in ("index", "pos"):
+            with self.subTest(mode=mode):
+                probe = _sd._PROBE[mode]
+                counts = _sd.summarize_diff(
+                    _sd.classify_diff(probe["cur"], probe["gt"], mode)
+                )
+                self.assertGreater(counts["DELETED"], 0, "빈 예측 퇴화를 못 본다")
+                self.assertGreater(counts["ADDED"], 0, "copy_excess probe 가 죽는다")
+
+
 class TestStratumInvariant(unittest.TestCase):
     """recall 계열은 정본 hungarian_rec 의 층 분해여야 한다.
 
