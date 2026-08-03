@@ -327,6 +327,23 @@ class TestTruncationGuard(unittest.TestCase):
             )
             self.assertIsNone(_sd.truncated_reason(ok))
 
+    def test_max_just_over_budget_is_not_by_itself_truncation(self):
+        """`tok_max` 가 1024 를 갓 넘었다는 것만으로는 절단도 정상도 아니다.
+
+        판별량은 최댓값이 아니라 **1024 빈의 밀도**다. 같은 `tok_max=1025` 라도
+        1024 에 몰림이 없으면 정상, 몰려 있으면 절단이어야 한다 — 최댓값만 보면
+        두 경우가 구분되지 않는다.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            # tok_max=1025 인데 1024 는 1행뿐 → 그냥 짧게 생성한 leaf
+            ok = self._write(d, "ok.jsonl", [1025, 1024] + [300, 500, 700, 900] * 250)
+            # tok_max=1025 로 같지만 1024 에 37.9% 가 몰림 → 절단 (EXP02 ep1 실측)
+            cut = self._write(d, "cut.jsonl", [1025] + [1024] * 1136 + [700] * 1863)
+            self.assertIsNone(_sd.truncated_reason(ok))
+            self.assertIsNotNone(_sd.truncated_reason(cut))
+
     def test_one_truncated_split_blocks_the_leaf(self):
         """한쪽 split 만 절단이어도 leaf 전체를 막는다 (섹션 합산이 오염되므로)."""
         import tempfile
