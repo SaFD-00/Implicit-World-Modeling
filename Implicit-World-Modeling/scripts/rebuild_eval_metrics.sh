@@ -60,12 +60,8 @@ while IFS= read -r leaf; do
   datadir="${DS_DATADIR[$eval_ds]:-}"
   if [ -z "$datadir" ]; then echo "[!] DS_DATADIR 에 '$eval_ds' 없음 — 건너뜀: $leaf" >&2; continue; fi
 
-  # 채점 모드는 stage1_eval.sh 와 같은 규칙 (xy 통일 액션 스페이스 계열만 플래그를 붙인다).
-  mode_flag=""
-  case "$eval_ds" in
-    AC_EXP05|AC_EXP07_v1|AC_EXP07_v2)
-      [ "$task" = state ] && mode_flag="--match-mode pos" || mode_flag="--coord-mode xy" ;;
-  esac
+  # 채점 모드 판정은 _common.sh 가 정본 (stage1_eval.sh 와 동일 규칙).
+  mode_flag="$(ds_score_mode_flag "$eval_ds" "$task")"
   test_id="$BASE_DIR/data/${datadir}/stage1_test_id_${task}.jsonl"
   test_ood="$BASE_DIR/data/${datadir}/stage1_test_ood_${task}.jsonl"
   if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
@@ -89,11 +85,5 @@ if [ "$n" -eq 0 ]; then echo "[=] 대상 없음 (FILTER='${FILTER}')"; exit 0; f
 echo "[=] 대상 $n leaf · 동시 $JOBS · 로그 $LOG_ROOT"
 if [ "$DRY" -eq 1 ]; then cut -f1 "$CMDS" | sed 's/^/  /'; exit 0; fi
 
-run_one() {
-  local tag cmd log
-  tag="${1%%$'\t'*}"; cmd="${1#*$'\t'}"; log="$LOG_ROOT/${tag}.log"
-  if bash -c "$cmd" > "$log" 2>&1; then echo "[+] OK   $tag"; else echo "[!] FAIL $tag  (log: $log)" >&2; fi
-}
-export -f run_one; export LOG_ROOT
-xargs -d '\n' -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {} < "$CMDS"
+run_rebuild_batch "$CMDS" "$JOBS" "$LOG_ROOT"
 echo "[=] 완료"

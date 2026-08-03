@@ -90,10 +90,7 @@ for leaf in "${LEAVES[@]}"; do
     echo "[!] DS_DATADIR 에 '$eval_ds' 가 없다 — 건너뜀: $leaf" >&2
     continue
   fi
-  mode_flag=""
-  case "$eval_ds" in
-    AC_EXP05|AC_EXP07_v1|AC_EXP07_v2) mode_flag="--match-mode pos" ;;
-  esac
+  mode_flag="$(ds_score_mode_flag "$eval_ds" state)"
   test_id="$BASE_DIR/data/${datadir}/stage1_test_id_state.jsonl"
   test_ood="$BASE_DIR/data/${datadir}/stage1_test_ood_state.jsonl"
   if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
@@ -160,19 +157,5 @@ for d in sorted(dirs):
 PY
 
 # ── 4) 팬아웃 ──────────────────────────────────────────────────────────────
-run_one() {
-  local tag cmd log
-  tag="${1%%$'\t'*}"; cmd="${1#*$'\t'}"
-  log="$LOG_ROOT/${tag}.log"
-  if bash -c "$cmd" > "$log" 2>&1; then
-    echo "[+] OK   $tag"
-  else
-    echo "[!] FAIL $tag  (log: $log)" >&2
-  fi
-}
-export -f run_one
-export LOG_ROOT
-
-# xargs 는 \t 를 포함한 한 줄을 그대로 인자로 넘긴다 (-d '\n' 로 개행만 구분자 취급).
-xargs -d '\n' -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {} < "$CMDS"
+run_rebuild_batch "$CMDS" "$JOBS" "$LOG_ROOT"
 echo "[=] 완료"
