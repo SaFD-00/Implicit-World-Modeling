@@ -38,6 +38,22 @@ recall 계열은 `pred ↔ gt` **단 한 번의 Hungarian 매칭**(정본
 따로 매칭하면 이 성질이 깨진다 — UNCHANGED 에 붙었어야 할 예측 요소가 MODIFIED 로
 재배정되면서 recall 이 부풀기 때문이다. 그래서 부분집합 재매칭을 하지 않는다.
 
+change 축 — recall 층 분해가 못 보는 두 가지
+--------------------------------------------
+층 분해는 GT 요소를 분모로 잡으므로 (a) **사라져야 할 요소를 지웠는가**를 볼 수 없고
+(DELETED 는 GT 에 대응물이 없다), hit 판정이 Hungarian 매칭뿐이라 (b) 자리만 맞고
+내용이 틀린 예측도 맞힌 것으로 센다 (매칭 임계 1.5/1.7 은 `_text_sim` 이 0 이어도
+붙을 만큼 느슨하다). `change_f1` 이 그 두 구멍을 메운다 — current 대비 변화 목록을
+pred/gt 양쪽에서 **같은 절차**로 뽑아 집합 비교하고, 내용 일치를 τ(0.9)로 한 번 더
+건다. 정의와 경계는 `compute_change_items` 참고.
+
+매칭 기준 스위치 (`strict_pos` / `include_aria`)
+------------------------------------------------
+둘 다 **기본 꺼짐**이다 — 켜면 임계나 element 집합이 달라져 기존 산출물과 나란히
+놓을 수 없다. 그리고 둘 다 **전역이 아니라 인자로** 흐른다: 이 모듈은
+`_hungarian_eval` 의 매칭 함수를 그대로 쓰므로, 한쪽만 전역을 읽으면 정본 채점과
+설정이 어긋나 위 항등식이 조용히 깨진다.
+
 UNCHANGED 판정 기준
 -------------------
 `diff_loss/hungarian_diff_v2.classify_diff` 는 `match_cost <= 0.05` 를 UNCHANGED 로
@@ -100,6 +116,11 @@ from _prompt_sections import parse_prompt  # noqa: E402
 
 # "그냥 복사" 판정 — pred 와 current 의 hungarian_f1 이 이 값 이상이면 사실상 복사본.
 COPY_NEAR_F1 = 0.98
+
+# change 축의 "내용까지 맞혔나" 임계. 매칭만으로는 부족하다 — 매칭 임계(1.5/1.7)는
+# `_text_sim` 이 0 에 가까워도 붙을 만큼 느슨해서, "자리는 맞고 내용은 틀린" 예측이
+# 변화를 맞힌 것으로 세어진다. 여기서 한 번 더 걸러야 change_f1 이 내용 지표가 된다.
+CHANGE_TEXT_SIM_TAU = 0.9
 
 # state 예측이 vllm 기본값 1024 토큰에서 잘리던 버그의 수정 시각 (커밋 6a4b59e).
 # **판정에는 쓰지 않는다** — 절단은 날짜가 아니라 추론 실행 경로를 따르며, 이 시각
@@ -287,35 +308,41 @@ class StateDiffError(RuntimeError):
 
 
 # ── diff 분류 ────────────────────────────────────────────────────────────
-def classify_diff(
-    current_str: str, gt_str: str, match_mode: str = "index"
+# 항목 스키마: ADDED/MODIFIED/UNCHANGED 는 next state 요소를 가리키므로 `gt_idx`,
+# DELETED 는 next state 에 대응물이 없어 current 요소를 가리키므로 `cur_idx` 다.
+# 두 축을 한 리스트에 담되 **GT 축을 먼저, DELETED 를 뒤에** 붙인다 — 기존 소비자
+# (recall 층 분해)가 순서와 스키마를 그대로 보게 하기 위한 것이다.
+def _classify_from_els(
+    cur_els: list[dict],
+    next_els: list[dict],
+    match_mode: str = "index",
+    *,
+    strict_pos: bool = False,
 ) -> list[dict]:
-    """GT(next state)의 각 요소를 current 대비 UNCHANGED/MODIFIED/ADDED 로 분류한다.
+    """이미 추출된 element 리스트로 diff 를 분류한다 (`classify_diff` 의 본체).
 
-    `diff_loss/hungarian_diff_v2.classify_diff` 의 포팅이다. 그 모듈을 직접 import
-    하지 않는 이유는 셋이다: (a) `hungarian_metric_v2` 를 bare import 해서 sys.path
-    해킹이 필요하고, (b) munkres 고정이라 scipy 로 통일한 채점 체제와 어긋나며,
-    (c) **pos 모드 전용**이라 EXP01~04/MB 의 index HTML 을 넣으면 bounds 가 전부
-    빈 문자열이 되어 위치 cost 0 으로 조용히 퇴화한다. 게다가 `diff_loss/` 는 학습
-    데이터 생성 경로라 채점 요구로 건드릴 수 없다.
+    호출자가 같은 XML 을 이미 파싱해 뒀을 때 `extract_elements` 를 다시 돌리지 않기
+    위한 진입점이다 — `compute_state_diff` 는 pred/gt/current 셋을 이미 들고 있고,
+    change 축 때문에 분류를 두 번(→gt, →pred) 하므로 재파싱 비용이 그대로 두 배가 된다.
     """
-    _he._lazy_deps()
-    cur_els = _he.extract_elements(current_str, match_mode)
-    gt_els = _he.extract_elements(gt_str, match_mode)
-
-    if not gt_els:
-        return []
+    if not next_els:
+        # next state 에 요소가 없다 = current 를 전부 지웠다. (예전에는 빈 리스트를
+        # 돌려줬는데, DELETED 축이 생긴 지금은 그게 "변화 없음"과 구분되지 않는다.)
+        return [
+            {"cur_idx": i, "diff_type": "DELETED", "text_sim": 0.0}
+            for i in range(len(cur_els))
+        ]
     if not cur_els:
         return [
             {"gt_idx": i, "diff_type": "ADDED", "text_sim": 0.0}
-            for i in range(len(gt_els))
+            for i in range(len(next_els))
         ]
 
-    pairs, _ = _he._hungarian_match(cur_els, gt_els, match_mode)
+    pairs, _ = _he._hungarian_match(cur_els, next_els, match_mode, strict_pos)
     gt_to_cur = {j: i for i, j, _ in pairs}
 
     out: list[dict] = []
-    for j, gt_el in enumerate(gt_els):
+    for j, gt_el in enumerate(next_els):
         if j not in gt_to_cur:
             out.append({"gt_idx": j, "diff_type": "ADDED", "text_sim": 0.0})
             continue
@@ -327,14 +354,117 @@ def classify_diff(
                 "text_sim": round(sim, 4),
             }
         )
+    matched_cur = {i for i, _, _ in pairs}
+    out.extend(
+        {"cur_idx": i, "diff_type": "DELETED", "text_sim": 0.0}
+        for i in range(len(cur_els))
+        if i not in matched_cur
+    )
     return out
 
 
+def classify_diff(
+    current_str: str,
+    gt_str: str,
+    match_mode: str = "index",
+    *,
+    strict_pos: bool = False,
+    include_aria: bool = False,
+) -> list[dict]:
+    """GT(next state)의 각 요소를 current 대비 UNCHANGED/MODIFIED/ADDED 로 분류하고,
+    짝을 못 찾은 current 요소를 DELETED 로 덧붙인다.
+
+    `diff_loss/hungarian_diff_v2.classify_diff` 의 포팅이다. 그 모듈을 직접 import
+    하지 않는 이유는 셋이다: (a) `hungarian_metric_v2` 를 bare import 해서 sys.path
+    해킹이 필요하고, (b) munkres 고정이라 scipy 로 통일한 채점 체제와 어긋나며,
+    (c) **pos 모드 전용**이라 EXP01~04/MB 의 index HTML 을 넣으면 bounds 가 전부
+    빈 문자열이 되어 위치 cost 0 으로 조용히 퇴화한다. 게다가 `diff_loss/` 는 학습
+    데이터 생성 경로라 채점 요구로 건드릴 수 없다.
+
+    DELETED 는 여기가 유일한 산출 경로다 (레퍼런스에는 없다). recall 층 분해는 GT
+    요소를 분모로 잡아 이 축을 볼 수 없는데, "사라져야 할 요소를 지웠나"는 복사 편향의
+    직접 증거라 `change_f1` 이 그것을 센다.
+    """
+    _he._lazy_deps()
+    return _classify_from_els(
+        _he.extract_elements(current_str, match_mode, include_aria),
+        _he.extract_elements(gt_str, match_mode, include_aria),
+        match_mode,
+        strict_pos=strict_pos,
+    )
+
+
 def summarize_diff(diff_result: list[dict]) -> dict[str, int]:
-    counts = {"ADDED": 0, "MODIFIED": 0, "UNCHANGED": 0}
+    counts = {"ADDED": 0, "MODIFIED": 0, "UNCHANGED": 0, "DELETED": 0}
     for d in diff_result:
         counts[d["diff_type"]] += 1
     return counts
+
+
+# ── change 축 (변화 자체를 예측했는가) ───────────────────────────────────
+_CHANGE_METRIC_KEYS = ("change_prec", "change_recall", "change_f1")
+
+
+def compute_change_items(
+    diff_gt: list[dict],
+    diff_pred: list[dict],
+    pred_els: list[dict],
+    gt_els: list[dict],
+    pairs_pg: list[tuple],
+) -> dict:
+    """current 대비 바뀐 항목을 pred/gt 양쪽에서 뽑아 맞춰 본다.
+
+    recall 계열이 못 보는 것을 본다. `diff_recall` 의 분모는 GT 요소라 **없어져야 할
+    요소**를 세지 못하고, hit 판정이 Hungarian 매칭뿐이라 자리만 맞고 내용이 틀린
+    예측도 맞힌 것으로 센다. 여기서는 변화 자체를 항목으로 만들어 집합 비교한다.
+
+        C_gt   = classify(current → gt)   의 ADDED ∪ MODIFIED ∪ DELETED
+        C_pred = classify(current → pred) 의 ADDED ∪ MODIFIED ∪ DELETED
+
+    두 집합을 **같은 절차**로 뽑는 것이 핵심이다 (대칭). hit 은 ADDED/MODIFIED 면
+    정본 pred↔gt 매칭에서 짝이 맞고 그 짝의 `text_sim` 이 `CHANGE_TEXT_SIM_TAU`
+    이상일 때, DELETED 면 **같은 current 요소를 양쪽 다 지웠을 때**다.
+
+    정의 경계
+      - 양쪽 다 비면(변화 없는 행) 세 지표 모두 None — 잴 것이 없다.
+      - 한쪽만 비면 0.0 이다. **None 으로 빼면 안 된다**: C_pred 가 비는 행이 곧
+        복사기이고, C_gt 가 비는데 C_pred 가 차 있으면 환각이다. 둘 다 이 지표가
+        잡으라고 만든 것인데 정의불능으로 빼면 평균에서 사라진다.
+    """
+    gt_changed = {
+        d["gt_idx"] for d in diff_gt if d["diff_type"] in ("ADDED", "MODIFIED")
+    }
+    gt_deleted = {d["cur_idx"] for d in diff_gt if d["diff_type"] == "DELETED"}
+    pred_changed = {
+        d["gt_idx"] for d in diff_pred if d["diff_type"] in ("ADDED", "MODIFIED")
+    }
+    pred_deleted = {d["cur_idx"] for d in diff_pred if d["diff_type"] == "DELETED"}
+
+    n_gt = len(gt_changed) + len(gt_deleted)
+    n_pred = len(pred_changed) + len(pred_deleted)
+    counts = {"n_change_gt": n_gt, "n_change_pred": n_pred}
+    if not n_gt and not n_pred:
+        return {**{k: None for k in _CHANGE_METRIC_KEYS}, **counts}
+
+    pred_to_gt = {i: j for i, j, _ in pairs_pg}
+    hits = sum(
+        1
+        for i in pred_changed
+        if pred_to_gt.get(i) in gt_changed
+        and _he._text_sim(pred_els[i]["text"], gt_els[pred_to_gt[i]]["text"])
+        >= CHANGE_TEXT_SIM_TAU
+    )
+    hits += len(pred_deleted & gt_deleted)
+
+    prec = hits / n_pred if n_pred else 0.0
+    rec = hits / n_gt if n_gt else 0.0
+    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+    return {
+        "change_prec": round(prec, 4),
+        "change_recall": round(rec, 4),
+        "change_f1": round(f1, 4),
+        **counts,
+    }
 
 
 # ── 행 단위 채점 ─────────────────────────────────────────────────────────
@@ -348,7 +478,13 @@ def _unclosed_root(pred_str: str) -> float:
 
 
 def compute_state_diff(
-    pred_str: str, gt_str: str, current_str: str, match_mode: str = "index"
+    pred_str: str,
+    gt_str: str,
+    current_str: str,
+    match_mode: str = "index",
+    *,
+    strict_pos: bool = False,
+    include_aria: bool = False,
 ) -> dict:
     """한 행의 state-diff 진단값. 정의되지 않는 지표는 None (평균에서 제외된다).
 
@@ -359,6 +495,9 @@ def compute_state_diff(
       diff_prec / diff_f1
           precision 분모를 **pred-side diff**(current 와 매칭되지 않은 예측 요소)로
           잡아 대칭화한 값. recall 과 다른 정의이므로 키를 분리해 둔다.
+      change_prec / change_recall / change_f1
+          "current 대비 무엇이 바뀌었나"를 pred/gt 양쪽에서 같은 절차로 뽑아 맞춘 값.
+          DELETED 축과 내용 임계(τ)를 포함한다 (`compute_change_items` 참고).
       copy_rate_pred / copy_rate_gt / copy_excess
           예측·GT 가 각각 current 와 겹치는 비율과 그 차이. `copy_excess` 가 판별량.
       copy_exact / copy_near
@@ -374,6 +513,8 @@ def compute_state_diff(
         "n_gt_modified": 0,
         "n_gt_unchanged": 0,
         "n_pred_diff": 0,
+        "n_change_gt": 0,
+        "n_change_pred": 0,
     }
     undefined = {
         k: None
@@ -384,6 +525,7 @@ def compute_state_diff(
             "unchanged_recall",
             "diff_prec",
             "diff_f1",
+            *_CHANGE_METRIC_KEYS,
             "copy_rate_pred",
             "copy_rate_gt",
             "copy_excess",
@@ -391,9 +533,9 @@ def compute_state_diff(
     }
 
     try:
-        pred_els = _he.extract_elements(pred_str, match_mode)
-        gt_els = _he.extract_elements(gt_str, match_mode)
-        cur_els = _he.extract_elements(current_str, match_mode)
+        pred_els = _he.extract_elements(pred_str, match_mode, include_aria)
+        gt_els = _he.extract_elements(gt_str, match_mode, include_aria)
+        cur_els = _he.extract_elements(current_str, match_mode, include_aria)
     except Exception:
         return {
             **undefined,
@@ -419,14 +561,17 @@ def compute_state_diff(
     if not gt_els:
         return row
 
-    diff = classify_diff(current_str, gt_str, match_mode)
+    diff_gt = _classify_from_els(cur_els, gt_els, match_mode, strict_pos=strict_pos)
     by_type: dict[str, set[int]] = {
         "ADDED": set(),
         "MODIFIED": set(),
         "UNCHANGED": set(),
     }
-    for d in diff:
-        by_type[d["diff_type"]].add(d["gt_idx"])
+    for d in diff_gt:
+        # DELETED 는 GT 요소가 아니라 current 요소를 가리킨다 — GT 를 분모로 잡는
+        # recall 층 분해에는 들어갈 자리가 없다. change 축에서만 쓴다.
+        if d["diff_type"] != "DELETED":
+            by_type[d["diff_type"]].add(d["gt_idx"])
     diff_idx = by_type["ADDED"] | by_type["MODIFIED"]
     row["n_gt_added"] = len(by_type["ADDED"])
     row["n_gt_modified"] = len(by_type["MODIFIED"])
@@ -436,7 +581,7 @@ def compute_state_diff(
     row["copy_rate_gt"] = round((len(gt_els) - len(by_type["ADDED"])) / len(gt_els), 4)
 
     # 정본과 같은 pred↔gt 매칭 한 번. 층 분해의 근거라 부분집합 재매칭을 쓰지 않는다.
-    pairs_pg, _ = _he._hungarian_match(pred_els, gt_els, match_mode)
+    pairs_pg, _ = _he._hungarian_match(pred_els, gt_els, match_mode, strict_pos)
     hit_gt = {j for _, j, _ in pairs_pg}
     pred_to_gt = {i: j for i, j, _ in pairs_pg}
 
@@ -448,9 +593,15 @@ def compute_state_diff(
     row["modified_recall"] = _recall(by_type["MODIFIED"])
     row["unchanged_recall"] = _recall(by_type["UNCHANGED"])
 
+    # change 축 — GT 쪽과 **인자 순서까지 같은** 분류를 pred 쪽에도 돌려 대칭을 지킨다.
+    # (`_hungarian_match(cur, X)` 로 통일. 아래 pairs_pc 는 인자 순서가 반대라 재사용
+    #  하면 동점 배정이 갈릴 수 있고, 그러면 두 집합이 같은 절차의 산물이 아니게 된다.)
+    diff_pred = _classify_from_els(cur_els, pred_els, match_mode, strict_pos=strict_pos)
+    row.update(compute_change_items(diff_gt, diff_pred, pred_els, gt_els, pairs_pg))
+
     # pred ↔ current: 복사량 + pred-side diff 산출
     if pred_els and cur_els:
-        pairs_pc, _ = _he._hungarian_match(pred_els, cur_els, match_mode)
+        pairs_pc, _ = _he._hungarian_match(pred_els, cur_els, match_mode, strict_pos)
         n_copy = len(pairs_pc)
         row["copy_rate_pred"] = round(n_copy / len(pred_els), 4)
         row["copy_excess"] = round(row["copy_rate_pred"] - row["copy_rate_gt"], 4)
@@ -503,19 +654,26 @@ _PROBE = {
 }
 
 
-def assert_scorer_wired(match_mode: str) -> None:
+def assert_scorer_wired(
+    match_mode: str, *, strict_pos: bool = False, include_aria: bool = False
+) -> None:
     """표본 채점 전에 채점기가 실제로 동작하는지 한 번 확인한다."""
     _he._lazy_deps()
     probe = _PROBE[match_mode]
-    els = _he.extract_elements(probe["cur"], match_mode)
+    els = _he.extract_elements(probe["cur"], match_mode, include_aria)
     if not els:
         raise StateDiffError(
             f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
             "probe XML 에서 element 0개 — bs4/scipy 의존성을 확인하세요."
         )
+    opts = {"strict_pos": strict_pos, "include_aria": include_aria}
     # current 를 그대로 예측 = 복사. diff 를 하나도 못 맞히고 copy_excess 가 양수여야 한다.
-    copied = compute_state_diff(probe["cur"], probe["gt"], probe["cur"], match_mode)
-    perfect = compute_state_diff(probe["gt"], probe["gt"], probe["cur"], match_mode)
+    copied = compute_state_diff(
+        probe["cur"], probe["gt"], probe["cur"], match_mode, **opts
+    )
+    perfect = compute_state_diff(
+        probe["gt"], probe["gt"], probe["cur"], match_mode, **opts
+    )
     if not (copied["copy_rate_pred"] == 1.0 and copied["copy_excess"] > 0):
         raise StateDiffError(
             f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
@@ -526,6 +684,18 @@ def assert_scorer_wired(match_mode: str) -> None:
         raise StateDiffError(
             f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
             f"정답 probe 의 diff_recall={perfect['diff_recall']} — 1.0 이어야 합니다."
+        )
+    # change 축은 배선이 끊겨도 **그럴듯한 0** 을 낸다 (변화를 하나도 못 잡았을 때와
+    # 계산이 안 돌았을 때의 값이 같다). 두 끝을 다 찍어야 구분된다.
+    if copied["change_f1"] != 0.0:
+        raise StateDiffError(
+            f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
+            f"복사 probe 의 change_f1={copied['change_f1']} — 0.0 이어야 합니다."
+        )
+    if perfect["change_f1"] != 1.0:
+        raise StateDiffError(
+            f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
+            f"정답 probe 의 change_f1={perfect['change_f1']} — 1.0 이어야 합니다."
         )
 
 
@@ -543,6 +713,7 @@ _MEAN_KEYS = [
     "copy_rate_pred",
     "copy_rate_gt",
     "copy_excess",
+    *_CHANGE_METRIC_KEYS,
 ]
 _RATE_KEYS = ["copy_exact", "copy_near", "unclosed_root"]
 _COUNT_KEYS = [
@@ -553,6 +724,8 @@ _COUNT_KEYS = [
     "n_gt_modified",
     "n_gt_unchanged",
     "n_pred_diff",
+    "n_change_gt",
+    "n_change_pred",
 ]
 
 
@@ -574,7 +747,14 @@ def aggregate(rows: list[dict]) -> dict:
     return out
 
 
-def evaluate_pairs(gt_entries, pred_entries, match_mode: str = "index") -> dict:
+def evaluate_pairs(
+    gt_entries,
+    pred_entries,
+    match_mode: str = "index",
+    *,
+    strict_pos: bool = False,
+    include_aria: bool = False,
+) -> dict:
     """GT test entries + prediction entries → 집계 dict.
 
     GT next-state 는 **정본과 같은 출처**(`messages[-1]["value"]`)에서 읽는다.
@@ -587,7 +767,8 @@ def evaluate_pairs(gt_entries, pred_entries, match_mode: str = "index") -> dict:
     copy_rate 는 0 을 돌려준다 — **그럴듯한 완전 오답 표**가 조용히 나온다.
     그래서 실패를 세서 터뜨린다 (`_compare_site` 설계원칙 #2 와 같은 이유).
     """
-    assert_scorer_wired(match_mode)
+    opts = {"strict_pos": strict_pos, "include_aria": include_aria}
+    assert_scorer_wired(match_mode, **opts)
     rows = []
     failures = 0
     for gt_entry, pred_entry in zip(gt_entries, pred_entries, strict=False):
@@ -597,7 +778,7 @@ def evaluate_pairs(gt_entries, pred_entries, match_mode: str = "index") -> dict:
         if not current:
             failures += 1
             continue
-        rows.append(compute_state_diff(pred_text, gt_text, current, match_mode))
+        rows.append(compute_state_diff(pred_text, gt_text, current, match_mode, **opts))
     if failures:
         raise StateDiffError(
             f"프롬프트에서 current state 를 못 읽은 행 {failures}건 "
@@ -616,13 +797,17 @@ def _print_row(label: str, m: dict) -> None:
         f"added_rec={m['avg_added_recall']:.4f}  "
         f"unch_rec={m['avg_unchanged_recall']:.4f}  "
         f"copy={m['avg_copy_rate_pred']:.4f}(gt {m['avg_copy_rate_gt']:.4f})  "
-        f"excess={m['avg_copy_excess']:+.4f}"
+        f"excess={m['avg_copy_excess']:+.4f}  "
+        f"change_f1={m['avg_change_f1']:.4f}"
     )
 
 
 def _cmd_score(args) -> int:
     split = bool(args.test_id or args.pred_id or args.test_ood or args.pred_ood)
     mm = args.match_mode
+    # 매칭 기준 스위치는 여기 한 진입점에서만 읽어 아래로 넘긴다 (전역 금지 —
+    # `_hungarian_eval._cmd_score` 와 같은 규칙이다).
+    opts = {"strict_pos": args.strict_pos_match, "include_aria": args.include_aria}
     if not args.include_truncated:
         reason = truncated_reason(args.pred, args.pred_id, args.pred_ood)
         if reason:
@@ -649,7 +834,7 @@ def _cmd_score(args) -> int:
         if args.exclude_action:
             gt_id, pr_id = _he._filter_pairs(gt_id, pr_id, args.exclude_action)
             gt_ood, pr_ood = _he._filter_pairs(gt_ood, pr_ood, args.exclude_action)
-        metrics = build_metrics(gt_id, pr_id, gt_ood, pr_ood, mm)
+        metrics = build_metrics(gt_id, pr_id, gt_ood, pr_ood, mm, **opts)
         for k in ("overall", "in_domain", "out_of_domain"):
             _print_row(k, metrics[k])
     else:
@@ -663,7 +848,7 @@ def _cmd_score(args) -> int:
         preds = _he._load_jsonl(args.pred)
         if args.exclude_action:
             gts, preds = _he._filter_pairs(gts, preds, args.exclude_action)
-        metrics = evaluate_pairs(gts, preds, mm)
+        metrics = evaluate_pairs(gts, preds, mm, **opts)
         _print_row("all", metrics)
 
     out = Path(args.output)
@@ -674,14 +859,24 @@ def _cmd_score(args) -> int:
     return 0
 
 
-def build_metrics(gt_id, pr_id, gt_ood, pr_ood, match_mode: str) -> dict:
+def build_metrics(
+    gt_id,
+    pr_id,
+    gt_ood,
+    pr_ood,
+    match_mode: str,
+    *,
+    strict_pos: bool = False,
+    include_aria: bool = False,
+) -> dict:
     """ID/OOD 3-섹션 산출. `hungarian_metrics.json` 과 **동일한 섹션 구조**여야 한다 —
     `eval_viewer.load_metrics` 의 section 조회는 부재를 silent skip 하므로, 구조가
     어긋나면 표에 빈칸이 뜰 뿐 아무도 오류를 못 본다."""
+    opts = {"strict_pos": strict_pos, "include_aria": include_aria}
     return {
-        "overall": evaluate_pairs(gt_id + gt_ood, pr_id + pr_ood, match_mode),
-        "in_domain": evaluate_pairs(gt_id, pr_id, match_mode),
-        "out_of_domain": evaluate_pairs(gt_ood, pr_ood, match_mode),
+        "overall": evaluate_pairs(gt_id + gt_ood, pr_id + pr_ood, match_mode, **opts),
+        "in_domain": evaluate_pairs(gt_id, pr_id, match_mode, **opts),
+        "out_of_domain": evaluate_pairs(gt_ood, pr_ood, match_mode, **opts),
     }
 
 
@@ -703,6 +898,20 @@ def main() -> int:
         dest="match_mode",
         help="정본 채점(_hungarian_eval)과 **반드시 같은 값**이어야 비교 가능하다. "
         "EXP05/06/07 은 pos, 나머지는 index.",
+    )
+    s.add_argument(
+        "--strict-pos-match",
+        action="store_true",
+        dest="strict_pos_match",
+        help="pos 모드 매칭 임계를 1.7 → 1.5 로 조인다. **기본은 꺼짐** — 정본 채점"
+        "(_hungarian_eval)과 **반드시 같은 값**이어야 층 분해 항등식이 유지된다.",
+    )
+    s.add_argument(
+        "--include-aria",
+        action="store_true",
+        dest="include_aria",
+        help="pos 모드에서 aria-label 만 가진 요소도 채점 대상에 넣는다. **기본은 꺼짐** — "
+        "정본 채점과 **반드시 같은 값**이어야 한다 (element 집합 자체가 달라진다).",
     )
     s.add_argument("--exclude-action", default=None, dest="exclude_action")
     s.add_argument(

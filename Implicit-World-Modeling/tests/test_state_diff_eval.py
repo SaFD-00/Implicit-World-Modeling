@@ -63,6 +63,22 @@ GT_POS = (
 )
 MODES = (("index", CUR_IDX, GT_IDX), ("pos", CUR_POS, GT_POS))
 
+# 변화 둘(MODIFIED + ADDED) 중 하나만 낸 예측 — change_f1 이 복사기와 완벽예측 사이에
+# 놓이는지 보는 중간항이다. 0/1 두 점만 고정하면 상수를 돌려주는 구현도 통과한다.
+PARTIAL_IDX = (
+    '<node index="0">'
+    '<button index="1" aria-label="OK"/>'
+    '<p index="2">unread inbox 7</p>'
+    "</node>"
+)
+PARTIAL_POS = (
+    '<node bounds="[0,0][10,10]" point="[5,5]">'
+    '<button bounds="[1,1][5,5]" point="[3,3]">OK</button>'
+    '<p bounds="[6,6][9,9]" point="[7,7]">unread inbox 7</p>'
+    "</node>"
+)
+PARTIALS = {"index": PARTIAL_IDX, "pos": PARTIAL_POS}
+
 
 class TestWiring(unittest.TestCase):
     """지연 로드 미초기화 → 전 행 0점 함정. 데이터와 무관한 고정 XML 로 배선만 본다."""
@@ -175,6 +191,121 @@ class TestCopyVersusPrediction(unittest.TestCase):
                 )
 
 
+class TestChangeF1(unittest.TestCase):
+    """change_f1 — "변화 자체를 예측했는가".
+
+    `diff_recall` 이 못 보는 두 가지를 본다: (a) **없어져야 할 요소를 지웠는가**
+    (GT 를 분모로 잡는 recall 은 이 축을 볼 수 없다), (b) 자리만 맞고 내용이 틀린
+    예측을 맞힌 것으로 세지 않는가 (매칭 임계 1.5/1.7 은 `_text_sim` 이 0 이어도
+    붙을 만큼 느슨하다 — 그래서 τ 로 한 번 더 거른다).
+    """
+
+    def test_copier_scores_zero(self):
+        """current 를 그대로 낸 예측은 변화를 하나도 주장하지 않았다 → 0.0.
+
+        **None 이면 안 된다.** 정의불능으로 빼면 복사기가 평균에서 사라진다 —
+        이 지표가 존재하는 이유 자체가 그것을 세는 것이다.
+        """
+        for mode, cur, gt in MODES:
+            with self.subTest(mode=mode):
+                r = _sd.compute_state_diff(cur, gt, cur, mode)
+                self.assertEqual(r["change_f1"], 0.0)
+                self.assertEqual(r["n_change_pred"], 0, "변화를 하나도 안 냈다")
+                self.assertGreater(r["n_change_gt"], 0, "실제로는 변화가 있었다")
+
+    def test_perfect_prediction_scores_one_and_partial_lands_between(self):
+        for mode, cur, gt in MODES:
+            with self.subTest(mode=mode):
+                perfect = _sd.compute_state_diff(gt, gt, cur, mode)
+                partial = _sd.compute_state_diff(PARTIALS[mode], gt, cur, mode)
+                copier = _sd.compute_state_diff(cur, gt, cur, mode)
+                self.assertEqual(perfect["change_f1"], 1.0)
+                self.assertLess(copier["change_f1"], partial["change_f1"])
+                self.assertLess(partial["change_f1"], perfect["change_f1"])
+
+    def test_keeping_stale_text_scores_zero_while_hungarian_stays_perfect(self):
+        """토글 하나가 뒤집히는 행 — 정본 지표로는 안 잡히는 실패를 잡는가.
+
+        "wifi off" → "wifi on" 인데 예측이 옛 텍스트를 유지하면 요소 집합은 그대로라
+        `hungarian_f1` 이 **1.0** 이다. 이 행에서 틀린 것은 딱 하나, 변화 그 자체다.
+        """
+        cur = '<node index="0"><p index="1">wifi off</p></node>'
+        gt = '<node index="0"><p index="1">wifi on</p></node>'
+        r = _sd.compute_state_diff(cur, gt, cur, "index")
+        canonical = _hungarian_eval.compute_hungarian_acc(cur, gt, "index")
+        self.assertEqual(canonical["hungarian_f1"], 1.0, "정본 지표는 만점을 준다")
+        self.assertEqual(r["change_f1"], 0.0, "change_f1 은 0 이어야 한다")
+
+    def test_ignored_deletion_costs_recall(self):
+        """사라져야 할 요소를 남겨두면 감점된다 — DELETED 축이 실제로 도는지 본다.
+
+        예측은 신규 배너(ADDED)를 정확히 냈지만 사라진 행을 그대로 들고 있다.
+        DELETED 축이 없으면 두 예측이 똑같이 1.0 이 되어 구분되지 않는다.
+        """
+        cur = '<node index="0"><button index="1"/><p index="2">old row</p></node>'
+        gt = (
+            '<node index="0"><button index="1"/>'
+            '<span index="3">fresh banner</span></node>'
+        )
+        stale = (
+            '<node index="0"><button index="1"/><p index="2">old row</p>'
+            '<span index="3">fresh banner</span></node>'
+        )
+        self.assertEqual(
+            _sd.summarize_diff(_sd.classify_diff(cur, gt, "index"))["DELETED"],
+            1,
+            "GT 는 old row 를 지웠다",
+        )
+        ignored = _sd.compute_state_diff(stale, gt, cur, "index")
+        honored = _sd.compute_state_diff(gt, gt, cur, "index")
+        self.assertEqual(honored["change_f1"], 1.0)
+        self.assertLess(ignored["change_f1"], 1.0)
+        self.assertEqual(ignored["n_change_gt"], 2, "ADDED span + DELETED p")
+        self.assertEqual(ignored["n_change_pred"], 1, "ADDED span 만 냈다")
+
+    def test_tau_is_the_boundary(self):
+        """τ 경계 — 매칭은 됐는데 내용이 τ 미만이면 맞힌 것으로 세지 않는다.
+
+        τ 는 `_text_sim` 에 걸리고 그 함수는 mode 와 무관하므로 index 한 모드로 고정한다.
+        토큰 집합 Jaccard 라 `t1..t10` 중 앞 k 개를 내면 sim 이 정확히 k/10 이 된다.
+        """
+        gt_tokens = " ".join(f"t{i}" for i in range(1, 11))
+        cur = '<node index="0"><button index="1"/></node>'
+        gt = f'<node index="0"><button index="1"/><p index="2">{gt_tokens}</p></node>'
+
+        def _f1(k):
+            toks = " ".join(f"t{i}" for i in range(1, k + 1))
+            pred = f'<node index="0"><button index="1"/><p index="2">{toks}</p></node>'
+            self.assertAlmostEqual(
+                _hungarian_eval._text_sim(toks, gt_tokens), k / 10, places=6
+            )
+            r = _sd.compute_state_diff(pred, gt, cur, "index")
+            self.assertEqual(r["n_change_gt"], 1)
+            self.assertEqual(r["n_change_pred"], 1, "양쪽 다 '문단 하나 추가'를 주장")
+            return r["change_f1"]
+
+        self.assertEqual(_sd.CHANGE_TEXT_SIM_TAU, 0.9)
+        self.assertEqual(_f1(9), 1.0, "sim == τ 는 맞힌 것 (>= 비교)")
+        self.assertEqual(_f1(8), 0.0, "sim < τ 는 못 맞힌 것")
+
+    def test_hallucinated_change_is_penalized_not_dropped(self):
+        """GT 에 변화가 없는데 예측이 변화를 지어내면 0.0 이다.
+
+        분모(`|C_gt|`)가 없다고 None 으로 빼면 환각이 평균에서 사라진다.
+        양쪽 다 변화가 없는 행에서만 None 이다 — 그때는 정말 잴 것이 없다.
+        """
+        for mode, cur, gt in MODES:
+            with self.subTest(mode=mode):
+                halluc = _sd.compute_state_diff(gt, cur, cur, mode)  # GT = current
+                self.assertEqual(halluc["n_change_gt"], 0)
+                self.assertGreater(halluc["n_change_pred"], 0)
+                self.assertEqual(halluc["change_f1"], 0.0)
+
+                still = _sd.compute_state_diff(cur, cur, cur, mode)
+                self.assertEqual(still["n_change_pred"], 0)
+                self.assertIsNone(still["change_f1"], "양쪽 다 변화 없음 = 정의불능")
+
+
 class TestStratumInvariant(unittest.TestCase):
     """recall 계열은 정본 hungarian_rec 의 층 분해여야 한다.
 
@@ -182,20 +313,20 @@ class TestStratumInvariant(unittest.TestCase):
     재배정되며 recall 이 부풀어 이 항등식이 깨진다. 그 구현 실수를 여기서 잡는다.
     """
 
-    def _check(self, pred, gt, cur, mode):
-        r = _sd.compute_state_diff(pred, gt, cur, mode)
+    def _check(self, pred, gt, cur, mode, **opts):
+        r = _sd.compute_state_diff(pred, gt, cur, mode, **opts)
         if not r["n_gt"]:
             return
         hits = sum(
             (r[f"{t}_recall"] or 0.0) * r[f"n_gt_{t}"]
             for t in ("added", "modified", "unchanged")
         )
-        canonical = _hungarian_eval.compute_hungarian_acc(pred, gt, mode)
+        canonical = _hungarian_eval.compute_hungarian_acc(pred, gt, mode, **opts)
         self.assertAlmostEqual(
             hits / r["n_gt"],
             canonical["hungarian_rec"],
             places=3,
-            msg=f"층 분해가 hungarian_rec 과 어긋남 ({mode})",
+            msg=f"층 분해가 hungarian_rec 과 어긋남 ({mode}, {opts})",
         )
 
     def test_invariant_holds(self):
@@ -203,6 +334,39 @@ class TestStratumInvariant(unittest.TestCase):
             for name, pred in (("copy", cur), ("perfect", gt), ("empty", "")):
                 with self.subTest(mode=mode, pred=name):
                     self._check(pred, gt, cur, mode)
+
+    def test_invariant_holds_under_strict_pos(self):
+        """`--strict-pos-match` 를 켜도 항등식이 유지돼야 한다.
+
+        두 채점기가 같은 매칭 함수를 쓰므로, 임계 플래그가 한쪽에만 흘러가면 여기서
+        깨진다. 그래서 플래그를 전역이 아니라 인자로 흘린다.
+
+        `alpha`→`omega` 픽스처는 그 임계가 **실제로 무는** 자리다: `_text_sim` 이 0 이라
+        cost 가 정확히 1.5 여서 1.7 에서는 붙고(MODIFIED) 1.5 에서는 떨어진다
+        (ADDED + DELETED). 플래그가 죽어 있으면 아래 sanity 가 먼저 터진다.
+        """
+        cur_swap = (
+            '<node bounds="[0,0][10,10]" point="[5,5]">'
+            '<button bounds="[1,1][5,5]" point="[3,3]">OK</button>'
+            '<p bounds="[6,6][9,9]" point="[7,7]">alpha</p></node>'
+        )
+        gt_swap = (
+            '<node bounds="[0,0][10,10]" point="[5,5]">'
+            '<button bounds="[1,1][5,5]" point="[3,3]">OK</button>'
+            '<p bounds="[6,6][9,9]" point="[7,7]">omega</p></node>'
+        )
+        loose = _sd.summarize_diff(_sd.classify_diff(cur_swap, gt_swap, "pos"))
+        strict = _sd.summarize_diff(
+            _sd.classify_diff(cur_swap, gt_swap, "pos", strict_pos=True)
+        )
+        self.assertEqual((loose["MODIFIED"], loose["DELETED"]), (1, 0))
+        self.assertEqual((strict["ADDED"], strict["DELETED"]), (1, 1), "임계가 물었다")
+
+        _, cur, gt = MODES[1]  # pos
+        for name, c, g in (("standard", cur, gt), ("text-swap", cur_swap, gt_swap)):
+            for pred_name, pred in (("copy", c), ("perfect", g), ("empty", "")):
+                with self.subTest(fixture=name, pred=pred_name):
+                    self._check(pred, g, c, "pos", strict_pos=True)
 
 
 class TestPromptFamilies(unittest.TestCase):

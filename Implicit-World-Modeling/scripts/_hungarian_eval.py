@@ -123,6 +123,11 @@ INDEX_TAU = 2
 # 거리로 대체하고, 위치 신호를 상향(0.2 → 0.4)한 뒤 임계값을 1.7 로 완화한다.
 W_POS = 0.4
 MATCH_THRESHOLD_POS = 1.7
+# 완화된 1.7 은 텍스트가 통째로 바뀐 쌍(`_text_sim`=0 → cost 1.5)도 같은 요소로 붙인다.
+# next-state 진단에서는 그게 곧 "바뀐 것을 안 바뀐 것으로 세는" 오차라, 텍스트 교체를
+# 매칭에서 떨어뜨리는 엄격 임계를 옵션으로 둔다 (index 모드의 MATCH_THRESHOLD 와 같은 값).
+# **기본값은 1.7 이다** — 기존 산출물과 값이 갈리지 않아야 하므로 opt-in 이다.
+MATCH_THRESHOLD_POS_STRICT = 1.5
 BOUNDS_NORM = 2050.0  # 화면 대각선 근사값 (840x1876)
 BOUNDS_TAU = 50.0  # hungarian_pos 의 "위치 정확" 기준 (px)
 
@@ -178,7 +183,7 @@ def _collect_texts_pos(el):
     return " | ".join(sorted(tokens)) if tokens else ""
 
 
-def extract_elements(xml_str, match_mode="index"):
+def extract_elements(xml_str, match_mode="index", include_aria=False):
     try:
         soup = BeautifulSoup(xml_str, "xml")
     except Exception:
@@ -198,7 +203,15 @@ def extract_elements(xml_str, match_mode="index"):
             # 같은 nav 항목)는 매칭 대상에서 빠진다. aria-label 을 포함 조건에 넣으면
             # element 집합이 커져 pos 메트릭이 달라지므로, 채점 기준 변경으로 취급하고
             # v2 레퍼런스를 따른다. (v2 의 _collect_texts 는 aria-label 을 텍스트로는 쓴다.)
-            is_described = bool(el.get("description"))
+            #
+            # `include_aria=True` 는 그 채점 기준 변경을 **명시적으로** 여는 스위치다.
+            # change_f1 도입과 세트로 열었다 — 화면 변화의 상당수가 nav/아이콘처럼
+            # aria-label 만 가진 요소에서 일어나는데, 그것들이 element 집합에 없으면
+            # 변화 자체가 관측되지 않는다. 기본값은 여전히 False 다: 켜는 순간 pos 계열
+            # 전 지표가 새 기준이 되어 기존 산출물과 나란히 못 놓는다.
+            is_described = bool(el.get("description")) or (
+                include_aria and bool(el.get("aria-label"))
+            )
             if is_interactive or is_content or is_clickable or is_described:
                 elements.append(
                     {
@@ -267,12 +280,12 @@ def _match_cost_pos(e1, e2):
     return round(tc + pc, 5)
 
 
-def _hungarian_match(pred, gt, match_mode="index"):
+def _hungarian_match(pred, gt, match_mode="index", strict_pos=False):
     n, m = len(pred), len(gt)
     if n == 0 or m == 0:
         return [], []
     if match_mode == "pos":
-        threshold = MATCH_THRESHOLD_POS
+        threshold = MATCH_THRESHOLD_POS_STRICT if strict_pos else MATCH_THRESHOLD_POS
         matrix = [[_match_cost_pos(p, g) for g in gt] for p in pred]
     else:
         threshold = MATCH_THRESHOLD
@@ -293,7 +306,9 @@ def _hungarian_match(pred, gt, match_mode="index"):
     return pairs, matrix
 
 
-def compute_hungarian_acc(pred_str, gt_str, match_mode="index"):
+def compute_hungarian_acc(
+    pred_str, gt_str, match_mode="index", *, strict_pos=False, include_aria=False
+):
     pos_mode = match_mode == "pos"
     pos_key = "hungarian_pos" if pos_mode else "hungarian_idx"
     _zero = {
@@ -305,14 +320,14 @@ def compute_hungarian_acc(pred_str, gt_str, match_mode="index"):
         pos_key: 0.0,
     }
     try:
-        pred_els = extract_elements(pred_str, match_mode)
-        gt_els = extract_elements(gt_str, match_mode)
+        pred_els = extract_elements(pred_str, match_mode, include_aria)
+        gt_els = extract_elements(gt_str, match_mode, include_aria)
     except Exception:
         return _zero
     if not gt_els:
         return _zero
 
-    pairs, _ = _hungarian_match(pred_els, gt_els, match_mode)
+    pairs, _ = _hungarian_match(pred_els, gt_els, match_mode, strict_pos)
     n_pred, n_gt, n_matched = len(pred_els), len(gt_els), len(pairs)
 
     ea = n_matched / max(n_pred, n_gt) if max(n_pred, n_gt) > 0 else 0.0
@@ -424,8 +439,20 @@ def _load_jsonl(path):
         return [json.loads(line) for line in f if line.strip()]
 
 
-def evaluate_pairs(gt_entries, pred_entries, match_mode="index"):
-    """Pair-level Hungarian/BLEU/ROUGE 집계. ID/OOD 합산용으로 entries 리스트를 직접 받음."""
+def evaluate_pairs(
+    gt_entries,
+    pred_entries,
+    match_mode="index",
+    *,
+    strict_pos=False,
+    include_aria=False,
+):
+    """Pair-level Hungarian/BLEU/ROUGE 집계. ID/OOD 합산용으로 entries 리스트를 직접 받음.
+
+    `strict_pos` / `include_aria` 는 **전역이 아니라 인자로** 흐른다. 같은 실행에서
+    sibling 으로 나가는 `_state_diff_eval` 이 같은 매칭 함수를 쓰는데, 한쪽만 전역을
+    읽으면 두 채점기의 element 집합·임계가 어긋나 층 분해 항등식이 조용히 깨진다.
+    """
     results = []
     for gt_entry, pred_entry in zip(gt_entries, pred_entries, strict=False):
         gt_text = gt_entry["messages"][-1]["value"]
@@ -437,7 +464,13 @@ def evaluate_pairs(gt_entries, pred_entries, match_mode="index"):
                 "rouge_2": calc_rouge_n(gt_text, pred_text, 2),
                 "rouge_l": calc_rouge_l(gt_text, pred_text),
                 "exact_match": 1.0 if gt_text.strip() == pred_text.strip() else 0.0,
-                "hungarian": compute_hungarian_acc(pred_text, gt_text, match_mode),
+                "hungarian": compute_hungarian_acc(
+                    pred_text,
+                    gt_text,
+                    match_mode,
+                    strict_pos=strict_pos,
+                    include_aria=include_aria,
+                ),
             }
         )
 
@@ -558,9 +591,17 @@ def _predict_results_dict(metrics):
     }
 
 
-def evaluate_stage1_predictions(test_path, pred_path, match_mode="index"):
+def evaluate_stage1_predictions(
+    test_path, pred_path, match_mode="index", *, strict_pos=False, include_aria=False
+):
     """Backward-compatible file-based entry point."""
-    return evaluate_pairs(_load_jsonl(test_path), _load_jsonl(pred_path), match_mode)
+    return evaluate_pairs(
+        _load_jsonl(test_path),
+        _load_jsonl(pred_path),
+        match_mode,
+        strict_pos=strict_pos,
+        include_aria=include_aria,
+    )
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────
@@ -580,6 +621,11 @@ def _cmd_score(args):
     split_mode = bool(args.test_id or args.pred_id or args.test_ood or args.pred_ood)
     exclude = args.exclude_action or None
     match_mode = getattr(args, "match_mode", "index")
+    # 매칭 기준을 바꾸는 두 스위치는 여기 한 진입점에서만 읽고, 정본 채점과 sibling
+    # state-diff 양쪽에 **같은 값으로** 명시 전달한다 (전역 상태로 흘리지 않는다).
+    strict_pos = getattr(args, "strict_pos_match", False)
+    include_aria = getattr(args, "include_aria", False)
+    score_opts = {"strict_pos": strict_pos, "include_aria": include_aria}
 
     # 필터된 jsonl 산출용 디렉토리 (exclude 가 set 일 때만 사용)
     test_out_dir = Path(args.filtered_test_dir) if args.filtered_test_dir else None
@@ -623,9 +669,11 @@ def _cmd_score(args):
                     pr_ood, pred_out_dir / "generated_predictions_ood.jsonl"
                 )
 
-        m_id = evaluate_pairs(gt_id, pr_id, match_mode)
-        m_ood = evaluate_pairs(gt_ood, pr_ood, match_mode)
-        m_overall = evaluate_pairs(gt_id + gt_ood, pr_id + pr_ood, match_mode)
+        m_id = evaluate_pairs(gt_id, pr_id, match_mode, **score_opts)
+        m_ood = evaluate_pairs(gt_ood, pr_ood, match_mode, **score_opts)
+        m_overall = evaluate_pairs(
+            gt_id + gt_ood, pr_id + pr_ood, match_mode, **score_opts
+        )
 
         metrics = {
             "overall": m_overall,
@@ -655,7 +703,7 @@ def _cmd_score(args):
                 _write_jsonl_idempotent(
                     preds, pred_out_dir / "generated_predictions.jsonl"
                 )
-        metrics = evaluate_pairs(gts, preds, match_mode)
+        metrics = evaluate_pairs(gts, preds, match_mode, **score_opts)
         _print_metrics_row("all", metrics)
         predict_results = _predict_results_dict(metrics)
 
@@ -682,14 +730,30 @@ def _cmd_score(args):
     # 프롬프트 파싱 실패를 조용히 넘기지 않고 터뜨리는데, 그때 정본 채점까지 날아가면
     # 안 되기 때문이다.
     if not args.skip_state_diff:
-        rc = _write_state_diff(args, out_path, split_mode, match_mode, exclude)
+        rc = _write_state_diff(
+            args, out_path, split_mode, match_mode, exclude, **score_opts
+        )
         if rc:
             return rc
     return 0
 
 
-def _write_state_diff(args, out_path, split_mode, match_mode, exclude) -> int:
-    """state_diff_metrics.json 을 hungarian_metrics.json 과 같은 섹션 구조로 저장."""
+def _write_state_diff(
+    args,
+    out_path,
+    split_mode,
+    match_mode,
+    exclude,
+    *,
+    strict_pos=False,
+    include_aria=False,
+) -> int:
+    """state_diff_metrics.json 을 hungarian_metrics.json 과 같은 섹션 구조로 저장.
+
+    매칭 스위치 두 개는 위 정본 채점과 **같은 값**을 받아야 한다. 어긋나면 element
+    집합이나 임계가 갈려 `(unchanged+modified+added hit)/n_gt == hungarian_rec` 항등식이
+    깨지는데, 두 파일을 나란히 보기 전까지는 아무도 못 본다.
+    """
     import _state_diff_eval as _sd
 
     sd_path = out_path.parent / "state_diff_metrics.json"
@@ -710,14 +774,28 @@ def _write_state_diff(args, out_path, split_mode, match_mode, exclude) -> int:
             gt_ood, pr_ood = _filter_pairs(
                 _load_jsonl(args.test_ood), _load_jsonl(args.pred_ood), exclude
             )
-            sd_metrics = _sd.build_metrics(gt_id, pr_id, gt_ood, pr_ood, match_mode)
+            sd_metrics = _sd.build_metrics(
+                gt_id,
+                pr_id,
+                gt_ood,
+                pr_ood,
+                match_mode,
+                strict_pos=strict_pos,
+                include_aria=include_aria,
+            )
             for sec in ("overall", "in_domain", "out_of_domain"):
                 _sd._print_row(sec, sd_metrics[sec])
         else:
             gts, preds = _filter_pairs(
                 _load_jsonl(args.test), _load_jsonl(args.pred), exclude
             )
-            sd_metrics = _sd.evaluate_pairs(gts, preds, match_mode)
+            sd_metrics = _sd.evaluate_pairs(
+                gts,
+                preds,
+                match_mode,
+                strict_pos=strict_pos,
+                include_aria=include_aria,
+            )
             _sd._print_row("all", sd_metrics)
     except _sd.StateDiffError as e:
         print(f"[score] state-diff 실패 — {sd_path} 미생성: {e}", file=sys.stderr)
@@ -765,6 +843,22 @@ def main():
         help="index (기본, EXP01~04): element index 차이를 위치 cost 로 사용, metric key "
         "avg_hungarian_idx. pos (EXP05): HTML 에 index 속성이 없으므로 bounds 중심점 "
         "거리를 위치 cost 로 사용 (W_POS=0.4, threshold=1.7), metric key avg_hungarian_pos.",
+    )
+    p_score.add_argument(
+        "--strict-pos-match",
+        action="store_true",
+        dest="strict_pos_match",
+        help="pos 모드 매칭 임계를 1.7 → 1.5 로 조인다 (MATCH_THRESHOLD_POS_STRICT). "
+        "텍스트가 통째로 바뀐 쌍이 매칭에서 떨어져 '변화'로 잡힌다. **기본은 꺼짐** — "
+        "켜면 기존 pos 산출물과 값이 갈리므로 나란히 비교할 수 없다.",
+    )
+    p_score.add_argument(
+        "--include-aria",
+        action="store_true",
+        dest="include_aria",
+        help="pos 모드에서 aria-label 만 가진 요소도 채점 대상에 넣는다. **기본은 꺼짐** — "
+        "element 집합 자체가 커져 pos 계열 전 지표가 새 기준이 된다 "
+        "(extract_elements 주석 참고).",
     )
     p_score.add_argument(
         "--exclude-action",
