@@ -146,10 +146,7 @@ for leaf in "${KEPT[@]}"; do
     echo "[!] DS_DATADIR 에 '$eval_ds' 가 없다 — 건너뜀: $leaf" >&2
     continue
   fi
-  mode_flag=""
-  case "$eval_ds" in
-    AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2) mode_flag="--match-mode pos" ;;
-  esac
+  mode_flag="$(ds_score_mode_flag "$eval_ds" state)"
 
   # woa leaf 는 이미 필터된 prediction 을 들고 있으므로 필터된 GT 와 짝지어야 한다.
   # 여기서 --exclude-action 을 다시 주면 이미 빠진 행을 또 거르려다 정렬이 어긋난다.
@@ -194,18 +191,5 @@ if [ "$DRY" -eq 1 ]; then
 fi
 
 # ── 4) 팬아웃 ──────────────────────────────────────────────────────────────
-run_one() {
-  local tag cmd log
-  tag="${1%%$'\t'*}"; cmd="${1#*$'\t'}"
-  log="$LOG_ROOT/${tag}.log"
-  if bash -c "$cmd" > "$log" 2>&1; then
-    echo "[+] OK   $tag"
-  else
-    echo "[!] FAIL $tag  (log: $log)" >&2
-  fi
-}
-export -f run_one
-export LOG_ROOT
-
-xargs -d '\n' -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {} < "$CMDS"
+run_rebuild_batch "$CMDS" "$JOBS" "$LOG_ROOT"
 echo "[=] 완료"

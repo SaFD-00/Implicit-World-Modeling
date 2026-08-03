@@ -248,6 +248,54 @@ ds_stage1_source() {
   esac
 }
 
+# DS 키 → 절대 픽셀(xy) 액션 스페이스인가.
+# EXP05 계열(EXP05/06/07)은 좌표를 정규화하지 않은 절대 픽셀(840×1876)로 쓰고 HTML 에
+# index 속성이 없다. 그래서 state 는 --match-mode pos(bounds 기반 매칭), action 은
+# --coord-mode xy 로 채점해야 한다. 나머지 EXP 는 플래그 없이 기존 경로.
+#
+# 정본은 stage1_eval.sh:73 / stage2_eval.sh:82 의 판정이고 이 함수가 그것을 옮긴 것이다.
+# rebuild_*.sh 3종이 각자 case 문을 복제하고 있었는데, 실제로 어긋나 있었다 —
+# rebuild_state_diff_metrics.sh 만 AC_EXP06 을 pos 목록에 넣고 있었다(2026-08-03 발견).
+# EXP06 은 stage2 전용이라 state leaf 자체가 없어 발동한 적은 없지만, 같은 판정을
+# 네 군데서 따로 유지하면 언젠가 진짜로 갈린다. 여기 한 곳만 고치면 되게 모은다.
+ds_is_pixel_xy() {
+  case "$1" in
+    AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# DS 키 + task → 채점기에 넘길 모드 플래그. 위 판정의 유일한 소비 경로.
+#   state  → --match-mode pos   (_hungarian_eval)
+#   action → --coord-mode xy    (_action_eval)
+# state 채점은 EXP06 에 존재하지 않으므로(stage2 전용) 호출되지 않는다.
+ds_score_mode_flag() {
+  local ds="$1" task="${2:-state}"
+  ds_is_pixel_xy "$ds" || { echo ""; return; }
+  if [[ "$task" == state ]]; then echo "--match-mode pos"; else echo "--coord-mode xy"; fi
+}
+
+# leaf 단위 배치를 병렬 실행하는 공통 러너. rebuild_*.sh 3종이 같은 것을 복제하고 있었다.
+# 입력은 "<tag>\t<command>" 한 줄씩 담긴 파일이고, tag 는 로그 파일명이 된다.
+# 채점기가 사실상 단일 스레드라 leaf 단위로 벌린다.
+run_rebuild_batch() {
+  local cmds_file="$1" jobs="$2" log_root="$3"
+  mkdir -p "$log_root"
+  _rebuild_run_one() {
+    local tag cmd log
+    tag="${1%%$'\t'*}"; cmd="${1#*$'\t'}"; log="$LOG_ROOT/${tag}.log"
+    if bash -c "$cmd" > "$log" 2>&1; then
+      echo "[+] OK   $tag"
+    else
+      echo "[!] FAIL $tag  (log: $log)" >&2
+    fi
+  }
+  export -f _rebuild_run_one
+  export LOG_ROOT="$log_root"
+  # xargs 는 \t 를 포함한 한 줄을 그대로 인자로 넘긴다 (-d '\n' 로 개행만 구분자 취급).
+  xargs -d '\n' -P "$jobs" -I{} bash -c '_rebuild_run_one "$@"' _ {} < "$cmds_file"
+}
+
 # DS 키 → adapters/ + merged/ 의 모델 디렉토리 이름에 붙일 suffix.
 # AC_EXP01 ratio variant 만 _ratio{37,55,73} 을 갖고, 다른 DS 는 빈 문자열.
 ds_model_suffix() {
