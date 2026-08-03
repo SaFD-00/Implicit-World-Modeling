@@ -3,6 +3,60 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-08-03 — IWM: 절단(1024) 판정 기준을 세 번 갈아엎어 토큰 기준 확정 + Notion EXP03·EXP05 재작성
+
+Notion Offline 표에 EXP03·EXP05 를 되살리는 작업으로 시작했는데, 그 과정에서 **"어떤 eval 산출물이
+유효한가"를 가르는 절단 판정 기준이 틀려 있었다**는 게 드러났다. 기준이 mtime → 문자 길이 → 토큰으로
+두 번 뒤집혔고, 최종 토큰 기준으로 전수 재판정하니 절단 leaf 가 **5 → 14 → 17** 로 늘었다.
+
+- **판정 기준의 3단 반증.** ① 기존 `truncated_reason()` 은 `mtime < MAX_NEW_TOKENS_FIX_UTC`(2026-07-28
+  23:38 UTC) 만 봤는데, 2026-05~06 산출물 중에도 정상과 절단이 섞여 있어 무효였다 — 절단은 날짜가 아니라
+  **추론 실행 경로**를 따른다. ② 대안으로 잡은 문자 길이 기준(`p_max<6000 && l_max>10000`)도 틀렸다:
+  EXP02 `3-8b/base/-state` 는 predict 최장이 **29,286자**인데 바로 그 행의 토큰이 **정확히 1024** 였다
+  (꼬리의 공백 수천 개가 문자 수만 부풀렸다). ③ 최종 판정식은 **`count(tok == 1024) / n >= 0.05`**.
+  🔑 **`max_tok <= 1024` 를 조건에 넣으면 안 된다** — 저장된 텍스트를 재토크나이즈하면 길이가 보존되지
+  않아 절단 leaf 에도 1024 를 몇 토큰 넘긴 행이 하나씩 섞인다(EXP01 `3-8b_r73/lora/ep3`=1060,
+  EXP02 `lora/ep1`=1025·`ep2`=1030). 상한 조건을 넣으면 이 셋을 놓친다(실제로 놓쳤다가 잡았다).
+  마진은 넉넉하다 — 절단 17 leaf 0.29~0.71 vs 정상 16 leaf 0.000~0.001, 두 자릿수 배율.
+- **진짜 함정은 판정이 세 군데로 중복돼 있었다는 것.** `_compare_site.py` 와
+  `rebuild_state_diff_metrics.sh` 가 각자 mtime 비교를 다시 구현했고, 특히 후자는 "dry-run 표시용"이라는
+  주석과 달리 **채점 대상을 고르는 게이트**여서 채점기만 고치면 leaf 가 채점기에 도달조차 못 한다.
+  셋 다 같은 함수를 부르게 통일했다. `MAX_NEW_TOKENS_FIX_UTC` 는 토큰을 못 잴 때의 폴백으로만 남겼다.
+- **전수 재판정**: 절단 **17 leaf**(EXP01 10 · EXP02 4 · EXP03 3), 정상 16. **EXP05·EXP07 은 전부 정상**
+  이라 Notion 에 실린 값은 유효하다. 같은 모델·variant 안에서도 epoch 마다 갈리므로(EXP01 `2.5-7b_r73`
+  은 base·ep1 정상 / ep2·ep3 절단) **leaf 단위로 재야 하고 형제 결과를 전용하면 안 된다.**
+- **Notion**: `🟢 Offline` 에 `### EXP03` · `### EXP05` 를 EXP06 앞에 신설(표 6 · callout 5). 사용자 요구대로
+  **백업 표를 쓰지 않고 로컬 metrics JSON 에서 스크립트로 생성**해 4자리 고정(백업에서는 Train 라벨·HF
+  모델명만 참조). 이때 **기존 EXP06 `hung_f1` 3 셀이 JSON 원문과 달라 정정**했다(0.6964→0.6965 ·
+  0.7296→0.7297 · 0.7035→0.7036). EXP06 Stage1 표는 EXP05 leaf 에서 온 값이다 — `AndroidControl_EXP06`
+  에 stage1 leaf 가 없고 `dataset_info.json` 의 EXP06 키도 `stage2_*` 3 개뿐임을 확인했다.
+- **채점 49 leaf**(GPU 미사용, 추론 재실행 없이 기존 predictions 채점): EXP03 9(stage2 6 + stage1 action 3)
+  + EXP01·EXP02 40. EXP03 stage2 는 `thought_metrics` 만 있어 죽은 줄 알았으나 `parse_rate` 0.8460~0.9988
+  로 멀쩡했다. **`rebuild_eval_metrics.sh` 는 현재 저장소 전체에서 대상 0 개**다 — `.gen_done` 마커를
+  "유일한 신선도 근거"로 요구하는데 그 마커가 사실상 없고, `on-*-state|on-*-action` 패턴만 훑어
+  **stage2 leaf 는 구조적으로 대상 밖**이다. 그래서 채점기를 직접 호출했다(행 수 전건 대조 후).
+- **leaf 오배치 3 건 판정** — 3 건 모두 **디렉터리의 EXP 가 맞고 leaf 이름이 틀렸다**. 결정적 사실은
+  **EXP01 과 EXP02 의 test 파일 6 종이 전부 byte-identical** 이라는 것이다. 그래서 label 대조로는
+  EXP01↔EXP02 를 원리상 구분할 수 없고 "의도적 교차평가" 해석도 성립하지 않는다(입력이 같으니 구별되는
+  실험이 아니다). 판정 근거는 md5·mtime 사슬과 툴링 규약(`eval_viewer.py:135` 가 leaf 이름을 디렉터리
+  EXP 에서 구성). 부수 발견: stage1 base 슬롯 3 개(`ratio37`/`ratio73`/`EXP02`)의 내용물이 **byte-identical
+  한 단 하나의 실행**이라, 표에 나란히 올리면 같은 숫자를 두 번 쓰는 셈이다.
+- **하지 못한 것 (정직 보고)**: **재추론 미실행 — GPU 없음.** GPU0 은 타 사용자 sglang(여유 3.9GiB),
+  GPU1 은 죽은 세션 `ddaa347c` 의 `drive_headstart.sh`→`vllm_infer.py` 가 EXP07 을 점유(여유 5.2GiB).
+  사용자 계정 소유라 죽이지 않았다. 사용자 지시로 **명령만 준비**했다 —
+  `scripts/rerun_truncated_state_eval.sh`(17 leaf · 6 그룹 · dry-run 기본, GPU 여유 20GiB 기준 가드).
+  EXP03 × qwen3-vl-8b 는 TP=2 필수다. **Notion 에 EXP01·EXP02·EXP04 는 넣지 않았다**(EXP04 는 outputs
+  자체가 없고, 지시 범위가 EXP03–05 였다). EXP01·EXP02 state 는 절단이라 채점해도 무효다.
+- **백업 전량 삭제**(사용자 명시 승인): `_backup_preseed_20260729`(180MB) · 사이드카 95 개(80MB) ·
+  `docs/notion_backup_20260731/`. 삭제 전 preseed 의 metrics 3 개가 전부 정본에 중복임을 확인해 고유 데이터
+  손실은 없다. ⚠️ 다만 **EXP01·EXP02·EXP04 의 옛 Notion 표는 이제 복원 경로가 없다**(로컬 eval 산출물은
+  남아 재채점은 가능).
+- 변경: `scripts/_state_diff_eval.py`(판정 토큰화 + 모델별 tokenizer 해석 + 캐시) · `_compare_site.py` ·
+  `rebuild_state_diff_metrics.sh` · `tests/test_state_diff_eval.py`(+10 테스트, 재토크나이즈 드리프트
+  경계 사례 포함) · `ARCHITECTURE.md` · `scripts/rerun_truncated_state_eval.sh`(신규).
+- 결과/검증: `pytest tests` conda **실패 0 · skip 9**. 토큰 전수 스캔 33 state leaf 로 판정식 마진 확인.
+- 카테고리: devlog
+
 ## 2026-08-01 — IWM: state-diff(copy-bias) 채점기 신설 — `hung_f1` 이 "예측"과 "입력 복사"를 못 가르던 문제
 
 next-state 는 current state 와 대부분 겹쳐(GT 기준 `copy_rate_gt` 0.77~0.79) **current 를 그대로 베끼기만 해도 `hung_f1` 이 높게 나온다** — 학습이 world model 을 배운 건지 "입력 복사" 지름길을 배운 건지 기존 지표로는 구분할 수 없었다. current 를 세 번째 인자로 받는 보조 채점기를 신설하고, 정본 채점 실행이 sibling `state_diff_metrics.json` 을 항상 함께 내도록 배선했다. 판별량은 GT 기준선을 뺀 `copy_excess`, 헤드라인은 `diff_recall`(정본 `avg_hungarian_rec` 의 층 분해)이다.
