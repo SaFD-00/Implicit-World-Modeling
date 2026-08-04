@@ -516,7 +516,7 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 | [`scripts/mirror_experiment.py`](./scripts/mirror_experiment.py) | `--experiment {exp03,exp04,exp05}` 통합 미러 (EXP01 ratio73 멤버십 → 좌표 표현) |
 | [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py) | **EXP05 빌드 정본** (mirror → diff-loss 가중 → 원자 교체 + sidecar) |
 | [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) | Stage 1 metric (`score` 서브커맨드). `state_diff_metrics.json` 도 같은 실행에서 함께 낸다 |
-| [`scripts/_state_diff_eval.py`](./scripts/_state_diff_eval.py) | Stage 1 copy-bias 진단 (`copy_excess` / `diff_recall`) — 백필용 `score` CLI 겸용 |
+| [`scripts/_state_diff_eval.py`](./scripts/_state_diff_eval.py) | Stage 1 copy-bias 진단 (`copy_excess` / `addmod_recall`) — 백필용 `score` CLI 겸용 |
 | [`scripts/_prompt_sections.py`](./scripts/_prompt_sections.py) | 프롬프트 두 계열(`## Current State` / `Current UI State:`) 섹션 파서 — **한 벌만 존재해야 한다** (§6 woa 사고) |
 | [`scripts/rebuild_state_diff_metrics.sh`](./scripts/rebuild_state_diff_metrics.sh) | 구 leaf 의 `state_diff_metrics.json` 백필 (GPU 미사용, 절단 leaf 자동 제외) |
 | [`scripts/_action_eval.py`](./scripts/_action_eval.py) | Stage 2 metric, ID/OOD/overall 3 섹션 |
@@ -652,20 +652,28 @@ outputs/{OUT_DS}/                # AndroidControl_EXP0{1..5} | MC.  AC_EXP01 의
 | 키 | 뜻 |
 |---|---|
 | `avg_copy_excess` | **판별량.** `copy_rate_pred − copy_rate_gt`. 0 근처면 "GT 가 겹치는 만큼만 겹쳤다", 큰 양수면 "바뀌었어야 할 자리까지 베꼈다" |
-| `avg_diff_recall` | GT 의 변경분(MODIFIED+ADDED) 중 예측이 맞힌 비율 — 헤드라인 |
+| `avg_addmod_recall` | GT 의 변경분(MODIFIED+ADDED) 중 예측이 맞힌 비율 — 헤드라인 |
 | `avg_added_recall` | ADDED 만. current 에 없던 요소라 **순수 예측력** |
 | `avg_modified_recall` / `avg_unchanged_recall` | 나머지 두 층 |
-| `avg_diff_f1` | precision 분모를 pred-side diff 로 대칭화한 F1 (recall 과 정의가 다른 별도 키) |
-| `avg_change_prec` / `avg_change_recall` / `avg_change_f1` | **change 축** (2026-08-03 신설). current 대비 바뀐 항목을 pred/gt 양쪽에서 **같은 절차**로 뽑아 집합 비교한다: `C = ADDED ∪ MODIFIED ∪ DELETED`. hit 은 ADDED/MODIFIED 면 정본 pred↔gt 매칭에서 짝이 맞고 그 짝의 `text_sim ≥ τ`(`CHANGE_TEXT_SIM_TAU` 0.9), DELETED 면 같은 current 요소를 양쪽 다 지웠을 때. recall 층 분해가 **못 보는 두 가지**(사라져야 할 요소·자리만 맞고 내용이 틀린 예측)를 본다 |
-| `avg_change_f1_null` | **위 셋의 눈금** (2026-08-04 신설). 같은 행에서 **빈 예측**이 받는 점수 = 이 축의 퇴화 바닥. `avg_change_f1` 을 이 값 **없이 인용하지 않는다** (바로 아래 불릿) |
+| `avg_addmod_f1` | precision 분모를 pred-side diff 로 대칭화한 F1 (recall 과 정의가 다른 별도 키) |
+| `avg_change_prec_strict` / `avg_change_recall_strict` / `avg_change_f1_strict` | **change 축** (2026-08-03 신설). current 대비 바뀐 항목을 pred/gt 양쪽에서 **같은 절차**로 뽑아 집합 비교한다: `C = ADDED ∪ MODIFIED ∪ DELETED`. hit 은 ADDED/MODIFIED 면 정본 pred↔gt 매칭에서 짝이 맞고 그 짝의 `text_sim ≥ τ`(`CHANGE_TEXT_SIM_TAU` 0.9), DELETED 면 같은 current 요소를 양쪽 다 지웠을 때. recall 층 분해가 **못 보는 두 가지**(사라져야 할 요소·자리만 맞고 내용이 틀린 예측)를 본다 |
+| `avg_change_prec_loose` / `avg_change_recall_loose` / `avg_change_f1_loose` | **같은 축, τ 게이트만 제거** (2026-08-04 신설). ADDED/MODIFIED hit 을 매칭만으로 센다 (DELETED 는 τ 와 무관해 양축 공통). `loose ≥ strict` 가 항상 성립하고 **그 갭이 "자리는 찾았는데 내용이 틀린" 양**이다 — strict 하나만 보면 "자리를 못 찾은 것"과 구분되지 않는다. ScratchWorld 의 `F₁^pres`(presence-only) ↔ `F₁^VA`(value-aware) 대응 |
+| `avg_change_f1_floor` | **위 두 축의 눈금** (2026-08-04 신설). 같은 행에서 **current 를 하나도 재현하지 않는 예측**이 받는 점수의 상한 = 이 축의 퇴화 바닥. strict/loose 공통이다 (DELETED 판정엔 τ 가 없다). `avg_change_f1_strict` 을 이 값 **없이 인용하지 않는다** (바로 아래 불릿) |
+| `avg_no_change_acc` | **GT 가 current 와 같은 행에서만** 정의 (2026-08-04 신설). 그 구간에서는 복사가 정답이므로 "예측도 아무 변화를 주장하지 않았나"를 센다. 변화 있는 행에서는 None — `n_no_change_acc` 가 곧 "무변화 step 이 몇 행인가"(데이터 sparsity) |
+| `parse_fail_rate` / `parse_fail_long_rate` | 예측에서 element 를 하나도 못 뽑은 행의 비율 / 그중 예측 문자열이 100자를 넘는 행 (2026-08-04 신설). 후자는 "안 냈다"가 아니라 **"파싱 가능한 태그가 하나도 없는 장문을 냈다"** — 실측 사례 `predict` 58,303자에 요소 0개. **`avg_copy_excess` 와 반드시 함께 읽는다** (아래 불릿) |
 | `avg_n_change_gt` / `avg_n_change_pred` | 위 집합의 크기 — "몇 개 중 몇 개"를 드러낸다 |
 | `avg_copy_rate_pred` / `avg_copy_rate_gt` | 예측·GT 가 각각 current 와 겹치는 비율 |
 | `copy_near_rate` | 예측이 current 와 사실상 동일(`hungarian_f1 ≥ 0.98`)한 행의 비율 |
 | `unclosed_root_rate` | 예측이 root tag 를 안 닫고 끝난 비율 — 절단 sanity |
 
+> **2026-08-04 개명 + 규칙 변경**: `diff_recall`/`diff_prec`/`diff_f1` → `addmod_recall`/`addmod_prec`/`addmod_f1`, `change_f1`/`change_f1_null` → `change_f1_strict`/`change_f1_floor`, `change_prec`/`change_recall` → `..._strict` (avg_/n_ 접두는 그대로). `diff_*` 는 DELETED 가 빠진 ADDED∪MODIFIED 인데 `change_*` 는 DELETED 를 포함해 이름만으로 두 접두어가 구분이 안 됐고, `_null` 은 이 채점기의 진짜 None 값(조건부 정의)과 헷갈렸다. `_strict` 는 새로 생긴 loose 축과의 대칭이다. `aggregate()` 가 옛 키를 하위호환 alias 로 함께 내고, `eval_viewer.py` 소비자는 새 이름 우선·옛 이름 폴백(`_metric()`)이다.
+>
+> ⚠️ **`change_f1` alias 는 "이름만 다른 같은 수"가 아니다 — 정의가 바뀌었다.** 빈/파싱실패 예측이 옛 규칙에서는 "current 전체를 지웠다"는 주장으로 분류돼 바닥값을 공짜로 받았는데, 이제는 **주장 없음 → 0.0** 이다 (ScratchWorld: *"Outputs that fail schema parsing are scored as **incorrect**."*). 그래서 **저장된 35개 leaf 를 같은 예측 jsonl 로 전량 재채점했다** — 재채점 전 값은 `docs/metrics_snapshot_pre_rescore_20260804.json` 에 보존돼 있다(`outputs/` 는 gitignore 라 git 안전망이 없다). 산출물 최상위의 **`metrics_schema: "2026-08-04"`** 가 옛/새 파일의 유일한 구분 수단이다 — 이 키가 없는 파일의 `avg_change_f1` 은 옛 정의값이니 나란히 놓지 말 것.
 - **recall 3 층은 정본 `avg_hungarian_rec` 의 정확한 분해다** — `pred↔gt` 매칭을 한 번만 하고 GT 를 diff 유형으로 나눠 세기 때문이다. `tests/test_state_diff_eval.py::TestStratumInvariant` 가 이 항등식을 고정한다. diff 부분집합을 따로 매칭하면 UNCHANGED 에 붙었어야 할 예측 요소가 MODIFIED 로 재배정되며 recall 이 부풀어 성질이 깨진다.
 - **`copy_rate` 를 단독으로 읽지 마라.** 완벽한 예측도 `copy_rate_pred` 가 0.78 쯤 나온다 (GT 자체가 그만큼 겹치므로). 반드시 `copy_excess` 로 본다.
-- **`change_f1` 은 `change_f1_null` 없이 인용 금지 — 이 축은 0 이 바닥이 아니다.** 0.0 이 되는 퇴화는 복사기(pred=current) 쪽뿐이고, 반대쪽 퇴화인 **빈 예측**은 current 전체가 DELETED 로 분류돼 `pred_deleted ∩ gt_deleted` 가 공짜 hit 이 된다 (200행 표본 실측 바닥: EXP01 0.383 · EXP05 0.235 · EXP07v1 0.258). 그래서 채점기가 같은 실행에서 **그 leaf 자신의** 퇴화 바닥 `avg_change_f1_null` 을 함께 낸다 — 표본값과 leaf 값은 다른 수이므로 반드시 같은 leaf 것끼리 견준다. 0 을 바닥으로 읽으면 **바닥에도 못 미치는 값**(EXP07v1 `lora ep1` 은 0.114 인데 그 leaf 의 바닥이 0.261)이 "base > trained" 처럼 보인다. 바닥은 `(current, gt)` 만의 함수라 예측과 무관한 test-set 상수이고, `hits=|gt_deleted|`·`n_pred=n_cur` 닫힌 식이라 Hungarian 을 추가로 돌리지 않는다.
+- **`change_f1_strict` 는 `change_f1_floor` 없이 인용 금지 — 이 축은 0 이 바닥이 아니다.** 0.0 이 되는 퇴화는 복사기(pred=current) 쪽뿐이고, 반대쪽 퇴화인 **"current 를 하나도 재현하지 않는 예측"** 은 current 전체가 DELETED 로 분류돼 `pred_deleted ∩ gt_deleted` 가 공짜 hit 이 된다 (200행 표본 실측 바닥: EXP01 0.383 · EXP05 0.235 · EXP07v1 0.258). 그래서 채점기가 같은 실행에서 **그 leaf 자신의** 퇴화 바닥 `avg_change_f1_floor` 을 함께 낸다 — 표본값과 leaf 값은 다른 수이므로 반드시 같은 leaf 것끼리 견준다. 0 을 바닥으로 읽으면 **바닥에도 못 미치는 값**(EXP07v1 `lora ep1` 은 0.114 인데 그 leaf 의 바닥이 0.261)이 "base > trained" 처럼 보인다. 바닥은 `(current, gt)` 만의 함수라 예측과 무관한 test-set 상수이고, `hits=|gt_deleted|`·`n_pred=n_cur` 닫힌 식이라 Hungarian 을 추가로 돌리지 않는다.
+- **⚠️ 빈 예측 규칙을 고쳤다고 바닥이 0 이 된 게 아니다.** 2026-08-04 부터 빈/파싱실패 예측은 0.0 을 받지만, **요소가 단 하나라도 있으면 나머지 current 전부가 그대로 DELETED 주장**이라 점수가 바닥 바로 아래로 돌아온다 — 정본 probe 실측으로 index 0.500 / 바닥 0.5714(**87.5%**), pos 0.2857 / 0.3333(**85.7%**). 즉 이 수정은 **"생성 실패"만 0 으로 만들 뿐 DELETED 공짜 hit 문제 자체는 남아 있다.** `assert_scorer_wired` 의 최대삭제 probe 가 이 사실을 배선 단계에서 계속 증명한다 (그래서 "바닥이 0" 이라고 쓰면 테스트가 반박한다).
+- **`copy_excess` 를 `parse_fail_rate` 없이 두 모델 사이에서 비교하지 마라.** 파싱 불능 행은 `copy_excess` 가 None 이라 평균에서 빠진다 — 그 비율이 모델마다 다르면 **서로 다른 population 위의 평균**을 나란히 놓는 셈이다 (실측: EXP07 probe_forget 에서 onlyS2 계열 11~15% 제외 vs mergeO 계열 1.6~2.6% 제외). **빈 예측을 0 으로 채우는 방식은 2026-08-04 에 기각했다** — 빈 예측의 `copy_rate_pred` 는 0 이라 `copy_excess = −copy_rate_gt ≈ −0.77` 이 되고, 그러면 **아무것도 못 낸 행이 "복사를 안 했다"는 미덕으로 집계된다**(실측: onlyS2-ep1 이 +0.2392 → +0.0850 으로 되레 좋아진다). 조치는 채우기가 아니라 `n_copy_excess`·`parse_fail_rate` 분모 노출이다.
 - **UNCHANGED 판정은 `diff_loss/hungarian_diff_v2` 와 의도적으로 다르다.** 그쪽은 `match_cost ≤ 0.05` 인데 그 임계는 pos cost 스케일 기준이라 index 모드에서는 index 만 밀린 요소가 MODIFIED 로 새어 EXP01 과 EXP05 가 비교 불가가 된다. 여기서는 mode 독립 기준(`text_sim == 1.0`)을 쓴다. `diff_loss/` 는 학습 데이터 생성 경로라 건드리지 않는다 (§7 함정 10).
 - **`n_gt_added` 같은 층 크기는 EXP 간 비교 불가다.** 층 분류가 매칭 임계값에 의존하는데 그 임계가 모드마다 다르다: 텍스트가 통째로 바뀌면 cost 가 정확히 `W_TEXT`(1.5)인데 index 의 `MATCH_THRESHOLD` 도 1.5 이고 판정이 `cost < threshold` 라 매칭이 떨어져 **ADDED**, pos 는 threshold 1.7 이라 **MODIFIED** 다. **같은 `index` 모드 안에서도 갈린다** — EXP01 은 진짜 `index` 속성을 갖지만 EXP03/04 는 `bounds` 만 있어 index cost 가 항상 0 으로 죽어 있다 (정본 채점기의 기존 동작이며 여기서 고치지 않는다). recall 값 자체는 층 분해라 안전하다.
 

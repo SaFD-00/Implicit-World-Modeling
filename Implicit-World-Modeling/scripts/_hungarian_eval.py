@@ -205,7 +205,7 @@ def extract_elements(xml_str, match_mode="index", include_aria=False):
             # v2 레퍼런스를 따른다. (v2 의 _collect_texts 는 aria-label 을 텍스트로는 쓴다.)
             #
             # `include_aria=True` 는 그 채점 기준 변경을 **명시적으로** 여는 스위치다.
-            # change_f1 도입과 세트로 열었다 — 화면 변화의 상당수가 nav/아이콘처럼
+            # change 축(현 `change_f1_strict`) 도입과 세트로 열었다 — 화면 변화의 상당수가 nav/아이콘처럼
             # aria-label 만 가진 요소에서 일어나는데, 그것들이 element 집합에 없으면
             # 변화 자체가 관측되지 않는다. 기본값은 여전히 False 다: 켜는 순간 pos 계열
             # 전 지표가 새 기준이 되어 기존 산출물과 나란히 못 놓는다.
@@ -801,7 +801,7 @@ def _write_state_diff(
         print(f"[score] state-diff 실패 — {sd_path} 미생성: {e}", file=sys.stderr)
         return 3
     with sd_path.open("w", encoding="utf-8") as f:
-        json.dump(sd_metrics, f, ensure_ascii=False, indent=2)
+        json.dump(_sd.stamp_schema(sd_metrics), f, ensure_ascii=False, indent=2)
     print(f"[score] saved: {sd_path}")
     return 0
 

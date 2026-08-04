@@ -91,31 +91,69 @@ STATE_METRIC_KEYS = [
     # "바뀌었어야 할 자리까지 베꼈다". 2026-07-28 23:38 UTC 이전 leaf 는 예측이
     # 1024 로 잘려 element 수가 줄어 copy_rate 가 과소평가되므로 산출하지 않는다
     # (그래서 구 leaf 는 이 컬럼이 비는 게 정상이다).
-    "avg_diff_recall",
+    # 2026-08-04 개명(scripts/_state_diff_eval.py 모듈 docstring 참고): diff_*→addmod_*,
+    # change_f1/change_f1_null→change_f1_strict/change_f1_floor. 기존 34개 leaf 는
+    # 옛 키만 갖고 있어 `_metric()` 이 새 이름 우선, 옛 이름 폴백으로 읽는다.
+    "avg_addmod_recall",
     "avg_added_recall",
     "avg_modified_recall",
     "avg_unchanged_recall",
-    "avg_diff_f1",
+    "avg_addmod_f1",
     # change 축 — "변화 자체를 맞혔나". 위 recall 층은 GT 요소를 분모로 잡아 **없어져야
     # 할 요소**를 못 세고, hit 판정이 매칭뿐이라 자리만 맞고 내용이 틀려도 맞힌 게 된다.
-    # change_f1 은 pred/gt 양쪽에서 같은 절차로 변화 항목을 뽑아 내용 일치까지 본다.
+    # change_f1_strict 은 pred/gt 양쪽에서 같은 절차로 변화 항목을 뽑아 내용 일치까지 본다.
     # avg_n_change_gt 를 함께 읽어야 "몇 개 중 몇 개"인지 드러난다.
-    # **avg_change_f1_null 없이 avg_change_f1 만 읽지 말 것** — 이 축의 바닥은 0 이
-    # 아니다. 빈 예측은 current 를 전부 지운 것으로 분류돼 gt_deleted 와 공짜로 겹치고,
-    # 그 바닥값이 데이터에 따라 0.2~0.4 다. 실제로 EXP07v1 학습 모델(0.114)은 바닥
-    # (0.258)에 진다 — null 열을 빼면 그게 "base > trained" 로 읽힌다.
-    "avg_change_prec",
-    "avg_change_recall",
-    "avg_change_f1",
-    "avg_change_f1_null",
+    # **avg_change_f1_floor 없이 avg_change_f1_strict 만 읽지 말 것** — 이 축의 바닥은
+    # 0 이 아니다. 빈 예측은 current 를 전부 지운 것으로 분류돼 gt_deleted 와 공짜로
+    # 겹치고, 그 바닥값이 데이터에 따라 0.2~0.4 다. 실제로 EXP07v1 학습 모델(0.114)은
+    # 바닥(0.258)에 진다 — floor 열을 빼면 그게 "base > trained" 로 읽힌다.
+    # change_prec 은 2026-08-03 부터 계산되고 있었는데 노출이 안 돼 있었다. 과대변화
+    # (있지도 않은 변화를 지어내는 실패)는 copy_excess 가 못 잡고 이 열만 잡는다.
+    "avg_change_prec_strict",
+    "avg_change_recall_strict",
+    "avg_change_f1_strict",
+    # loose 는 τ 게이트 없이 자리만 본다. strict 와의 **갭**이 "자리는 찾았는데 내용이
+    # 틀린" 양이다 — 둘을 나란히 두지 않으면 그 구분이 사라진다.
+    "avg_change_f1_loose",
+    "avg_change_f1_floor",
     "avg_n_change_gt",
     "avg_n_change_pred",
+    # GT 가 current 와 같은 행("화면이 안 바뀌는 step")에서의 정확도. 그 구간에서는
+    # 복사가 정답이라 다른 지표가 전부 None 이다 — 이 열이 없으면 아무도 안 잰다.
+    "avg_no_change_acc",
+    # 예측에서 element 를 하나도 못 뽑은 행의 비율. **avg_copy_excess 와 반드시 함께
+    # 읽는다** — 그 행들은 copy_excess 평균에서 빠지므로, 이 값이 모델마다 다르면
+    # copy_excess 를 서로 다른 population 위에서 비교하게 된다.
+    "parse_fail_rate",
+    "parse_fail_long_rate",
     "avg_copy_rate_pred",
     "avg_copy_rate_gt",
     "avg_copy_excess",
     "copy_near_rate",
     "unclosed_root_rate",
 ]
+
+# 하위호환 폴백 — 2026-08-04 개명 전 34개 leaf 의 state_diff_metrics.json 은 옛
+# 키만 갖고 있고 재빌드하지 않는다(`scripts/_state_diff_eval.py` aggregate() 의
+# alias 는 **새로 채점하는 것에만** 붙는다). 그래서 이 방향(새 이름 우선, 옛 이름
+# 폴백)으로 읽지 않으면 기존 leaf 의 이 컬럼들이 전부 빈 칸으로 렌더링된다.
+_LEGACY_METRIC_FALLBACK = {
+    "avg_addmod_recall": "avg_diff_recall",
+    "avg_addmod_prec": "avg_diff_prec",
+    "avg_addmod_f1": "avg_diff_f1",
+    "avg_change_f1_floor": "avg_change_f1_null",
+    "avg_change_f1_strict": "avg_change_f1",
+    "avg_change_prec_strict": "avg_change_prec",
+    "avg_change_recall_strict": "avg_change_recall",
+}
+
+
+def _metric(d: dict, k: str):
+    """`d[k]` 를 새 이름 우선으로 찾고, 없으면 개명 전 옛 이름으로 폴백한다."""
+    if k in d:
+        return d[k]
+    legacy = _LEGACY_METRIC_FALLBACK.get(k)
+    return d.get(legacy) if legacy else None
 
 
 # state leaf 의 metric_files 에 공통으로 붙는 state-diff 산출. section 은 호출부에서
@@ -596,7 +634,7 @@ def build_dataset(
     metric_body = ""
     for lab in labels:
         d = metrics_by_label[lab]
-        cells = "".join(f"<td>{fmt_num(d.get(k))}</td>" for k in metric_keys)
+        cells = "".join(f"<td>{fmt_num(_metric(d, k))}</td>" for k in metric_keys)
         metric_body += f'<tr data-variant="{esc(lab)}"><th>{esc(lab)}</th>{cells}</tr>'
     metric_table = (
         f'<table class="metric"><thead><tr><th>variant</th>{metric_header}</tr></thead>'
@@ -681,7 +719,7 @@ def build_summary_md(
                 "| "
                 + lab
                 + " | "
-                + " | ".join(fmt_num(d.get(k)) for k in metric_keys)
+                + " | ".join(fmt_num(_metric(d, k)) for k in metric_keys)
                 + " |"
             )
             out.append(row)

@@ -63,7 +63,7 @@ GT_POS = (
 )
 MODES = (("index", CUR_IDX, GT_IDX), ("pos", CUR_POS, GT_POS))
 
-# 변화 둘(MODIFIED + ADDED) 중 하나만 낸 예측 — change_f1 이 복사기와 완벽예측 사이에
+# 변화 둘(MODIFIED + ADDED) 중 하나만 낸 예측 — change_f1_strict 이 복사기와 완벽예측 사이에
 # 놓이는지 보는 중간항이다. 0/1 두 점만 고정하면 상수를 돌려주는 구현도 통과한다.
 PARTIAL_IDX = (
     '<node index="0">'
@@ -168,7 +168,7 @@ class TestCopyVersusPrediction(unittest.TestCase):
         for mode, cur, gt in MODES:
             with self.subTest(mode=mode):
                 r = _sd.compute_state_diff(gt, gt, cur, mode)
-                self.assertEqual(r["diff_recall"], 1.0)
+                self.assertEqual(r["addmod_recall"], 1.0)
                 self.assertEqual(r["added_recall"], 1.0)
                 self.assertEqual(r["unchanged_recall"], 1.0)
                 self.assertAlmostEqual(
@@ -192,9 +192,9 @@ class TestCopyVersusPrediction(unittest.TestCase):
 
 
 class TestChangeF1(unittest.TestCase):
-    """change_f1 — "변화 자체를 예측했는가".
+    """change_f1_strict — "변화 자체를 예측했는가".
 
-    `diff_recall` 이 못 보는 두 가지를 본다: (a) **없어져야 할 요소를 지웠는가**
+    `addmod_recall` 이 못 보는 두 가지를 본다: (a) **없어져야 할 요소를 지웠는가**
     (GT 를 분모로 잡는 recall 은 이 축을 볼 수 없다), (b) 자리만 맞고 내용이 틀린
     예측을 맞힌 것으로 세지 않는가 (매칭 임계 1.5/1.7 은 `_text_sim` 이 0 이어도
     붙을 만큼 느슨하다 — 그래서 τ 로 한 번 더 거른다).
@@ -209,7 +209,7 @@ class TestChangeF1(unittest.TestCase):
         for mode, cur, gt in MODES:
             with self.subTest(mode=mode):
                 r = _sd.compute_state_diff(cur, gt, cur, mode)
-                self.assertEqual(r["change_f1"], 0.0)
+                self.assertEqual(r["change_f1_strict"], 0.0)
                 self.assertEqual(r["n_change_pred"], 0, "변화를 하나도 안 냈다")
                 self.assertGreater(r["n_change_gt"], 0, "실제로는 변화가 있었다")
 
@@ -219,9 +219,9 @@ class TestChangeF1(unittest.TestCase):
                 perfect = _sd.compute_state_diff(gt, gt, cur, mode)
                 partial = _sd.compute_state_diff(PARTIALS[mode], gt, cur, mode)
                 copier = _sd.compute_state_diff(cur, gt, cur, mode)
-                self.assertEqual(perfect["change_f1"], 1.0)
-                self.assertLess(copier["change_f1"], partial["change_f1"])
-                self.assertLess(partial["change_f1"], perfect["change_f1"])
+                self.assertEqual(perfect["change_f1_strict"], 1.0)
+                self.assertLess(copier["change_f1_strict"], partial["change_f1_strict"])
+                self.assertLess(partial["change_f1_strict"], perfect["change_f1_strict"])
 
     def test_keeping_stale_text_scores_zero_while_hungarian_stays_perfect(self):
         """토글 하나가 뒤집히는 행 — 정본 지표로는 안 잡히는 실패를 잡는가.
@@ -234,7 +234,7 @@ class TestChangeF1(unittest.TestCase):
         r = _sd.compute_state_diff(cur, gt, cur, "index")
         canonical = _hungarian_eval.compute_hungarian_acc(cur, gt, "index")
         self.assertEqual(canonical["hungarian_f1"], 1.0, "정본 지표는 만점을 준다")
-        self.assertEqual(r["change_f1"], 0.0, "change_f1 은 0 이어야 한다")
+        self.assertEqual(r["change_f1_strict"], 0.0, "change_f1 은 0 이어야 한다")
 
     def test_ignored_deletion_costs_recall(self):
         """사라져야 할 요소를 남겨두면 감점된다 — DELETED 축이 실제로 도는지 본다.
@@ -258,8 +258,8 @@ class TestChangeF1(unittest.TestCase):
         )
         ignored = _sd.compute_state_diff(stale, gt, cur, "index")
         honored = _sd.compute_state_diff(gt, gt, cur, "index")
-        self.assertEqual(honored["change_f1"], 1.0)
-        self.assertLess(ignored["change_f1"], 1.0)
+        self.assertEqual(honored["change_f1_strict"], 1.0)
+        self.assertLess(ignored["change_f1_strict"], 1.0)
         self.assertEqual(ignored["n_change_gt"], 2, "ADDED span + DELETED p")
         self.assertEqual(ignored["n_change_pred"], 1, "ADDED span 만 냈다")
 
@@ -282,7 +282,7 @@ class TestChangeF1(unittest.TestCase):
             r = _sd.compute_state_diff(pred, gt, cur, "index")
             self.assertEqual(r["n_change_gt"], 1)
             self.assertEqual(r["n_change_pred"], 1, "양쪽 다 '문단 하나 추가'를 주장")
-            return r["change_f1"]
+            return r["change_f1_strict"]
 
         self.assertEqual(_sd.CHANGE_TEXT_SIM_TAU, 0.9)
         self.assertEqual(_f1(9), 1.0, "sim == τ 는 맞힌 것 (>= 비교)")
@@ -299,15 +299,15 @@ class TestChangeF1(unittest.TestCase):
                 halluc = _sd.compute_state_diff(gt, cur, cur, mode)  # GT = current
                 self.assertEqual(halluc["n_change_gt"], 0)
                 self.assertGreater(halluc["n_change_pred"], 0)
-                self.assertEqual(halluc["change_f1"], 0.0)
+                self.assertEqual(halluc["change_f1_strict"], 0.0)
 
                 still = _sd.compute_state_diff(cur, cur, cur, mode)
                 self.assertEqual(still["n_change_pred"], 0)
-                self.assertIsNone(still["change_f1"], "양쪽 다 변화 없음 = 정의불능")
+                self.assertIsNone(still["change_f1_strict"], "양쪽 다 변화 없음 = 정의불능")
 
 
-class TestChangeF1NullFloor(unittest.TestCase):
-    """change_f1 의 바닥은 0 이 아니다 — 그 눈금(`change_f1_null`)을 고정한다.
+class TestChangeF1Floor(unittest.TestCase):
+    """change_f1_strict 의 바닥은 0 이 아니다 — 그 눈금(`change_f1_floor`)을 고정한다.
 
     복사기는 0.0 이지만 **반대쪽 퇴화**인 빈 예측은 그렇지 않다: 아무것도 안 내면
     current 전체를 지운 것으로 분류되고, 화면 전환은 실제로 current 의 상당 부분을
@@ -333,8 +333,21 @@ class TestChangeF1NullFloor(unittest.TestCase):
     )
     DELS = {"index": DEL_IDX, "pos": DEL_POS}
 
-    def test_empty_prediction_outscores_the_copier(self):
-        """빈 예측 > 복사기(0.0). 이 지표의 퇴화가 한쪽만이 아니라는 증거."""
+    # 비어 있지 않으면서 current 를 하나도 재현하지 않는 예측 — 퇴화의 최소 형태.
+    MAXDEL = {
+        "index": '<node index="900"><select index="901"/></node>',
+        "pos": '<node bounds="[900,900][910,910]" point="[905,905]">'
+        '<select bounds="[920,920][930,930]" point="[925,925]"/></node>',
+    }
+
+    def test_empty_prediction_scores_zero(self):
+        """생성 실패는 0 이다 (2026-08-04 규칙 변경).
+
+        이전에는 빈 예측이 "current 를 전부 지웠다는 주장"으로 분류돼 바닥값
+        (0.24~0.38)을 공짜로 받았다. ScratchWorld 선례("파싱 실패 = 오답")를 따라
+        주장 자체를 비운다. **None 이 아니라 0.0** 이어야 한다 — 평균에서 빠지면
+        아무것도 못 낸 모델의 실패가 감춰진다.
+        """
         for mode, (cur, gt) in self.DELS.items():
             with self.subTest(mode=mode):
                 self.assertEqual(
@@ -343,51 +356,86 @@ class TestChangeF1NullFloor(unittest.TestCase):
                     "픽스처에 사라지는 요소가 있어야 이 축이 켜진다",
                 )
                 empty = _sd.compute_state_diff("", gt, cur, mode)
-                copier = _sd.compute_state_diff(cur, gt, cur, mode)
-                self.assertEqual(copier["change_f1"], 0.0)
+                self.assertEqual(empty["change_f1_strict"], 0.0)
+                self.assertEqual(empty["change_f1_loose"], 0.0)
+                self.assertEqual(empty["n_change_pred"], 0, "주장 없음이어야 한다")
+                self.assertEqual(empty["parse_fail"], 1.0)
                 self.assertGreater(
-                    empty["change_f1"],
-                    copier["change_f1"],
-                    "아무것도 안 내면 '전부 지웠다'로 분류돼 공짜 hit 을 받는다",
+                    empty["change_f1_floor"],
+                    0.0,
+                    "눈금 자체는 계속 나와야 한다 — 그 행의 바닥은 여전히 0 이 아니다",
                 )
 
-    def test_null_is_exactly_the_empty_prediction_score(self):
-        """`change_f1_null` 은 정의상 같은 행에서 빈 예측이 받는 점수다.
+    def test_minimal_nonempty_prediction_still_gets_the_floor(self):
+        """⚠️ **빈 예측을 0 으로 만들어도 바닥은 0 이 되지 않는다.**
 
-        닫힌 식(hits=|gt_deleted|, n_pred=n_cur)으로 계산하므로 파이프라인을 한 번
-        더 태운 값과 **정확히** 같아야 한다. 어긋나면 눈금이 지표와 다른 것을 잰다.
+        요소가 단 하나라도 있으면 나머지 current 요소 전부가 그대로 DELETED 주장이
+        되므로, 퇴화 점수는 `change_f1_floor` 바로 아래로 돌아온다. 이 테스트는
+        "빈 예측 규칙을 고쳤으니 이제 0 이 바닥"이라는 오독을 코드가 반박하게 만든다.
+        실측(정본 probe): index 0.500/0.5714(87.5%) · pos 0.2857/0.3333(85.7%).
         """
         for mode, (cur, gt) in self.DELS.items():
             with self.subTest(mode=mode):
-                empty = _sd.compute_state_diff("", gt, cur, mode)
-                self.assertEqual(empty["change_f1"], empty["change_f1_null"])
-                # 눈금은 예측과 무관 — 같은 행이면 어떤 예측에서도 같은 값이다.
-                for pred in (cur, gt, ""):
+                r = _sd.compute_state_diff(self.MAXDEL[mode], gt, cur, mode)
+                self.assertEqual(r["parse_fail"], 0.0, "비어 있지 않은 예측이다")
+                self.assertGreater(r["change_f1_strict"], 0.0)
+                self.assertLessEqual(
+                    r["change_f1_strict"],
+                    r["change_f1_floor"],
+                    "닫힌식 바닥은 이 전략의 상한이어야 한다",
+                )
+                self.assertGreater(
+                    r["change_f1_strict"],
+                    0.5 * r["change_f1_floor"],
+                    "쓰레기 하나만 내도 바닥의 절반 이상을 가져간다",
+                )
+                copier = _sd.compute_state_diff(cur, gt, cur, mode)
+                self.assertEqual(copier["change_f1_strict"], 0.0)
+
+    def test_floor_is_independent_of_the_prediction(self):
+        """`change_f1_floor` 는 `(current, gt)` 만의 함수다 — 예측과 무관한 상수.
+
+        닫힌 식(hits=|gt_deleted|, n_pred=n_cur)으로 계산하므로 어떤 예측을 넣어도
+        같은 행이면 같은 값이어야 한다. 어긋나면 눈금이 지표와 다른 것을 잰다.
+        """
+        for mode, (cur, gt) in self.DELS.items():
+            with self.subTest(mode=mode):
+                base = _sd.compute_state_diff("", gt, cur, mode)["change_f1_floor"]
+                self.assertGreater(base, 0.0)
+                for pred in (cur, gt, "", self.MAXDEL[mode]):
                     r = _sd.compute_state_diff(pred, gt, cur, mode)
-                    self.assertEqual(r["change_f1_null"], empty["change_f1_null"])
+                    self.assertEqual(r["change_f1_floor"], base)
 
     def test_index_floor_is_hand_checkable(self):
         """손으로 검산되는 값 하나를 못으로 박는다.
 
         cur 는 button/p 2요소다 (루트 `node` 는 `extract_elements` 가 뽑지 않는다).
         GT 는 p 를 지우고 span 을 넣는다.
-        빈 예측: hits=|gt_deleted|=1, n_pred=n_cur=2, n_gt=ADDED1+DELETED1=2
+        바닥: hits=|gt_deleted|=1, n_pred=n_cur=2, n_gt=ADDED1+DELETED1=2
         → prec 1/2, rec 1/2, f1 = 0.5
+
+        최대삭제 예측(select 1개): pred_deleted={button,p}, pred_changed={select}
+        → n_pred=3, hits=|{button,p} ∩ {p}|=1 → prec 1/3, rec 1/2, f1 = 0.4
         """
         cur, gt = self.DEL_IDX
-        r = _sd.compute_state_diff("", gt, cur, "index")
-        self.assertEqual(r["n_cur"], 2)
-        self.assertEqual(r["n_change_gt"], 2)
-        self.assertEqual(r["n_change_pred"], 2)
-        self.assertEqual(r["change_f1_null"], 0.5)
+        empty = _sd.compute_state_diff("", gt, cur, "index")
+        self.assertEqual(empty["n_cur"], 2)
+        self.assertEqual(empty["n_change_gt"], 2)
+        self.assertEqual(empty["n_change_pred"], 0, "빈 예측은 주장이 없다")
+        self.assertEqual(empty["change_f1_floor"], 0.5)
+        self.assertEqual(empty["change_f1_strict"], 0.0)
 
-    def test_null_defined_on_exactly_the_same_rows_as_change_f1(self):
+        maxdel = _sd.compute_state_diff(self.MAXDEL["index"], gt, cur, "index")
+        self.assertEqual(maxdel["n_change_pred"], 3)
+        self.assertEqual(maxdel["change_f1_strict"], 0.4)
+
+    def test_floor_defined_on_exactly_the_same_rows_as_change_f1_strict(self):
         """정의 구간이 어긋나면 두 평균의 분모가 달라져 나란히 못 읽는다."""
         for mode, cur, gt in MODES:
             with self.subTest(mode=mode):
                 still = _sd.compute_state_diff(cur, cur, cur, mode)
-                self.assertIsNone(still["change_f1"], "양쪽 다 변화 없음 = 정의불능")
-                self.assertIsNone(still["change_f1_null"], "눈금도 같이 빠져야 한다")
+                self.assertIsNone(still["change_f1_strict"], "양쪽 다 변화 없음 = 정의불능")
+                self.assertIsNone(still["change_f1_floor"], "눈금도 같이 빠져야 한다")
         rows = [
             _sd.compute_state_diff(p, g, c, "index")
             for p, g, c in (
@@ -397,8 +445,12 @@ class TestChangeF1NullFloor(unittest.TestCase):
             )
         ]
         agg = _sd.aggregate(rows)
-        self.assertEqual(agg["n_change_f1_null"], agg["n_change_f1"])
-        self.assertEqual(agg["n_change_f1"], 2)
+        self.assertEqual(agg["n_change_f1_floor"], agg["n_change_f1_strict"])
+        self.assertEqual(agg["n_change_f1_strict"], 2)
+        # 옛 이름 alias 도 같은 값으로 함께 나와야 한다 (2026-08-04 개명, 기존 34개
+        # leaf 재빌드를 피하기 위한 하위호환).
+        self.assertEqual(agg["n_change_f1_null"], agg["n_change_f1_strict"])
+        self.assertEqual(agg["n_change_f1"], agg["n_change_f1_strict"])
 
     def test_self_test_catches_a_probe_without_deletions(self):
         """`_PROBE` 에서 DELETED 가 빠지면 배선 self-test 가 터져야 한다.
@@ -412,6 +464,7 @@ class TestChangeF1NullFloor(unittest.TestCase):
             "cur": '<node index="0"><button index="1" aria-label="OK"/></node>',
             "gt": '<node index="0"><button index="1" aria-label="OK"/>'
             '<p index="3">brand new</p></node>',
+            "maxdel": _sd._PROBE["index"]["maxdel"],
         }
         self.assertEqual(
             _sd.summarize_diff(_sd.classify_diff(no_del["cur"], no_del["gt"], "index"))[
@@ -424,7 +477,9 @@ class TestChangeF1NullFloor(unittest.TestCase):
         try:
             with self.assertRaises(_sd.StateDiffError) as ctx:
                 _sd.assert_scorer_wired("index")
-            self.assertIn("빈 예측", str(ctx.exception))
+            # 빈 예측이 아니라 **최대삭제** probe 가 이 역할을 이어받았다 (2026-08-04):
+            # 빈 예측은 이제 규칙상 0 이라 DELETED 유무를 구분하지 못한다.
+            self.assertIn("최대삭제", str(ctx.exception))
         finally:
             _sd._PROBE["index"] = original
 
@@ -438,6 +493,319 @@ class TestChangeF1NullFloor(unittest.TestCase):
                 )
                 self.assertGreater(counts["DELETED"], 0, "빈 예측 퇴화를 못 본다")
                 self.assertGreater(counts["ADDED"], 0, "copy_excess probe 가 죽는다")
+
+
+class TestLooseAxis(unittest.TestCase):
+    """loose(자리만) ↔ strict(내용까지) — 두 축의 갭이 실패 유형을 가른다.
+
+    ScratchWorld 의 `F₁^pres` ↔ `F₁^VA` 대응. strict 하나만 보면 "자리를 못 찾은 것"과
+    "자리는 찾고 내용이 틀린 것"이 같은 낮은 점수로 뭉뚱그려진다.
+    """
+
+    CASES = (
+        ("copier", lambda c, g: c),
+        ("perfect", lambda c, g: g),
+        ("empty", lambda c, g: ""),
+        ("partial", lambda c, g: PARTIALS["index"]),
+    )
+
+    def test_loose_is_an_upper_bound_on_strict(self):
+        for mode, cur, gt in MODES:
+            for name, make in self.CASES:
+                if name == "partial" and mode != "index":
+                    continue
+                with self.subTest(mode=mode, case=name):
+                    r = _sd.compute_state_diff(make(cur, gt), gt, cur, mode)
+                    if r["change_f1_strict"] is None:
+                        continue
+                    self.assertGreaterEqual(
+                        r["change_f1_loose"],
+                        r["change_f1_strict"],
+                        "τ 게이트를 빼면 hit 이 줄 수 없다",
+                    )
+                    self.assertGreaterEqual(
+                        r["change_prec_loose"], r["change_prec_strict"]
+                    )
+                    self.assertGreaterEqual(
+                        r["change_recall_loose"], r["change_recall_strict"]
+                    )
+
+    def test_stale_content_separates_the_two_axes(self):
+        """자리는 맞고 내용이 틀린 예측 — loose 는 잡고 strict 는 못 잡아야 한다.
+
+        이게 loose 축을 만든 이유다. 두 값이 항상 같이 움직이면 새 축은 정보가 없다.
+        """
+        # GT 는 p 를 "unread inbox 7" 로 바꾼다. 예측은 **바꾸긴 했는데 틀리게** 바꿨다
+        # ("9"). cur 대비로는 MODIFIED 라 C_pred 에 들어가고, gt 의 p 와 매칭도 되지만
+        # text_sim = |{unread,inbox}|/|{unread,inbox,9,7}| = 0.5 < τ(0.9) 다.
+        # → loose 는 hit, strict 는 miss. **옛 텍스트를 그대로 두면 안 된다** — 그건
+        #   cur 대비 UNCHANGED 라 애초에 C_pred 에 안 들어가 갭이 안 생긴다.
+        wrong_value = (
+            '<node index="0">'
+            '<button index="1" aria-label="OK"/>'
+            '<p index="2">unread inbox 9</p>'
+            '<p index="3">brand new banner</p>'
+            "</node>"
+        )
+        r = _sd.compute_state_diff(wrong_value, GT_IDX, CUR_IDX, "index")
+        self.assertEqual(r["change_f1_loose"], 1.0, "자리는 둘 다 찾았다")
+        self.assertLess(
+            r["change_f1_strict"],
+            r["change_f1_loose"],
+            "내용이 틀린 자리를 loose 만 hit 으로 세야 갭이 생긴다",
+        )
+
+    def test_both_axes_are_defined_on_exactly_the_same_rows(self):
+        """정의 구간이 갈리면 두 평균의 분모가 달라져 나란히 못 읽는다."""
+        rows = []
+        for mode, cur, gt in MODES:
+            for pred in (cur, gt, "", PARTIALS[mode]):
+                r = _sd.compute_state_diff(pred, gt, cur, mode)
+                rows.append(r)
+                self.assertEqual(
+                    r["change_f1_strict"] is None,
+                    r["change_f1_loose"] is None,
+                    "한쪽만 None 이면 안 된다",
+                )
+            # 변화가 아예 없는 행 — 양쪽 다 None 이어야 한다
+            still = _sd.compute_state_diff(cur, cur, cur, mode)
+            rows.append(still)
+            self.assertIsNone(still["change_f1_strict"])
+            self.assertIsNone(still["change_f1_loose"])
+        agg = _sd.aggregate(rows)
+        self.assertEqual(agg["n_change_f1_loose"], agg["n_change_f1_strict"])
+        self.assertEqual(agg["n_change_f1_floor"], agg["n_change_f1_strict"])
+
+
+class TestNoChangeAccuracy(unittest.TestCase):
+    """GT 가 current 와 같은 행에서는 **복사가 정답**이다.
+
+    그 행에서는 change 축이 전부 None 이라, 이 열이 없으면 "화면이 안 바뀌는 step"
+    구간의 성능을 아무도 재지 않는다.
+    """
+
+    def test_copying_is_correct_when_nothing_changed(self):
+        for mode, cur, _ in MODES:
+            with self.subTest(mode=mode):
+                r = _sd.compute_state_diff(cur, cur, cur, mode)
+                self.assertEqual(r["n_change_gt"], 0)
+                self.assertEqual(r["no_change_acc"], 1.0)
+
+    def test_inventing_a_change_is_wrong_when_nothing_changed(self):
+        r = _sd.compute_state_diff(GT_IDX, CUR_IDX, CUR_IDX, "index")
+        self.assertEqual(r["n_change_gt"], 0, "GT == current 인 행이어야 한다")
+        self.assertGreater(r["n_change_pred"], 0, "예측은 변화를 지어냈다")
+        self.assertEqual(r["no_change_acc"], 0.0)
+
+    def test_generation_failure_is_not_credited_as_no_change(self):
+        """⚠️ 빈 예측은 `n_change_pred == 0` 이지만 **정답이 아니다.**
+
+        규칙 변경(빈 예측 = 주장 없음) 뒤 이 조건만 보면 아무것도 못 낸 모델이 1.0 을
+        받는다 — 실측으로 EXP01 base 는 파싱 실패율 93.9% 인데 no_change_acc 가
+        204/204 = 1.0 이 나왔다. 이 축은 "변화를 지어내지 않았나"가 아니라 **"화면을
+        그대로 재현했나"** 를 묻는다.
+        """
+        for mode, cur, _ in MODES:
+            with self.subTest(mode=mode):
+                empty = _sd.compute_state_diff("", cur, cur, mode)
+                self.assertEqual(empty["n_change_gt"], 0)
+                self.assertEqual(empty["n_change_pred"], 0, "주장은 없다")
+                self.assertEqual(
+                    empty["no_change_acc"], 0.0, "그러나 재현하지 못했으므로 오답이다"
+                )
+                junk = _sd.compute_state_diff(
+                    "no tags here whatsoever, just prose. " * 5, cur, cur, mode
+                )
+                self.assertEqual(junk["no_change_acc"], 0.0)
+
+    def test_undefined_on_rows_that_do_change(self):
+        for mode, cur, gt in MODES:
+            with self.subTest(mode=mode):
+                r = _sd.compute_state_diff(gt, gt, cur, mode)
+                self.assertGreater(r["n_change_gt"], 0)
+                self.assertIsNone(
+                    r["no_change_acc"], "변화 있는 행까지 세면 분모가 뒤섞인다"
+                )
+
+    def test_denominator_is_reported(self):
+        """`n_no_change_acc` 가 곧 '변화 없는 step 이 몇 행인가' (sparsity 통계)."""
+        rows = [
+            _sd.compute_state_diff(CUR_IDX, CUR_IDX, CUR_IDX, "index"),  # 무변화·정답
+            _sd.compute_state_diff(GT_IDX, CUR_IDX, CUR_IDX, "index"),  # 무변화·오답
+            _sd.compute_state_diff(GT_IDX, GT_IDX, CUR_IDX, "index"),  # 변화 있음
+        ]
+        agg = _sd.aggregate(rows)
+        self.assertEqual(agg["n_no_change_acc"], 2)
+        self.assertEqual(agg["avg_no_change_acc"], 0.5)
+
+
+class TestParseFailure(unittest.TestCase):
+    """"안 냈다" 와 "태그 없는 장문 쓰레기를 냈다" 는 채점기에게 같은 값이다.
+
+    둘 다 `pred_els == []` 라 구분이 안 되는데, 실측에서 `predict` 58,303자인데 추출
+    요소 0개인 행이 나왔다. `parse_fail_long` 이 유일한 구분 수단이다. 그리고 이 비율은
+    `copy_excess` 의 **분모 손실량**이기도 하다 — 그 행들은 copy_excess 에서 빠진다.
+    """
+
+    LONG_JUNK = "this prediction has no parseable tags whatsoever. " * 5
+
+    def test_empty_is_parse_fail_but_not_long(self):
+        r = _sd.compute_state_diff("", GT_IDX, CUR_IDX, "index")
+        self.assertEqual(r["parse_fail"], 1.0)
+        self.assertEqual(r["parse_fail_long"], 0.0)
+
+    def test_long_untagged_output_is_flagged_separately(self):
+        self.assertGreater(len(self.LONG_JUNK), _sd.PARSE_FAIL_LONG_CHARS)
+        r = _sd.compute_state_diff(self.LONG_JUNK, GT_IDX, CUR_IDX, "index")
+        self.assertEqual(r["n_pred"], 0, "태그가 없어 요소 0개")
+        self.assertEqual(r["parse_fail"], 1.0)
+        self.assertEqual(r["parse_fail_long"], 1.0)
+        self.assertEqual(r["change_f1_strict"], 0.0, "파싱 실패 = 오답")
+
+    def test_normal_prediction_is_not_flagged(self):
+        r = _sd.compute_state_diff(GT_IDX, GT_IDX, CUR_IDX, "index")
+        self.assertEqual(r["parse_fail"], 0.0)
+        self.assertEqual(r["parse_fail_long"], 0.0)
+
+    def test_rate_reaches_aggregate(self):
+        rows = [
+            _sd.compute_state_diff("", GT_IDX, CUR_IDX, "index"),
+            _sd.compute_state_diff(self.LONG_JUNK, GT_IDX, CUR_IDX, "index"),
+            _sd.compute_state_diff(GT_IDX, GT_IDX, CUR_IDX, "index"),
+            _sd.compute_state_diff(CUR_IDX, GT_IDX, CUR_IDX, "index"),
+        ]
+        agg = _sd.aggregate(rows)
+        self.assertEqual(agg["parse_fail_rate"], 0.5)
+        self.assertEqual(agg["parse_fail_long_rate"], 0.25)
+        # 그 두 행이 copy_excess 에서 빠졌다는 사실이 분모로 드러나야 한다.
+        self.assertEqual(agg["n_copy_excess"], 2)
+        self.assertEqual(agg["total"], 4)
+
+    def test_extractor_crash_is_also_counted(self):
+        """추출 자체가 예외를 던지는 경로에서도 실패로 세야 한다.
+
+        조기 반환 경로에서 안 채우면 `aggregate` 의 `r.get(k, 0.0)` 이 조용히 0 으로
+        세어 실패율이 **과소보고**된다 — 실패가 감춰지는 방향이라 더 위험하다.
+        """
+        orig = _hungarian_eval.extract_elements
+
+        def boom(*a, **k):
+            raise ValueError("parser exploded")
+
+        _hungarian_eval.extract_elements = boom
+        try:
+            r = _sd.compute_state_diff(self.LONG_JUNK, GT_IDX, CUR_IDX, "index")
+        finally:
+            _hungarian_eval.extract_elements = orig
+        self.assertEqual(r["parse_fail"], 1.0)
+        self.assertEqual(r["parse_fail_long"], 1.0)
+
+
+class TestLegacyAlias(unittest.TestCase):
+    """2026-08-04 개명 — 옛 키가 같은 값으로 함께 나와야 한다.
+
+    ⚠️ alias 는 "이름만 다른 같은 수"지만, **`change_f1` 은 정의가 바뀌었다**
+    (빈 예측 규칙). 그래서 산출물에 `metrics_schema` 를 박아 옛 파일과 구분한다.
+    """
+
+    def test_avg_and_n_are_both_aliased(self):
+        rows = [
+            _sd.compute_state_diff(p, GT_IDX, CUR_IDX, "index")
+            for p in (CUR_IDX, GT_IDX, "", PARTIAL_IDX)
+        ]
+        agg = _sd.aggregate(rows)
+        for new, old in _sd._LEGACY_KEY_ALIAS.items():
+            with self.subTest(key=new):
+                self.assertIn(f"avg_{old}", agg, "avg_ alias 가 빠졌다")
+                self.assertEqual(agg[f"avg_{old}"], agg[f"avg_{new}"])
+                # `n_` 도 반드시 — 조건부 분모(예: n_diff_prec)는 해석에 필수다.
+                self.assertIn(f"n_{old}", agg, "n_ alias 가 빠졌다")
+                self.assertEqual(agg[f"n_{old}"], agg[f"n_{new}"])
+
+    def test_schema_version_is_stamped(self):
+        metrics = {"overall": {}, "in_domain": {}, "out_of_domain": {}}
+        stamped = _sd.stamp_schema(metrics)
+        self.assertEqual(stamped["metrics_schema"], _sd.METRICS_SCHEMA)
+        self.assertEqual(_sd.METRICS_SCHEMA, "2026-08-04")
+
+
+class TestWiringGuardActuallyFires(unittest.TestCase):
+    """가드가 **조용히 통과**하지 않는지 — 개명·규칙변경에서 가장 위험한 자리.
+
+    `.get()` 으로 키를 읽으면 개명 누락 시 `None` 이 돌아오고 비교가 조용히 False 가
+    되어 가드가 무력화된다. 그래서 (a) 실제로 예외가 나는지, (b) 메시지에 **실제
+    숫자값**이 찍히는지 둘 다 본다 — 숫자가 찍힌다는 건 키를 제대로 읽었다는 뜻이다.
+    """
+
+    def _assert_fires(self, mode="index"):
+        with self.assertRaises(_sd.StateDiffError) as ctx:
+            _sd.assert_scorer_wired(mode)
+        return str(ctx.exception)
+
+    def test_empty_prediction_regression_is_caught(self):
+        """빈 예측 규칙이 되돌아가면(= 다시 DELETED 주장) 가드가 잡아야 한다."""
+        orig = _sd._classify_from_els
+
+        def legacy(cur_els, next_els, match_mode="index", **kw):
+            # 옛 동작 재현 — `empty_next_is_deletion` 을 무시한다.
+            kw.pop("empty_next_is_deletion", None)
+            return orig(cur_els, next_els, match_mode, **kw)
+
+        _sd._classify_from_els = legacy
+        try:
+            msg = self._assert_fires()
+        finally:
+            _sd._classify_from_els = orig
+        self.assertIn("빈 예측", msg)
+        self.assertNotIn("None", msg, "키를 못 읽어 None 이 찍히면 가드가 무력하다")
+
+    def test_dead_change_axis_is_caught(self):
+        """compute_change_items 가 상수 0 을 돌려주면 잡아야 한다."""
+        orig = _sd.compute_change_items
+        _sd.compute_change_items = lambda *a, **k: {
+            **{k2: 0.0 for k2 in _sd._CHANGE_METRIC_KEYS},
+            "n_change_gt": 0,
+            "n_change_pred": 0,
+        }
+        try:
+            msg = self._assert_fires()
+        finally:
+            _sd.compute_change_items = orig
+        # 어느 probe 에서 걸리든 상관없다 — 중요한 건 (a) 터졌고 (b) 메시지에 **실제
+        # 숫자**가 찍혔다는 것이다. 키를 못 읽었으면 여기에 `None` 이 찍힌다.
+        self.assertIn("change_f1_strict=0.0", msg)
+        self.assertNotIn("None", msg)
+
+    def test_inverted_tau_gate_is_caught(self):
+        """loose < strict 로 뒤집히면(τ 가 반대로 걸리면) 잡아야 한다."""
+        orig = _sd.compute_change_items
+
+        def flipped(*a, **k):
+            r = orig(*a, **k)
+            if r.get("change_f1_loose") is not None:
+                r["change_f1_loose"] = 0.0
+                r["change_f1_strict"] = 1.0
+            return r
+
+        _sd.compute_change_items = flipped
+        try:
+            msg = self._assert_fires()
+        finally:
+            _sd.compute_change_items = orig
+        self.assertNotIn("None", msg)
+
+    def test_guard_message_carries_real_numbers(self):
+        """정상 경로에서 probe 값이 실제로 계산되는지 — 숫자를 직접 확인."""
+        for mode in ("index", "pos"):
+            with self.subTest(mode=mode):
+                probe = _sd._PROBE[mode]
+                maxdel = _sd.compute_state_diff(
+                    probe["maxdel"], probe["gt"], probe["cur"], mode
+                )
+                self.assertIsNotNone(maxdel["change_f1_strict"])
+                self.assertGreater(maxdel["change_f1_strict"], 0.0)
+                self.assertGreater(maxdel["n_pred"], 0, "maxdel probe 가 비면 안 된다")
+                self.assertEqual(maxdel["copy_rate_pred"], 0.0, "아무것도 안 베꼈다")
 
 
 class TestStratumInvariant(unittest.TestCase):

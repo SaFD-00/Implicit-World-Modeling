@@ -23,9 +23,21 @@ next-state 는 current state 와 **대부분 겹친다** — 한 번의 클릭�
 2. diff 부분집합에 대한 precision 은 분모가 정규화되지 않는다. 예측 전체는 수십~수백
    요소인데 GT 의 변경분은 한 자릿수라, precision 상한이 `|diff_gt|/|pred|` 로 묶이고
    그 상한이 행마다 다르다. 평균을 내면 "F1 0.05" 같은 숫자가 나와 전부 실패로
-   오독된다. 그래서 **헤드라인은 recall** 이다: `diff_recall` = 실제로 바뀐 GT 요소 중
+   오독된다. 그래서 **헤드라인은 recall** 이다: `addmod_recall` = 실제로 바뀐 GT 요소 중
    몇 개를 예측이 맞혔나. 0~1 범위가 그대로 의미를 갖는다.
    (precision/F1 도 낸다 — 다만 분모를 pred-side diff 로 대칭화한 별도 키다. 아래 참고.)
+
+2026-08-04 개명 — 옛 이름과의 관계
+-----------------------------------
+`diff_recall`/`diff_prec`/`diff_f1` → `addmod_recall`/`addmod_prec`/`addmod_f1`,
+`change_f1`/`change_f1_null` → `change_f1_strict`/`change_f1_floor` 로 개명했다.
+`diff_*` 는 ADDED∪MODIFIED 뿐이고 DELETED 가 빠져 있는데, 같은 파일의 `change_*` 는
+DELETED 를 포함한다 — 두 접두어가 서로 다른 변화 집합인데 이름에서 구분이 안 됐다.
+`_null` 은 "무엇의 null 인지" 모호하고 이 모듈엔 진짜 None 이 되는 지표가 따로 있어
+(`copy_excess` 빈 예측, `addmod_f1` 조건부) 오독된다 — `_floor`(퇴화 바닥)가 실제 뜻이다.
+`change_f1_strict` 는 훗날 "자리만 맞으면 hit" 인 loose 축이 추가될 때의 대칭을 위한
+이름이다. 기존 34개 leaf 의 `state_diff_metrics.json` 을 재빌드하지 않기 위해
+`aggregate()` 가 옛 키를 alias 로 함께 낸다 — 새 코드는 이 문서의 새 이름을 쓴다.
 
 정본 지표와의 관계 — 층 분해
 ----------------------------
@@ -43,7 +55,7 @@ change 축 — recall 층 분해가 못 보는 두 가지
 층 분해는 GT 요소를 분모로 잡으므로 (a) **사라져야 할 요소를 지웠는가**를 볼 수 없고
 (DELETED 는 GT 에 대응물이 없다), hit 판정이 Hungarian 매칭뿐이라 (b) 자리만 맞고
 내용이 틀린 예측도 맞힌 것으로 센다 (매칭 임계 1.5/1.7 은 `_text_sim` 이 0 이어도
-붙을 만큼 느슨하다). `change_f1` 이 그 두 구멍을 메운다 — current 대비 변화 목록을
+붙을 만큼 느슨하다). `change_f1_strict` 가 그 두 구멍을 메운다 — current 대비 변화 목록을
 pred/gt 양쪽에서 **같은 절차**로 뽑아 집합 비교하고, 내용 일치를 τ(0.9)로 한 번 더
 건다. 정의와 경계는 `compute_change_items` 참고.
 
@@ -119,8 +131,13 @@ COPY_NEAR_F1 = 0.98
 
 # change 축의 "내용까지 맞혔나" 임계. 매칭만으로는 부족하다 — 매칭 임계(1.5/1.7)는
 # `_text_sim` 이 0 에 가까워도 붙을 만큼 느슨해서, "자리는 맞고 내용은 틀린" 예측이
-# 변화를 맞힌 것으로 세어진다. 여기서 한 번 더 걸러야 change_f1 이 내용 지표가 된다.
+# 변화를 맞힌 것으로 세어진다. 여기서 한 번 더 걸러야 change_f1_strict 이 내용 지표가 된다.
 CHANGE_TEXT_SIM_TAU = 0.9
+
+# `parse_fail_long` 의 경계. 이 길이를 넘겼는데 element 가 0 개면 "안 냈다"가 아니라
+# **"파싱 가능한 태그가 하나도 없는 장문을 냈다"** 이다. 채점기는 둘을 같은 값으로
+# 취급하므로(둘 다 `pred_els == []`) 이 플래그가 유일한 구분 수단이다.
+PARSE_FAIL_LONG_CHARS = 100
 
 # state 예측이 vllm 기본값 1024 토큰에서 잘리던 버그의 수정 시각 (커밋 6a4b59e).
 # **판정에는 쓰지 않는다** — 절단은 날짜가 아니라 추론 실행 경로를 따르며, 이 시각
@@ -318,14 +335,31 @@ def _classify_from_els(
     match_mode: str = "index",
     *,
     strict_pos: bool = False,
+    empty_next_is_deletion: bool = True,
 ) -> list[dict]:
     """이미 추출된 element 리스트로 diff 를 분류한다 (`classify_diff` 의 본체).
 
     호출자가 같은 XML 을 이미 파싱해 뒀을 때 `extract_elements` 를 다시 돌리지 않기
     위한 진입점이다 — `compute_state_diff` 는 pred/gt/current 셋을 이미 들고 있고,
     change 축 때문에 분류를 두 번(→gt, →pred) 하므로 재파싱 비용이 그대로 두 배가 된다.
+
+    `empty_next_is_deletion` (2026-08-04 신설) — `next_els` 가 비었을 때의 해석을
+    **호출자별로** 가른다. 전역 동작이 아니라 파라미터인 것이 요점이다:
+
+      - GT 쪽(`cur → gt`)은 `True`. GT 가 실제로 빈 state 라면 그건 관측된 사실이고,
+        정말로 전량 삭제다.
+      - **예측 쪽(`cur → pred`)은 `False`.** 예측이 비었다는 건 관측이 아니라
+        **생성 실패**다. 그걸 "current 를 전부 지웠다는 적극적 주장"으로 읽으면
+        아무것도 못 낸 모델이 `pred_deleted ∩ gt_deleted` 를 공짜 hit 으로 받아
+        `change_f1_strict` 을 0.24~0.38 씩 가져간다 (2026-08-04 실측). ScratchWorld
+        선례가 명시적이다 — *"Outputs that fail schema parsing are scored as
+        **incorrect**."* 그래서 주장 자체를 비운다.
     """
     if not next_els:
+        if not empty_next_is_deletion:
+            # 주장 없음. `n_change_pred == 0` 이 되어 prec/recall/f1 이 전부 0.0 이다
+            # (None 이 아니다 — 평균에서 빠지면 실패가 감춰진다).
+            return []
         # next state 에 요소가 없다 = current 를 전부 지웠다. (예전에는 빈 리스트를
         # 돌려줬는데, DELETED 축이 생긴 지금은 그게 "변화 없음"과 구분되지 않는다.)
         return [
@@ -383,7 +417,7 @@ def classify_diff(
 
     DELETED 는 여기가 유일한 산출 경로다 (레퍼런스에는 없다). recall 층 분해는 GT
     요소를 분모로 잡아 이 축을 볼 수 없는데, "사라져야 할 요소를 지웠나"는 복사 편향의
-    직접 증거라 `change_f1` 이 그것을 센다.
+    직접 증거라 `change_f1_strict` 가 그것을 센다.
     """
     _he._lazy_deps()
     return _classify_from_els(
@@ -402,14 +436,43 @@ def summarize_diff(diff_result: list[dict]) -> dict[str, int]:
 
 
 # ── change 축 (변화 자체를 예측했는가) ───────────────────────────────────
-# `change_f1_null` 은 지표가 아니라 **눈금**이다. 복사기(=current 그대로)는 정의상 0.0
-# 이지만 반대쪽 퇴화 — "아무것도 안 낸다" — 는 0 이 아니다: 빈 예측은 current 전체를
-# 지운 것으로 분류되고, 화면 전환은 실제로 current 의 상당 부분을 지우므로 그 교집합이
-# 공짜 hit 이 된다. 2026-08-04 실측(200행): 빈 예측이 EXP01 0.383 · EXP05 0.235 ·
-# EXP07v1 0.258 을 받는다. 같은 leaf 의 **학습된** 모델이 EXP07v1 0.114 라 바닥에 진다.
-# 그래서 change_f1 은 바닥값을 옆에 두지 않으면 읽을 수 없다 (0 기준으로 읽으면
-# "base > trained" 가 결과처럼 보인다 — 그건 결과가 아니라 눈금 없이 읽은 것이다).
-_CHANGE_METRIC_KEYS = ("change_prec", "change_recall", "change_f1", "change_f1_null")
+# `change_f1_floor` 는 지표가 아니라 **눈금**이다. 복사기(=current 그대로)는 정의상 0.0
+# 이지만 반대쪽 퇴화 — "current 를 하나도 재현하지 않는 예측" — 은 0 이 아니다: 그런
+# 예측은 current 전체를 지운 것으로 분류되고, 화면 전환은 실제로 current 의 상당 부분을
+# 지우므로 그 교집합이 공짜 hit 이 된다. 2026-08-04 실측(200행): 그 바닥이 EXP01 0.383 ·
+# EXP05 0.235 · EXP07v1 0.258 이다. 같은 leaf 의 **학습된** 모델이 EXP07v1 0.114 라
+# 바닥에 진다. 그래서 change_f1_strict 은 바닥값을 옆에 두지 않으면 읽을 수 없다
+# (0 기준으로 읽으면 "base > trained" 가 결과처럼 보인다 — 그건 결과가 아니라 눈금
+# 없이 읽은 것이다).
+#
+# ⚠️ 2026-08-04 의미 변경 — 이 바닥에 **빈 예측으로는 더 이상 도달할 수 없다.**
+# `_classify_from_els(..., empty_next_is_deletion=False)` 가 생성 실패를 "주장 없음"으로
+# 읽어 `change_f1_strict = 0.0` 을 주기 때문이다. 지금 `change_f1_floor` 가 재는 것은
+# **"비어 있지 않으면서 current 와 아무것도 공유하지 않는 최대삭제 예측"의 점수 상한**
+# 이다. 닫힌식과 수치는 그대로이고 라벨만 바뀌었다 — 이전에 발표한 값은 유효하다.
+#
+# ⚠️ 그리고 이 바닥은 여전히 0 이 아니다. 요소가 단 1개라도 있으면 나머지 current 요소
+# 전부가 그대로 DELETED 주장이 되므로, 위 수정은 **"생성 실패"만 0 으로 만들 뿐 DELETED
+# 공짜 hit 문제 자체를 없애지 않는다.** "빈 예측을 막았으니 바닥이 0 이 됐다"고 읽지 말 것.
+# (2026-08-04 개명: change_f1→change_f1_strict, change_f1_null→change_f1_floor —
+#  `_null` 은 이 모듈의 진짜 None 값과 헷갈렸고 `_floor` 가 실제 뜻인 퇴화 바닥이다.
+#  change_prec/change_recall 도 loose 축과의 대칭을 위해 `_strict` 를 붙였다.)
+_CHANGE_METRIC_KEYS = (
+    "change_prec_strict",
+    "change_recall_strict",
+    "change_f1_strict",
+    # loose 축 (2026-08-04 신설) — strict 와 유일한 차이는 ADDED/MODIFIED hit 에서
+    # 내용 임계 τ 를 **빼고** 매칭만 본다는 것이다. ScratchWorld 의 `F₁^pres`
+    # (presence-only) ↔ `F₁^VA` (value-aware) 대응. 둘을 나란히 두면 "자리를 못 찾은
+    # 건가, 자리는 찾고 내용이 틀린 건가"가 갈린다 — strict 하나로는 구분 불가다.
+    "change_prec_loose",
+    "change_recall_loose",
+    "change_f1_loose",
+    # 바닥은 **하나뿐이다.** 퇴화 예측의 hit 은 전부 DELETED 에서 오는데 DELETED 판정에는
+    # τ 가 걸리지 않으므로 strict/loose 의 바닥이 같은 값이다. 두 개를 만들면 같은 수를
+    # 두 이름으로 싣게 된다.
+    "change_f1_floor",
+)
 
 
 def compute_change_items(
@@ -422,7 +485,7 @@ def compute_change_items(
 ) -> dict:
     """current 대비 바뀐 항목을 pred/gt 양쪽에서 뽑아 맞춰 본다.
 
-    recall 계열이 못 보는 것을 본다. `diff_recall` 의 분모는 GT 요소라 **없어져야 할
+    recall 계열이 못 보는 것을 본다. `addmod_recall` 의 분모는 GT 요소라 **없어져야 할
     요소**를 세지 못하고, hit 판정이 Hungarian 매칭뿐이라 자리만 맞고 내용이 틀린
     예측도 맞힌 것으로 센다. 여기서는 변화 자체를 항목으로 만들어 집합 비교한다.
 
@@ -438,11 +501,24 @@ def compute_change_items(
       - 한쪽만 비면 0.0 이다. **None 으로 빼면 안 된다**: C_pred 가 비는 행이 곧
         복사기이고, C_gt 가 비는데 C_pred 가 차 있으면 환각이다. 둘 다 이 지표가
         잡으라고 만든 것인데 정의불능으로 빼면 평균에서 사라진다.
+      - **예측이 파싱 불능이면(`pred_els == []`) C_pred 가 빈다** → prec/rec/f1 = 0.0.
+        2026-08-04 이전에는 이 경우 current 전체를 DELETED 로 주장한 것으로 읽어
+        `change_f1` 이 바닥값(0.24~0.38)을 받았다. `_classify_from_els` 참고.
 
-    `change_f1_null` 은 같은 행에서 pred 를 빈 문자열로 놓았을 때의 값이다 (빈 예측은
-    current 전체가 DELETED 로 분류되므로 hits = |gt_deleted|, n_pred = n_cur — 매칭이
-    필요 없어 Hungarian 을 한 번 더 돌리지 않는다). **change_f1 과 정확히 같은 행에서만
-    정의한다** — 정의 구간이 어긋나면 두 평균의 분모가 달라져 나란히 못 읽는다.
+    strict / loose
+      두 축은 **ADDED/MODIFIED hit 판정에서만** 갈린다. strict 는 매칭된 짝의
+      `text_sim ≥ CHANGE_TEXT_SIM_TAU`(0.9)까지 요구하고, loose 는 매칭만 본다.
+      DELETED hit(같은 current 요소를 양쪽 다 지웠나)은 τ 와 무관해 양쪽 공통이다.
+      따라서 항상 `change_f1_loose ≥ change_f1_strict` 이고, 그 **갭이 "자리는 찾았는데
+      내용이 틀린" 양**이다. 정의 구간(None 여부)은 두 축이 완전히 같아야 한다 —
+      어긋나면 두 평균의 분모가 갈려 나란히 못 읽는다.
+
+    `change_f1_floor` 는 같은 행에서 **current 를 하나도 재현하지 않는 예측**이 받는
+    점수의 상한이다 (그런 예측은 current 전체가 DELETED 로 분류되므로 hits =
+    |gt_deleted|, n_pred = n_cur — 매칭이 필요 없어 Hungarian 을 한 번 더 돌리지 않는다).
+    빈 문자열은 위 규칙 변경으로 더 이상 이 바닥에 도달하지 않는다. **change_f1_strict 와
+    정확히 같은 행에서만 정의한다** — 정의 구간이 어긋나면 두 평균의 분모가 달라져
+    나란히 못 읽는다.
     """
     gt_changed = {
         d["gt_idx"] for d in diff_gt if d["diff_type"] in ("ADDED", "MODIFIED")
@@ -460,28 +536,44 @@ def compute_change_items(
         return {**{k: None for k in _CHANGE_METRIC_KEYS}, **counts}
 
     pred_to_gt = {i: j for i, j, _ in pairs_pg}
-    hits = sum(
-        1
-        for i in pred_changed
-        if pred_to_gt.get(i) in gt_changed
-        and _he._text_sim(pred_els[i]["text"], gt_els[pred_to_gt[i]]["text"])
-        >= CHANGE_TEXT_SIM_TAU
-    )
-    hits += len(pred_deleted & gt_deleted)
+    # 매칭된 ADDED/MODIFIED 짝을 한 번만 돌면서 두 축을 동시에 센다 — 같은 루프를
+    # 두 번 도는 것보다 싸고, 무엇보다 **두 축이 같은 짝 집합을 보게** 강제된다.
+    hits_loose = 0
+    hits_strict = 0
+    for i in pred_changed:
+        j = pred_to_gt.get(i)
+        if j not in gt_changed:
+            continue
+        hits_loose += 1
+        if _he._text_sim(pred_els[i]["text"], gt_els[j]["text"]) >= CHANGE_TEXT_SIM_TAU:
+            hits_strict += 1
+    # DELETED hit 은 τ 와 무관하다 (지워진 요소엔 비교할 내용이 없다) — 양축 공통.
+    n_del_hit = len(pred_deleted & gt_deleted)
+    hits_loose += n_del_hit
+    hits_strict += n_del_hit
 
-    prec = hits / n_pred if n_pred else 0.0
-    rec = hits / n_gt if n_gt else 0.0
-    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+    def _prf(hits: int) -> tuple[float, float, float]:
+        prec = hits / n_pred if n_pred else 0.0
+        rec = hits / n_gt if n_gt else 0.0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+        return prec, rec, f1
 
-    # 퇴화 눈금 — 빈 예측(= current 를 전부 지웠다고 분류되는 예측)의 같은 행 점수.
+    prec_s, rec_s, f1_s = _prf(hits_strict)
+    prec_l, rec_l, f1_l = _prf(hits_loose)
+
+    # 퇴화 눈금 — current 를 하나도 재현하지 않는 예측(= current 전체가 DELETED 로
+    # 분류되는 예측)의 같은 행 점수 상한. 빈 예측은 이제 여기 도달하지 않는다.
     prec0 = len(gt_deleted) / n_cur if n_cur else 0.0
     rec0 = len(gt_deleted) / n_gt if n_gt else 0.0
-    f1_null = 2 * prec0 * rec0 / (prec0 + rec0) if (prec0 + rec0) > 0 else 0.0
+    f1_floor = 2 * prec0 * rec0 / (prec0 + rec0) if (prec0 + rec0) > 0 else 0.0
     return {
-        "change_prec": round(prec, 4),
-        "change_recall": round(rec, 4),
-        "change_f1": round(f1, 4),
-        "change_f1_null": round(f1_null, 4),
+        "change_prec_strict": round(prec_s, 4),
+        "change_recall_strict": round(rec_s, 4),
+        "change_f1_strict": round(f1_s, 4),
+        "change_prec_loose": round(prec_l, 4),
+        "change_recall_loose": round(rec_l, 4),
+        "change_f1_loose": round(f1_l, 4),
+        "change_f1_floor": round(f1_floor, 4),
         **counts,
     }
 
@@ -508,22 +600,40 @@ def compute_state_diff(
     """한 행의 state-diff 진단값. 정의되지 않는 지표는 None (평균에서 제외된다).
 
     반환 키
-      diff_recall / added_recall / modified_recall / unchanged_recall
-          GT 를 diff 유형으로 층화한 recall. `diff` = MODIFIED + ADDED.
-          UNCHANGED 는 높고 diff 는 낮으면 = 복사만 잘한다.
-      diff_prec / diff_f1
+      addmod_recall / added_recall / modified_recall / unchanged_recall
+          GT 를 diff 유형으로 층화한 recall. `addmod` = MODIFIED + ADDED.
+          UNCHANGED 는 높고 addmod 는 낮으면 = 복사만 잘한다.
+      addmod_prec / addmod_f1
           precision 분모를 **pred-side diff**(current 와 매칭되지 않은 예측 요소)로
           잡아 대칭화한 값. recall 과 다른 정의이므로 키를 분리해 둔다.
-      change_prec / change_recall / change_f1 / change_f1_null
+      change_{prec,recall,f1}_strict / change_{prec,recall,f1}_loose / change_f1_floor
           "current 대비 무엇이 바뀌었나"를 pred/gt 양쪽에서 같은 절차로 뽑아 맞춘 값.
-          DELETED 축과 내용 임계(τ)를 포함한다 (`compute_change_items` 참고).
-          `_null` 은 같은 행에서 **빈 예측**이 받는 점수 = 이 축의 퇴화 바닥.
-          change_f1 은 이 값과 나란히 읽어야 한다 (0 이 바닥이 아니다).
+          DELETED 축을 포함한다. strict 는 내용 임계(τ)까지, loose 는 자리(매칭)만.
+          `_floor` 는 같은 행에서 **current 를 하나도 재현하지 않는 예측**이 받는 점수
+          = 이 축의 퇴화 바닥. strict/loose 공통이다 (DELETED 엔 τ 가 없다).
+          change_f1_* 는 이 값과 나란히 읽어야 한다 (0 이 바닥이 아니다).
+      no_change_acc
+          **GT 가 current 와 같은 행에서만** 정의 (`n_change_gt == 0`). 그 행에서는
+          복사가 정답이므로 "예측도 아무 변화를 주장하지 않았나"를 1/0 으로 센다.
+          변화가 있는 행에서는 None — 다른 지표와 분모가 다르다.
       copy_rate_pred / copy_rate_gt / copy_excess
           예측·GT 가 각각 current 와 겹치는 비율과 그 차이. `copy_excess` 가 판별량.
+          ⚠️ **`copy_excess` 를 `parse_fail_rate` 없이 두 모델 사이에서 비교하지 마라.**
+          파싱 불능 행은 이 지표가 None 이라 평균에서 빠지는데, 그 비율이 모델마다
+          다르면 **서로 다른 population 위의 평균**을 나란히 놓게 된다 (실측: EXP07
+          probe_forget 에서 onlyS2 계열 11~15% 제외 vs mergeO 계열 1.6~2.6% 제외).
       copy_exact / copy_near
           예측이 current 와 문자열 완전일치 / hungarian_f1 >= COPY_NEAR_F1 인가.
+      parse_fail / parse_fail_long
+          예측에서 element 를 하나도 못 뽑은 행 / 그중 예측 문자열이 100자를 넘는 행.
+          둘을 나눠야 "아무것도 안 냈다"와 "**태그가 하나도 없는 장문 쓰레기를 냈다**"가
+          구분된다 (실측 사례: `predict` 58,303자인데 추출 요소 0개).
       n_* : 해석용 원자료 개수. unclosed_root : 절단 sanity.
+
+      2026-08-04 개명: diff_recall/diff_prec/diff_f1 → addmod_recall/addmod_prec/
+      addmod_f1, change_f1/change_f1_null → change_f1_strict/change_f1_floor
+      (모듈 docstring "2026-08-04 개명" 참고). `aggregate()` 가 옛 키를 하위호환
+      alias 로 함께 낸다 — 이 함수(row-dict)에는 옛 키가 없다.
     """
     _he._lazy_deps()
     zero_counts = {
@@ -540,13 +650,14 @@ def compute_state_diff(
     undefined = {
         k: None
         for k in (
-            "diff_recall",
+            "addmod_recall",
             "added_recall",
             "modified_recall",
             "unchanged_recall",
-            "diff_prec",
-            "diff_f1",
+            "addmod_prec",
+            "addmod_f1",
             *_CHANGE_METRIC_KEYS,
+            "no_change_acc",
             "copy_rate_pred",
             "copy_rate_gt",
             "copy_excess",
@@ -558,11 +669,15 @@ def compute_state_diff(
         gt_els = _he.extract_elements(gt_str, match_mode, include_aria)
         cur_els = _he.extract_elements(current_str, match_mode, include_aria)
     except Exception:
+        # 추출 자체가 터진 행도 **파싱 실패로 세어야 한다.** 여기서 안 채우면
+        # `aggregate` 의 `r.get(k, 0.0)` 이 조용히 0 으로 세어 실패율이 과소보고된다.
         return {
             **undefined,
             **zero_counts,
             "copy_exact": 0.0,
             "copy_near": 0.0,
+            "parse_fail": 1.0,
+            "parse_fail_long": 1.0 if len(pred_str.strip()) > PARSE_FAIL_LONG_CHARS else 0.0,
             "unclosed_root": _unclosed_root(pred_str),
         }
 
@@ -571,12 +686,19 @@ def compute_state_diff(
         "n_gt": len(gt_els),
         "n_cur": len(cur_els),
     }
+    parse_fail = 1.0 if not pred_els else 0.0
     row = {
         **undefined,
         **zero_counts,
         **counts,
         "copy_exact": 1.0 if pred_str.strip() == current_str.strip() else 0.0,
         "copy_near": 0.0,
+        "parse_fail": parse_fail,
+        "parse_fail_long": (
+            1.0
+            if parse_fail and len(pred_str.strip()) > PARSE_FAIL_LONG_CHARS
+            else 0.0
+        ),
         "unclosed_root": _unclosed_root(pred_str),
     }
     if not gt_els:
@@ -609,7 +731,7 @@ def compute_state_diff(
     def _recall(subset: set[int]) -> float | None:
         return round(len(hit_gt & subset) / len(subset), 4) if subset else None
 
-    row["diff_recall"] = _recall(diff_idx)
+    row["addmod_recall"] = _recall(diff_idx)
     row["added_recall"] = _recall(by_type["ADDED"])
     row["modified_recall"] = _recall(by_type["MODIFIED"])
     row["unchanged_recall"] = _recall(by_type["UNCHANGED"])
@@ -617,14 +739,46 @@ def compute_state_diff(
     # change 축 — GT 쪽과 **인자 순서까지 같은** 분류를 pred 쪽에도 돌려 대칭을 지킨다.
     # (`_hungarian_match(cur, X)` 로 통일. 아래 pairs_pc 는 인자 순서가 반대라 재사용
     #  하면 동점 배정이 갈릴 수 있고, 그러면 두 집합이 같은 절차의 산물이 아니게 된다.)
-    diff_pred = _classify_from_els(cur_els, pred_els, match_mode, strict_pos=strict_pos)
+    # `empty_next_is_deletion=False` — 예측이 비면 "최대 삭제 주장"이 아니라
+    # "주장 없음"이다 (2026-08-04, `_classify_from_els` 참고). GT 쪽 호출은 기본값
+    # True 를 그대로 쓴다: GT 의 빈 state 는 생성 실패가 아니라 관측된 사실이다.
+    diff_pred = _classify_from_els(
+        cur_els,
+        pred_els,
+        match_mode,
+        strict_pos=strict_pos,
+        empty_next_is_deletion=False,
+    )
     row.update(
         compute_change_items(
             diff_gt, diff_pred, pred_els, gt_els, pairs_pg, len(cur_els)
         )
     )
+    # 변화 없는 행("화면이 안 바뀌는 step")에서는 복사가 정답이다 — 다른 지표는 이
+    # 행에서 전부 None 이라 이 축이 없으면 그 구간의 성능을 아무도 안 잰다.
+    #
+    # ⚠️ `pred_els` 를 조건에 **반드시** 넣어야 한다. 빈 예측은 위 규칙 변경으로
+    # `n_change_pred == 0` 이므로, 이걸 빼면 **아무것도 못 낸 모델이 1.0 을 받는다**
+    # (실측: EXP01 base 는 파싱 실패율 93.9% 인데 no_change_acc 가 204/204 = 1.0 이
+    #  나왔다). 이 축이 묻는 것은 "변화를 지어내지 않았나"가 아니라 **"화면을 그대로
+    # 재현했나"** 다 — 생성 실패는 재현이 아니라 오답이다 (copy_excess 를 0 으로 채우지
+    # 않기로 한 것과 같은 이유: 실패가 미덕으로 집계되면 안 된다).
+    if row["n_change_gt"] == 0:
+        row["no_change_acc"] = (
+            1.0 if (pred_els and row["n_change_pred"] == 0) else 0.0
+        )
 
     # pred ↔ current: 복사량 + pred-side diff 산출
+    #
+    # ⚠️ `pred_els` 가 비는 행은 `copy_rate_pred`/`copy_excess` 가 None 으로 남아
+    # 평균에서 빠진다. **이걸 0 으로 채우자는 제안은 2026-08-04 에 기각했다.**
+    # 빈 예측의 `copy_rate_pred` 는 0 이므로 `copy_excess = 0 − copy_rate_gt ≈ −0.77`
+    # 이 되는데, 그러면 **아무것도 못 낸 행이 "복사를 안 했다"는 미덕으로 집계된다** —
+    # 이 지표가 잡으라고 만든 것의 정반대다. 실측(EXP07 probe_forget onlyS2-ep1,
+    # ID n=2032): 채우면 avg_copy_excess 가 +0.2392 → +0.0850 으로 **떨어져** 퇴화
+    # 모델이 되레 좋아 보인다.
+    # 남는 진짜 문제는 값이 아니라 **분모**다 — 그건 `n_copy_excess` 와
+    # `parse_fail_rate` 를 함께 실어서 드러낸다 (compute_state_diff docstring 참고).
     if pred_els and cur_els:
         pairs_pc, _ = _he._hungarian_match(pred_els, cur_els, match_mode, strict_pos)
         n_copy = len(pairs_pc)
@@ -643,13 +797,15 @@ def compute_state_diff(
     else:
         pred_diff_idx = set()
 
+    # `n_pred_diff` 는 이름을 유지한다 — addmod_prec 의 분모이지만 `_COUNT_KEYS`
+    # 소속이라 이번 개명 범위 밖이다 (이름이 어긋나지만 의도적 유지).
     row["n_pred_diff"] = len(pred_diff_idx)
     if pred_diff_idx and diff_idx:
         hit = sum(1 for i in pred_diff_idx if pred_to_gt.get(i) in diff_idx)
         prec = hit / len(pred_diff_idx)
-        rec = row["diff_recall"] or 0.0
-        row["diff_prec"] = round(prec, 4)
-        row["diff_f1"] = round(
+        rec = row["addmod_recall"] or 0.0
+        row["addmod_prec"] = round(prec, 4)
+        row["addmod_f1"] = round(
             2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0, 4
         )
     return row
@@ -666,12 +822,21 @@ def compute_state_diff(
 # 태그를 `img` 로 둔 것은 의도다: 같은 `p` 로 두면 gt 의 "brand new" 와 짝이 맞아
 # ADDED 가 사라지고(copy_excess 0), 위치를 멀리 밀어도 tag 가 같으면 cost 상한이
 # W_TEXT+W_POS=1.9 라 임계 1.7 을 못 넘긴다. tag 불일치는 W_TAG=3.0 이라 확실하다.
+# `maxdel` = "요소가 딱 하나뿐이고 current 를 하나도 재현하지 않는" 예측 —
+# **비어 있지 않은 예측 중 가장 퇴화한 것**이다. 태그는 `select` 를 쓴다: cur/gt 의
+# 어떤 태그(`button`/`p`/`img`)와도 달라 tag cost W_TAG=3.0 이 임계(1.5/1.7)를 확실히
+# 넘고(위치·텍스트를 아무리 밀어도 **같은 태그면** cost 상한이 임계 아래라 붙는다),
+# 동시에 `INTERACTIVE_TAGS` 소속이라 텍스트 없이도 추출된다 — 화이트리스트 밖 태그
+# (`zzz` 등)를 쓰면 element 가 0 개로 추출돼 빈 예측과 구분이 안 된다.
+# 이 probe 가 **바닥이 여전히 0 이 아님**을 배선 단계에서 증명한다: 빈 예측을 0 으로
+# 만들어도 요소가 1개만 있으면 나머지 current 전부가 그대로 DELETED 주장이 된다.
 _PROBE = {
     "index": {
         "cur": '<node index="0"><button index="1" aria-label="OK"/>'
         '<p index="2">hello</p><img index="4">gone</img></node>',
         "gt": '<node index="0"><button index="1" aria-label="OK"/>'
         '<p index="2">world</p><p index="3">brand new</p></node>',
+        "maxdel": '<node index="900"><select index="901"/></node>',
     },
     "pos": {
         "cur": '<node bounds="[0,0][10,10]" point="[5,5]">'
@@ -682,6 +847,8 @@ _PROBE = {
         '<button bounds="[1,1][5,5]" point="[3,3]">OK</button>'
         '<p bounds="[6,6][9,9]" point="[7,7]">world</p>'
         '<p bounds="[6,20][9,24]" point="[7,22]">brand new</p></node>',
+        "maxdel": '<node bounds="[900,900][910,910]" point="[905,905]">'
+        '<select bounds="[920,920][930,930]" point="[925,925]"/></node>',
     },
 }
 
@@ -712,39 +879,75 @@ def assert_scorer_wired(
             f"복사 probe 가 copy_rate={copied['copy_rate_pred']} "
             f"copy_excess={copied['copy_excess']} — 1.0 / 양수 여야 합니다."
         )
-    if perfect["diff_recall"] != 1.0:
+    if perfect["addmod_recall"] != 1.0:
         raise StateDiffError(
             f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
-            f"정답 probe 의 diff_recall={perfect['diff_recall']} — 1.0 이어야 합니다."
+            f"정답 probe 의 addmod_recall={perfect['addmod_recall']} — 1.0 이어야 합니다."
         )
     # change 축은 배선이 끊겨도 **그럴듯한 0** 을 낸다 (변화를 하나도 못 잡았을 때와
     # 계산이 안 돌았을 때의 값이 같다). 두 끝을 다 찍어야 구분된다.
-    if copied["change_f1"] != 0.0:
+    if copied["change_f1_strict"] != 0.0:
         raise StateDiffError(
             f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
-            f"복사 probe 의 change_f1={copied['change_f1']} — 0.0 이어야 합니다."
+            f"복사 probe 의 change_f1_strict={copied['change_f1_strict']} — 0.0 이어야 합니다."
         )
-    if perfect["change_f1"] != 1.0:
+    if perfect["change_f1_strict"] != 1.0:
         raise StateDiffError(
             f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
-            f"정답 probe 의 change_f1={perfect['change_f1']} — 1.0 이어야 합니다."
+            f"정답 probe 의 change_f1_strict={perfect['change_f1_strict']} — 1.0 이어야 합니다."
         )
-    # 퇴화 눈금 — 빈 예측은 current 를 전부 지운 것으로 분류되어 gt_deleted 와 공짜로
-    # 겹친다. 0 이 나오면 probe 에 DELETED 가 없다는 뜻이고(=`_PROBE` 훼손), 그러면
-    # change_f1 을 0 기준으로 읽게 된다. 두 끝(0.0/1.0) 만으로는 이 축이 안 잡힌다.
+    # 규칙의 양 끝을 둘 다 박는다 (2026-08-04). 예전에는 **빈 예측** 하나가 두 역할을
+    # 겸했는데 — 퇴화 눈금이 0 이 아님을 보이는 것과 DELETED 축이 살아 있음을 보이는 것 —
+    # 빈 예측이 이제 0 을 받도록 규칙이 바뀌어 그 겸직이 불가능하다. 역할을 둘로 쪼갠다.
+    #
+    # (1) 생성 실패는 0 이어야 한다. `empty_next_is_deletion=False` 가 pred 쪽에
+    #     실제로 걸렸는지 확인한다 — 이게 안 걸리면 아무것도 못 낸 모델이 바닥값을
+    #     공짜로 가져간다.
     empty = compute_state_diff("", probe["gt"], probe["cur"], match_mode, **opts)
-    if not 0.0 < empty["change_f1"] < perfect["change_f1"]:
+    if empty["change_f1_strict"] != 0.0:
         raise StateDiffError(
             f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
-            f"빈 예측 probe 의 change_f1={empty['change_f1']} — "
-            "0 초과 1 미만이어야 합니다 (probe 에 DELETED 가 없으면 0 이 됩니다)."
+            f"빈 예측 probe 의 change_f1_strict={empty['change_f1_strict']} — "
+            "0.0 이어야 합니다 (빈 예측을 '최대 삭제 주장'으로 읽고 있습니다)."
         )
-    if empty["change_f1"] != empty["change_f1_null"]:
+    if empty["parse_fail"] != 1.0:
         raise StateDiffError(
             f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
-            f"빈 예측의 change_f1={empty['change_f1']} 과 "
-            f"change_f1_null={empty['change_f1_null']} 이 달라 눈금이 어긋납니다."
+            f"빈 예측 probe 의 parse_fail={empty['parse_fail']} — 1.0 이어야 합니다."
         )
+    # (2) DELETED 축은 살아 있어야 한다. current 와 아무것도 공유하지 않는 **비어 있지
+    #     않은** 예측이 그 역할을 이어받는다. 0 이 나오면 probe 에 DELETED 가 없다는
+    #     뜻이고(=`_PROBE` 훼손), 그러면 change_f1_strict 을 0 기준으로 읽게 된다.
+    #     `change_f1_floor` 는 이 전략의 **상한**이다 — 합성 요소 1개가 ADDED 로
+    #     `n_change_pred` 에 더해져 precision 분모가 커지므로 실제 값은 그보다 조금 낮다.
+    maxdel = compute_state_diff(
+        probe["maxdel"], probe["gt"], probe["cur"], match_mode, **opts
+    )
+    floor = maxdel["change_f1_floor"]
+    if not 0.0 < maxdel["change_f1_strict"] <= floor:
+        raise StateDiffError(
+            f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
+            f"최대삭제 probe 의 change_f1_strict={maxdel['change_f1_strict']} 이 "
+            f"(0, change_f1_floor={floor}] 밖입니다 — DELETED 축이 죽었거나 "
+            "바닥 닫힌식이 어긋났습니다."
+        )
+    if maxdel["change_f1_strict"] < 0.5 * floor:
+        raise StateDiffError(
+            f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
+            f"최대삭제 probe 의 change_f1_strict={maxdel['change_f1_strict']} 이 "
+            f"바닥({floor})의 절반에도 못 미칩니다 — 합성 요소가 current 와 매칭돼 "
+            "DELETED 주장이 줄었을 수 있습니다 (`_PROBE['maxdel']` 확인)."
+        )
+    # loose 는 strict 의 상계다. 두 축이 같은 짝 집합을 보는지 확인한다 — 뒤집히면
+    # τ 게이트가 엉뚱한 쪽에 걸린 것이다.
+    for name, r in (("복사", copied), ("정답", perfect), ("최대삭제", maxdel)):
+        if r["change_f1_loose"] < r["change_f1_strict"]:
+            raise StateDiffError(
+                f"state-diff 채점기 배선 실패 (match_mode={match_mode}): "
+                f"{name} probe 의 change_f1_loose={r['change_f1_loose']} < "
+                f"change_f1_strict={r['change_f1_strict']} — loose 는 strict 의 "
+                "상계여야 합니다 (τ 게이트가 반대로 걸렸습니다)."
+            )
 
 
 # ── 집계 ─────────────────────────────────────────────────────────────────
@@ -752,18 +955,29 @@ def assert_scorer_wired(
 # 0 으로 세면 평균이 아래로 끌려가 실제보다 나쁘게 보인다. 평균의 분모가 되는 행 수를
 # 함께 기록해 몇 행 위에서 잰 값인지 드러낸다.
 _MEAN_KEYS = [
-    "diff_recall",
+    "addmod_recall",
     "added_recall",
     "modified_recall",
     "unchanged_recall",
-    "diff_prec",
-    "diff_f1",
+    "addmod_prec",
+    "addmod_f1",
     "copy_rate_pred",
     "copy_rate_gt",
     "copy_excess",
     *_CHANGE_METRIC_KEYS,
+    # 변화 없는 행에서만 정의된다 — `n_no_change_acc` 가 곧 "그런 step 이 몇 행인가"
+    # (= 데이터셋 sparsity 통계) 라서 평균과 분모를 함께 봐야 한다.
+    "no_change_acc",
 ]
-_RATE_KEYS = ["copy_exact", "copy_near", "unclosed_root"]
+_RATE_KEYS = [
+    "copy_exact",
+    "copy_near",
+    "unclosed_root",
+    # `parse_fail_rate` / `parse_fail_long_rate` 로 나간다 (`f"{k}_rate"`).
+    # copy_excess 의 분모 손실을 드러내는 짝이므로 항상 함께 읽는다.
+    "parse_fail",
+    "parse_fail_long",
+]
 _COUNT_KEYS = [
     "n_pred",
     "n_gt",
@@ -775,6 +989,36 @@ _COUNT_KEYS = [
     "n_change_gt",
     "n_change_pred",
 ]
+
+
+# 산출물 스키마 버전. 개명 alias 때문에 **옛 키 이름이 그대로 남아 있는데
+# `change_f1` 의 정의는 바뀌었다**(빈 예측 규칙, `_classify_from_els` 참고). 파일만
+# 보고 옛/새를 구분할 수단이 없으면 정의가 다른 두 수를 같은 키로 나란히 놓게 된다.
+METRICS_SCHEMA = "2026-08-04"
+
+# 하위호환 alias — 2026-08-04 개명(모듈 docstring 참고) 전 산출물은 옛 키만 갖고 있다.
+# `aggregate()` 가 새 키와 나란히 옛 키도 내어 소비자가 한 번에 갈아타지 않아도 되게 한다.
+#
+# ⚠️ **`change_f1` alias 는 "이름만 다른 같은 수"가 아니다.** 같은 실행 안에서는
+# `avg_change_f1 == avg_change_f1_strict` 이지만, 2026-08-04 이전에 채점된 파일의
+# `avg_change_f1` 은 **빈 예측이 바닥값을 받던 옛 정의**의 값이다. 두 파일을 나란히
+# 놓기 전에 `metrics_schema` 를 먼저 볼 것.
+_LEGACY_KEY_ALIAS = {
+    "addmod_recall": "diff_recall",
+    "addmod_prec": "diff_prec",
+    "addmod_f1": "diff_f1",
+    "change_f1_floor": "change_f1_null",
+    "change_f1_strict": "change_f1",
+    "change_prec_strict": "change_prec",
+    "change_recall_strict": "change_recall",
+}
+
+
+def stamp_schema(metrics: dict) -> dict:
+    """산출물 최상위에 스키마 버전을 박는다. **파일로 쓰는 모든 경로**가 불러야 한다
+    (`_state_diff_eval._cmd_score` · `_hungarian_eval._write_state_diff` 둘 다)."""
+    metrics["metrics_schema"] = METRICS_SCHEMA
+    return metrics
 
 
 def aggregate(rows: list[dict]) -> dict:
@@ -792,6 +1036,13 @@ def aggregate(rows: list[dict]) -> dict:
         out[f"avg_{k}"] = (
             round(sum(r.get(k, 0) for r in rows) / total, 4) if total else 0.0
         )
+    # 옛 이름 alias — avg_/n_ 두 접미사 모두 채운다. n_ 은 조건부 분모라 해석에
+    # 필수인데(예: n_diff_prec), avg_ 만 alias 하면 이 값이 옛 이름으로는 사라진다.
+    for new, old in _LEGACY_KEY_ALIAS.items():
+        if f"avg_{new}" in out:
+            out[f"avg_{old}"] = out[f"avg_{new}"]
+        if f"n_{new}" in out:
+            out[f"n_{old}"] = out[f"n_{new}"]
     return out
 
 
@@ -839,14 +1090,19 @@ def evaluate_pairs(
 
 # ── CLI ──────────────────────────────────────────────────────────────────
 def _print_row(label: str, m: dict) -> None:
+    # 이 함수는 방금 aggregate() 가 만든 m 을 받으므로 새 키가 항상 있다 — 옛 이름
+    # alias 는 디스크의 34개 leaf(재빌드 안 함)를 읽는 소비자를 위한 것이라 여기선
+    # 새 이름을 쓴다.
     print(
         f"[state-diff:{label}] total={m['total']}  "
-        f"diff_rec={m['avg_diff_recall']:.4f}  "
+        f"addmod_rec={m['avg_addmod_recall']:.4f}  "
         f"added_rec={m['avg_added_recall']:.4f}  "
         f"unch_rec={m['avg_unchanged_recall']:.4f}  "
         f"copy={m['avg_copy_rate_pred']:.4f}(gt {m['avg_copy_rate_gt']:.4f})  "
         f"excess={m['avg_copy_excess']:+.4f}  "
-        f"change_f1={m['avg_change_f1']:.4f}(null {m['avg_change_f1_null']:.4f})"
+        f"change_f1={m['avg_change_f1_strict']:.4f}"
+        f"/{m['avg_change_f1_loose']:.4f}(floor {m['avg_change_f1_floor']:.4f})  "
+        f"pfail={m['parse_fail_rate']:.4f}"
     )
 
 
@@ -902,7 +1158,7 @@ def _cmd_score(args) -> int:
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8") as f:
-        json.dump(metrics, f, ensure_ascii=False, indent=2)
+        json.dump(stamp_schema(metrics), f, ensure_ascii=False, indent=2)
     print(f"[state-diff] saved: {out}")
     return 0
 

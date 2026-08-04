@@ -3,6 +3,62 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-08-04 — IWM: state-diff 지표 개명 + 빈 예측 규칙 변경 + 35 leaf 전량 재채점 — 바닥은 안 내려갔다
+
+선행연구 4편(ScratchWorld·RLVR-World·WebWorld·ViMo) 검토 보고서(`docs/METRICS_REVIEW.md`, 이번에 삭제)를
+바탕으로 지표 체계를 개명·확장하고, 저장된 예측 jsonl 로 **35 leaf 전량을 재채점**했다. 핵심 결과는
+가설의 반증이다 — "빈 예측 규칙을 고치면 `change_f1` 바닥이 0 이 된다"는 예상이 실측으로 깨졌다.
+
+- **개명**: `diff_recall/prec/f1` → `addmod_recall/prec/f1`(DELETED 가 빠진 집합이라는 뜻을 이름에 명시),
+  `change_f1`/`change_f1_null` → `change_f1_strict`/`change_f1_floor`, `change_prec/recall` 도 `_strict`
+  접미(loose 축과의 대칭, §6-6 결정). 옛 키는 `aggregate()` alias 로 함께 낸다.
+- **규칙 변경(MODIFY #2)**: `_classify_from_els` 에 `empty_next_is_deletion` 파라미터 신설 — 예측이 비면
+  기본값이던 "current 전체를 지운 주장"을 GT 쪽만 유지하고 pred 쪽은 "주장 없음"(0.0)으로 바꿨다.
+  ScratchWorld 선례("파싱 실패 = 오답")를 따른 것.
+- **⚠️ 그런데 이게 바닥을 안 내린다.** 정본 probe 실측: 빈 예측은 0.0 이 됐지만 **요소 1개짜리 쓰레기
+  예측은 바닥의 index 87.5%(0.500/0.5714) · pos 85.7%(0.2857/0.3333)** 를 그대로 가져간다 — 요소가
+  하나만 있어도 나머지 current 전부가 그대로 DELETED 주장이기 때문이다. 그래서 `change_f1_floor` 는
+  강등하지 않고 헤드라인 옆 필수 컬럼으로 유지, **헤드라인은 여전히 `addmod_recall`**(바닥 문제가 없는
+  유일한 축). 이 사실을 `assert_scorer_wired` 의 신규 최대삭제 probe(`_PROBE['maxdel']`)가 매 실행
+  검사한다 — "바닥이 0" 이라고 코드에 쓰면 배선 가드가 터진다.
+- **MODIFY #1 기각**: 초안은 빈 예측의 `copy_excess` 를 0 으로 채우자는 안이었으나, 실측하면 채우는 쪽이
+  퇴화 모델을 봐준다(빈 예측 `copy_rate_pred=0` → `copy_excess=−copy_rate_gt≈−0.77`, EXP07 probe_forget
+  onlyS2-ep1 은 +0.2392→+0.0850 로 되레 좋아 보인다). 채택하지 않고, 대신 `parse_fail_rate`/
+  `parse_fail_long_rate` 신설로 분모 손실을 드러낸다.
+- **신설**: `change_f1_loose`(τ 게이트 제거, 자리만 맞으면 hit — `loose≥strict` 갭이 "자리는 찾고 내용
+  틀림"), `no_change_acc`(GT==current 행에서만 정의, **파싱 실패는 재현이 아니므로 0** — 첫 구현에서
+  이 조건을 빠뜨려 EXP01 base 가 파싱실패율 93.9%인데 1.0 을 받는 버그를 재채점 중 발견·수정),
+  `parse_fail_rate`/`parse_fail_long_rate`(전자는 파싱 실패 전체, 후자는 100자 넘는 장문 쓰레기 — 실측
+  사례 `predict` 58,303자에 요소 0개), `metrics_schema: "2026-08-04"` 스탬프(alias 로 옛 키가 남아 있어
+  `change_f1` 정의 변경 전/후를 파일만 보고 구분할 유일한 수단).
+- **재채점**: `scripts/rebuild_state_diff_metrics.sh -f`(conda `aw_env`, `LF_CUDA_GUARD_SKIP=1`) 로 35
+  leaf(EXP01 3 · EXP03 2 · EXP05 8 · EXP07 16 · probe_forget 6) 전량, GPU 미사용·추론 재실행 없음. 재채점
+  전 값은 `docs/metrics_snapshot_pre_rescore_20260804.json` 에 보존했다가 검증 후 삭제(`outputs/` 는
+  gitignore 라 git 안전망이 없었다). 전/후 비교(overall/ID/OOD 3 섹션 모두): 행 수 불변 35/35, schema
+  스탬프 35/35, `addmod_recall`·`copy_excess` 는 정의상 무변경(실측도 정확히 무변경) — population 변화
+  없는 순수 재정의 교체임을 확인. base/zero-shot leaf 는 `change_f1_strict` 가 ~0.35→~0.001~0.04 로
+  대폭 하락(파싱실패율 68~97% 였던 행들이 더 이상 바닥값을 공짜로 못 받아서), 학습된 모델(`parse_fail_rate`
+  거의 0)은 변화폭이 작다.
+- 변경: `scripts/_state_diff_eval.py`(개명+MODIFY#2+ADD#1,#4,#5+가드 재구성) · `scripts/_hungarian_eval.py`
+  (schema 스탬프 배선 + 주석 정리) · `scripts/eval_viewer.py`(`_metric()` 폴백 + 신규 6열 노출) ·
+  `tests/test_state_diff_eval.py`(신규 테스트 클래스 6개: loose 축·no_change_acc·parse_fail·legacy
+  alias·배선가드 실발동·최소바닥) · `ARCHITECTURE.md`(§6 지표 표 갱신 + 개명/규칙변경 콜아웃).
+- 결과/검증: `pytest tests -q`(conda `aw_env`, `--ignore=tests/test_diff_loss_v2.py` — 그 파일은 HEAD
+  기준으로도 `munkres` 미설치로 실패하는 기존 환경 결손) 전량 그린. `.venv` 환경은 `test_diff_loss_v2.py`
+  포함 전체 그린. 배선 가드 신규 3종 실발동 확인(빈예측 회귀·change축 죽음·τ게이트 반전 각각 몽키패치로
+  StateDiffError 발생, 메시지에 실제 숫자 확인 — `.get()` 무력화가 아님).
+- **Notion**: 페이지를 재-fetch 해 현재 구조 기준으로 갱신(메모리 기록엔 있던 `change_f1` 두 기준선
+  표·`probe_forget` 표가 이미 사용자에 의해 지워져 있어 복원하지 않고 현재 상태를 정본으로 진행).
+  Metrics 정의 표를 사용자 지시로 **Action Prediction / Intermediate(State) Prediction 두 표로 분리**,
+  개명·신규 지표 반영. EXP03·05·06·07 의 state 표에 `diff_recall/f1`→`addmod_recall/f1` 라벨 교체(값
+  불변) + `change_f1_strict/loose/floor`·`no_change_acc`·`parse_fail_rate` 5행 신설(EXP06 은 EXP05
+  leaf 공유라 같은 값 반영). EXP05/EXP06 은 두 절이 값까지 byte-identical 이라 old_str 유일성이 깨져
+  절 전체를 통째로 교체하는 방식으로 우회.
+- 후속: `change_prec/recall_strict` 도 뷰어에 노출(MODIFY #3, 이미 계산되던 값이 안 보이던 것을 해소).
+  절단(1024) leaf 의 `change_f1` 왜곡 방향은 미점검. `addmod_prec/f1` 의 조건부 정의(분모 0 인 행 제외)는
+  `copy_excess` 와 같은 population 문제를 갖는데 이번엔 손대지 않음.
+- 카테고리: devlog
+
 ## 2026-08-04 — IWM: `change_f1` 의 바닥은 0 이 아니다 — 퇴화 바닥 `change_f1_null` 신설 + probe_forget 백필 복구
 
 `change_f1`(2026-08-03 신설)을 **0 기준으로 읽으면 안 된다**는 것을 실측으로 확인하고, 정의는 그대로 둔 채
