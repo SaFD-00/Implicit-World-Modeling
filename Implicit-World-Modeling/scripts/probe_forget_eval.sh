@@ -83,7 +83,13 @@ for cell in "${CELL_ARR[@]}"; do
   esac
 
   out_rel="${OUT_ROOT}/${leaf_name}"
-  out_dir="$BASE_DIR/$out_rel"
+  # LF_ROOT 기준 — build_infer_cmd 가 cwd=$LF_ROOT 에서 $out_rel(상대경로)로 쓰므로
+  # 채점도 같은 기준으로 읽어야 한다 (stage1_eval.sh 의 out_dir 규약과 동일).
+  # BASE_DIR 기준으로 두면 LlamaFactory/outputs 심링크가 없을 때 추론과 채점이
+  # 서로 다른 물리 위치를 보게 되어 "방금 쓴 파일을 못 찾음"으로 조용히 죽는다
+  # (2026-08-04 실측: mergeO-v1-s2ep2 가 이 버그로 90분 추론 후 채점 직전 FAILED,
+  #  LlamaFactory/outputs 심링크가 깨져 있던 것과 겹쳐 원인이 두 겹이었다).
+  out_dir="$LF_ROOT/$out_rel"
   subtag="probe_forget_${MODEL_SHORT}_${leaf_name}"
 
   if [ "$DRY" -eq 1 ]; then
