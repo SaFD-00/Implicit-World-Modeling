@@ -656,12 +656,16 @@ outputs/{OUT_DS}/                # AndroidControl_EXP0{1..5} | MC.  AC_EXP01 의
 | `avg_added_recall` | ADDED 만. current 에 없던 요소라 **순수 예측력** |
 | `avg_modified_recall` / `avg_unchanged_recall` | 나머지 두 층 |
 | `avg_diff_f1` | precision 분모를 pred-side diff 로 대칭화한 F1 (recall 과 정의가 다른 별도 키) |
+| `avg_change_prec` / `avg_change_recall` / `avg_change_f1` | **change 축** (2026-08-03 신설). current 대비 바뀐 항목을 pred/gt 양쪽에서 **같은 절차**로 뽑아 집합 비교한다: `C = ADDED ∪ MODIFIED ∪ DELETED`. hit 은 ADDED/MODIFIED 면 정본 pred↔gt 매칭에서 짝이 맞고 그 짝의 `text_sim ≥ τ`(`CHANGE_TEXT_SIM_TAU` 0.9), DELETED 면 같은 current 요소를 양쪽 다 지웠을 때. recall 층 분해가 **못 보는 두 가지**(사라져야 할 요소·자리만 맞고 내용이 틀린 예측)를 본다 |
+| `avg_change_f1_null` | **위 셋의 눈금** (2026-08-04 신설). 같은 행에서 **빈 예측**이 받는 점수 = 이 축의 퇴화 바닥. `avg_change_f1` 을 이 값 **없이 인용하지 않는다** (바로 아래 불릿) |
+| `avg_n_change_gt` / `avg_n_change_pred` | 위 집합의 크기 — "몇 개 중 몇 개"를 드러낸다 |
 | `avg_copy_rate_pred` / `avg_copy_rate_gt` | 예측·GT 가 각각 current 와 겹치는 비율 |
 | `copy_near_rate` | 예측이 current 와 사실상 동일(`hungarian_f1 ≥ 0.98`)한 행의 비율 |
 | `unclosed_root_rate` | 예측이 root tag 를 안 닫고 끝난 비율 — 절단 sanity |
 
 - **recall 3 층은 정본 `avg_hungarian_rec` 의 정확한 분해다** — `pred↔gt` 매칭을 한 번만 하고 GT 를 diff 유형으로 나눠 세기 때문이다. `tests/test_state_diff_eval.py::TestStratumInvariant` 가 이 항등식을 고정한다. diff 부분집합을 따로 매칭하면 UNCHANGED 에 붙었어야 할 예측 요소가 MODIFIED 로 재배정되며 recall 이 부풀어 성질이 깨진다.
 - **`copy_rate` 를 단독으로 읽지 마라.** 완벽한 예측도 `copy_rate_pred` 가 0.78 쯤 나온다 (GT 자체가 그만큼 겹치므로). 반드시 `copy_excess` 로 본다.
+- **`change_f1` 은 `change_f1_null` 없이 인용 금지 — 이 축은 0 이 바닥이 아니다.** 0.0 이 되는 퇴화는 복사기(pred=current) 쪽뿐이고, 반대쪽 퇴화인 **빈 예측**은 current 전체가 DELETED 로 분류돼 `pred_deleted ∩ gt_deleted` 가 공짜 hit 이 된다 (200행 표본 실측 바닥: EXP01 0.383 · EXP05 0.235 · EXP07v1 0.258). 그래서 채점기가 같은 실행에서 **그 leaf 자신의** 퇴화 바닥 `avg_change_f1_null` 을 함께 낸다 — 표본값과 leaf 값은 다른 수이므로 반드시 같은 leaf 것끼리 견준다. 0 을 바닥으로 읽으면 **바닥에도 못 미치는 값**(EXP07v1 `lora ep1` 은 0.114 인데 그 leaf 의 바닥이 0.261)이 "base > trained" 처럼 보인다. 바닥은 `(current, gt)` 만의 함수라 예측과 무관한 test-set 상수이고, `hits=|gt_deleted|`·`n_pred=n_cur` 닫힌 식이라 Hungarian 을 추가로 돌리지 않는다.
 - **UNCHANGED 판정은 `diff_loss/hungarian_diff_v2` 와 의도적으로 다르다.** 그쪽은 `match_cost ≤ 0.05` 인데 그 임계는 pos cost 스케일 기준이라 index 모드에서는 index 만 밀린 요소가 MODIFIED 로 새어 EXP01 과 EXP05 가 비교 불가가 된다. 여기서는 mode 독립 기준(`text_sim == 1.0`)을 쓴다. `diff_loss/` 는 학습 데이터 생성 경로라 건드리지 않는다 (§7 함정 10).
 - **`n_gt_added` 같은 층 크기는 EXP 간 비교 불가다.** 층 분류가 매칭 임계값에 의존하는데 그 임계가 모드마다 다르다: 텍스트가 통째로 바뀌면 cost 가 정확히 `W_TEXT`(1.5)인데 index 의 `MATCH_THRESHOLD` 도 1.5 이고 판정이 `cost < threshold` 라 매칭이 떨어져 **ADDED**, pos 는 threshold 1.7 이라 **MODIFIED** 다. **같은 `index` 모드 안에서도 갈린다** — EXP01 은 진짜 `index` 속성을 갖지만 EXP03/04 는 `bounds` 만 있어 index cost 가 항상 0 으로 죽어 있다 (정본 채점기의 기존 동작이며 여기서 고치지 않는다). recall 값 자체는 층 분해라 안전하다.
 

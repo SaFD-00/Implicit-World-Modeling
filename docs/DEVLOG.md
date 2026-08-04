@@ -3,6 +3,31 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-08-04 — IWM: `change_f1` 의 바닥은 0 이 아니다 — 퇴화 바닥 `change_f1_null` 신설 + probe_forget 백필 복구
+
+`change_f1`(2026-08-03 신설)을 **0 기준으로 읽으면 안 된다**는 것을 실측으로 확인하고, 정의는 그대로 둔 채
+눈금만 더했다. 복사기(pred=current)는 설계대로 0.0 이지만, 반대쪽 퇴화인 **빈 예측**은 current 전체가
+DELETED 로 분류되고 화면 전환은 실제로 current 의 상당 부분을 지우므로 `pred_deleted ∩ gt_deleted` 가
+공짜 hit 이 된다. 200행 표본 실측 바닥: **EXP01 0.383 · EXP05 0.235 · EXP07v1 0.258**. 학습됐고
+well-formed(`unclosed_root` 0.092)인 EXP07v1 `lora ep1` 은 `change_f1` 0.114 로 **자기 leaf 의 바닥 0.261**
+(표본값과 다른 수다 — 비교는 반드시 같은 leaf 끼리)에 두 배 넘게 진다. 전수 재산출 결과 **32 leaf 중 바닥을 넘긴 것은 4개**(EXP05 Full FT ep2·ep3, 정규/woa 각각)뿐이고,
+0 을 바닥으로 읽으면 이것이 "base > trained" 라는 결과처럼 보인다.
+
+self-test 가 못 잡은 이유는 `assert_scorer_wired` 가 copy→0.0 / perfect→1.0 **두 끝만** 찍었고 구 `_PROBE` 의
+pos 는 `gt_deleted` 가 공집합이었기 때문이다 — change 축의 지배항인 DELETED 가 self-test 를 한 번도 통과한
+적이 없었고, 두 모드 어디에도 빈 예측을 찍는 assert 가 없었다. 별건으로 `rebuild_state_diff_metrics.sh` 의
+leaf 발견이 `find -name 'on-*-state'` 이름 규약이라 `outputs/AndroidControl_EXP07/probe_forget/<variant>`
+3 leaf 는 **백필 배치에 한 번도 들어온 적이 없었다**(추론 당시 인라인 산출물이 있어 채워진 것처럼 보인 게
+함정 — `mergeO-v1-s2ep1` 은 change 축 자체가 없었다). 상세 배경·설계 근거는 로컬 long-form
+`.claude/devlog/2026-08-04_11-11-13_change-f1-null-floor.md` 참조(gitignore, 로컬 전용).
+
+- 변경: `Implicit-World-Modeling/scripts/{_state_diff_eval.py, eval_viewer.py, rebuild_state_diff_metrics.sh}` + `Implicit-World-Modeling/scripts/probe_forget_eval.sh`(신규 — 망각 프로브 6셀 스윕 정본화) + `Implicit-World-Modeling/tests/test_state_diff_eval.py` + `docs/notion_payload_change_f1.md`(신규). 6 files changed, +422 −12 (b326bec..28fc4e2)
+- 커밋: a4d3c1c(`change_f1_null` 산출) · bf746ab(바닥 ≠ 0 고정 + probe DELETED 회귀) · 550543e(probe_forget leaf 백필 누락 fix) · 607f08a(망각 프로브 진입점) · 28fc4e2(Notion 반영 대기 payload)
+- 결과/검증: `pytest tests`(conda `implicit-world-modeling`) **754 passed / 9 skipped / 42 subtests**(기존 748 → +6). 무회귀 증명 — EXP07v1 stage1 ep1 leaf(3,941행) 재채점에서 3 섹션 × 기존 37 키 전부 동일, 신규 2 키만 추가, `n_change_f1_null == n_change_f1`(3929/2026/1903). 전수 백필 **32 leaf**(null 미산출 0) + compare site 19개 재빌드 후 `avg_change_f1_null` 렌더 확인, probe_forget 3 leaf 절단 판정 모두 정상. 바닥은 `(current, gt)` 만의 함수라 예측과 무관한 test-set 상수이고 `hits=|gt_deleted|`·`n_pred=n_cur` 닫힌 식이라 **Hungarian 을 한 번도 더 돌리지 않는다**.
+- 망각 프로브(stage1 state test, ID n=2032, match-mode pos): stage1 lora ep1 `added_recall` 0.237 / `copy_excess` +0.063 → mergeO s2ep1 0.045 / +0.184 → s2ep3 0.042 / +0.192 — **stage2 학습이 world-model 능력을 복사 편향 쪽으로 되돌린다**(`added_recall` −81%). `diff_recall` 은 UNCHANGED 위주로 유지돼 덜 떨어지므로 그 축만 보면 놓친다. stage1 없는 onlyS2-v1-ep3 는 `diff_recall` 0.469 로 mergeO(0.59~0.60)보다 낮아 stage1 잔여 효과는 남는다.
+- 후속: probe_forget 빈 3셀(mergeO ep2 · onlyS2 ep1 · ep2) 추론이 GPU 1 에서 진행 중. Notion Metrics 정의 표 갱신은 MCP 미연결로 보류 — 붙일 내용은 `docs/notion_payload_change_f1.md` 에 준비.
+- 카테고리: devlog
+
 ## 2026-08-03 — IWM: 절단(1024) 판정 기준을 세 번 갈아엎어 토큰 기준 확정 + Notion EXP03·EXP05 재작성
 
 Notion Offline 표에 EXP03·EXP05 를 되살리는 작업으로 시작했는데, 그 과정에서 **"어떤 eval 산출물이
