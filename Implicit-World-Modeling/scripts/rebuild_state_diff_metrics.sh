@@ -83,8 +83,14 @@ while IFS= read -r leaf; do
     continue
   fi
   LEAVES+=("$leaf")
-done < <(find outputs -type d \( -name 'on-*-state' -o -name 'on-*-state-without-open_app' \) \
-           -not -path '*_backup*' | sort)
+done < <( { find outputs -type d \( -name 'on-*-state' -o -name 'on-*-state-without-open_app' \) \
+              -not -path '*_backup*'
+            # probe_forget = stage2 체크포인트를 **stage1 state test** 로 재평가하는 망각
+            # 프로브. leaf 이름이 `on-*-state` 규약을 안 따라서 위 패턴에 안 걸린다 —
+            # 그래서 이 계열은 백필 배치에 **한 번도 들어온 적이 없었다**(2026-08-04
+            # 발견). 채점 대상은 다른 state leaf 와 완전히 같은 test 파일이다.
+            find outputs -type d -path '*/probe_forget/*' -not -path '*_backup*'
+          } | sort)
 
 if [ "${#LEAVES[@]}" -eq 0 ]; then
   echo "[=] 대상 없음 (FILTER='${FILTER}', FORCE=$FORCE)"
@@ -137,10 +143,22 @@ CMDS="$(mktemp)"; trap 'rm -f "$CMDS"' EXIT
 for leaf in "${KEPT[@]}"; do
   base="$(basename "$leaf")"                       # on-AC_EXP05-state[-without-open_app]
   woa=0
-  case "$base" in *-without-open_app) woa=1 ;; esac
-  eval_ds="${base#on-}"
-  eval_ds="${eval_ds%-without-open_app}"
-  eval_ds="${eval_ds%-state}"
+  if [[ "$leaf" == */probe_forget/* ]]; then
+    # 이름 규약(on-<DS>-state) 밖이라 EVAL_DS 를 경로에서 읽는다. woa 변형은 없다.
+    # 못 읽으면 **건너뛴다** — 엉뚱한 test 와 짝지으면 행 수가 우연히 맞는 한
+    # 조용히 완전 오답표가 나온다.
+    case "$leaf" in
+      outputs/AndroidControl_EXP07/probe_forget/*-v1-*) eval_ds="AC_EXP07_v1" ;;
+      outputs/AndroidControl_EXP07/probe_forget/*-v2-*) eval_ds="AC_EXP07_v2" ;;
+      *) echo "[!] probe_forget leaf 의 EVAL_DS 를 못 읽었다 — 건너뜀: $leaf" >&2
+         continue ;;
+    esac
+  else
+    case "$base" in *-without-open_app) woa=1 ;; esac
+    eval_ds="${base#on-}"
+    eval_ds="${eval_ds%-without-open_app}"
+    eval_ds="${eval_ds%-state}"
+  fi
   datadir="${DS_DATADIR[$eval_ds]:-}"
   if [ -z "$datadir" ]; then
     echo "[!] DS_DATADIR 에 '$eval_ds' 가 없다 — 건너뜀: $leaf" >&2
