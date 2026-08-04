@@ -75,13 +75,6 @@ STATE_METRIC_KEYS = [
     "exact_match_rate",
     "avg_bleu",
     "avg_rouge_l",
-    "avg_hungarian_ea",
-    "avg_hungarian_f1",
-    "avg_hungarian_prec",
-    "avg_hungarian_rec",
-    "avg_hungarian_text",
-    "avg_hungarian_idx",
-    "avg_hungarian_pos",
     "predict_bleu-4",
     "predict_rouge-l",
     # ── state-diff (copy-bias) 진단 — state_diff_metrics.json ──────────────
@@ -98,7 +91,6 @@ STATE_METRIC_KEYS = [
     "avg_added_recall",
     "avg_modified_recall",
     "avg_unchanged_recall",
-    "avg_addmod_f1",
     # change 축 — "변화 자체를 맞혔나". 위 recall 층은 GT 요소를 분모로 잡아 **없어져야
     # 할 요소**를 못 세고, hit 판정이 매칭뿐이라 자리만 맞고 내용이 틀려도 맞힌 게 된다.
     # change_f1_strict 은 pred/gt 양쪽에서 같은 절차로 변화 항목을 뽑아 내용 일치까지 본다.
@@ -118,18 +110,26 @@ STATE_METRIC_KEYS = [
     "avg_change_f1_floor",
     "avg_n_change_gt",
     "avg_n_change_pred",
-    # GT 가 current 와 같은 행("화면이 안 바뀌는 step")에서의 정확도. 그 구간에서는
-    # 복사가 정답이라 다른 지표가 전부 None 이다 — 이 열이 없으면 아무도 안 잰다.
-    "avg_no_change_acc",
+    "avg_addmod_f1",
+    "avg_copy_rate_pred",
+    "avg_copy_rate_gt",
+    "avg_copy_excess",
+    "copy_near_rate",
     # 예측에서 element 를 하나도 못 뽑은 행의 비율. **avg_copy_excess 와 반드시 함께
     # 읽는다** — 그 행들은 copy_excess 평균에서 빠지므로, 이 값이 모델마다 다르면
     # copy_excess 를 서로 다른 population 위에서 비교하게 된다.
     "parse_fail_rate",
     "parse_fail_long_rate",
-    "avg_copy_rate_pred",
-    "avg_copy_rate_gt",
-    "avg_copy_excess",
-    "copy_near_rate",
+    # GT 가 current 와 같은 행("화면이 안 바뀌는 step")에서의 정확도. 그 구간에서는
+    # 복사가 정답이라 다른 지표가 전부 None 이다 — 이 열이 없으면 아무도 안 잰다.
+    "avg_no_change_acc",
+    "avg_hungarian_ea",
+    "avg_hungarian_f1",
+    "avg_hungarian_prec",
+    "avg_hungarian_rec",
+    "avg_hungarian_text",
+    "avg_hungarian_idx",
+    "avg_hungarian_pos",
     "unclosed_root_rate",
 ]
 
