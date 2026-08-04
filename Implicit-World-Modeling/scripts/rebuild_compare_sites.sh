@@ -17,7 +17,7 @@
 #
 # usage: rebuild_compare_sites.sh [-n] [--samples N] [--seed N] [FILTER]
 #   -n           dry-run — 조립된 --include 만 출력하고 실행하지 않는다.
-#   --samples N  분할(ID/OOD/woa)마다 뽑을 표본 수 (기본 20).
+#   --samples N  분할(ID/OOD/woa)마다 뽑을 표본 수 (기본 50).
 #   --seed N     표본 추출 시드 (기본 42).
 #   FILTER       EXP 키에 이 문자열이 든 것만 (예: EXP07, EXP05).
 set -euo pipefail
@@ -25,7 +25,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DRY=0
-SAMPLES=20
+SAMPLES=50
 SEED=42
 FILTER=""
 while [ $# -gt 0 ]; do
