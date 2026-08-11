@@ -1111,6 +1111,33 @@ class TestTruncationGuard(unittest.TestCase):
         )
         self.assertIsNone(_sd._model_key_for(base.format("llama-3")))
 
+    def test_probe_forget_model_key_resolves_via_exp_mapping(self):
+        """`probe_forget` 경로엔 모델명이 없다 — EXP 디렉터리명으로 매핑해야 한다.
+
+        `outputs/<EXP>/probe_forget/<variant>/...` 는 `eval/<model>/` 규약 밖이라
+        prefix 매칭이 그냥은 None 을 돌려준다(→ mtime 폴백으로 조용히 내려간다). 그걸
+        막는 `_PROBE_FORGET_MODEL` 분기를 고정한다.
+        """
+        probe_forget = (
+            "outputs/AndroidControl_EXP07/probe_forget/mergeO-v1-s2ep1/"
+            "generated_predictions_id.jsonl"
+        )
+        self.assertEqual(_sd._model_key_for(probe_forget), "qwen2.5-vl-3b")
+
+        # 기존 `eval/<model>/` 규약은 이 분기 신설 후에도 그대로 살아 있어야 한다.
+        eval_path = (
+            "outputs/AndroidControl_EXP01/eval/qwen3-vl-8b_ratio37/stage1_eval/"
+            "base/on-AC_EXP01-state/generated_predictions_id.jsonl"
+        )
+        self.assertEqual(_sd._model_key_for(eval_path), "qwen3-vl-8b")
+        eval_v1 = "outputs/AndroidControl_EXP05/eval/qwen2.5-vl-3b_v1/base/p.jsonl"
+        self.assertEqual(_sd._model_key_for(eval_v1), "qwen2.5-vl-3b")
+
+        # `_PROBE_FORGET_MODEL` 에 없는 EXP 의 probe_forget → None. 조용한 오답보다
+        # mtime 폴백이 낫다.
+        unmapped = "outputs/AndroidControl_EXP01/probe_forget/some-variant/p.jsonl"
+        self.assertIsNone(_sd._model_key_for(unmapped))
+
     def test_missing_and_empty_paths_are_ignored(self):
         self.assertIsNone(_sd.truncated_reason(None, "", "/nonexistent/x.jsonl"))
 
@@ -1118,6 +1145,157 @@ class TestTruncationGuard(unittest.TestCase):
         """경계 상수가 두 벌이면 언젠가 조용히 갈린다."""
         cs = __import__("_compare_site")
         self.assertIs(cs.MAX_NEW_TOKENS_FIX_UTC, _sd.MAX_NEW_TOKENS_FIX_UTC)
+
+
+class TestCachedSnapshot(unittest.TestCase):
+    """`_cached_snapshot` — HF 캐시에서 tokenizer 파일이 실제로 있는 snapshot 을 고른다.
+
+    `Qwen/Qwen2.5-VL-3B-Instruct` 캐시에 `config.json` 이 없어
+    `AutoTokenizer.from_pretrained(repo_id)` 가 오프라인에서 OSError 로 죽는 문제의
+    우회로다(2026-08-11 실측). "HF repo 껍데기 선생성"이 이 저장소의 실제 운영
+    함정으로 기록돼 있으므로, **껍데기 캐시(파일이 없는 snapshot 디렉터리)를
+    tokenizer 로 착각하면 안 된다**는 것이 이 테스트들의 핵심이다.
+    """
+
+    def setUp(self):
+        import huggingface_hub.constants as _hf_const
+
+        self._hf_const = _hf_const
+        self._orig_cache = _hf_const.HF_HUB_CACHE
+
+    def tearDown(self):
+        self._hf_const.HF_HUB_CACHE = self._orig_cache
+
+    def test_finds_snapshot_that_has_tokenizer_json(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self._hf_const.HF_HUB_CACHE = d
+            snap = (
+                Path(d) / "models--Qwen--Qwen2.5-VL-3B-Instruct" / "snapshots" / "abc"
+            )
+            snap.mkdir(parents=True)
+            (snap / "tokenizer.json").write_text("{}")
+            self.assertEqual(
+                _sd._cached_snapshot("Qwen/Qwen2.5-VL-3B-Instruct"), str(snap)
+            )
+
+    def test_finds_snapshot_that_has_only_tokenizer_config(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self._hf_const.HF_HUB_CACHE = d
+            snap = (
+                Path(d) / "models--Qwen--Qwen2.5-VL-3B-Instruct" / "snapshots" / "abc"
+            )
+            snap.mkdir(parents=True)
+            (snap / "tokenizer_config.json").write_text("{}")
+            self.assertEqual(
+                _sd._cached_snapshot("Qwen/Qwen2.5-VL-3B-Instruct"), str(snap)
+            )
+
+    def test_shell_snapshot_without_tokenizer_files_is_not_mistaken_for_one(self):
+        """껍데기 캐시(파일 없는 snapshot)를 건너뛰고, 진짜 tokenizer 를 가진 snapshot 을 고른다.
+
+        `sorted()` 로 순회하므로 사전순으로 먼저 오는 "aaa" 를 일부러 껍데기로 두고
+        "bbb" 에만 tokenizer 파일을 둔다 — 첫 snapshot 을 그냥 집는 구현이었다면
+        여기서 잡힌다.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self._hf_const.HF_HUB_CACHE = d
+            repo = Path(d) / "models--Qwen--Qwen2.5-VL-3B-Instruct" / "snapshots"
+            shell = repo / "aaa"
+            shell.mkdir(parents=True)
+            (shell / "config.json").write_text("{}")  # tokenizer 파일 없음 — 껍데기
+            real = repo / "bbb"
+            real.mkdir(parents=True)
+            (real / "tokenizer.json").write_text("{}")
+            self.assertEqual(
+                _sd._cached_snapshot("Qwen/Qwen2.5-VL-3B-Instruct"), str(real)
+            )
+
+    def test_snapshot_dir_with_no_tokenizer_files_at_all_returns_none(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self._hf_const.HF_HUB_CACHE = d
+            snap = (
+                Path(d) / "models--Qwen--Qwen2.5-VL-3B-Instruct" / "snapshots" / "abc"
+            )
+            snap.mkdir(parents=True)
+            (snap / "config.json").write_text("{}")
+            self.assertIsNone(_sd._cached_snapshot("Qwen/Qwen2.5-VL-3B-Instruct"))
+
+    def test_missing_repo_dir_returns_none(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self._hf_const.HF_HUB_CACHE = d
+            self.assertIsNone(_sd._cached_snapshot("Qwen/Qwen2.5-VL-3B-Instruct"))
+
+
+class _RepoIdFailsAutoTokenizer:
+    """repo id 호출은 실패하고 snapshot 경로 호출만 성공하는 가짜 `AutoTokenizer`.
+
+    `Qwen/Qwen2.5-VL-3B-Instruct` 캐시에 `config.json` 이 없어 repo id 호출이
+    오프라인에서 OSError 로 죽는 실측 상황(2026-08-11)의 재현이다.
+    """
+
+    @staticmethod
+    def from_pretrained(name_or_path, local_files_only=True):
+        if name_or_path == _sd._MODEL_ID["qwen2.5-vl-3b"]:
+            raise OSError("config.json 없음 (실측 재현)")
+        return _FakeTokenizerForLengths()
+
+
+class _FakeTokenizerForLengths:
+    """토큰 수를 문자열 길이로 그대로 돌려주는 가짜 tokenizer.
+
+    실제 로드 없이 `_token_lengths` 의 재시도 배선만 검증하려는 것이라, "몇 토큰인가"
+    자체는 관심사가 아니다 — 문자열 길이를 그대로 쓰면 값 검증이 쉬워진다.
+    """
+
+    def __call__(self, texts, add_special_tokens=False):
+        return {"input_ids": [[0] * len(t) for t in texts]}
+
+
+class TestTokenLengthsFallback(unittest.TestCase):
+    """`_token_lengths` 가 repo id 실패 시 `_cached_snapshot` 경로로 재시도하는가.
+
+    재시도가 없으면 `_mode_share` 가 None 을 돌려주고 `truncated_reason` 이 mtime
+    폴백으로 내려가 절단 판정을 **안 한 것**이 "정상"으로 보고된다 (2026-08-11 실측:
+    3B 계열 EXP05·EXP07 22 leaf 전량이 이 상태였다).
+    """
+
+    def setUp(self):
+        import transformers
+
+        self._transformers = transformers
+        self._orig_auto_tokenizer = transformers.AutoTokenizer
+        self._orig_cached_snapshot = _sd._cached_snapshot
+        # 모듈 전역 캐시 — 비우지 않으면 앞선 테스트의 tokenizer 를 재사용해 이
+        # 테스트가 아무것도 검증하지 못한다.
+        _sd._TOKENIZERS.clear()
+
+    def tearDown(self):
+        self._transformers.AutoTokenizer = self._orig_auto_tokenizer
+        _sd._cached_snapshot = self._orig_cached_snapshot
+        _sd._TOKENIZERS.clear()
+
+    def test_retries_via_cached_snapshot_when_repo_id_call_fails(self):
+        self._transformers.AutoTokenizer = _RepoIdFailsAutoTokenizer
+        _sd._cached_snapshot = lambda model_id: "/fake/snapshot/path"
+        lens = _sd._token_lengths(["abc", "de"], "qwen2.5-vl-3b")
+        self.assertEqual(lens, [3, 2], "snapshot 경로 재시도로 길이를 돌려줘야 한다")
+
+    def test_original_exception_propagates_when_no_cached_snapshot(self):
+        """`_cached_snapshot` 이 None 이면 조용히 삼키지 않고 원래 예외가 그대로 올라온다."""
+        self._transformers.AutoTokenizer = _RepoIdFailsAutoTokenizer
+        _sd._cached_snapshot = lambda model_id: None
+        with self.assertRaises(OSError):
+            _sd._token_lengths(["abc"], "qwen2.5-vl-3b")
 
 
 class TestSanitySignals(unittest.TestCase):

@@ -169,6 +169,13 @@ _MODE_SHARE_CACHE: dict[tuple[str, int, int], tuple[int, int]] = {}
 _TOKENIZERS: dict[str, object] = {}
 
 
+# probe_forget 은 `eval/<model>/` 규약 밖 경로다 (`outputs/<EXP>/probe_forget/<variant>`)
+# — 경로 어디에도 모델명이 없어 아래 prefix 매칭이 실패한다. 그러면 토큰 판정을 못 해
+# mtime 폴백으로 내려가므로, EXP 단위로 모델을 명시한다 (EXP07 은 qwen2.5-vl-3b 단독).
+# `rebuild_state_diff_metrics.sh` 가 같은 경로에서 EVAL_DS 를 명시 매핑하는 것과 같은 이유다.
+_PROBE_FORGET_MODEL = {"AndroidControl_EXP07": "qwen2.5-vl-3b"}
+
+
 def _model_key_for(path: str) -> str | None:
     """prediction 경로에서 모델 키를 뽑는다 (`outputs/<EXP>/eval/<model>[_변형]/...`).
 
@@ -176,6 +183,11 @@ def _model_key_for(path: str) -> str | None:
     None — 호출자가 mtime 폴백으로 넘어간다.
     """
     parts = Path(path).parts
+    if "probe_forget" in parts:
+        idx = parts.index("probe_forget")
+        if idx >= 1:
+            return _PROBE_FORGET_MODEL.get(parts[idx - 1])
+        return None
     if "eval" not in parts:
         return None
     idx = parts.index("eval") + 1
@@ -188,18 +200,54 @@ def _model_key_for(path: str) -> str | None:
     return None
 
 
+def _cached_snapshot(model_id: str) -> str | None:
+    """HF 캐시에서 tokenizer 파일이 실제로 있는 snapshot 디렉터리 경로. 없으면 None.
+
+    repo id 로 부르는 경로가 실패하는 캐시가 존재하기 때문에 필요하다 (2026-08-11
+    실측): `Qwen/Qwen2.5-VL-3B-Instruct` 캐시에는 tokenizer 4종이 다 있는데
+    **`config.json` 이 없다.** `AutoTokenizer.from_pretrained(repo_id)` 는 tokenizer
+    클래스를 정하려 config 를 먼저 찾고, 없으면 hub 로 나가려다 오프라인에서
+    `OSError` 로 죽는다. snapshot 디렉터리를 **직접** 주면 `tokenizer_config.json` 의
+    `tokenizer_class` 로 해결돼 정상 로드된다.
+    """
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+    except ImportError:
+        return None
+    repo_dir = Path(HF_HUB_CACHE) / f"models--{model_id.replace('/', '--')}"
+    snaps = repo_dir / "snapshots"
+    if not snaps.is_dir():
+        return None
+    for snap in sorted(snaps.iterdir()):
+        if (snap / "tokenizer.json").exists() or (snap / "tokenizer_config.json").exists():
+            return str(snap)
+    return None
+
+
 def _token_lengths(texts: list[str], model_key: str) -> list[int]:
     """`texts` 각각의 토큰 수. transformers 는 **여기서만** 늦게 로드한다.
 
     `_hungarian_eval._lazy_deps()` 와 같은 이유다 — 모듈 top-level 에서 import 하면
     채점기 전체가 transformers 에 묶인다. 테스트는 이 함수를 갈아끼운다.
+
+    로드 실패는 **조용히 넘어가면 안 되는 실패**다. `_mode_share` 가 None 을 돌려주면
+    `truncated_reason` 이 mtime 폴백으로 내려가고, 그러면 절단 판정이 이미 두 번
+    반증된 기준으로 되돌아간다 — 판정을 **안 한 것**이 "정상"으로 보고된다
+    (2026-08-11 실측: 3B 계열 EXP05·EXP07 22 leaf 전량이 이 상태였다). 그래서
+    repo id 가 실패하면 캐시 snapshot 경로로 한 번 더 시도한다.
     """
     from transformers import AutoTokenizer
 
     if model_key not in _TOKENIZERS:
-        _TOKENIZERS[model_key] = AutoTokenizer.from_pretrained(
-            _MODEL_ID[model_key], local_files_only=True
-        )
+        model_id = _MODEL_ID[model_key]
+        try:
+            tok = AutoTokenizer.from_pretrained(model_id, local_files_only=True)
+        except Exception:
+            snap = _cached_snapshot(model_id)
+            if snap is None:
+                raise
+            tok = AutoTokenizer.from_pretrained(snap, local_files_only=True)
+        _TOKENIZERS[model_key] = tok
     tok = _TOKENIZERS[model_key]
     return [len(ids) for ids in tok(texts, add_special_tokens=False)["input_ids"]]
 
