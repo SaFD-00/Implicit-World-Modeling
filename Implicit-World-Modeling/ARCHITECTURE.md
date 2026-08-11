@@ -516,9 +516,11 @@ python -c "import json;d=json.load(open('configs/lf_dataset/dataset_info.json'))
 | [`scripts/mirror_experiment.py`](./scripts/mirror_experiment.py) | `--experiment {exp03,exp04,exp05}` 통합 미러 (EXP01 ratio73 멤버십 → 좌표 표현) |
 | [`scripts/build_exp05_data.py`](./scripts/build_exp05_data.py) | **EXP05 빌드 정본** (mirror → diff-loss 가중 → 원자 교체 + sidecar) |
 | [`scripts/_hungarian_eval.py`](./scripts/_hungarian_eval.py) | Stage 1 metric (`score` 서브커맨드). `state_diff_metrics.json` 도 같은 실행에서 함께 낸다 |
-| [`scripts/_state_diff_eval.py`](./scripts/_state_diff_eval.py) | Stage 1 copy-bias 진단 (`copy_excess` / `addmod_recall`) — 백필용 `score` CLI 겸용 |
+| [`scripts/_state_diff_eval.py`](./scripts/_state_diff_eval.py) | Stage 1 copy-bias 진단 (`copy_excess` / `addmod_recall`) — 백필용 `score` CLI 겸용. 절단(1024) 판정의 정본 (`truncated_reason`) 도 여기 — §6 함정 19 |
+| [`scripts/_copy_baseline_eval.py`](./scripts/_copy_baseline_eval.py) | Stage 1 **복사기 기준선**. pred 를 프롬프트의 current state 로 치환해 정본 두 채점기를 그대로 호출하고 지표마다 `gain = 모델 − 복사기` 를 낸다 — 백필 전용 `score` CLI (정본 eval 경로에 미배선) |
 | [`scripts/_prompt_sections.py`](./scripts/_prompt_sections.py) | 프롬프트 두 계열(`## Current State` / `Current UI State:`) 섹션 파서 — **한 벌만 존재해야 한다** (§6 woa 사고) |
 | [`scripts/rebuild_state_diff_metrics.sh`](./scripts/rebuild_state_diff_metrics.sh) | 구 leaf 의 `state_diff_metrics.json` 백필 (GPU 미사용, 절단 leaf 자동 제외) |
+| [`scripts/rebuild_copy_baseline.sh`](./scripts/rebuild_copy_baseline.sh) | leaf 옆 `copy_baseline_metrics.json` 백필 (GPU 미사용). 위와 달리 **절단 leaf 를 제외하지 않는다** — 복사기 점수는 절단과 무관하게 정확하므로 채점기가 `model`/`gain` 만 null 로 남긴다 |
 | [`scripts/_action_eval.py`](./scripts/_action_eval.py) | Stage 2 metric, ID/OOD/overall 3 섹션 |
 | [`scripts/eval_viewer.py`](./scripts/eval_viewer.py) | 비교 HTML 빌더. `--include EXP:MODEL` 다중 spec — ① **pairs 모드**(기본): 단일 EXP 자체 비교 + EXP 간 동급 stage cross-compare (산출 `outputs/_compare/stage{N}_eval/`) ② **site 모드**(`--site`): EXP 별 정성 비교 사이트 (산출 `outputs/_compare/{on_ac_expNN}_stage{N}_{state\|action}_compare/`) |
 | [`scripts/_compare_site.py`](./scripts/_compare_site.py) | site 모드 빌더 (프롬프트 파서 · 표본 추출 · 행 단위 채점 · HTML/README 템플릿) |
@@ -652,7 +654,7 @@ outputs/{OUT_DS}/                # AndroidControl_EXP0{1..5} | MC.  AC_EXP01 의
 | 키 | 뜻 |
 |---|---|
 | `avg_copy_excess` | **판별량.** `copy_rate_pred − copy_rate_gt`. 0 근처면 "GT 가 겹치는 만큼만 겹쳤다", 큰 양수면 "바뀌었어야 할 자리까지 베꼈다" |
-| `avg_addmod_recall` | GT 의 변경분(MODIFIED+ADDED) 중 예측이 맞힌 비율 — 헤드라인 |
+| `avg_addmod_recall` | GT 의 변경분(MODIFIED+ADDED) 중 예측이 맞힌 비율. **복사에 면역이 아니다** — 복사기가 이 값을 그냥 받아간다 (아래 복사기 기준선 절) |
 | `avg_added_recall` | ADDED 만. current 에 없던 요소라 **순수 예측력** |
 | `avg_modified_recall` / `avg_unchanged_recall` | 나머지 두 층 |
 | `avg_addmod_f1` | precision 분모를 pred-side diff 로 대칭화한 F1 (recall 과 정의가 다른 별도 키) |
@@ -681,7 +683,39 @@ outputs/{OUT_DS}/                # AndroidControl_EXP0{1..5} | MC.  AC_EXP01 의
 > **판정은 예측 토큰 수 실측이다 — 날짜도, 문자 길이도 아니다.** 지금 기준은 `predict` 토큰 수가 **정확히 `LEGACY_MAX_NEW_TOKENS`(1024) 인 행의 비율 ≥ `TRUNC_MODE_SHARE`(0.05)**. 자유 생성은 특정 길이에 몰리지 않으므로 "상한에 쌓인 모드"가 절단의 지문이다. 2026-08-03 전수 실측 마진: 절단 state leaf **17개** = 0.2913~0.7116 / 정상 state leaf **16개** = 0.0000~0.0015 / 비-state 97개 = 0.0000~0.0030 (두 무리가 두 자릿수 배율로 벌어져 있어 0.05 는 어느 쪽으로도 여유가 크다). 예측을 만든 모델의 tokenizer 로 세며 모델은 경로(`eval/<model>[_변형]/`)에서 읽는다. tokenizer 를 못 구할 때만 `MAX_NEW_TOKENS_FIX_UTC` 로 폴백한다.
 > 반증된 두 기준을 되살리지 마라. **(1) mtime** — 절단은 날짜가 아니라 실행 경로를 따라서 같은 2026-05~06 산출물 안에 정상과 절단이 섞여 있다. **(2) 문자 길이** — 양방향으로 틀린다: EXP02 `base/on-AC_EXP01-state` 는 최장 예측이 29,286자인데 그 행이 정확히 1024 토큰이고(꼬리 공백 수천 개), 거꾸로 EXP02 `lora_world-model/epoch-1` 은 최장 5,567자로 짧지만 37.9% 가 1024 토큰이라 절단이다. 문자 기준이 더 위험하다 — mtime 의 과잉 거부와 달리 **잘린 것을 통과시킨다.**
 > **`max_tok <= 1024` 를 조건으로 넣지 마라.** 디토크나이즈→재토크나이즈가 길이를 보존하지 않아 절단 leaf 에도 1024 를 넘긴 행이 1개 섞인다(EXP01 `ratio73/lora/epoch-3` 1060, EXP02 `epoch-1` 1025, `epoch-2` 1030). 그 세 leaf 는 1024-토큰 행의 96% 가 루트 태그를 못 닫고 끝나(나머지 행 0.8%) 절단이 확실하다.
+>
+> ⚠️ **2026-08-11 — 판정기가 3B 계열에서 한 번도 실행되지 않고 있었다.** 위 폴백은 "tokenizer 를 못 구할 때만" 이라고 썼지만, HF 캐시의 `Qwen/Qwen2.5-VL-3B-Instruct` 는 tokenizer 파일이 다 있는데 **`config.json` 이 없다** — `AutoTokenizer.from_pretrained(repo_id, local_files_only=True)` 는 tokenizer 클래스를 정하려 config 를 먼저 찾고, 없으면 hub 로 나가려다 오프라인에서 `OSError` 로 죽는다. 그러면 `_mode_share` 가 None 을 돌려주고 **조용히 mtime 폴백으로 내려간다** — 즉 EXP05·EXP07 22 leaf 는 이미 두 번 반증된 기준으로 판정된 채 "정상"으로 보고되고 있었다. **판정을 안 한 것이 통과로 보인다**는 게 이 구멍의 성질이다. probe_forget 6 leaf 도 경로에 모델명이 없어(`outputs/<EXP>/probe_forget/<variant>` — `eval/<model>/` 규약 밖) 같은 구멍이었다. 조치는 `_cached_snapshot()` — repo id 가 실패하면 캐시 snapshot 디렉터리를 직접 줘서 `tokenizer_config.json` 의 `tokenizer_class` 로 해결시키고, probe_forget 은 `_PROBE_FORGET_MODEL` 로 EXP 단위 모델을 명시한다 (`rebuild_state_diff_metrics.sh` 가 같은 경로에서 EVAL_DS 를 명시 매핑하는 것과 같은 이유). 22 leaf 를 실제 토큰으로 재판정한 결과 **결론 자체는 바뀌지 않았다** (1024 몰림 0.00~0.16%).
+> **현재 절단은 15 leaf** — EXP01 10 · EXP02 `3-8b` 4 · EXP03 1. 그리고 **판정은 split 별로 갈릴 수 있다**: EXP03 `3-8b/lora epoch-3` 은 ID 가 정상인데 OOD 가 절단이다 (OOD 재추론이 중단돼 옛 파일이 남았다). leaf 단위로 재고, 한 leaf 가 "절단" 이어도 그것이 두 split 모두를 뜻하지는 않는다.
+>
 > 가드는 **채점기 안**에 있다 — `_state_diff_eval.truncated_reason()` 이 `score` 진입부에서 검사하고, `_hungarian_eval._write_state_diff` 도 같은 함수를 부른다. 백필 스크립트에만 뒀다면 `rebuild_woa_metrics.sh → _hungarian_eval score` 경로가 그대로 통과해 편향된 산출물이 woa sibling 에 생겼을 것이다. 판정의 정본은 그 함수 하나이고 `_compare_site` 와 `rebuild_state_diff_metrics.sh` 가 **그것을 호출한다** (한때 각자 mtime 비교를 다시 구현했고, 그래서 채점기를 고쳐도 백필 대상에서 빠지는 구멍이 있었다). `--include-truncated` 로만 강제한다. **절단 leaf 에 이 컬럼이 비는 것은 정상이다.**
+
+### Stage 1 보조 — `copy_baseline_metrics.json` (복사기 기준선 · similarity gain, 2026-08-11 신설)
+
+`copy_excess` 는 복사 편향을 **단일 판별량**으로 잡고 `change_f1_floor` 는 한 축의 퇴화 바닥을 준다. 둘 다 맞는 설계지만 **지표별로는 읽히지 않는다** — "내 `hungarian_f1` 0.728 은 복사기보다 나은가?" 에 답하려면 복사기가 **그 지표에서** 몇 점인지를 알아야 한다. 그래서 지표마다 같은 질문을 던진다: **`gain = 내 점수 − 복사기 점수`**.
+
+**복사기 = 프롬프트에 주어진 current state XML 을 그대로 예측으로 낸 가상 모델.** 학습 없이 정의되고 같은 test 파일·같은 채점기·같은 매칭 모드 위에서 산출된다. 정본은 [`scripts/_copy_baseline_eval.py`](./scripts/_copy_baseline_eval.py), 백필은 [`scripts/rebuild_copy_baseline.sh`](./scripts/rebuild_copy_baseline.sh) (GPU 미사용 — 저장된 prediction jsonl 만 쓴다).
+
+- **채점을 재구현하지 않는다.** `pred_text := parse_prompt(prompt)["current_state"]` 로 치환하고 정본 두 채점기(`_hungarian_eval.compute_hungarian_acc` · `_state_diff_eval.compute_state_diff`)를 **그대로** 부른다. 지표를 여기서 다시 구현하면 두 벌이 언젠가 조용히 갈린다. 치환할 때 재직렬화·정규화·strip 을 하지 않는 것도 계약이다 — 파서가 돌려준 문자열 객체를 pred 슬롯과 current 슬롯 양쪽에 그대로 넣어야 `copy_exact_rate == 1.0` 이 되고, 그게 "정말 복사기를 채점했나"의 닫힌 형태 증명이다.
+- **⚠️ 정본 eval 경로에 배선돼 있지 않다.** `state_diff_metrics.json` 은 `_hungarian_eval score` 가 같은 실행에서 자동으로 내지만 이건 아니다 — `score` 는 **백필/재산출 전용 진입점**이고, 새 leaf 에 이 파일이 자동으로 생길 것이라고 가정하면 안 된다.
+- **복사기 값은 (test jsonl, 필터) 당 상수다.** `(current, gt)` 만의 함수라 모델·epoch 과 무관하다 — 실측으로 53 leaf 가 **11 그룹**으로 접히고 그룹 안에서 키별로 완전히 동일했다.
+
+> ⚠️ **`addmod_recall` 은 "복사에 면역인 축" 이 아니다 — 2026-08-11 에 반증됐다.** 이 지표는 GT 의 변경분만 분모로 삼으니 복사기는 낮게 나오리라고 봤고 그래서 헤드라인으로 썼다. 아니었다.
+> 복사기는 `pred_els == cur_els` 라서 hit 을 만드는 매칭 `_hungarian_match(pred, gt)` 과 GT 를 diff 유형으로 나누는 매칭 `_hungarian_match(cur, gt)` 이 **같은 호출**로 접힌다 (recall 3 층이 `avg_hungarian_rec` 의 분해인 것과 같은 기전 — 매칭을 한 번만 하기 때문이다). 그래서 **행마다 항등적으로** `modified_recall = 1.0` · `unchanged_recall = 1.0` · `added_recall = 0.0` 이고, 따름정리로
+> **`addmod_recall`(복사기) = 행마다 `|MODIFIED| / (|MODIFIED| + |ADDED|)`** — 근사가 아니라 닫힌 형태다 (실측 477 검사 위반 0, `assert_copy_baseline_invariants` 가 매 산출에서 재확인). 행 단위 비율의 평균이지 전역 요소수 비율이 아니다.
+> 즉 복사기의 `addmod_recall` 은 **성능이 아니라 test set 구성 통계**이고, 그 값을 지배하는 것은 매칭 모드다 — index 계열(EXP01/02/03) **0.149~0.164**, pos 계열(EXP05/07) **0.626~0.629**. pos 실험군에서는 아무것도 예측하지 않고 베끼기만 해도 0.63 을 받는다.
+> 복사에 **진짜 면역인 축은 `added_recall`(정확히 0)** 과 `change_f1_strict` / `change_f1_loose`(둘 다 0) 뿐이다. `addmod_recall` 을 인용할 거면 반드시 같은 leaf 의 복사기 값과 함께 놓는다.
+
+**gain 은 행 단위 교집합에서만 낸다 — 두 JSON 의 뺄셈이 아니다.** `aggregate()` 의 `avg_*` 는 그 지표가 **정의된 행 위**의 평균이고 `n_<key>` 가 분모인데, 모델과 복사기의 정의행 집합이 다르다. `addmod_prec` / `addmod_f1` 은 복사기의 pred-side diff 가 항상 공집합이라(예측 요소가 전부 current 와 매칭된다) **전 행 미정의**이고, `copy_excess` 는 모델만 파싱 실패행에서 None 이다. 두 평균을 그냥 빼면 **서로 다른 population 위의 수**를 빼게 된다. 그래서 같은 pass 안에서 행별로 model row 와 copy row 를 둘 다 만들고, gain 키마다 양쪽 모두 non-None 인 행에서만 `model − copy` 를 평균한다.
+
+- `n_gain_<key>` 가 그 교집합 크기이고 항상 함께 실린다. **교집합이 0행이면 `avg_gain_<key>` 는 `None` 이다 — 0.0 이 아니다** (0.0 은 "차이가 없다" 로 읽힌다). `addmod_prec` / `addmod_f1` 이 늘 이 경우다.
+- 전 행에서 정의되는 hungarian·BLEU·ROUGE 계열만 `n_gain == total` 이라 **두 JSON 뺄셈과 값이 일치**한다. 나머지에 뺄셈을 쓰면 오답표가 된다.
+- **gain 을 안 붙이는 키가 있다** (`_NO_GAIN_KEYS`) — 방향성이 없거나 뺄셈이 오독을 만들기 때문이다. `copy_excess` 는 복사기가 정의상 최댓값이라 gain 이 항상 큰 음수고 부호만 보면 좋아 보인다, `change_f1_floor` 는 예측과 무관한 눈금이라 gain 이 항상 0, `copy_exact`/`copy_near` 는 복사기가 정의상 1.0 이라 gain 이 "복사하지 않은 비율"의 음수일 뿐이다, `n_*` 는 개수라 뺄셈에 뜻이 없다. 이 키들은 `copy_baseline` 쪽에 값만 싣는다.
+
+**산출물 구조**: leaf 옆 `copy_baseline_metrics.json`, 섹션마다 `{"copy_baseline": {…}, "model": {…}, "gain": {…}}`. `copy_baseline`/`model` 은 hungarian 집계와 state-diff 집계를 한 dict 로 병합한 것이다 (충돌은 같은 행 리스트 길이인 `total` 하나뿐). single-pair 모드(MB/MC)도 3-섹션 스키마를 쓰되 `overall` 만 채운다 (`_state_diff_eval` 은 flat 을 낸다 — 다르다).
+
+> ⓘ **절단(1024) leaf 취급이 state-diff 와 반대다 — 실수가 아니다.** `rebuild_state_diff_metrics.sh` 는 절단 leaf 를 배치 단계에서 통째로 빼지만 `rebuild_copy_baseline.sh` 에는 **그 필터가 없다.** 잘린 것은 예측이지 프롬프트가 아니므로 복사기 점수는 절단과 무관하게 정확하고, 오히려 그 leaf 에서도 "복사기가 몇 점인가" 는 알아야 할 수다. 판정은 여기서 다시 구현하지 않고 채점기 안에서 `_state_diff_eval.truncated_reason()` 을 부르며, 결과는 산출물 최상위 **`truncated` 필드 + `model`/`gain` = null** 로 남는다 (함정 19 의 편향은 `model` 쪽에만 걸리므로 그쪽만 죽인다). 절단 leaf 의 `copy_baseline` 값이 채워져 있는 것은 정상이다.
+
+회귀 테스트는 `tests/test_copy_baseline_eval.py` — 특히 `_aggregate_hungarian` 이 `_hungarian_eval.evaluate_pairs` 와 같은 수를 내는지를 직접 대조한다. gain 이 행 단위 값을 요구해서 집계 공식만 한 벌 미러했고, **거기가 유일한 드리프트 지점**이다.
 
 ### Stage 2 — `action_metrics.json`
 

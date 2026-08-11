@@ -3,6 +3,25 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-08-12 — IWM: 복사기(copy baseline) 기준선 + similarity gain 신설 — `addmod_recall` 은 복사에 면역이 아니었다
+
+프롬프트의 current state XML 을 그대로 예측으로 낸 가상 모델(**복사기**)의 점수를 지표마다 산출하고
+`gain = 내 점수 − 복사기 점수` 축을 더했다. 채점은 재구현하지 않고 정본 두 채점기를 그대로 부른다.
+헤드라인 전제가 반증됐다 — 복사기는 행마다 항등적으로 `modified_recall`·`unchanged_recall` 이 1.0,
+`added_recall` 이 0.0 이라 **`addmod_recall`(복사기) = |MODIFIED|/(|MODIFIED|+|ADDED|)**, 즉 성능이 아니라
+**test set 구성 통계**다. 복사에 진짜 면역인 축은 `added_recall` 과 `change_f1_strict|loose` 뿐이다.
+
+- 산출: 채점기 `scripts/_copy_baseline_eval.py` · 배치 `scripts/rebuild_copy_baseline.sh` · 검증
+  `scripts/verify_copy_baseline.py`, leaf 옆 sibling `copy_baseline_metrics.json` **53 leaf 전량**.
+- 결과: `hung_f1` 로 복사기를 이긴 leaf 는 **EXP05 Full FT 6 개뿐**이고 그 최고 모델조차 OOD 는 +0.0000
+  동점. 반면 `added_recall` gain 은 학습 모델 전부 양수다.
+- 부수: 절단(1024) 판정기가 **3B 계열 22 leaf 에서 실행조차 안 되던** 구멍을 고쳤다 — 판정을 안 한 것이
+  통과처럼 보이던 문제다. 재판정 후 결론은 동일하고 현재 절단은 **15 leaf**.
+- 상세(변경 목록·근거·검증): 로컬 long-form
+  `.claude/devlog/2026-08-12_02-45-00_copy-baseline-similarity-gain.md` 참조(gitignore, 로컬 전용).
+  지표 정의 정본은 [§6 메트릭](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭).
+- 카테고리: devlog
+
 ## 2026-08-04 — IWM: state-diff 지표 개명 + 빈 예측 규칙 변경 + 35 leaf 전량 재채점 — 바닥은 안 내려갔다
 
 선행연구 4편(ScratchWorld·RLVR-World·WebWorld·ViMo) 검토 보고서(`docs/METRICS_REVIEW.md`, 이번에 삭제)를

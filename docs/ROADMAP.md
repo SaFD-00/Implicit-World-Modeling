@@ -34,7 +34,7 @@ HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md
 |---|---|---|
 | **AC_EXP01** | ✅ 완료 (공백 1) | stage1+stage2 완료. **ratio55 만 미학습** |
 | **AC_EXP02** | ✅ 완료 | diff loss **v1**. stage1+stage2 완료 |
-| **AC_EXP03** | ✅ 완료 | stage1+stage2 완료 — **자격 모순 1건 미판정** |
+| **AC_EXP03** | ✅ 완료 (eval 재추론 1건) | stage1+stage2 완료 — **자격 모순 1건 미판정** · **8b state OOD 재추론 대기** |
 | **AC_EXP04** | ⛔ **차단** | **3중 차단** — 좌표계 모순 · 재빌드 소스 부재 · 등록 0 키 |
 | **AC_EXP05** | ✅ **eval 완주** | `qwen2.5-vl-3b` stage1 full FT + stage2(full·lora world-model·base) **전부 eval 완주** (2026-07-21). **데이터 쟁점 4건 미판정** |
 | **AC_EXP06** | 🔄 **merge/업로드** | EXP05 비증강 Stage-2 대조군. `base` variant 완료·업로드, **world-model variant 학습 미착수** |
@@ -68,7 +68,7 @@ HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md
 
 **완료**: `qwen3-vl-8b` · `qwen2.5-vl-7b` stage1 LoRA → stage2 LoRA 완료 (산출물은 HF. 로컬 `outputs/` 는 비어 있다 — 위 완료 판정 규칙 참조).
 
-**남은 것**: 없음 (기존 HF 산출물의 **평가는 되고 재학습만 막힌다** — 아래 자격 모순).
+**남은 것**: 학습은 없음 (기존 HF 산출물의 **평가는 되고 재학습만 막힌다** — 아래 자격 모순). 다만 **state OOD 재추론 1 건이 대기 중이다** — `qwen3-vl-8b` stage1 `lora_world-model/epoch-3` 의 state OOD 예측이 **절단(1024)** 이다 (ID 는 2026-08-11 재추론분으로 정상, OOD 만 2026-07-27 옛 파일이 남았고 재추론이 중단됐다 — 판정은 split 별로 갈린다: [§6 메트릭](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭)). GPU 배정 결정이라 사용자 몫.
 
 **차단·쟁점**: ⚠️ **`qwen2.5-vl-7b` × EXP03 자격 모순** — HF 에 as-trained `ac-exp03-` 산출물이 있는데 현행 `eligible_models('AndroidControl_EXP03')` 는 Qwen3-VL 계열만 허용한다 → `require_model_eligible()` 이 **재학습을 막는다** (학습 당시엔 없던 가드). 열린 판정 2 참조. 커밋 YAML 은 재구성본이다 (아래 재현성 경고).
 

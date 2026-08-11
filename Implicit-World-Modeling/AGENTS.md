@@ -155,6 +155,7 @@ pytest tests -q
 pytest tests/test_gpu_policy.py tests/test_gen_configs.py -q          # GPU 매트릭스 + always-offload 불변식
 pytest tests/test_action_eval.py tests/test_action_eval_xy.py -q      # Stage 2 채점 (index / xy 모드)
 pytest tests/test_state_diff_eval.py -q                               # Stage 1 copy-bias 진단 (배선 self-test + 층 분해 불변식)
+pytest tests/test_copy_baseline_eval.py -q                            # Stage 1 복사기 기준선 (정본 채점기 위임 + recall 층 항등식 + gain 교집합 분모)
 pytest tests/test_diff_loss_v2.py tests/test_diff_loss_double_ce.py tests/test_mirror_experiment.py -q
 
 # LF 부트스트랩 (pin + 패치 적용 상태)
