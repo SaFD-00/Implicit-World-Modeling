@@ -3,6 +3,32 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-08-21 — IWM: Hungarian v3 전체 집계·시각 검증 패키지 확정
+
+기존 대표 leaf 수치만으로는 구조 요소 보정의 전체 효과와 협업자 피드백(실제 화면을 눈으로 확인)을
+분리해 설명하기 어려워, production 전체를 다시 집계하고 시각 검증 경로를 결과물로 고정했다.
+
+- **집계 범위:** Hungarian 54 eligible leaf / 270,953행, 비절단 state-diff 39 leaf / 181,027행,
+  copy baseline 54 leaf. 모두 `element_set: "full"`; 1024-token 절단 state 15 leaf는 state-diff에서
+  의도적으로 제외했다.
+- **전체 Hungarian A/B:** legacy→Full `avg_hungarian_f1` `.548915→.574387` (+.025472),
+  `avg_hungarian_text` `.705135→.796322` (+.091187), exact `.031643→.031732`.
+  이는 모델 향상이 아니라 `div`·`node`·컨테이너 복원과 EXP01 singleton parse-fail 재분류로 해석한다.
+- **Full state-diff:** `addmod_recall=.468460`, `derivable=.337340`, `non_derivable=.514974`,
+  `change_f1_strict=.103803`, `change_f1_floor=.300113`, `copy_excess=.145386`.
+  derivable/non-derivable는 독립 분모이며, strict는 floor와 함께 공유한다.
+- **검증:** copy baseline 486 항등식 위반 0; compare Change 탭과 EXP01/05/07 derivability 페이지를
+  브라우저에서 열어 hit/miss, 구조 요소, `NON_DERIVABLE` 근거를 확인했다. 개수 열이 랭킹으로 오인되지
+  않도록 `n_gain`/`avg_n_*`는 뷰어 랭킹에서 제외돼 있다.
+- **공유 패키지:** [ARCHITECTURE.md](../Implicit-World-Modeling/ARCHITECTURE.md),
+  [analysis hub](../.claude/analysis/2026-08-21_11-48-54_hungarian-v3-production-rescore/),
+  [compare index](../Implicit-World-Modeling/outputs/_compare/index.html),
+  [derivability audit pages](../Implicit-World-Modeling/outputs/_compare/).
+- **동기화:** 프로젝트 메모리와 로컬 workflow artifact를 갱신하고 Notion Experiments 데이터소스의
+  `Dev Log` 레코드를 확인했다. Obsidian은 현재 Linux 호스트에 설정된 macOS 경로가 없어 건너뛰었다.
+
+상세 근거와 분모는 `.claude/analysis/2026-08-21_11-48-54_hungarian-v3-production-rescore/`에 기록한다.
+
 ## 2026-08-21 — IWM: v3 배선 뒤 historical state 전량을 full element set으로 강제 재채점
 
 이 항목 바로 아래의 초기 기록은 "새 기준은 배선하되 기존 산출물은 보존"하던 시점의 스냅샷이다. 같은 날
