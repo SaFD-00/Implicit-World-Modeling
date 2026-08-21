@@ -580,3 +580,67 @@ def test_extract_action_handles_untagged_format():
         "## Action\n" + '{"action_type":"scroll","direction":"down"}'
     )
     assert hd3.extract_action(noisy) == {"action_type": "scroll", "direction": "down"}
+
+
+# ── IME 제안 스트립이 SYSTEM_UI 로 새어들지 않는다 ────────────────────────
+# 실측(EXP05+EXP07 300문서): SYSTEM_UI 3,129건 중 86건(2.7%)이 한 문서에만 나타나는
+# 텍스트였고 전부 IME 사전 출력이었다 — "Vegas"/"Dresses"/emoji/자동완성 이메일.
+# 제안을 SYSTEM_UI 로 두면 사용자·앱 콘텐츠가 "유도 가능"이 되어 학습에서 full weight
+# 를 받고 채점에서는 실패가 숨는다.
+def _kbd(extra_rows: str = "") -> str:
+    keys = "".join(
+        f'<button bounds="[{i*40},1400][{i*40+38},1450]" aria-label="{c}"/>'
+        for i, c in enumerate("qwertyuiopasdfghjklzxcvbnm")
+    )
+    return (
+        '<div bounds="[0,1300][1040,1876]">'
+        f"{extra_rows}"
+        '<button bounds="[0,1500][100,1550]" aria-label="Shift"/>'
+        '<button bounds="[100,1500][200,1550]" aria-label="Delete"/>'
+        f"{keys}</div>"
+    )
+
+
+def _screen(panel: str) -> str:
+    return f'<node bounds="[0,0][1040,1876]">{panel}</node>'
+
+
+def test_ime_suggestion_is_not_system_ui():
+    current = _screen(_kbd('<p bounds="[0,1330][300,1370]">Vega</p>'))
+    future = _screen(
+        _kbd(
+            '<p bounds="[0,1330][300,1370]">Vega</p>'
+            '<button bounds="[300,1330][600,1370]" aria-label="Dresses"/>'
+        )
+    )
+    deriv = hd3.classify_derivability(current, future, {"action": "type", "text": "Vega"})
+    by_text = {d["element"]["own_text"]: d for d in deriv}
+    # 유지된 크롬은 그대로 SYSTEM_UI
+    assert by_text["Shift"]["derivability"] == hd3.SYSTEM_UI
+    assert by_text["q"]["derivability"] == hd3.SYSTEM_UI
+    # 패널 안에서 새로 생긴 텍스트는 SYSTEM_UI 가 아니다
+    sug = by_text["Dresses"]
+    assert sug["derivability"] != hd3.SYSTEM_UI
+    assert sug["reason"].get("in_ime_panel") is True
+
+
+def test_ime_suggestion_that_completes_the_payload_is_action_payload():
+    """타이핑한 문자열의 접두 완성은 유도 가능하다 — 규칙 사슬이 제자리를 찾아준다."""
+    current = _screen(_kbd())
+    future = _screen(
+        _kbd('<button bounds="[300,1330][600,1370]" aria-label="Vega city"/>')
+    )
+    # current 에 패널이 있으므로 규칙이 켜진다
+    deriv = hd3.classify_derivability(current, future, {"action": "type", "text": "Vega"})
+    sug = next(d for d in deriv if d["element"]["own_text"] == "Vega city")
+    assert sug["derivability"] == hd3.ACTION_PAYLOAD
+
+
+def test_freshly_opened_keyboard_stays_system_ui():
+    """키보드가 이번에 처음 열렸으면 패널 전체가 신규다 — 규칙을 켜면 안 된다."""
+    current = _screen('<p bounds="[0,100][300,140]">Inbox</p>')
+    future = _screen(_kbd('<p bounds="[0,1330][300,1370]">Hi</p>'))
+    deriv = hd3.classify_derivability(current, future, {"action": "click", "coordinate": [1, 1]})
+    by_text = {d["element"]["own_text"]: d for d in deriv}
+    assert by_text["Shift"]["derivability"] == hd3.SYSTEM_UI
+    assert by_text["Hi"]["derivability"] == hd3.SYSTEM_UI

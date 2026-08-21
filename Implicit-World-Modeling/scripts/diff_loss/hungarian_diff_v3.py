@@ -359,6 +359,31 @@ def _coordinate(action: dict) -> tuple[int, int] | None:
     return None
 
 
+def _panel_own_texts(xml: str) -> set[str] | None:
+    """현재 화면의 IME 패널 **안**에 있는 자체 텍스트 집합. 패널이 없으면 None.
+
+    제안 스트립(suggestion strip)을 고정 크롬과 가르는 데 쓴다 — 어휘 목록 없이.
+    키보드가 이미 떠 있던 전이에서는 Shift/Delete/키캡 같은 크롬이 그대로 유지되고,
+    **패널 안에서 새로 생긴 텍스트는 제안**이다 (실측 EXP05+EXP07 300문서: 유지 1,599건
+    vs 신규 102건, 신규 쪽은 "Vegas"/"Dresses"/emoji/`richardwagner123@gmail.com` 처럼
+    IME 사전·자동완성 출력이었다).
+
+    제안을 SYSTEM_UI 로 두면 **앱·사용자 콘텐츠가 "유도 가능"으로 분류되어** 학습에서
+    full weight 를 받고 채점에서는 실패가 숨는다 — precision 우선 원칙 위반이다.
+    """
+    soup = parse_soup(xml)
+    nodes = iter_nodes(soup)
+    ids = _system_ui_node_ids(nodes)
+    if not ids:
+        return None
+    recs = build_element_records(nodes)
+    out = set()
+    for n, r in zip(nodes, recs):
+        if id(n) in ids and r["own_text"]:
+            out.add(r["own_text"].strip().lower())
+    return out
+
+
 def classify_derivability(
     current_html: str, future_html: str, action: Any = None
 ) -> list[dict]:
@@ -412,6 +437,10 @@ def classify_derivability(
     fut_nodes = iter_nodes(fut_soup)
     fut_els = build_element_records(fut_nodes)
     sysui = _system_ui_node_ids(fut_nodes)
+    # current 에도 패널이 있을 때만 "패널 안 신규 텍스트 = 제안" 규칙을 켠다.
+    # 키보드가 이번에 처음 열린 전이라면 패널 전체가 신규라 이 규칙이 무의미하다
+    # (그 경우 패널은 결정론적 레이아웃이므로 통째로 SYSTEM_UI 가 맞다).
+    cur_panel = _panel_own_texts(current_html)
 
     payloads = []
     for k in PAYLOAD_KEYS:
@@ -453,7 +482,15 @@ def classify_derivability(
         slot = slot_key(el)
         same_slot = cur_by_slot.get(slot, []) if slot else []
 
-        if id(node) in sysui:
+        in_panel = id(node) in sysui
+        # 패널 안이지만 current 패널에 없던 **새 텍스트** 는 제안 스트립이다 —
+        # SYSTEM_UI 에서 빼고 아래 일반 규칙 사슬로 흘려보낸다. 그래야 액션 payload
+        # 의 접두 완성은 ACTION_PAYLOAD 로, IME 사전이 만든 단어·이모지는
+        # NON_DERIVABLE 로 각자 제 자리를 찾는다.
+        panel_suggestion = (
+            in_panel and bool(own) and cur_panel is not None and own_l not in cur_panel
+        )
+        if in_panel and not panel_suggestion:
             label = SYSTEM_UI
             rule = "keycap_density_panel"
         elif not own:
@@ -502,6 +539,10 @@ def classify_derivability(
                 )
                 rule = "same_slot_new_content"
 
+        if panel_suggestion:
+            # 라벨이 무엇으로 정해졌든 "IME 패널 안에서 나온 제안" 이라는 사실을 남긴다 —
+            # 뷰어에서 이 부류를 따로 훑어야 규칙이 과하거나 모자란지 판단할 수 있다.
+            extra = {**extra, "in_ime_panel": True}
         reason = {
             "rule": rule,
             "matched_current": _ref(matched),
