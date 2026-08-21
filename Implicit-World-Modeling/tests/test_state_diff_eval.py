@@ -35,6 +35,11 @@ _ps = __import__("_prompt_sections")
 # (→ ADDED). pos 모드는 threshold 1.7 이라 붙는다(→ MODIFIED). 즉 "완전 교체"는
 # 모드마다 유형이 갈리는 경계값이라, 세 유형 분류 자체를 검증하는 픽스처로는
 # 부적절하다. 그 경계 동작은 아래 `test_full_text_swap_is_mode_dependent` 가 따로 고정한다.
+#
+# ⚠️ element 집합이 `full` 이 된 뒤(2026-08-21) **root `<node>` 도 요소다.** 자체 텍스트가
+# 없어 서브트리를 흡수하므로 자손의 변화가 조상에도 그대로 나타난다 — 아래 기대값이
+# "요소 하나"가 아니라 "요소 + 그 조상"으로 세어지는 이유다. 옛 집합의 기대값은
+# `tests/test_element_set.py` 가 `legacy` 로 따로 고정한다.
 CUR_IDX = (
     '<node index="0">'
     '<button index="1" aria-label="OK"/>'
@@ -105,7 +110,9 @@ class TestClassifyDiff(unittest.TestCase):
             with self.subTest(mode=mode):
                 counts = _sd.summarize_diff(_sd.classify_diff(cur, gt, mode))
                 self.assertEqual(counts["UNCHANGED"], 1, "OK 버튼은 그대로")
-                self.assertEqual(counts["MODIFIED"], 1, "unread inbox 3 → 7")
+                self.assertEqual(
+                    counts["MODIFIED"], 2, "p(3→7) 와 그 텍스트를 흡수한 root node"
+                )
                 self.assertEqual(counts["ADDED"], 1, "brand new banner 는 신규")
 
     def test_identical_states_are_all_unchanged(self):
@@ -133,11 +140,13 @@ class TestClassifyDiff(unittest.TestCase):
             '<node bounds="[0,0][10,10]" point="[5,5]">'
             '<p bounds="[1,1][5,5]" point="[3,3]">omega</p></node>'
         )
+        # 2 인 것은 p 와 그 텍스트를 흡수한 root node 가 같은 판정을 받기 때문이다
+        # (full 집합). 고정하려는 것은 값이 아니라 "index=ADDED / pos=MODIFIED" 라는 성질이다.
         self.assertEqual(
-            _sd.summarize_diff(_sd.classify_diff(cur_i, gt_i, "index"))["ADDED"], 1
+            _sd.summarize_diff(_sd.classify_diff(cur_i, gt_i, "index"))["ADDED"], 2
         )
         self.assertEqual(
-            _sd.summarize_diff(_sd.classify_diff(cur_p, gt_p, "pos"))["MODIFIED"], 1
+            _sd.summarize_diff(_sd.classify_diff(cur_p, gt_p, "pos"))["MODIFIED"], 2
         )
 
     def test_empty_current_makes_everything_added(self):
@@ -251,31 +260,50 @@ class TestChangeF1(unittest.TestCase):
             '<node index="0"><button index="1"/><p index="2">old row</p>'
             '<span index="3">fresh banner</span></node>'
         )
+        # DELETED 가 2 인 것은 old row 하나 때문이 아니다: root node 의 흡수 텍스트가
+        # "old row" → "fresh banner" 로 통째로 갈리는데 index 임계(1.5)에서는 그 쌍이
+        # 떨어져 root 도 DELETED+ADDED 로 잡힌다 (full 집합).
         self.assertEqual(
             _sd.summarize_diff(_sd.classify_diff(cur, gt, "index"))["DELETED"],
-            1,
-            "GT 는 old row 를 지웠다",
+            2,
+            "GT 는 old row 를 지웠다 (+ 흡수 텍스트가 갈린 root)",
         )
         ignored = _sd.compute_state_diff(stale, gt, cur, "index")
         honored = _sd.compute_state_diff(gt, gt, cur, "index")
         self.assertEqual(honored["change_f1_strict"], 1.0)
         self.assertLess(ignored["change_f1_strict"], 1.0)
-        self.assertEqual(ignored["n_change_gt"], 2, "ADDED span + DELETED p")
-        self.assertEqual(ignored["n_change_pred"], 1, "ADDED span 만 냈다")
+        self.assertEqual(
+            ignored["n_change_gt"], 4, "ADDED span/root + DELETED p/root"
+        )
+        self.assertEqual(
+            ignored["n_change_pred"], 2, "ADDED span + MODIFIED root 만 주장했다"
+        )
 
     def test_tau_is_the_boundary(self):
         """τ 경계 — 매칭은 됐는데 내용이 τ 미만이면 맞힌 것으로 세지 않는다.
 
         τ 는 `_text_sim` 에 걸리고 그 함수는 mode 와 무관하므로 index 한 모드로 고정한다.
         토큰 집합 Jaccard 라 `t1..t10` 중 앞 k 개를 내면 sim 이 정확히 k/10 이 된다.
+
+        root 에 `id="root"` 를 준 것은 의도다. full 집합에서 텍스트 없는 root 는 자손
+        텍스트를 흡수해 p 와 함께 움직이는데, index 임계에서는 그 쌍이 떨어져
+        **DELETED 공짜 hit** 이 생긴다 — τ 미만인데도 f1 이 0.33 이 되어 이 축이 재려던
+        것("τ 미만은 못 맞힌 것")을 가린다. 자체 텍스트를 주면 root 가 UNCHANGED 로
+        빠져 τ 게이트만 남는다. (root 의 흡수 동작 자체는 위 세 테스트가 고정한다.)
         """
         gt_tokens = " ".join(f"t{i}" for i in range(1, 11))
-        cur = '<node index="0"><button index="1"/></node>'
-        gt = f'<node index="0"><button index="1"/><p index="2">{gt_tokens}</p></node>'
+        cur = '<node index="0" id="root"><button index="1"/></node>'
+        gt = (
+            f'<node index="0" id="root"><button index="1"/>'
+            f'<p index="2">{gt_tokens}</p></node>'
+        )
 
         def _f1(k):
             toks = " ".join(f"t{i}" for i in range(1, k + 1))
-            pred = f'<node index="0"><button index="1"/><p index="2">{toks}</p></node>'
+            pred = (
+                f'<node index="0" id="root"><button index="1"/>'
+                f'<p index="2">{toks}</p></node>'
+            )
             self.assertAlmostEqual(
                 _hungarian_eval._text_sim(toks, gt_tokens), k / 10, places=6
             )
@@ -350,7 +378,11 @@ class TestChangeF1Floor(unittest.TestCase):
         """
         for mode, (cur, gt) in self.DELS.items():
             with self.subTest(mode=mode):
-                self.assertEqual(
+                # 값이 아니라 전제("이 축이 켜져 있다")를 본다. full 집합에서는 모드마다
+                # 개수가 갈린다 — root 의 흡수 텍스트가 통째로 바뀌는데 그 쌍의 cost 가
+                # 정확히 1.5 라, index(임계 1.5)에서는 떨어져 DELETED 가 하나 더 생기고
+                # pos(1.7)에서는 붙어 MODIFIED 가 된다.
+                self.assertGreaterEqual(
                     _sd.summarize_diff(_sd.classify_diff(cur, gt, mode))["DELETED"],
                     1,
                     "픽스처에 사라지는 요소가 있어야 이 축이 켜진다",
@@ -409,25 +441,29 @@ class TestChangeF1Floor(unittest.TestCase):
     def test_index_floor_is_hand_checkable(self):
         """손으로 검산되는 값 하나를 못으로 박는다.
 
-        cur 는 button/p 2요소다 (루트 `node` 는 `extract_elements` 가 뽑지 않는다).
-        GT 는 p 를 지우고 span 을 넣는다.
-        바닥: hits=|gt_deleted|=1, n_pred=n_cur=2, n_gt=ADDED1+DELETED1=2
-        → prec 1/2, rec 1/2, f1 = 0.5
+        cur 는 root node/button/p 3요소다 (full 집합 — 옛 화이트리스트는 root 를
+        뽑지 않아 2요소였고, 그 값은 `tests/test_element_set.py` 가 legacy 로 고정한다).
+        GT 는 p 를 지우고 span 을 넣는다. root 는 흡수 텍스트가 "old row" → "fresh
+        banner" 로 통째로 갈리고 그 cost 가 정확히 1.5 라 index 임계에서 떨어진다
+        → root 도 DELETED(cur 쪽) + ADDED(gt 쪽)로 잡힌다.
+        바닥: hits=|gt_deleted|={root,p}=2, n_pred=n_cur=3,
+              n_gt=ADDED{root,span}2+DELETED2=4 → prec 2/3, rec 2/4, f1 = 0.5714
 
-        최대삭제 예측(select 1개): pred_deleted={button,p}, pred_changed={select}
-        → n_pred=3, hits=|{button,p} ∩ {p}|=1 → prec 1/3, rec 1/2, f1 = 0.4
+        최대삭제 예측(root+select 2요소): pred_deleted={root,button,p},
+        pred_changed={root',select} → n_pred=5, hits=|{root,button,p} ∩ {root,p}|=2
+        → prec 2/5, rec 2/4, f1 = 0.4444
         """
         cur, gt = self.DEL_IDX
         empty = _sd.compute_state_diff("", gt, cur, "index")
-        self.assertEqual(empty["n_cur"], 2)
-        self.assertEqual(empty["n_change_gt"], 2)
+        self.assertEqual(empty["n_cur"], 3)
+        self.assertEqual(empty["n_change_gt"], 4)
         self.assertEqual(empty["n_change_pred"], 0, "빈 예측은 주장이 없다")
-        self.assertEqual(empty["change_f1_floor"], 0.5)
+        self.assertEqual(empty["change_f1_floor"], 0.5714)
         self.assertEqual(empty["change_f1_strict"], 0.0)
 
         maxdel = _sd.compute_state_diff(self.MAXDEL["index"], gt, cur, "index")
-        self.assertEqual(maxdel["n_change_pred"], 3)
-        self.assertEqual(maxdel["change_f1_strict"], 0.4)
+        self.assertEqual(maxdel["n_change_pred"], 5)
+        self.assertEqual(maxdel["change_f1_strict"], 0.4444)
 
     def test_floor_defined_on_exactly_the_same_rows_as_change_f1_strict(self):
         """정의 구간이 어긋나면 두 평균의 분모가 달라져 나란히 못 읽는다."""
@@ -861,7 +897,10 @@ class TestStratumInvariant(unittest.TestCase):
         strict = _sd.summarize_diff(
             _sd.classify_diff(cur_swap, gt_swap, "pos", strict_pos=True)
         )
-        self.assertEqual((loose["MODIFIED"], loose["DELETED"]), (1, 0))
+        # MODIFIED 2 = p + 그 텍스트를 흡수한 root (full 집합). root 의 텍스트는
+        # "OK|alpha" → "OK|omega" 라 sim 이 0 이 아니어서 두 임계 모두에서 붙는다 —
+        # 그래서 strict 쪽 (ADDED, DELETED) 는 p 하나 몫인 (1, 1) 그대로다.
+        self.assertEqual((loose["MODIFIED"], loose["DELETED"]), (2, 0))
         self.assertEqual((strict["ADDED"], strict["DELETED"]), (1, 1), "임계가 물었다")
 
         _, cur, gt = MODES[1]  # pos

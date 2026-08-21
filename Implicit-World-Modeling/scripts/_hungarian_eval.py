@@ -136,6 +136,7 @@ _BOUNDS_RE = re.compile(r"\[(-?\d+),(-?\d+)\]")
 
 # ── 요소 추출 ────────────────────────────────────────────────────────────
 def _collect_texts(el):
+    """**legacy 집합 전용** (index 모드). full 은 `_collect_texts_full` 을 쓴다."""
     tokens = set()
 
     def add(v):
@@ -164,7 +165,7 @@ def _safe_int(v, default=-1):
 
 
 def _collect_texts_pos(el):
-    """pos 모드: 자손 텍스트 흡수 없이 direct text + 자체 속성만 수집."""
+    """**legacy 집합 전용** (pos 모드): 자손 텍스트 흡수 없이 direct text + 자체 속성만."""
     tokens = set()
 
     def add(v):
@@ -183,12 +184,109 @@ def _collect_texts_pos(el):
     return " | ".join(sorted(tokens)) if tokens else ""
 
 
-def extract_elements(xml_str, match_mode="index", include_aria=False):
+# ── element 집합 스위치 ──────────────────────────────────────────────────
+# "full" (기본, 2026-08-21~) : 파서가 낸 **모든** 요소를 채점 대상으로 삼는다.
+# "legacy"                   : 그 이전의 화이트리스트 집합을 정확히 재현한다.
+#
+# 왜 바꿨나 — 화이트리스트(INTERACTIVE/CONTENT_TAGS/CLICKABLE_ATTRS)는 실제 데이터의
+# **약 24% 를 통째로 버렸다**. EXP05 test 50문서 실측: 2,795개 중 2,108개만 채택되고
+# `div` 617개 전량, `img` 11개 전량(`is_content` 가 텍스트를 요구하는데 img 엔 텍스트가
+# 없다), `LinearLayoutCompat/node/RecyclerView/ListView/SeekBar/ScrollView/DrawerLayout/
+# ImageButton/Dialog` 56개 전량이 탈락했다. EXP01 전수에서도 `<div aria-label="...">`
+# 형태만 8,352개가 소멸한다. 화면 변화의 상당수가 그 요소들에서 일어나므로, 버린 만큼
+# **변화 자체가 관측되지 않았다.**
+#
+# ⚠️ 이 전역은 **모듈 사본마다 따로 있다.** `_hungarian_eval.py` 를 스크립트로 돌리면
+# 이 모듈은 `__main__` 이고, `_state_diff_eval` 의 `import _hungarian_eval as _he` 가
+# **두 번째 사본**을 만든다. 한쪽만 설정하면 정본 채점과 sibling state-diff 의 element
+# 집합이 갈려 `(unchanged+modified+added hit)/n_gt == hungarian_rec` 항등식이 조용히
+# 깨진다. 그래서 `_write_state_diff` 가 `_sd._he.set_element_set(...)` 로 명시 전파하고,
+# 산출 JSON 의 `element_set` 스탬프는 **각 채점기가 실제로 읽은 전역**을 적는다 — 두
+# 파일의 스탬프가 어긋나면 그게 전파 실패의 증거다.
+ELEMENT_SET = "full"
+
+
+def set_element_set(name):
+    """채점 대상 element 집합을 고른다. CLI 진입부(그리고 그 전파 지점)에서만 부른다."""
+    global ELEMENT_SET
+    if name not in ("full", "legacy"):
+        raise ValueError(f"element_set 은 full|legacy 여야 합니다: {name!r}")
+    ELEMENT_SET = name
+
+
+# full 집합에서 "요소 자체의 텍스트"로 보는 속성들. `description`/`id` 는 EXP01~04 계열,
+# `text`/`aria-label` 은 EXP05~07 계열에서 쓰인다 (EXP05 XML 에 description 은 0건이다).
+_TEXT_ATTRS = ("description", "id", "text", "aria-label")
+
+
+def _collect_texts_full(el):
+    """full 집합의 텍스트 규칙 — **자체 우선, 비면 자손 흡수**. index/pos 공통이다.
+
+    자체 = `_TEXT_ATTRS` 속성 + **직계** NavigableString. 자체가 하나라도 있으면 거기서
+    멈춘다. 비어 있을 때만 자손 서브트리의 텍스트를 흡수한다.
+
+    왜 이 규칙인가
+      - 기존에 포함되던 요소에는 사실상 무변화다:
+        `<button aria-label="Saves"><p>Saves</p></button>` 는 전후 모두 "Saves".
+      - 새로 들어오는 컨테이너(`div`/`RecyclerView`/`node` …)는 대부분 자체 텍스트가
+        없다. 흡수가 없으면 텍스트가 전부 "" 이 되고, `_text_sim("", "")` 이 1.0 이라
+        **태그만 같으면 아무 컨테이너끼리나 cost 0 으로 붙어** 완벽한 UNCHANGED 로
+        채점된다. 서브트리 텍스트로 정체성을 주어 그 퇴화를 막는다.
+      - 자체가 있는데도 자손까지 흡수하면 상위 컨테이너의 토큰이 하위를 전부 삼켜
+        형제 구분이 흐려진다. 그래서 "자체 우선"이다.
+
+    index 모드와 pos 모드가 **같은 규칙**을 쓴다. 옛 집합에서는 pos 모드만 자손 흡수를
+    하지 않는 무주석 divergence 가 있었다 (`_collect_texts` vs `_collect_texts_pos`).
+    """
+    tokens = set()
+
+    def add(v):
+        if v:
+            tokens.add(v.strip())
+
+    for attr in _TEXT_ATTRS:
+        add(el.get(attr))
+    for c in el.contents:
+        if isinstance(c, NavigableString):
+            add(str(c))
+    if tokens:
+        return " | ".join(sorted(tokens))
+
+    # 자손 흡수 — 자손의 속성 텍스트도 함께 걷는다. 옛 `_collect_texts` 는 자손에서
+    # description/id 만 봤는데, EXP05 계열은 aria-label 만 쓰므로 그대로 두면 컨테이너가
+    # 자손에서 아무것도 못 걷어 위 퇴화를 그대로 맞는다.
+    for child in el.find_all(True):
+        for attr in _TEXT_ATTRS:
+            add(child.get(attr))
+    # separator=" " 없이 부르면 `<div><p>a</p><p>b</p></div>` 가 "ab" 라는 없는 토큰이 된다.
+    add(el.get_text(separator=" ", strip=True))
+    return " | ".join(sorted(tokens)) if tokens else ""
+
+
+def _parse_soup(xml_str):
+    """XML 문자열 → BeautifulSoup. 펜스/프리앰블 폴백 포함."""
+    # lxml 의 "xml" 파서는 예측이 마크다운 코드펜스(```html ...```)나 프리앰블
+    # ("## Predicted Next State\n<div..." 등)로 감싸져 well-formed XML 이 아니면
+    # 예외를 던지지 않고 **빈 트리를 조용히** 반환한다. 그러면 아래 except 가 절대
+    # 발동하지 않아 html.parser 폴백이 죽은 코드가 되고, 요소 0개 → hungarian
+    # f1/ea/prec/rec/text/idx 가 전부 0.0 으로 채점된다 (BLEU/ROUGE 는 별도 계산이라
+    # 영향받지 않아 두 지표가 크게 어긋나는 값이 저장된다 — 2026-08-12 실측, EXP01/02/03/05/07
+    # 의 "base" 세팅 population 의 최대 96% 가 이 경로로 0점 처리됐었다).
+    # xml_str 이 비어있지 않은데 xml 모드가 요소를 하나도 못 찾으면 파싱 실패로 간주하고
+    # html.parser 로 재시도한다 — html.parser 는 태그가 아닌 선행 텍스트를 그냥
+    # 건너뛰므로 펜스/프리앰블 유무와 무관하게 실제 XML 요소를 정상 추출한다.
     try:
         soup = BeautifulSoup(xml_str, "xml")
+        if xml_str.strip() and not soup.find_all(True):
+            raise ValueError("xml parse produced no elements")
     except Exception:
         soup = BeautifulSoup(xml_str, "html.parser")
-    pos_mode = match_mode == "pos"
+    return soup
+
+
+def _extract_elements_legacy(soup, pos_mode, include_aria):
+    """2026-08-21 이전의 화이트리스트 집합. **동작을 바꾸지 말 것** — 이 함수의 존재
+    이유가 옛 산출물과 같은 수를 재현하는 것이다."""
     elements = []
     for el in soup.find_all(True):
         tag = el.name
@@ -200,15 +298,8 @@ def extract_elements(xml_str, match_mode="index", include_aria=False):
             # hungarian_metric_v2 parity: 포함 조건은 description 단독이다.
             # EXP05 실 XML 에는 description 이 0건이고 aria-label 만 쓰인다. 따라서
             # aria-label 만 가진 요소(EXP05 test 300문서 기준 div 366개 — "Home"/"Listen"
-            # 같은 nav 항목)는 매칭 대상에서 빠진다. aria-label 을 포함 조건에 넣으면
-            # element 집합이 커져 pos 메트릭이 달라지므로, 채점 기준 변경으로 취급하고
-            # v2 레퍼런스를 따른다. (v2 의 _collect_texts 는 aria-label 을 텍스트로는 쓴다.)
-            #
-            # `include_aria=True` 는 그 채점 기준 변경을 **명시적으로** 여는 스위치다.
-            # change 축(현 `change_f1_strict`) 도입과 세트로 열었다 — 화면 변화의 상당수가 nav/아이콘처럼
-            # aria-label 만 가진 요소에서 일어나는데, 그것들이 element 집합에 없으면
-            # 변화 자체가 관측되지 않는다. 기본값은 여전히 False 다: 켜는 순간 pos 계열
-            # 전 지표가 새 기준이 되어 기존 산출물과 나란히 못 놓는다.
+            # 같은 nav 항목)는 매칭 대상에서 빠진다. `include_aria=True` 가 그 조건을
+            # 여는 스위치였다 (기본 꺼짐).
             is_described = bool(el.get("description")) or (
                 include_aria and bool(el.get("aria-label"))
             )
@@ -224,6 +315,37 @@ def extract_elements(xml_str, match_mode="index", include_aria=False):
         idx = _safe_int(el.get("index", -1))
         if is_interactive or is_content or is_clickable:
             elements.append({"tag": tag, "text": text, "index": idx})
+    return elements
+
+
+def extract_elements(xml_str, match_mode="index", include_aria=False):
+    """XML/HTML 문자열 → 채점용 element 리스트.
+
+    `include_aria` 는 `legacy` 기준에서만 뜻이 있다 (pos 모드의 포함 조건에 aria-label
+    을 더한다). `full` 에서는 모든 요소가 이미 들어오고 aria-label 은 항상 텍스트로
+    쓰이므로 **무의미하다** — 호출부가 많아 시그니처만 유지한다.
+    """
+    soup = _parse_soup(xml_str)
+    pos_mode = match_mode == "pos"
+    if ELEMENT_SET == "legacy":
+        return _extract_elements_legacy(soup, pos_mode, include_aria)
+    elements = []
+    for el in soup.find_all(True):
+        # 태그 케이스 정규화 — lxml `xml` 파서는 케이스를 보존하고(`RecyclerView`)
+        # 폴백 `html.parser` 는 소문자화한다. 예측만 펜스에 감싸여 폴백 경로를 타면
+        # pred 와 GT 의 같은 태그가 영구 불일치하는데, `_match_cost` 의 태그 불일치는
+        # W_TAG=3.0 이라 두 임계(1.5/1.7)를 모두 넘겨 **사실상 하드 게이트**다 —
+        # 그 문서의 카멜케이스 요소가 통째로 미매칭된다.
+        tag = el.name.lower()
+        text = _collect_texts_full(el)
+        if pos_mode:
+            elements.append(
+                {"tag": tag, "text": text, "bounds": el.get("bounds", "") or ""}
+            )
+        else:
+            elements.append(
+                {"tag": tag, "text": text, "index": _safe_int(el.get("index", -1))}
+            )
     return elements
 
 
@@ -626,6 +748,12 @@ def _cmd_score(args):
     strict_pos = getattr(args, "strict_pos_match", False)
     include_aria = getattr(args, "include_aria", False)
     score_opts = {"strict_pos": strict_pos, "include_aria": include_aria}
+    # element 집합은 (두 스위치와 달리) 전역이다 — `extract_elements` 를 부르는 곳이
+    # 정본/state-diff/copy-baseline 에 걸쳐 있고 그 사이 시그니처가 전부 다르다.
+    # 대신 전파 지점을 한 곳(`_write_state_diff`)으로 좁히고 산출물에 스탬프를 박아,
+    # 어긋나면 파일만 보고도 드러나게 한다 (`set_element_set` 주석 참고).
+    element_set = getattr(args, "element_set", "full")
+    set_element_set(element_set)
 
     # 필터된 jsonl 산출용 디렉토리 (exclude 가 set 일 때만 사용)
     test_out_dir = Path(args.filtered_test_dir) if args.filtered_test_dir else None
@@ -709,6 +837,11 @@ def _cmd_score(args):
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # 어떤 element 집합으로 채점됐는지 파일이 스스로 말하게 한다. 기존 산출물은
+    # 재채점하지 않기로 했으므로(2026-08-21), 스탬프가 없는 파일 = legacy 기준이다.
+    # split 모드에서는 overall/in_domain/out_of_domain 옆의 4번째 최상위 키가 된다 —
+    # `eval_viewer.load_metrics` 는 섹션을 이름으로만 조회하고 dict 가 아니면 건너뛴다.
+    metrics["element_set"] = ELEMENT_SET
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
     print(f"[score] saved: {out_path}")
@@ -731,7 +864,13 @@ def _cmd_score(args):
     # 안 되기 때문이다.
     if not args.skip_state_diff:
         rc = _write_state_diff(
-            args, out_path, split_mode, match_mode, exclude, **score_opts
+            args,
+            out_path,
+            split_mode,
+            match_mode,
+            exclude,
+            element_set=element_set,
+            **score_opts,
         )
         if rc:
             return rc
@@ -747,6 +886,7 @@ def _write_state_diff(
     *,
     strict_pos=False,
     include_aria=False,
+    element_set="full",
 ) -> int:
     """state_diff_metrics.json 을 hungarian_metrics.json 과 같은 섹션 구조로 저장.
 
@@ -755,6 +895,12 @@ def _write_state_diff(
     깨지는데, 두 파일을 나란히 보기 전까지는 아무도 못 본다.
     """
     import _state_diff_eval as _sd
+
+    # ⚠️ element 집합 전역을 **_sd 가 보는 사본에** 다시 박는다. 이 파일이 스크립트로
+    # 돌면 여기는 `__main__` 이고 `_sd._he` 는 같은 소스의 **다른 모듈 객체**라,
+    # 위 `set_element_set` 은 이쪽에 닿지 않는다. 빠뜨리면 hungarian 은 새 집합,
+    # state-diff 는 옛 집합으로 채점되어 층 분해 항등식이 조용히 깨진다.
+    _sd._he.set_element_set(element_set)
 
     sd_path = out_path.parent / "state_diff_metrics.json"
 
@@ -859,6 +1005,15 @@ def main():
         help="pos 모드에서 aria-label 만 가진 요소도 채점 대상에 넣는다. **기본은 꺼짐** — "
         "element 집합 자체가 커져 pos 계열 전 지표가 새 기준이 된다 "
         "(extract_elements 주석 참고).",
+    )
+    p_score.add_argument(
+        "--element-set",
+        default="full",
+        choices=["full", "legacy"],
+        dest="element_set",
+        help="채점 대상 element 집합. full (기본): 파서가 낸 모든 요소. legacy: "
+        "2026-08-21 이전 화이트리스트 — 실제 데이터의 약 24%% 를 버렸다 "
+        "(extract_elements 주석 참고). 옛 산출물과 나란히 놓을 때만 legacy 를 쓴다.",
     )
     p_score.add_argument(
         "--exclude-action",

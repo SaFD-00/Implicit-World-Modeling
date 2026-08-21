@@ -66,6 +66,14 @@ pred/gt 양쪽에서 **같은 절차**로 뽑아 집합 비교하고, 내용 일
 `_hungarian_eval` 의 매칭 함수를 그대로 쓰므로, 한쪽만 전역을 읽으면 정본 채점과
 설정이 어긋나 위 항등식이 조용히 깨진다.
 
+element 집합 (`--element-set full|legacy`)
+------------------------------------------
+이것만은 **전역**이다 (`_hungarian_eval.ELEMENT_SET`) — 호출 경로가 너무 많아 인자로
+못 흘린다. 그래서 정본 채점과 반드시 같은 값이어야 한다는 요구가 더 강하다:
+`_hungarian_eval._write_state_diff` 는 `_sd._he.set_element_set()` 로 명시 전파하고,
+이 모듈은 산출물에 **자기가 실제로 읽은 전역**을 스탬프한다 (`stamp_schema`). 두 파일의
+`element_set` 이 어긋나 있으면 그게 전파 실패의 증거다.
+
 UNCHANGED 판정 기준
 -------------------
 `diff_loss/hungarian_diff_v2.classify_diff` 는 `match_cost <= 0.05` 를 UNCHANGED 로
@@ -1063,9 +1071,14 @@ _LEGACY_KEY_ALIAS = {
 
 
 def stamp_schema(metrics: dict) -> dict:
-    """산출물 최상위에 스키마 버전을 박는다. **파일로 쓰는 모든 경로**가 불러야 한다
-    (`_state_diff_eval._cmd_score` · `_hungarian_eval._write_state_diff` 둘 다)."""
+    """산출물 최상위에 스키마 버전과 element 집합을 박는다. **파일로 쓰는 모든 경로**가
+    불러야 한다 (`_state_diff_eval._cmd_score` · `_hungarian_eval._write_state_diff` 둘 다).
+
+    `element_set` 은 인자가 아니라 **채점에 실제로 쓰인 전역**에서 읽는다 — 호출자가
+    믿는 값이 아니라 채점기가 본 값을 적어야 sibling `hungarian_metrics.json` 의 같은
+    스탬프와 대조해 전파 실패를 잡을 수 있다."""
     metrics["metrics_schema"] = METRICS_SCHEMA
+    metrics["element_set"] = _he.ELEMENT_SET
     return metrics
 
 
@@ -1160,6 +1173,8 @@ def _cmd_score(args) -> int:
     # 매칭 기준 스위치는 여기 한 진입점에서만 읽어 아래로 넘긴다 (전역 금지 —
     # `_hungarian_eval._cmd_score` 와 같은 규칙이다).
     opts = {"strict_pos": args.strict_pos_match, "include_aria": args.include_aria}
+    # element 집합은 전역이라 여기서 `_he` 사본에 박는다 (모듈 docstring 참고).
+    _he.set_element_set(args.element_set)
     if not args.include_truncated:
         reason = truncated_reason(args.pred, args.pred_id, args.pred_ood)
         if reason:
@@ -1264,6 +1279,15 @@ def main() -> int:
         dest="include_aria",
         help="pos 모드에서 aria-label 만 가진 요소도 채점 대상에 넣는다. **기본은 꺼짐** — "
         "정본 채점과 **반드시 같은 값**이어야 한다 (element 집합 자체가 달라진다).",
+    )
+    s.add_argument(
+        "--element-set",
+        default="full",
+        choices=["full", "legacy"],
+        dest="element_set",
+        help="채점 대상 element 집합. 정본 채점(_hungarian_eval)과 **반드시 같은 값**"
+        "이어야 한다 — 다르면 층 분해 항등식이 깨진다. legacy 는 2026-08-21 이전의 "
+        "화이트리스트 집합(실제 요소의 약 24%% 를 버린다) 재현용이다.",
     )
     s.add_argument("--exclude-action", default=None, dest="exclude_action")
     s.add_argument(
