@@ -233,9 +233,14 @@ def build_sample(row_idx: int, rec: dict) -> dict:
         # 이것을 진짜 유도 불가능과 섞지 않도록 플래그를 실어 보낸다.
         if reason["rule"] == UNDECIDABLE_RULE:
             item["undecidable"] = True
-        for k in ("payload", "coordinate"):
+        for k in ("payload", "coordinate", "action_index", "in_ime_panel"):
             if k in r:
                 reason[k] = r[k]
+        # IME 제안 스트립은 라벨이 무엇이든 따로 훑어야 하는 부류다 (분류기가
+        # `in_ime_panel` 로 표시해 준다). 필터를 라벨 축과 독립으로 두는 이유 —
+        # 제안은 ACTION_PAYLOAD 로도, NON_DERIVABLE 로도 떨어질 수 있다.
+        if r.get("in_ime_panel"):
+            item["ime"] = True
         item["reason"] = reason
 
     cur_nodes = iter_nodes(parse_soup(cur_xml))
@@ -535,6 +540,7 @@ function visible(el){
   if(st.filter === 'ALL') return true;
   if(st.filter === '__ND') return !el.derivable && !el.undecidable;
   if(st.filter === '__UNDEC') return !!el.undecidable;
+  if(st.filter === '__IME') return !!el.ime;
   if(st.filter === '__D') return el.derivable;
   return el.label === st.filter;
 }
@@ -708,7 +714,7 @@ function renderList(){
     const tx = document.createElement('span'); tx.className = 'tx';
     tx.textContent = labelOf(e) || '(텍스트 없음)'; d.appendChild(tx);
     const rl = document.createElement('span'); rl.className = 'rl';
-    rl.textContent = e.reason.rule; d.appendChild(rl);
+    rl.textContent = (e.ime ? '⌨ ' : '') + e.reason.rule; d.appendChild(rl);
     d.addEventListener('click', () => select(e.seq));
     box.appendChild(d);
   }
@@ -751,6 +757,8 @@ function renderDetail(){
                  + ` — ${m.own || '(텍스트 없음)'}`
                : '(없음)']);
   rows.push(['text_sim', String(e.reason.sim)]);
+  if(e.reason.in_ime_panel) rows.push(['IME 패널 안 신규 텍스트', 'in_ime_panel=true — 키보드 제안 스트립에서 나온 것이다. 라벨은 일반 규칙 사슬이 정한다']);
+  if(e.reason.action_index !== undefined) rows.push(['action index', String(e.reason.action_index)]);
   if(e.reason.payload !== undefined) rows.push(['action payload', e.reason.payload]);
   if(e.reason.coordinate !== undefined) rows.push(['action coordinate', JSON.stringify(e.reason.coordinate)]);
   rows.push(['action (전체)', JSON.stringify(row().action)]);
@@ -808,6 +816,7 @@ function init(){
   const opts = [['ALL','전체'],
                 ['__ND','유도 불가능만 (판정 불가 제외)'],
                 ['__UNDEC','판정 불가만 (' + DATA.undecidable_rule + ')'],
+                ['__IME','IME 제안 스트립만 (in_ime_panel)'],
                 ['__D','유도 가능만']]
     .concat(LABELS.map(l => [l, l + ' 만 (라벨 그대로)']));
   for(const [v, t] of opts){

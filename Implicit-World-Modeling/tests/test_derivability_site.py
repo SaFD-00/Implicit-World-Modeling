@@ -84,6 +84,21 @@ ROW_IDX = {
 }
 
 
+def _load_real_rows(exp: str, n: int) -> list[tuple[int, dict]]:
+    """실데이터 앞 n 행. 없으면 빈 리스트 (데이터 없는 환경에서 스킵하기 위해)."""
+    p = REPO / "data" / f"AndroidControl_{exp}" / "stage1_test_id_state.jsonl"
+    if not p.is_file():
+        return []
+    out = []
+    with p.open(encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            if i >= n:
+                break
+            if line.strip():
+                out.append((i, json.loads(line)))
+    return out
+
+
 def _write(rows: list[dict]) -> Path:
     tmp = Path(tempfile.mkdtemp()) / "test.jsonl"
     tmp.write_text(
@@ -256,6 +271,33 @@ class Undecidable(unittest.TestCase):
         self.assertNotEqual(
             ds.LABEL_COLOR["UNDECIDABLE"], ds.LABEL_COLOR["NON_DERIVABLE"]
         )
+
+
+class ImePanelFlag(unittest.TestCase):
+    """IME 제안 스트립 표식(`in_ime_panel`)이 뷰어까지 전달되는가.
+
+    제안은 라벨 축과 독립이다 — 타이핑 접두 완성은 ACTION_PAYLOAD, IME 사전이
+    만든 단어는 NON_DERIVABLE 로 떨어진다. 그래서 라벨 필터로는 이 부류를 훑을 수
+    없고 별도 표식이 필요하다. 분류기가 `reason.in_ime_panel` 을 주는데 뷰어가
+    그것을 버리면 감사 대상이 화면에서 사라진다.
+    """
+
+    def test_flag_is_forwarded_when_classifier_sets_it(self) -> None:
+        rows = _load_real_rows("EXP05", 300)
+        if not rows:
+            self.skipTest("실데이터 없음 — 배선 검사만 하는 환경")
+        seen = False
+        for i, rec in rows:
+            s = ds.build_sample(i, rec)
+            deriv_flags = [e.get("ime") for e in s["gt"]["elements"]]
+            if any(deriv_flags):
+                seen = True
+                for e in s["gt"]["elements"]:
+                    self.assertEqual(
+                        bool(e.get("ime")), bool(e["reason"].get("in_ime_panel"))
+                    )
+                break
+        self.assertTrue(seen, "300행 안에 IME 제안 스트립 표본이 하나도 없다")
 
 
 class HtmlOutput(unittest.TestCase):
