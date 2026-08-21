@@ -142,11 +142,307 @@ def assert_state_scorer_wired(match_mode: str) -> None:
             f"elements={len(elements)}, self-F1={same['hungarian_f1']} "
             "— bs4/scipy 의존성을 확인하세요."
         )
+    # 요소 단위 감사가 정본 숫자를 재현하는지 데이터 전에 한 번 확인한다.
+    # `_state_diff_eval._PROBE` 를 쓰는 이유는 `cur`/`gt` 만으로는 change 축의
+    # 지배항인 DELETED 경로를 못 밟기 때문이다 — `maxdel`(요소가 딱 하나이고
+    # current 를 하나도 재현하지 않는 예측)이 그 경로를 덮는 유일한 fixture 고,
+    # 동시에 "바닥이 0 이 아니다"를 배선 단계에서 증명한다.
+    probe = _state_diff_eval._PROBE[match_mode]
+    for label, pred in (
+        ("perfect", probe["gt"]),
+        ("copy", probe["cur"]),
+        ("maxdel", probe["maxdel"]),
+    ):
+        diff = _state_diff_eval.compute_state_diff(
+            pred, probe["gt"], probe["cur"], match_mode
+        )
+        _, derived = state_change_audit(pred, probe["gt"], probe["cur"], match_mode)
+        err = _audit_consistency_error(derived, diff)
+        if err:
+            raise SiteBuildError(
+                f"변화 감사 배선 실패 (match_mode={match_mode}, probe={label}): {err}"
+            )
 
 
-def score_state_row(pred_text: str, gt_text: str, match_mode: str) -> dict:
+# ── 변화 감사 (요소 단위) ────────────────────────────────────────────────
+# 숫자를 한 번 더 띄우는 것으로는 "base 와 epoch3 가 같은 화면을 냈는데 f1 이 왜
+# 다르냐"에 답할 수 없다. 답하려면 **어떤 요소가 hit 이고 어떤 요소가 miss 인지**가
+# 화면에 있어야 한다. 아래가 그 요소 단위 분류다.
+#
+# 점수 자체는 여전히 정본(`_state_diff_eval.compute_state_diff`) 산출값을 쓴다.
+# 여기서 만든 분류는 **매 행 그 숫자를 재현하는지 대조**하고(`_audit_consistency_error`)
+# 어긋나면 빌드를 세운다 — 색과 숫자가 조용히 갈리면 감사가 거짓이 되고, 그건 이
+# 화면이 없는 것보다 나쁘다 (설계 원칙 1: 사이트 전용 정의를 만들지 않는다).
+
+# 감사 리스트 상한. 퇴화 예측(current 를 하나도 재현하지 않는 예측)은 변화 주장이
+# current 요소 수만큼 쏟아져 payload 가 터진다. **개수는 정본에서 읽고 리스트만
+# 자른다** — 잘린 리스트를 세어 헤더를 만들면 정확히 감사하고 싶은 그 행에서 분모가
+# 조용히 작아진다.
+AUDIT_ITEM_CAP = 100
+# 요소 텍스트 프리뷰 길이. `_text_sim` 이 토큰 집합 Jaccard 라 짧게 자르면 낮은 sim 의
+# 근거가 화면에서 사라진다 — "같은 화면 같은데 왜 다르냐"가 원 질문이다.
+AUDIT_TEXT_CHARS = 100
+
+
+def _el_key(el: dict, match_mode: str) -> str:
+    """채점 element ↔ 와이어프레임 노드를 잇는 키. 없으면 빈 문자열.
+
+    pos 계열 XML 은 bounds, index 계열은 index 속성이 자연 키다. SITE_JS 의
+    `nodeKey()` 와 **같은 규칙**이어야 색이 엉뚱한 노드에 붙지 않는다.
+    같은 키를 가진 노드가 여럿이면 함께 칠해진다(과칠) — 색은 길잡이고 감사의
+    정본은 Change 뷰의 요소 리스트다.
+
+    ⚠️ `index=-1`(속성 없음)을 키로 쓰면 안 된다. EXP03/04 의 XML 은 bounds 만
+    있고 index 속성이 없는데 `XY_FAMILY` 밖이라 index 모드로 채점된다 — 그러면 전
+    요소의 키가 `-1` 로 같아져 **화면 전체가 칠해진다.** 그건 안 칠하는 것보다
+    나쁘다 (그럴듯하게 틀린다). 여기서 ""를 내면 JS 의 `markCls` 가 그대로 건너뛴다.
+    index 모드에서 bounds 로 대신 키를 잡을 수는 없다 — 정본 `extract_elements` 가
+    index 모드 element dict 에 bounds 를 담지 않아서, 그러려면 XML 을 여기서 따로
+    한 번 더 파싱해야 하고 그 순간 요소 집합이 정본과 갈릴 수 있다.
+    """
+    if match_mode == "pos":
+        return el.get("bounds", "") or ""
+    idx = el.get("index", -1)
+    return "" if idx is None or int(idx) < 0 else str(idx)
+
+
+def _el_brief(el: dict, match_mode: str) -> dict:
+    """payload 에 실을 최소 필드. 키를 한 글자로 줄인 것은 크기 때문이다 —
+    사이트 하나가 이미 8MB 대고 이 dict 는 (표본 × 세팅 × 요소) 만큼 실린다."""
+    out = {"k": _el_key(el, match_mode), "g": el["tag"]}
+    txt = (el.get("text") or "")[:AUDIT_TEXT_CHARS]
+    if txt:
+        out["x"] = txt
+    return out
+
+
+def state_change_audit(
+    pred_text: str, gt_text: str, current_text: str, match_mode: str
+) -> tuple[dict, dict]:
+    """(요소 단위 감사 payload, 정본 대조용 파생값).
+
+    `_state_diff_eval.compute_change_items` 의 hit 규칙을 요소 단위로 되짚는다.
+    정본은 개수만 돌려주므로 "어느 요소였나"는 여기서 다시 만들 수밖에 없다 —
+    그래서 반환하는 파생값으로 정본 숫자를 재현하는지 매 행 확인한다.
+
+    분류
+      GT 쪽  : GT 가 요구한 변화(ADDED/MODIFIED/DELETED) 각각이 strict hit /
+               자리만 맞음(loose) / miss 중 무엇인가.
+      pred 쪽: 예측이 주장한 변화가 hit 인가 지어낸 것(spurious)인가.
+
+    `_classify_from_els` 인자는 정본과 **완전히 같게** 준다. 특히 pred 쪽의
+    `empty_next_is_deletion=False` — 뒤집으면 2026-08-04 에 고친 "빈 예측이 바닥값을
+    공짜로 받는" 버그가 감사 화면에서만 되살아난다.
+    """
+    _hungarian_eval._lazy_deps()
+    try:
+        pred_els = _hungarian_eval.extract_elements(pred_text, match_mode)
+        gt_els = _hungarian_eval.extract_elements(gt_text, match_mode)
+        cur_els = _hungarian_eval.extract_elements(current_text, match_mode)
+    except Exception:
+        # 정본도 이 행은 전 축 None + parse_fail=1 이다. 대조는 게이트가 막는다.
+        return {"na": "extract"}, {}
+
+    diff_gt = _state_diff_eval._classify_from_els(cur_els, gt_els, match_mode)
+    diff_pred = _state_diff_eval._classify_from_els(
+        cur_els, pred_els, match_mode, empty_next_is_deletion=False
+    )
+    pairs_pg, _ = _hungarian_eval._hungarian_match(
+        pred_els, gt_els, match_mode, False
+    )
+    pred_to_gt = {i: j for i, j, _ in pairs_pg}
+    gt_to_pred = {j: i for i, j, _ in pairs_pg}
+
+    # `_classify_from_els(cur, X)` 의 `gt_idx` 는 두 번째 인자(X)의 인덱스다 —
+    # pred 쪽 호출에서는 pred_els 의 인덱스이지 GT 인덱스가 아니다.
+    gt_changed = {
+        d["gt_idx"] for d in diff_gt if d["diff_type"] in ("ADDED", "MODIFIED")
+    }
+    gt_kind = {d["gt_idx"]: d["diff_type"] for d in diff_gt if "gt_idx" in d}
+    gt_deleted = {d["cur_idx"] for d in diff_gt if d["diff_type"] == "DELETED"}
+    pred_changed = {
+        d["gt_idx"] for d in diff_pred if d["diff_type"] in ("ADDED", "MODIFIED")
+    }
+    pred_kind = {d["gt_idx"]: d["diff_type"] for d in diff_pred if "gt_idx" in d}
+    pred_deleted = {d["cur_idx"] for d in diff_pred if d["diff_type"] == "DELETED"}
+
+    tau = _state_diff_eval.CHANGE_TEXT_SIM_TAU
+
+    def _sim(i: int, j: int) -> float:
+        return _hungarian_eval._text_sim(pred_els[i]["text"], gt_els[j]["text"])
+
+    # ── GT 쪽: "바뀌었어야 할 것"을 예측이 맞혔나
+    gt_items: list[dict] = []
+    hits_strict = hits_loose = 0
+    for j in sorted(gt_changed):
+        item = {**_el_brief(gt_els[j], match_mode), "t": gt_kind[j][0]}  # A / M
+        i = gt_to_pred.get(j)
+        if i is not None:
+            item["s"] = round(_sim(i, j), 3)
+            item["m"] = _el_brief(pred_els[i], match_mode)
+            if i in pred_changed:
+                hits_loose += 1
+                strict = item["s"] >= tau
+                hits_strict += strict
+                item["h"] = "s" if strict else "l"
+            else:
+                # 짝은 붙었는데 예측 쪽에서는 그 요소가 current 와 같다고 분류됐다
+                # = 바뀌어야 할 자리를 **그대로 베꼈다**. 복사 편향의 직접 증거다.
+                item["w"] = "copy"
+        gt_items.append(item)
+    for c in sorted(gt_deleted):
+        # DELETED 는 GT 요소가 아니라 **current 요소**를 가리킨다 (키 공간이 다르다).
+        item = {**_el_brief(cur_els[c], match_mode), "t": "D"}
+        if c in pred_deleted:
+            # DELETED hit 에는 τ 가 걸리지 않는다 (지워진 요소엔 비교할 내용이 없다)
+            # — strict/loose 양쪽에 똑같이 들어간다.
+            item["h"] = "s"
+            hits_strict += 1
+            hits_loose += 1
+        gt_items.append(item)
+
+    # ── pred 쪽: 예측이 주장한 변화가 진짜였나
+    pred_items: list[dict] = []
+    for i in sorted(pred_changed):
+        item = {**_el_brief(pred_els[i], match_mode), "t": pred_kind[i][0]}
+        j = pred_to_gt.get(i)
+        if j is not None:
+            item["s"] = round(_sim(i, j), 3)
+            item["m"] = _el_brief(gt_els[j], match_mode)
+            if j in gt_changed:
+                item["h"] = "s" if item["s"] >= tau else "l"
+            else:
+                item["w"] = "nochange"  # GT 는 그 자리를 안 바꿨다 = 지어낸 변화
+        pred_items.append(item)
+    for c in sorted(pred_deleted):
+        item = {**_el_brief(cur_els[c], match_mode), "t": "D"}
+        if c in gt_deleted:
+            item["h"] = "s"
+        pred_items.append(item)
+
+    n_gt = len(gt_changed) + len(gt_deleted)
+    n_pred = len(pred_changed) + len(pred_deleted)
+
+    def _f1(hits: int) -> float:
+        prec = hits / n_pred if n_pred else 0.0
+        rec = hits / n_gt if n_gt else 0.0
+        return 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+
+    n_cur = len(cur_els)
+    prec0 = len(gt_deleted) / n_cur if n_cur else 0.0
+    rec0 = len(gt_deleted) / n_gt if n_gt else 0.0
+    f1_floor = 2 * prec0 * rec0 / (prec0 + rec0) if (prec0 + rec0) > 0 else 0.0
+
+    # addmod hit 은 change hit 과 **다른 판정**이다 — 정본 pred↔gt 매칭에 짝이 있으면
+    # 그만이고 τ 도 "예측이 변화라고 주장했는가"도 묻지 않는다. 두 분자를 같은 화면에
+    # 나란히 두는 것이 이 뷰의 요점이라 정의 차이를 여기서 뭉개면 안 된다.
+    hit_gt = {j for _, j, _ in pairs_pg}
+    n_addmod_hit = len(hit_gt & gt_changed)
+
+    derived = {
+        "n_change_gt": n_gt,
+        "n_change_pred": n_pred,
+        "n_change_hit_strict": hits_strict,
+        "n_change_hit_loose": hits_loose,
+        "change_f1_strict": _f1(hits_strict),
+        "change_f1_loose": _f1(hits_loose),
+        "change_f1_floor": f1_floor,
+        "n_addmod_gt": len(gt_changed),
+        "n_addmod_hit": n_addmod_hit,
+        "addmod_recall": (
+            n_addmod_hit / len(gt_changed) if gt_changed else None
+        ),
+    }
+    audit = {"gt": gt_items[:AUDIT_ITEM_CAP], "pd": pred_items[:AUDIT_ITEM_CAP]}
+    if len(gt_items) > AUDIT_ITEM_CAP:
+        audit["gt_more"] = len(gt_items) - AUDIT_ITEM_CAP
+    if len(pred_items) > AUDIT_ITEM_CAP:
+        audit["pd_more"] = len(pred_items) - AUDIT_ITEM_CAP
+    return audit, derived
+
+
+def _audit_consistency_error(derived: dict, diff: dict) -> str | None:
+    """감사(요소 단위)가 정본(행 단위)을 재현하지 못하면 설명, 같으면 None.
+
+    **정의된 키에서만** 대조한다. 정본이 None 을 내는 경로가 넷이라 (추출 예외 /
+    GT 요소 0개 early-return / 변화가 양쪽 다 0 / addmod 분모 공집합) 게이트 없이
+    비교하면 정상 행에서 빌드가 죽는다. 비교는 tolerance 가 아니라 `round(_, 4)`
+    동일성이다 — 정본이 round 4 로 내보내므로 이게 정확히 같은 연산이다.
+    """
+    if not derived:
+        return None  # 추출 실패 행 — 정본도 전 축 None 이라 대조할 것이 없다
+    if diff.get("change_f1_strict") is not None:
+        # 이 값이 None 이 아니면 `compute_change_items` 가 실제로 돌았다는 뜻이라
+        # n_change_* 도 정본 값이다 (early-return 경로에서는 zero_counts 가 남는다).
+        for key in ("n_change_gt", "n_change_pred"):
+            if derived[key] != diff[key]:
+                return f"{key}: 감사 {derived[key]} vs 정본 {diff[key]}"
+        for key in ("change_f1_strict", "change_f1_loose", "change_f1_floor"):
+            if round(derived[key], 4) != diff[key]:
+                return f"{key}: 감사 {round(derived[key], 4)} vs 정본 {diff[key]}"
+    if diff.get("addmod_recall") is not None:
+        want_n = diff["n_gt_added"] + diff["n_gt_modified"]
+        if derived["n_addmod_gt"] != want_n:
+            return f"n_addmod_gt: 감사 {derived['n_addmod_gt']} vs 정본 {want_n}"
+        if round(derived["addmod_recall"], 4) != diff["addmod_recall"]:
+            return (
+                f"addmod_recall: 감사 {round(derived['addmod_recall'], 4)} "
+                f"vs 정본 {diff['addmod_recall']}"
+            )
+    return None
+
+
+def gt_change_marks(current_text: str, gt_text: str, match_mode: str) -> dict:
+    """샘플 단위 "바뀌어야 할 자리". 세팅과 무관하므로 표본 행에 한 번만 싣는다.
+
+    cur : current 에서 **사라져야** 할 요소 / gt : GT 에서 새로 생기거나 바뀐 요소.
+    두 dict 의 키 공간이 다르다는 것이 요점이다 — current 키를 GT pane 에 칠하면
+    화면은 멀쩡해 보이는데 엉뚱한 노드가 칠해진다.
+    """
+    _hungarian_eval._lazy_deps()
+    try:
+        cur_els = _hungarian_eval.extract_elements(current_text, match_mode)
+        gt_els = _hungarian_eval.extract_elements(gt_text, match_mode)
+    except Exception:
+        return {"cur": {}, "gt": {}}
+    cur_marks: dict[str, str] = {}
+    gt_marks: dict[str, str] = {}
+    for d in _state_diff_eval._classify_from_els(cur_els, gt_els, match_mode):
+        # 빈 키(= 그 XML 계열에 식별 속성이 없다)는 싣지 않는다. `_el_key` 참고.
+        if d["diff_type"] == "DELETED":
+            key = _el_key(cur_els[d["cur_idx"]], match_mode)
+            if key:
+                cur_marks[key] = "mk-del"
+        elif d["diff_type"] in ("ADDED", "MODIFIED"):
+            key = _el_key(gt_els[d["gt_idx"]], match_mode)
+            if key:
+                gt_marks[key] = "mk-add" if d["diff_type"] == "ADDED" else "mk-mod"
+    return {"cur": cur_marks, "gt": gt_marks}
+
+
+def score_state_row(
+    pred_text: str, gt_text: str, current_text: str, match_mode: str
+) -> dict:
+    """행 단위 점수 — hungarian 계열 + state-diff(addmod/change) 계열.
+
+    `current_text` 는 선택 인자가 아니다. state-diff 축은 current 없이는 정의되지
+    않는데, 기본값을 두면 호출부가 빠뜨렸을 때 **축 전체가 조용히 빈칸**이 된다 —
+    이 코드베이스가 반복해 다친 실패 모드라 인자를 강제한다.
+    """
     _hungarian_eval._lazy_deps()  # 미초기화면 전 행 0점 — 호출 순서에 기대지 않는다
     hung = _hungarian_eval.compute_hungarian_acc(pred_text, gt_text, match_mode)
+    diff = _state_diff_eval.compute_state_diff(
+        pred_text, gt_text, current_text, match_mode
+    )
+    audit, derived = state_change_audit(pred_text, gt_text, current_text, match_mode)
+    err = _audit_consistency_error(derived, diff)
+    if err:
+        raise SiteBuildError(
+            "요소 단위 감사가 정본 채점기 값을 재현하지 못했습니다 — "
+            f"{err}. `_state_diff_eval` 의 hit 규칙이 바뀌었다면 "
+            "`_compare_site.state_change_audit` 를 같이 고쳐야 합니다 "
+            "(색과 숫자가 갈리면 이 화면은 거짓 감사가 된다)."
+        )
     pos_key = "hungarian_pos" if match_mode == "pos" else "hungarian_idx"
     return {
         "exact": gt_text.strip() == pred_text.strip(),
@@ -161,6 +457,28 @@ def score_state_row(pred_text: str, gt_text: str, match_mode: str) -> dict:
         "rouge_l": round(_hungarian_eval.calc_rouge_l(gt_text, pred_text) * 100, 1),
         "pred_lines": pred_text.count("\n") + 1,
         "label_lines": gt_text.count("\n") + 1,
+        # ── state-diff 축 (값은 전부 정본 산출값) ────────────────────────
+        # 0~1 스케일 그대로 싣는다. 화면에서 %로 바꾸는 것은 표시 계층의 일이고,
+        # 여기서 100 을 곱하면 위쪽 aggregate 표와 다른 수가 payload 에 남는다.
+        "addmod_recall": diff["addmod_recall"],
+        "change_f1_strict": diff["change_f1_strict"],
+        "change_f1_loose": diff["change_f1_loose"],
+        "change_f1_floor": diff["change_f1_floor"],
+        "no_change_acc": diff["no_change_acc"],
+        "copy_excess": diff["copy_excess"],
+        "parse_fail": diff["parse_fail"],
+        "n_change_gt": diff["n_change_gt"],
+        "n_change_pred": diff["n_change_pred"],
+        "n_cur_el": diff["n_cur"],
+        "n_gt_el": diff["n_gt"],
+        "n_pred_el": diff["n_pred"],
+        # 분자는 정본이 내주지 않아 감사에서 가져온다. 위 `_audit_consistency_error`
+        # 가 이 분자로 정본 비율을 재현하는지 매 행 확인한 뒤라 신뢰할 수 있다.
+        "n_addmod_gt": derived.get("n_addmod_gt", 0),
+        "n_addmod_hit": derived.get("n_addmod_hit", 0),
+        "n_change_hit_strict": derived.get("n_change_hit_strict", 0),
+        "n_change_hit_loose": derived.get("n_change_hit_loose", 0),
+        "audit": audit,
     }
 
 
@@ -245,6 +563,54 @@ def _fmt_ts(ts: float) -> str:
     return f"{dt.astimezone(KST):%Y-%m-%d %H:%M} KST"
 
 
+def read_element_set(metric_path: Path) -> str | None:
+    """aggregate metric 파일에 박힌 element 집합 스탬프. 없으면 None."""
+    try:
+        return json.loads(metric_path.read_text(encoding="utf-8")).get("element_set")
+    except Exception:
+        return None
+
+
+def element_set_note(stamps: set[str | None], runtime: str | None) -> str:
+    """표본 표와 aggregate 표의 element 집합이 갈렸으면 경고 문구, 아니면 "".
+
+    `_hungarian_eval.ELEMENT_SET` 은 **전역**이라 인자로 흐르지 않는다. 사이트의
+    표본 점수는 지금 이 프로세스의 전역으로 새로 채점되고, 위쪽 aggregate 표는
+    디스크의 JSON 을 그대로 읽는다 — 그 JSON 이 다른 집합으로 채점됐다면 두 표는
+    **정의가 다른 수**다. 실측(2026-08-21, 같은 50행): full↔legacy 격차가
+    EXP05(pos) 최대 2.5p, EXP02(index) 최대 6.6p 였다. 표본 표에 addmod/change 축이
+    생기면서 두 표에 **같은 이름의 열**이 나란히 놓였으므로 그냥 두면 오독한다.
+
+    스탬프가 없는 파일은 스탬프 도입 이전 산출물이다 — "같다"고 단정할 근거가
+    없으므로 조용히 통과시키지 않는다.
+    """
+    if runtime is None:
+        return ""
+    unknown = None in stamps
+    other = {s for s in stamps if s is not None and s != runtime}
+    if not unknown and not other:
+        return ""
+    parts = [
+        f"⚠️ 표본 표는 지금 이 자리에서 `element_set={runtime}` 로 다시 채점한 값이다."
+    ]
+    if other:
+        parts.append(
+            "위쪽 aggregate 표의 일부 leaf 는 `element_set="
+            + "`/`".join(sorted(other))
+            + "` 로 채점돼 있어 **두 표의 정의가 다르다**."
+        )
+    if unknown:
+        parts.append(
+            "일부 leaf 의 metric 파일에는 element 집합 스탬프가 없다 "
+            "(스탬프 도입 이전 산출물) — 같은 집합이라고 단정할 수 없다."
+        )
+    parts.append(
+        "두 표를 나란히 읽으려면 `scripts/rebuild_eval_metrics.sh` 로 aggregate 를 "
+        "다시 산출할 것. 카드 점수와 표본 표끼리는 정합하다."
+    )
+    return " ".join(parts)
+
+
 def read_jsonl(path: Path) -> list[dict]:
     out: list[dict] = []
     with path.open(encoding="utf-8") as f:
@@ -301,6 +667,7 @@ def build_site(
     data_splits: dict[str, dict] = {}
     split_order: list[str] = []
     provenance: list[dict] = []
+    element_sets: set[str | None] = set()
     parse_failures: list[str] = []
     truncated_leaves: list[str] = []
 
@@ -324,6 +691,8 @@ def build_site(
                     "has_metrics": (leaf / metric_filename).is_file(),
                 }
             )
+            if kind == "state" and (leaf / metric_filename).is_file():
+                element_sets.add(read_element_set(leaf / metric_filename))
             if kind == "state" and _state_diff_eval.truncated_reason(str(pred_path)):
                 truncated_leaves.append(str(leaf.relative_to(REPO)))
 
@@ -384,12 +753,18 @@ def build_site(
                 rec["label"] = gt_label
                 rec["action"] = _parse_action_blob(sections.get("action", ""))
                 rec["action_raw"] = sections.get("action", "")
+                # "바뀌어야 할 자리"는 (current, GT) 만의 함수라 세팅과 무관하다 —
+                # 세팅마다 다시 계산하면 같은 값을 N 번 싣게 된다.
+                rec["change_marks"] = gt_change_marks(
+                    sections["current_state"], gt_label, match_mode
+                )
                 rec["predictions"] = {
                     st["id"]: {
                         "text": preds[st["id"]][i].get("predict", ""),
                         "stats": score_state_row(
                             preds[st["id"]][i].get("predict", ""),
                             gt_label,
+                            sections["current_state"],
                             match_mode,
                         ),
                     }
@@ -463,6 +838,30 @@ def build_site(
         "sample_size": samples,
         "match_mode": match_mode,
         "coord_mode": coord_mode,
+        # change 축 strict 의 내용 임계. 화면이 "sim 0.44 < τ 0.9 라서 탈락"까지
+        # 보여야 감사가 되므로 상수를 payload 에 싣는다 (JS 에 하드코딩하면 정본과
+        # 조용히 갈린다).
+        "change_tau": _state_diff_eval.CHANGE_TEXT_SIM_TAU,
+        # 요소 색칠이 이 EXP 에서 쓸 수 있는가. EXP03/04 처럼 XML 에 index 속성이
+        # 없으면 (index 모드인데 bounds 만 있다) 키를 만들 수 없어 아무것도 안
+        # 칠해진다 — 그걸 "변화가 없다"로 오독하지 않게 화면에 명시한다.
+        # 위 aggregate 표(디스크 JSON)와 아래 표본 표(지금 채점)의 element 집합이
+        # 갈렸는지. 갈렸으면 두 표는 같은 이름의 다른 정의다 — `element_set_note` 참고.
+        "element_set": getattr(_hungarian_eval, "ELEMENT_SET", None),
+        "element_set_note": (
+            element_set_note(
+                element_sets, getattr(_hungarian_eval, "ELEMENT_SET", None)
+            )
+            if task == "state"
+            else ""
+        ),
+        "marks_usable": any(
+            r.get("change_marks", {}).get("gt") or r.get("change_marks", {}).get("cur")
+            for sp in data_splits.values()
+            for r in sp["samples"]
+        )
+        if task == "state"
+        else False,
         "settings": [st["id"] for st in settings],
         "setting_labels": {st["id"]: st["label"] for st in settings},
         "metric_keys": metric_keys,
@@ -502,9 +901,39 @@ def _sample_metrics(task: str, settings: list[dict], recs: list[dict]) -> dict:
             return round(sum(float(r.get(key) or 0) for r in rows) / n, 1)
 
         if task == "state":
+            # state-diff 축은 **행마다 정의 여부가 다르다** (변화 없는 행, GT 요소 0개,
+            # 파싱 실패 행에서 None). `avg()` 처럼 None 을 0 으로 세면 정의불능이
+            # 실패로 둔갑해 평균이 아래로 끌린다. 정본이 `n_*` 를 쌍으로 내는 것과
+            # 같은 이유로 **분모를 따로 싣는다** — 분모가 세팅마다 다르면 두 평균은
+            # 서로 다른 population 위의 수라 나란히 못 읽는다.
+            def avg_defined(key, rows=rows):
+                vals = [r[key] for r in rows if r.get(key) is not None]
+                if not vals:
+                    return None, 0
+                return round(100 * sum(vals) / len(vals), 1), len(vals)
+
+            addmod, n_addmod = avg_defined("addmod_recall")
+            strict, n_strict = avg_defined("change_f1_strict")
+            loose, n_loose = avg_defined("change_f1_loose")
+            floor, n_floor = avg_defined("change_f1_floor")
+            # 세 축은 정본이 **정확히 같은 행에서만** 정의한다고 약속한다. 어긋나면
+            # 세 평균의 분모가 갈려 "strict < floor" 같은 판단이 무의미해지므로
+            # 조용히 넘기지 않는다.
+            if not (n_strict == n_loose == n_floor):
+                raise SiteBuildError(
+                    "change 축 정의 구간 불일치 — strict/loose/floor 의 분모가 "
+                    f"{n_strict}/{n_loose}/{n_floor} 로 갈렸습니다. "
+                    "`_state_diff_eval.compute_change_items` 의 None 규칙을 확인하세요."
+                )
             out[st["id"]] = {
                 "hung_f1": avg("f1"),
                 "hung_ea": avg("ea"),
+                "addmod_recall": addmod,
+                "n_addmod_recall": n_addmod,
+                "change_f1_strict": strict,
+                "change_f1_loose": loose,
+                "change_f1_floor": floor,
+                "n_change_f1": n_strict,
                 "bleu4": avg("bleu4"),
                 "rouge_l": avg("rouge_l"),
                 "exact": round(100 * sum(bool(r["exact"]) for r in rows) / n, 1),
@@ -549,13 +978,43 @@ def render_readme(data: dict, provenance: list[dict], truncated: list[str]) -> s
         "",
         "## 점수의 출처",
         "",
-        "카드에 표시되는 점수는 전부 정본 채점기 산출값이라 위쪽 aggregate 표와 정의가 같다.",
+        "카드와 표본 표의 점수는 전부 정본 채점기를 **이 자리에서 다시 돌린** 값이다 "
+        "(사이트 전용 정의를 만들지 않는다).",
     ]
+    if data.get("element_set_note"):
+        lines += ["", f"> {data['element_set_note']}"]
+    elif task == "state":
+        lines += [
+            "",
+            f"- element 집합 `{data.get('element_set')}` — 위쪽 aggregate 표의 metric "
+            "파일과 같은 값이라 두 표를 나란히 읽어도 된다.",
+        ]
     if task == "state":
         lines += [
             f"- `scripts/_hungarian_eval.py::compute_hungarian_acc` "
             f"(`--match-mode {data['match_mode']}`) → F1 / EA / prec / rec / text / 위치",
             "- 같은 모듈의 `calc_bleu` · `calc_rouge_l` → BLEU-4 / ROUGE-L",
+            "- `scripts/_state_diff_eval.py::compute_state_diff` → addmod recall / "
+            "change F1 (strict · loose · 바닥)",
+            "",
+            "### 카드의 `Change` 탭 — 점수 감사",
+            "",
+            "카드마다 `Change` 뷰가 있고, 거기서 **분자에 들어간 요소와 빠진 요소**를 "
+            "요소 단위로 볼 수 있다. GT 가 요구한 변화(ADDED/MODIFIED/DELETED) 각각이 "
+            "strict hit / 자리만 맞음 / miss 중 무엇인지, 어떤 예측 요소와 짝이 붙었고 "
+            "`text_sim` 이 얼마였는지가 한 줄씩 나온다. 요소 분류는 "
+            "`_state_diff_eval._classify_from_els` 산출이고, 그 분류로 다시 센 값이 "
+            "정본 `compute_state_diff` 의 수치를 재현하는지 **행마다 대조**한다 "
+            "(어긋나면 빌드가 실패한다 — 색과 숫자가 갈리면 감사가 거짓이 된다).",
+            "",
+            f"> `change_f1_strict` 를 `change_f1_floor` 없이 읽지 말 것. 이 축의 바닥은 "
+            "0 이 아니라 0.2~0.4 이고, 바닥을 빼면 퇴화 모델이 학습 모델보다 좋아 보인다. "
+            "카드 헤드라인의 `Δ` 가 그 차이(strict − 바닥)이고 **색은 Δ 의 부호**로 정해진다.",
+            "",
+            f"> 상단 두 화면의 색은 GT 기준 '바뀌어야 할 자리'다 — 왼쪽(current)의 빨강은 "
+            "사라져야 할 요소, 오른쪽(GT)의 초록/주황은 새로 생기거나 바뀐 요소. "
+            f"노드 매칭 키는 {'bounds' if data['match_mode'] == 'pos' else 'index'} 속성이라 "
+            "키가 겹치는 노드는 함께 칠해진다 — 감사의 정본은 `Change` 뷰의 리스트다.",
         ]
     else:
         fn = "evaluate_single_xy" if data["coord_mode"] == "xy" else "evaluate_single"
@@ -708,13 +1167,15 @@ def render_html(data: dict) -> str:
     <div class="panel metric-overview">
       <h3 id="metricTitle">전체 지표</h3><div id="metricTable"></div>
       <h3 id="sampleMetricTitle">표본 지표</h3><div id="sampleMetricTable"></div>
+      <div id="elementSetNote"></div>
     </div>
   </section>
   <div class="navrow"><div class="sample-id" id="sampleId"></div>
     <div class="progress"><div id="progressBar"></div></div></div>
   <section class="panel context">
     <div class="context-head"><strong id="actionChipLabel">액션</strong>
-      <span class="action-chip" id="actionChip"></span></div>
+      <span class="action-chip" id="actionChip"></span>
+      <span class="mark-legend" id="markLegend"></span></div>
     {gt_block}
     <div class="context-grid">
       {_pane_html("A", pane_a)}
@@ -763,6 +1224,20 @@ main{width:min(2360px,calc(100vw - 24px));margin:auto;padding:20px 0}.hero{displ
 .fieldtable{width:100%;border-collapse:collapse;font:11px/1.5 ui-monospace,Menlo,monospace;color:#e5e7eb}.fieldtable td{padding:4px 8px;border-top:1px solid #334155;vertical-align:top;overflow-wrap:anywhere}.fieldtable td:first-child{color:#94a3b8;width:33%}.fieldtable tr.ng td{background:rgba(193,60,60,.18)}.fieldtable tr.ok td{background:rgba(17,135,93,.16)}
 .thoughtview{padding:12px;font:12px/1.6 ui-sans-serif,system-ui;color:#e5e7eb;white-space:pre-wrap;overflow-wrap:anywhere}
 .stats-row{padding:8px 11px;display:grid;grid-template-columns:repeat(3,1fr);gap:5px;border-top:1px solid var(--line);font-size:10px;color:var(--muted)}.stats-row strong{display:block;color:var(--ink);font-size:12px}
+/* 변화 감사 — 요소 단위 색칠. mk-add/mod/del 은 "GT 가 요구한 변화", mk-hit/part/miss 는
+   "예측이 맞혔나". 색은 셋(초록/주황/빨강)을 공유하지만 **키 공간이 달라** 이름을 나눈다. */
+.node.mk-add,.node.mk-hit{border:2px solid #10b981;background:rgba(16,185,129,.28);z-index:6}
+.node.mk-mod,.node.mk-part{border:2px solid #f59e0b;background:rgba(245,158,11,.28);z-index:6}
+.node.mk-del,.node.mk-miss{border:2px solid #ef4444;background:rgba(239,68,68,.26);z-index:6}
+.tree-node.mk-add,.tree-node.mk-hit{border-color:#10b981;background:rgba(16,185,129,.20)}
+.tree-node.mk-mod,.tree-node.mk-part{border-color:#f59e0b;background:rgba(245,158,11,.20)}
+.tree-node.mk-del,.tree-node.mk-miss{border-color:#ef4444;background:rgba(239,68,68,.18)}
+.mark-legend{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted)}.mark-legend em{font-style:normal}.mark-legend b{font-weight:700;font-size:10px;border-radius:999px;padding:3px 8px;border:1px solid var(--line)}.mark-legend b.mk-add{background:rgba(16,185,129,.16);border-color:#10b981;color:#0b6b4a}.mark-legend b.mk-mod{background:rgba(245,158,11,.16);border-color:#f59e0b;color:#8a5300}.mark-legend b.mk-del{background:rgba(239,68,68,.14);border-color:#ef4444;color:#a12a2a}
+.delta{margin-top:4px;font-size:11px;font-weight:750;border-radius:7px;padding:3px 7px;border:1px solid var(--line);white-space:nowrap}.delta.up{background:#e9f8f1;color:var(--good);border-color:#bce8d5}.delta.down{background:#fdecec;color:var(--bad);border-color:#f2c2c2}.delta.flat,.delta.na{background:var(--surface-2);color:var(--muted)}
+.audit-row{padding:8px 11px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;border-top:1px solid var(--line)}.audit-row .ax{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--surface-2);min-width:0}.audit-row .ax span{display:block;font-size:10px;color:var(--muted)}.audit-row .ax b{display:block;font:10.5px/1.4 ui-monospace,Menlo,monospace;color:var(--ink);overflow-wrap:anywhere}.audit-row .ax i{font-style:normal;font-weight:800;font-size:13px}.audit-row .ax.floor{background:#f3f4f6;border-style:dashed}.axis-note{padding:0 11px 9px;font-size:11px;line-height:1.5;color:var(--warn)}
+.warnbox{margin-top:10px;padding:8px 10px;border:1px solid #efd9ab;background:#fdf4e3;color:var(--warn);border-radius:8px;font-size:11px;line-height:1.6}
+.chg-ctx{font-size:11px;color:var(--muted);padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);line-height:1.6}.chg-ctx small{margin-left:6px;opacity:.75}
+.changeview{padding:11px;display:flex;flex-direction:column;gap:11px;min-height:100%;background:var(--surface)}.chg-sec h4{margin:0 0 6px;font-size:12px;color:var(--ink)}.chg-sec h4 small{font-weight:400;color:var(--muted)}.chg-item{display:flex;gap:7px;align-items:baseline;flex-wrap:wrap;padding:5px 7px;border-radius:7px;border:1px solid var(--line);margin-bottom:4px;font-size:11px;background:var(--surface-2)}.chg-item.ok{border-color:#10b981;background:rgba(16,185,129,.10)}.chg-item.part{border-color:#f59e0b;background:rgba(245,158,11,.10)}.chg-item.miss{border-color:#ef4444;background:rgba(239,68,68,.08)}.chg-item code{font:10.5px/1.45 ui-monospace,Menlo,monospace;color:var(--ink);overflow-wrap:anywhere;max-width:100%}.chg-k{font-size:9px;font-weight:800;border-radius:999px;padding:2px 6px;background:#1f2937;color:#fff;white-space:nowrap}.chg-k.k-A{background:#0b6b4a}.chg-k.k-M{background:#8a5300}.chg-k.k-D{background:#a12a2a}.chg-arrow{color:var(--muted)}.chg-sim{font:10px ui-monospace,Menlo,monospace;color:var(--muted);white-space:nowrap}.chg-v{margin-left:auto;color:var(--muted);white-space:nowrap}.chg-empty{padding:10px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-size:11px;line-height:1.6}
 .rating{padding:9px 11px;border-top:1px solid var(--line);display:flex;align-items:center;gap:6px}.rating span{font-size:11px;color:var(--muted);margin-right:auto}.rate-btn{width:27px;height:27px;border-radius:7px;border:1px solid var(--line);background:white;cursor:pointer;filter:grayscale(1)}.rate-btn.selected{filter:none;background:var(--accent-soft);border-color:#9bb0ff}
 .notes{margin-top:16px;padding:14px}.notes h3{font-size:14px;margin:0 0 8px}.notes textarea{width:100%;min-height:92px;border:1px solid var(--line);border-radius:9px;padding:10px;resize:vertical}.notes-foot{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:7px}.empty{padding:20px;color:var(--muted)}
 .toast{position:fixed;right:20px;bottom:20px;background:#111827;color:white;padding:10px 14px;border-radius:9px;box-shadow:var(--shadow);opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none;z-index:100}.toast.show{opacity:1;transform:none}
@@ -817,12 +1292,17 @@ function pretty(a, raw){
 
 /* ── 지표 표 ──────────────────────────────────────────────────── */
 const LOWER_IS_BETTER = new Set(['no_bbox_n']);
-const NOT_RANKED = new Set(['total', 'no_bbox_n']);
+/* 랭킹(초록 굵게)에서 뺄 열. floor 는 **지표가 아니라 눈금**이라 최대값을 "최고"로
+   칠하면 정확히 반대로 읽힌다 (퇴화가 심할수록 바닥이 높다). n_* 는 분모라 성능이
+   아니다. */
+const NOT_RANKED = new Set(['total', 'no_bbox_n',
+  'avg_change_f1_floor', 'avg_n_change_gt', 'avg_n_change_pred', 'change_f1_floor']);
+function isRanked(k){return !NOT_RANKED.has(k) && !k.startsWith('n_')}
 function metricsTable(rows, keys, fmt){
   const best = {};
   for(const k of keys){
     const vals = splitSettings().map(s => rows[s] ? rows[s][k] : undefined).filter(v => typeof v === 'number');
-    if(!vals.length || NOT_RANKED.has(k)) continue;
+    if(!vals.length || !isRanked(k)) continue;
     best[k] = LOWER_IS_BETTER.has(k) ? Math.min(...vals) : Math.max(...vals);
   }
   let h = '<table class="metrics-table"><thead><tr><th>Setting</th>' +
@@ -845,12 +1325,28 @@ function renderMetrics(){
   $('#metricTitle').textContent = `전체 ${sp.label} 지표 (모집단 ${sp.population.toLocaleString()}개 · 정본 metric 파일)`;
   const sKeys = Object.keys(sp.sample_metrics[splitSettings()[0]] || {});
   $('#sampleMetricTable').innerHTML = sKeys.length
-    ? metricsTable(sp.sample_metrics, sKeys, v => typeof v === 'number' ? v.toFixed(1) : '—')
+    /* n_* 는 개수라 소수점을 붙이면 %로 오독된다 — 정수는 정수로 찍는다. */
+    ? metricsTable(sp.sample_metrics, sKeys,
+        v => typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(1)) : '—')
     : '<p class="empty">표본 없음</p>';
   $('#sampleMetricTitle').textContent = `표본 ${sp.samples.length}개 기준 (%, 같은 채점기)`;
+  /* 두 표에 같은 이름의 열(addmod/change)이 나란히 놓이므로, 정의가 갈렸을 때
+     말하지 않으면 그대로 비교당한다. */
+  $('#elementSetNote').innerHTML = DATA.element_set_note
+    ? `<div class="warnbox">${esc(DATA.element_set_note)}</div>` : '';
 }
 
 /* ── 와이어프레임 ─────────────────────────────────────────────── */
+/* `_compare_site._el_key` 와 **같은 규칙**이어야 한다. pos 계열은 bounds, index
+   계열은 index 가 자연 키다. 규칙이 갈리면 아무것도 안 칠해지거나(무해) 엉뚱한
+   노드가 칠해진다(유해). 키가 겹치는 노드는 함께 칠해진다 — 색은 길잡이고 감사의
+   정본은 Change 뷰의 요소 리스트다. */
+function nodeKey(attrs){
+  const m = DATA.match_mode==='pos'
+    ? attrs.match(/bounds="([^"]*)"/) : attrs.match(/\bindex="([^"]*)"/);
+  return m ? m[1] : '';
+}
+function markCls(marks, key){return (marks && marks.cls && key && marks.cls[key]) || ''}
 function parseNodes(xml){
   const out=[];const re=/<([A-Za-z][\w:.-]*)\b([^>]*)>([^<]{0,80})?/g;let m,maxX=0,maxY=0;
   while((m=re.exec(xml))&&out.length<420){
@@ -862,7 +1358,7 @@ function parseNodes(xml){
     x1=Math.max(0,x1);y1=Math.max(0,y1);maxX=Math.max(maxX,x2);maxY=Math.max(maxY,y2);
     const tag=m[1].toLowerCase();
     const label=(attrs.match(/aria-label="([^"]*)"/)||attrs.match(/placeholder="([^"]*)"/)||attrs.match(/value="([^"]*)"/)||[])[1]||(m[3]||'').trim();
-    out.push({tag,x1,y1,x2,y2,label});
+    out.push({tag,x1,y1,x2,y2,label,key:nodeKey(attrs)});
   }
   return {nodes:out,width:Math.max(maxX,1),height:Math.max(maxY,1)};
 }
@@ -883,7 +1379,9 @@ function structureWireframe(xml, marks){
     const idx=(attrs.match(/\bindex="([^"]+)"/)||[])[1];
     const label=(attrs.match(/aria-label="([^"]*)"/)||attrs.match(/placeholder="([^"]*)"/)||attrs.match(/value="([^"]*)"/)||[])[1]||(m[4]||'').trim();
     const node=document.createElement('div');
-    node.className=`tree-node ${tag}` + (idx!==undefined && hits.has(String(idx)) ? ' hit' : '');
+    const mc=markCls(marks, nodeKey(attrs));
+    node.className=`tree-node ${tag}`
+      + (idx!==undefined && hits.has(String(idx)) ? ' hit' : '') + (mc?' '+mc:'');
     node.style.marginLeft=`${depth*18}px`;
     const name=document.createElement('strong');
     name.textContent=`<${tag}${idx!==undefined?' #'+idx:''}>`;
@@ -903,6 +1401,7 @@ function wireframe(xml, marks){
   nodes.sort((a,b)=>((b.x2-b.x1)*(b.y2-b.y1))-((a.x2-a.x1)*(a.y2-a.y1)));
   for(const n of nodes){
     const d=document.createElement('div');d.className=`node ${n.tag}`;
+    const mc=markCls(marks, n.key); if(mc) d.className+=' '+mc;
     d.style.left=`${n.x1/width*100}%`;d.style.top=`${n.y1/height*100}%`;
     d.style.width=`${(n.x2-n.x1)/width*100}%`;d.style.height=`${(n.y2-n.y1)/height*100}%`;
     d.title=`<${n.tag}> ${n.label||''} [${n.x1},${n.y1}][${n.x2},${n.y2}]`;
@@ -979,7 +1478,13 @@ function paneSource(pane){
   return pane==='A' ? s.current_state : s.label;
 }
 function paneMarks(pane){
-  if(MODE==='state') return null;
+  if(MODE==='state'){
+    /* pane A = current("무엇이 사라져야 하나") / pane B = GT next state("무엇이
+       생기고 바뀌나"). 두 dict 의 키 공간이 다르므로 빌드 시점에 따로 싣고 여기서
+       고른다 — 섞어도 화면은 칠해져서 정상으로 보이기 때문에 조용히 틀린다. */
+    const m = current().change_marks;
+    return m ? {cls: pane==='A' ? m.cur : m.gt} : null;
+  }
   const isCurrent = (MODE==='stage2' && pane==='B') || (MODE==='action' && pane==='A');
   if(!isCurrent) return null;
   const s=current(), f=actionFields(s.gt_action), pts=[], idxs=[];
@@ -999,6 +1504,107 @@ function renderContextView(pane){
   $$(`[data-context-view][data-target="${pane}"]`).forEach(b=>b.classList.toggle('active',b.dataset.contextView===mode));
 }
 
+/* ── 변화 감사 (Change 뷰) ────────────────────────────────────────
+   원 요구는 "점수를 눈으로 확인하고 싶다"이지 "숫자를 한 번 더 보고 싶다"가 아니다
+   (예전에 base 와 epoch3 가 같은 화면을 냈는데 f1 이 갈린 이유를 손으로 확인해야
+   했다). 그래서 이 뷰는 값이 아니라 **분자에 들어간 요소와 빠진 요소**를 나열한다. */
+const CHG_KIND={A:'ADDED',M:'MODIFIED',D:'DELETED'};
+function fmtPct(v){return (v===null||v===undefined)?'—':(v*100).toFixed(1)+'%'}
+function elLabel(e){return e?`<${e.g}${e.k?' '+e.k:''}>${e.x?' '+e.x:''}`:'—'}
+
+/* `—` 하나로 뭉개면 안 되는 세 가지를 가른다: 파싱 실패 / 변화 없는 행(복사가 정답) /
+   진짜 0.0. 셋을 같은 칸으로 렌더하면 이 화면의 목적이 그 자리에서 깨진다. */
+function axisNote(st){
+  if(st.parse_fail) return '⚠️ 예측에서 요소를 하나도 추출하지 못했습니다 (parse_fail) '
+    + '— 정본은 이 행의 change 축을 0.0(실패)으로, addmod 축을 미정의로 셉니다.';
+  if(st.n_change_gt===0) return 'ℹ️ 이 행은 GT 가 current 와 같습니다 (변화 0개). '
+    + '복사가 정답이라 change/addmod 축이 정의되지 않고, 대신 no_change_acc = '
+    + (st.no_change_acc===null||st.no_change_acc===undefined?'—':st.no_change_acc)
+    + ' 가 이 구간을 잽니다.';
+  if(st.addmod_recall===null && st.change_f1_strict!==null)
+    return 'ℹ️ GT 의 변화가 DELETED 뿐이라 addmod 축(분모 = ADDED+MODIFIED)이 정의되지 않습니다.';
+  return '';
+}
+function axisCell(label, frac, val, cls){
+  return `<div class="ax ${cls||''}"><span>${label}</span><b>${frac}</b><i>${val}</i></div>`;
+}
+/* 카드 대표 점수를 Hungarian F1 하나로 두지 않기 위한 블록 (AGENTS.md 13b).
+   색은 **값이 아니라 Δ 의 부호**로 정한다 — strict 값으로 색을 매기면 0.114(학습)와
+   0.258(바닥)이 똑같이 "낮음"으로 보여 "바닥에 졌다"는 유일한 판별 정보가 사라진다. */
+function changeHeadline(st){
+  if(st.change_f1_strict===null||st.change_f1_strict===undefined)
+    return '<div class="delta na">change 축 미정의</div>';
+  const d=st.change_f1_strict-st.change_f1_floor;
+  const cls=d>0?'up':d<0?'down':'flat';
+  return `<div class="delta ${cls}" title="change_f1_strict − change_f1_floor. 이 축의 바닥은 0 이 아니라 floor 다.">`
+    +`change ${fmtPct(st.change_f1_strict)} · 바닥 ${fmtPct(st.change_f1_floor)}`
+    +` · Δ ${d>0?'+':''}${(d*100).toFixed(1)}p</div>`;
+}
+function auditRow(st){
+  const note=axisNote(st);
+  const gtN=`GT ${st.n_change_gt} · 예측 ${st.n_change_pred}`;
+  return `<div class="audit-row">
+    ${axisCell('addmod recall', `${st.n_addmod_hit} / ${st.n_addmod_gt}`, fmtPct(st.addmod_recall))}
+    ${axisCell('change F1 (strict)', `hit ${st.n_change_hit_strict} · ${gtN}`, fmtPct(st.change_f1_strict))}
+    ${axisCell('change F1 (loose)', `hit ${st.n_change_hit_loose} · ${gtN}`, fmtPct(st.change_f1_loose))}
+    ${axisCell('change F1 바닥', '퇴화 예측의 상한', fmtPct(st.change_f1_floor), 'floor')}
+  </div>` + (note?`<div class="axis-note">${esc(note)}</div>`:'');
+}
+function chgVerdict(it, side){
+  if(it.h==='s') return 'hit · 내용까지 일치';
+  if(it.h==='l') return '자리만 맞음 · 내용 불일치로 strict 탈락';
+  if(it.w==='copy') return 'miss · 예측이 이 자리를 current 그대로 베꼈다';
+  if(it.w==='nochange') return 'spurious · GT 는 이 자리를 바꾸지 않았다';
+  return side==='gt' ? 'miss · 예측에 대응 요소가 없다' : 'spurious · GT 에 대응 요소가 없다';
+}
+function chgItem(it, side){
+  const cls=it.h==='s'?'ok':it.h==='l'?'part':'miss';
+  let h=`<div class="chg-item ${cls}"><span class="chg-k k-${it.t}">${CHG_KIND[it.t]}</span>`
+    + `<code>${esc(elLabel(it))}</code>`;
+  if(it.m) h+=`<span class="chg-arrow">↔</span><code>${esc(elLabel(it.m))}</code>`;
+  if(it.s!==undefined) h+=`<span class="chg-sim">text_sim ${it.s.toFixed(3)} `
+    + `${it.s>=DATA.change_tau?'≥':'&lt;'} τ ${DATA.change_tau}</span>`;
+  return h+`<span class="chg-v">${chgVerdict(it, side)}</span></div>`;
+}
+function chgSection(title, items, more, side, empty){
+  const cut = more?` <small>(표시 ${items.length}개 · ${more}개 생략 — 개수는 정본 값)</small>`:'';
+  return `<div class="chg-sec"><h4>${title}${cut}</h4>`
+    + (items.length ? items.map(it=>chgItem(it,side)).join('') : `<div class="chg-empty">${empty}</div>`)
+    + '</div>';
+}
+function changeView(st){
+  const a=st.audit||{}, d=document.createElement('div');
+  d.className='changeview';
+  if(a.na){
+    d.innerHTML='<div class="chg-empty">예측·GT·current 중 하나에서 요소 추출이 예외로 실패했습니다 '
+      + '— 정본도 이 행의 state-diff 축을 전부 미정의로 냅니다.</div>';
+    return d;
+  }
+  const ce = st.copy_excess;
+  d.innerHTML = `<div class="chg-ctx">요소 수 — current ${st.n_cur_el} · GT ${st.n_gt_el} · 예측 ${st.n_pred_el}`
+      + ` <span title="예측이 current 와 겹친 비율 − GT 가 current 와 겹친 비율. 큰 양수 = 바뀌었어야 할 자리까지 베꼈다.">`
+      + `· copy_excess ${ce===null||ce===undefined?'—':(ce>0?'+':'')+ce.toFixed(3)}</span>`
+      + (st.no_change_acc===null||st.no_change_acc===undefined?'':` · no_change_acc ${st.no_change_acc}`)
+      + ` <small>점수 요약은 카드 하단에 항상 보입니다</small></div>`
+    + chgSection(`GT 가 요구한 변화 ${st.n_change_gt}개 — 예측이 맞혔나`,
+        a.gt||[], a.gt_more, 'gt', 'GT 가 current 와 같다 (요구된 변화 없음).')
+    + chgSection(`예측이 주장한 변화 ${st.n_change_pred}개 — 진짜였나`,
+        a.pd||[], a.pd_more, 'pd', '예측이 아무 변화도 주장하지 않았다 (= 복사 또는 생성 실패).');
+  return d;
+}
+/* 예측 카드 와이어프레임용 마크. DELETED 주장은 **current 요소 키**라 예측 XML 에
+   존재하지 않는다 — 키 공간이 달라 여기 섞으면 엉뚱한 노드가 칠해진다. */
+function predMarks(st){
+  const a=st.audit;
+  if(!a||!a.pd||!a.pd.length) return null;
+  const cls={};
+  for(const it of a.pd){
+    if(it.t==='D'||!it.k) continue;
+    cls[it.k]= it.h==='s'?'mk-hit':it.h==='l'?'mk-part':'mk-miss';
+  }
+  return {cls};
+}
+
 /* ── 카드 ─────────────────────────────────────────────────────── */
 function stateCard(setting, pred, s){
   const st=pred.stats;
@@ -1006,13 +1612,15 @@ function stateCard(setting, pred, s){
   el.className='prediction-card';el.dataset.setting=setting;
   el.innerHTML=`<div class="card-head">
       <div><div class="setting-name">${esc(DATA.setting_labels[setting])}</div>
-        <div class="subscore">Hungarian F1 · 정본 채점기</div></div>
+        <div class="subscore">Hungarian F1 + change 축 · 정본 채점기</div></div>
       <div style="text-align:right"><div class="score ${scoreClass(st.f1)}">${st.f1.toFixed(1)}%</div>
-        ${st.exact?'<span class="badge exact">EXACT</span>':'<span class="badge">비정확 일치</span>'}</div>
+        ${st.exact?'<span class="badge exact">EXACT</span>':'<span class="badge">비정확 일치</span>'}
+        ${changeHeadline(st)}</div>
     </div>
     <div class="card-tools">
       <button class="mini" data-view="wire">와이어프레임</button>
       <button class="mini active" data-view="diff">Diff</button>
+      <button class="mini" data-view="change">Change</button>
       <button class="mini" data-view="raw">원문</button>
       <button class="mini" data-copy-pred>복사</button>
     </div>
@@ -1024,11 +1632,15 @@ function stateCard(setting, pred, s){
       <div><span>BLEU-4</span><strong>${st.bleu4.toFixed(1)}</strong></div>
       <div><span>ROUGE-L</span><strong>${st.rouge_l.toFixed(1)}</strong></div>
       <div><span>줄 수</span><strong>${st.pred_lines} / ${st.label_lines}</strong></div>
-    </div>`;
+    </div>
+    ${auditRow(st)}`;
   const v=el.querySelector('.view');
   const show=mode=>{
     views[setting]=mode;
-    v.replaceChildren(mode==='wire'?wireframe(pred.text,null):mode==='raw'?rawView(pred.text):diffView(s.label,pred.text));
+    v.replaceChildren(
+      mode==='wire'?wireframe(pred.text,predMarks(st)):
+      mode==='change'?changeView(st):
+      mode==='raw'?rawView(pred.text):diffView(s.label,pred.text));
     el.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===mode));
   };
   el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>show(b.dataset.view));
@@ -1139,12 +1751,21 @@ function render(){
   $('#modeText').textContent=IS_ACTION?`coord-mode ${DATA.coord_mode}`:`match-mode ${DATA.match_mode}`;
   $('#introText').textContent=IS_ACTION
     ? '동일한 입력에 대해 각 세팅이 내놓은 액션을 정본 채점기 판정과 함께 비교합니다. GT 액션은 현재 상태 와이어프레임 위에 표시됩니다.'
-    : '현재 UI 상태와 액션을 기준으로 정답 next state 와 각 체크포인트의 예측을 비교합니다. 와이어프레임, 정답 대비 line diff, Hungarian 계열 점수를 함께 제공합니다.';
+    : '현재 UI 상태와 액션을 기준으로 정답 next state 와 각 체크포인트의 예측을 비교합니다. 와이어프레임, 정답 대비 line diff, Hungarian 계열 점수에 더해 카드의 Change 탭에서 addmod/change 축의 분자·분모를 요소 단위로 감사할 수 있습니다.';
   $('#sampleId').innerHTML=`${sp.label} 샘플 ${state.pos+1} / ${sp.samples.length}` +
     `<small>원본 행 #${s.index} · 모집단 ${sp.population.toLocaleString()}개</small>`;
   $('#progressBar').style.width=`${(state.pos+1)/sp.samples.length*100}%`;
   $('#actionChipLabel').textContent=MODE==='state'?'실행 액션 (입력)':'정답 액션 (GT)';
   $('#actionChip').textContent=actionText(MODE==='state'?s.action:s.gt_action);
+  if(MODE==='state') $('#markLegend').innerHTML = DATA.marks_usable
+    ? '<em>아래 두 화면의 색 = GT 기준 "바뀌어야 할 자리"</em>'
+      + '<b class="mk-add">ADDED (오른쪽)</b><b class="mk-mod">MODIFIED (오른쪽)</b>'
+      + '<b class="mk-del">DELETED (왼쪽)</b>'
+    /* 색이 없는 것을 "변화가 없다"로 읽으면 안 된다 — 키가 없어 못 칠하는 것이다. */
+    : '<em>⚠️ 이 EXP 의 XML 에는 요소 식별 속성('
+      + (DATA.match_mode==='pos'?'bounds':'index')
+      + ')이 없어 와이어프레임 색칠을 쓸 수 없습니다. 카드의 <b>Change</b> 탭에서 '
+      + '요소 단위 감사를 보세요.</em>';
   if(MODE==='stage2') $('#gtThought').textContent=s.gt_thought||'(없음)';
   renderContextView('A');renderContextView('B');
   $('#sampleSelect').value=String(state.pos);

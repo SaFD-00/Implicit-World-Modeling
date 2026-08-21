@@ -31,6 +31,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 
 _compare_site = importlib.import_module("_compare_site")
+_state_diff_eval = importlib.import_module("_state_diff_eval")
 parse_prompt = _compare_site.parse_prompt
 detect_layout = _compare_site.detect_layout
 
@@ -194,10 +195,102 @@ class TestScorerWiring(unittest.TestCase):
     def test_identical_state_scores_full_marks(self):
         for mode in ("index", "pos"):
             xml = _compare_site._PROBE_XML[mode]
-            stats = _compare_site.score_state_row(xml, xml, mode)
+            # 3번째 인자는 current state — pred == gt == current 는 "변화가 없는
+            # 행"이라 state-diff 축이 전부 미정의다 (hungarian 축만 만점).
+            stats = _compare_site.score_state_row(xml, xml, xml, mode)
             self.assertTrue(stats["exact"])
             self.assertEqual(stats["f1"], 100.0)
             self.assertEqual(stats["ea"], 100.0)
+
+    def test_state_row_carries_state_diff_axes(self):
+        """카드가 Hungarian F1 하나로 판단되면 안 된다 (AGENTS.md 13b).
+
+        `_state_diff_eval._PROBE` 의 `cur`/`gt`/`maxdel` 은 정본이 change 축을
+        설계할 때 쓴 fixture 다. `maxdel`(current 를 하나도 재현하지 않는 예측)이
+        **바닥이 0 이 아님**을 보인다 — 그 행에서 strict 는 바닥에 진다.
+        """
+        for mode in ("index", "pos"):
+            probe = _state_diff_eval._PROBE[mode]
+            copy = _compare_site.score_state_row(
+                probe["cur"], probe["gt"], probe["cur"], mode
+            )
+            # 복사기는 변화를 하나도 주장하지 않는다 → change 축 0.0 (None 이 아니다)
+            self.assertEqual(copy["n_change_pred"], 0)
+            self.assertEqual(copy["change_f1_strict"], 0.0)
+            self.assertLess(copy["addmod_recall"], 1.0)
+
+            maxdel = _compare_site.score_state_row(
+                probe["maxdel"], probe["gt"], probe["cur"], mode
+            )
+            self.assertGreater(maxdel["change_f1_floor"], 0.0, "바닥은 0 이 아니다")
+            self.assertLess(
+                maxdel["change_f1_strict"],
+                maxdel["change_f1_floor"],
+                "퇴화 예측은 바닥에 진다 — 0 기준으로 읽으면 오독한다",
+            )
+
+    def test_change_audit_reproduces_canonical_numbers(self):
+        """요소 단위 감사(화면의 색·리스트)가 정본 수치를 재현해야 한다.
+
+        재현하지 못하면 화면은 멀쩡한데 감사가 거짓이 된다 — 그래서 빌드가 이걸
+        행마다 확인하고, 여기서는 그 대조기 자체가 살아 있는지 본다.
+        """
+        for mode in ("index", "pos"):
+            probe = _state_diff_eval._PROBE[mode]
+            for pred in (probe["gt"], probe["cur"], probe["maxdel"], ""):
+                diff = _state_diff_eval.compute_state_diff(
+                    pred, probe["gt"], probe["cur"], mode
+                )
+                _, derived = _compare_site.state_change_audit(
+                    pred, probe["gt"], probe["cur"], mode
+                )
+                self.assertIsNone(
+                    _compare_site._audit_consistency_error(derived, diff),
+                    f"{mode}/{pred[:20]!r}",
+                )
+
+    def test_change_audit_marks_copied_element(self):
+        """복사 편향의 직접 증거 — '바뀌어야 할 자리를 그대로 베꼈다'가 보여야 한다."""
+        probe = _state_diff_eval._PROBE["index"]
+        audit, _ = _compare_site.state_change_audit(
+            probe["cur"], probe["gt"], probe["cur"], "index"
+        )
+        self.assertEqual(audit["pd"], [], "복사기는 아무 변화도 주장하지 않는다")
+        copied = [it for it in audit["gt"] if it.get("w") == "copy"]
+        self.assertTrue(copied, f"copy 표식이 없다 — {audit['gt']}")
+        # 매칭된 예측 요소와 그 text_sim 이 함께 보여야 "왜 miss 인지"가 읽힌다.
+        self.assertIn("m", copied[0])
+        self.assertLess(copied[0]["s"], _state_diff_eval.CHANGE_TEXT_SIM_TAU)
+
+    def test_gt_change_marks_split_key_spaces(self):
+        """DELETED 는 current 요소, ADDED/MODIFIED 는 GT 요소 — 키 공간이 다르다.
+
+        섞어도 화면은 칠해져서 정상으로 보이므로 여기서 붙잡는다.
+        """
+        probe = _state_diff_eval._PROBE["index"]
+        marks = _compare_site.gt_change_marks(probe["cur"], probe["gt"], "index")
+        self.assertEqual(set(marks["cur"].values()), {"mk-del"})
+        self.assertTrue(set(marks["gt"].values()) <= {"mk-add", "mk-mod"})
+        self.assertTrue(marks["gt"], "GT 쪽 변화 마크가 비었다")
+        # `img #4` 는 gt 에서 사라진다 = current 쪽 DELETED 마크의 근거.
+        self.assertIn("4", marks["cur"])
+
+    def test_marks_are_dropped_when_key_is_degenerate(self):
+        """EXP03/04 의 XML 은 bounds 만 있고 index 속성이 없는데 index 모드로 채점된다.
+
+        그러면 전 요소의 `index` 가 -1 로 같아져, 그 값을 키로 쓰면 **화면 전체가
+        칠해진다**. 안 칠하는 것(무해)과 다 칠하는 것(그럴듯하게 틀림)은 같지 않다.
+        """
+        self.assertEqual(
+            _compare_site._el_key({"tag": "div", "text": "", "index": -1}, "index"), ""
+        )
+        self.assertEqual(
+            _compare_site._el_key({"tag": "div", "text": "", "bounds": ""}, "pos"), ""
+        )
+        cur = '<node><div bounds="[0,0][10,10]" point="[5,5]">a</div></node>'
+        gt = '<node><div bounds="[0,0][10,10]" point="[5,5]">b</div></node>'
+        marks = _compare_site.gt_change_marks(cur, gt, "index")
+        self.assertEqual(marks, {"cur": {}, "gt": {}}, "판별 불가 키가 실렸다")
 
     def test_action_row_scoring_index_mode(self):
         gt = {"action_type": "click", "index": "13"}
