@@ -79,9 +79,16 @@ ACTION_PAYLOAD 가 **정확히 0** 이었고 `derivability_lookup` 키는 `(tag,
 ### 5. 남은 것
 
 - 채점기 쪽 v3 축(`addmod_recall` 을 derivable/non_derivable 로 분리 리포트)은 아직 배선하지 않았다.
-- 알려진 오분류: 연락처 알파벳 인덱스(ABC/DEF/GHI…)와 키보드 위 nav "Back" 이 NON_DERIVABLE 로 남는다.
-  둘 다 결정론적이라 유도 가능으로 가야 하지만, **precision 우선**(앱 콘텐츠를 유도 가능으로 잘못 넣으면
-  실패가 지표에서 숨는다)이라 지금은 과소 라벨링 쪽에 두었다.
+- **감사로 찾아 고친 것**: IME **제안 스트립**이 SYSTEM_UI 로 새어들고 있었다. SYSTEM_UI 3,129건 중
+  86건(2.7%)이 한 문서에만 나오는 텍스트였고 전부 IME 사전·자동완성 출력이었다("Vegas"/"Dresses"/
+  emoji/`richardwagner123@gmail.com`). 어휘 목록 없이 갈랐다 — current 에도 패널이 있으면 패널 안에서
+  **새로 생긴 텍스트**가 제안이다(유지 1,599건 vs 신규 102건). 이제 접두 완성은 ACTION_PAYLOAD,
+  사전 출력은 NON_DERIVABLE 로 각자 제자리를 찾는다.
+- **남은 과소 라벨링 (의도적)**: 연락처 알파벳 인덱스(ABC/DEF/GHI…)와 화면 크롬 상투어
+  (Back 36 · Search 23 · Share 18 · More options 17 …, NON_DERIVABLE 의 9.3%)가 NON_DERIVABLE 로 남는다.
+  결정론적이라 유도 가능 쪽이 맞을 수 있지만, 어휘 목록을 도입하는 순간 **앱 콘텐츠를 유도 가능으로
+  잘못 넣을 위험**이 생긴다 — 그 방향의 오류는 지표에서 실패를 숨기므로 **precision 우선**으로 두었다.
+  과소 라벨링은 뷰어에서 눈에 보인다.
 - 카테고리: devlog
 
 ## 2026-08-12 — IWM: 복사기(copy baseline) 기준선 + similarity gain 신설 — `addmod_recall` 은 복사에 면역이 아니었다
