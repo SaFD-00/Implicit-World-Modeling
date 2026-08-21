@@ -645,6 +645,55 @@ outputs/{OUT_DS}/                # AndroidControl_EXP0{1..5} | MC.  AC_EXP01 의
 > **dual-task 분기 (Stage 1 한정)**: EVAL_DS 가 AC_EXP01~AC_EXP05 · AC_EXP07 (`_DUAL_TASK_TEST`) 이면 `state_pred` 와 `action_pred` 를 **각각 독립 채점**한다 — `on-{DS}-state/hungarian_metrics.json` (Stage1 채점기) + `on-{DS}-action/action_metrics.json` (**Stage2 채점기**). 각 task 가 (id, ood) 2 파일을 가지므로 inference 는 4 회. without_open_app sibling 은 state branch 만.
 > **Stage 2 의 EVAL_DS 는 dual-task 가 아니다** — 일반 action prediction 으로 `stage2_test_{id,ood}.jsonl` 을 함께 채점해 3 섹션을 낸다. AC_EXP01 의 test 4 파일은 ratio 와 무관하다 (ratio 차원은 학습 산출물에만 박힌다).
 
+### 채점 대상 element 집합 — `--element-set full|legacy` (2026-08-21)
+
+Hungarian 계열과 state-diff 계열이 **무엇을 요소로 세는가**를 고르는 스위치다. `_hungarian_eval.extract_elements()` 하나가 두 채점기의 공통 입구이므로(§`_state_diff_eval` 은 `_he.extract_elements` 를 그대로 부른다) 이 선택이 `hungarian_*` · `addmod_*` · `change_*` · `copy_*` 전 축을 동시에 정의한다.
+
+**왜 바꿨나 — 옛 화이트리스트는 실제 요소의 약 24% 를 버리고 있었다.** 포함 조건이 `INTERACTIVE_TAGS{button,input,a,select,textarea} ∪ CONTENT_TAGS{p,img,span} ∪ clickable 속성 ∪ description` 이었는데, 실데이터에는 `clickable`·`description` 이 **0건**이라 사실상 태그 7종만 남았다. 실측:
+
+| | 전체 | 옛 집합 채택 | drop |
+|---|---:|---:|---|
+| EXP05 stage1 test id (50문서) | 2,795 | 2,108 | **24.6%** — `div` 617 전량, `img` 11 전량, `LinearLayoutCompat/node/RecyclerView/ListView/SeekBar/ScrollView/DrawerLayout/ImageButton/Dialog` 56 전량 |
+| EXP01 stage1 test id (전수) | `index=` 307,354 | — | **24.2%** — `div` 단독 22.5%, `<div aria-label="…">` 형태만 8,352개 소멸 |
+
+`img` 은 `CONTENT_TAGS` 소속인데도 `is_content = (tag in CONTENT_TAGS) and bool(text)` 가 텍스트를 요구해 **항상 0개 통과**였다 — 화이트리스트와 별개인 독립 버그다. 화면 변화의 상당수가 nav/아이콘/컨테이너에서 일어나므로, 버린 만큼 **변화 자체가 관측되지 않았다.** `--include-aria` 는 이 문제의 일부(pos 모드의 aria-label-only 요소)만 여는 opt-in 이었고 파이프라인 어느 스크립트도 켜지 않아 사실상 죽은 코드였다.
+
+**`full` (기본) 이 하는 일**
+
+1. **파서가 낸 모든 요소를 채택한다.** 화이트리스트 없음.
+2. **태그를 소문자로 정규화한다.** lxml `xml` 파서는 케이스를 보존해 `RecyclerView` 로 두고 폴백인 `html.parser` 는 `recyclerview` 로 만든다. 예측만 마크다운 펜스에 감싸이면 pred 는 폴백 경로·GT 는 xml 경로를 타 **태그가 영구 불일치**하는데, `_match_cost` 의 태그 불일치 비용 `W_TAG=3.0` 은 임계(1.5/1.7)를 넘겨 사실상 하드 게이트라 그 문서가 통째로 0점이 된다.
+3. **텍스트 규칙을 "자체 우선, 비면 자손 흡수" 로 통일한다** (index·pos 공통). 자체 = `description|id|text|aria-label` + 직계 텍스트. 기존 포함 요소에는 사실상 무변화이고(`<button aria-label="Saves"><p>Saves</p></button>` → 전후 모두 "Saves"), 새로 들어오는 컨테이너는 서브트리 텍스트로 정체성을 얻는다. **흡수가 없으면 컨테이너 텍스트가 전부 `""` 이 되고 `_text_sim("","")==1.0` 이라 태그만 같으면 아무 컨테이너끼리나 cost 0 으로 붙어 완벽한 UNCHANGED 로 채점된다.** 옛 집합의 무주석 divergence(index 모드에만 `is_described` 분기가 없던 것)도 이 통일로 사라진다.
+
+**⚠️ 이 스위치는 전역이다.** 호출 경로가 정본·state-diff·copy-baseline 에 걸쳐 있고 시그니처가 전부 달라 인자로 못 흘린다. 게다가 `_hungarian_eval.py` 를 스크립트로 돌리면 그 모듈은 `__main__` 이고 `_state_diff_eval` 의 `import _hungarian_eval as _he` 가 **두 번째 사본**을 만든다 — 한쪽만 설정하면 hungarian 은 새 집합, state-diff 는 옛 집합으로 채점되어 층 분해 항등식 `(unchanged+modified+added hit)/n_gt == hungarian_rec` 이 조용히 깨진다. 그래서 `_write_state_diff` 가 `_sd._he.set_element_set()` 로 **명시 전파**하고, 두 산출물이 각각 **자기가 실제로 읽은 전역**을 스탬프한다.
+
+**실측 A/B — 헤드라인은 거의 안 움직이고, 바뀐 것은 "무엇을 재는가" 다.** EXP05 `qwen2.5-vl-3b/full_world-model/epoch-3/on-AC_EXP05-state`, `--match-mode pos`, id split (n=2,684), 같은 예측 jsonl:
+
+| 지표 | legacy | full | Δ |
+|---|---:|---:|---:|
+| `avg_hungarian_f1` | 0.7522 | 0.7525 | **+0.0003** |
+| `avg_hungarian_prec` | 0.7659 | 0.7601 | −0.0058 |
+| `avg_hungarian_rec` | 0.8593 | 0.8569 | −0.0024 |
+| `avg_hungarian_text` | 0.6535 | 0.7345 | **+0.0810** |
+| `avg_hungarian_pos` | 0.5302 | 0.5679 | **+0.0377** |
+| `avg_bleu` / `avg_rouge_l` | — | — | ±0 (요소를 안 쓴다) |
+| `avg_addmod_recall` | 0.7812 | 0.7571 | −0.0241 |
+| `avg_added_recall` | 0.5588 | 0.5134 | −0.0454 |
+| `avg_change_f1_strict` | 0.2927 | 0.3043 | +0.0116 |
+| `avg_change_f1_loose` | 0.4710 | 0.4578 | −0.0132 |
+| `avg_change_f1_floor` | 0.2489 | 0.2581 | +0.0092 |
+| `avg_copy_excess` | −0.0041 | −0.0074 | −0.0033 |
+| `avg_n_gt` / `avg_n_pred` | 38.96 / 47.56 | 52.07 / 64.71 | **+34% / +36%** |
+| `parse_fail_rate` | 0.0011 | 0.0000 | −0.0011 |
+
+읽는 법:
+- **`hungarian_f1` 이 +0.0003 이라는 게 핵심이다.** 요소가 34% 늘었는데 헤드라인이 안 움직였다 — 이 변경은 점수 인플레가 아니라 **모집단 교체**다. 그래서 옛 산출물과 새 산출물의 `f1` 이 비슷해 보여도 같은 수가 아니다 (`element_set` 스탬프로 구분하라).
+- **`text` +0.081 · `pos` +0.038 이 실질 개선이다.** 컨테이너가 서브트리 텍스트로 정체성을 얻으면서 매칭된 짝의 내용·위치 정합도가 올라갔다.
+- **`added_recall` −0.045 는 나빠진 게 아니라 어려워진 것이다.** 새로 보이게 된 ADDED 요소(컨테이너·아이콘)가 분모에 들어왔다 (`avg_n_gt_added` 9.82 → 12.91).
+- **`loose` 는 내려가고 `strict` 는 올라가 갭이 좁아졌다** — 새로 세는 요소가 대체로 `text_sim ≥ τ` 로 맞는다는 뜻이다.
+- **`parse_fail_rate` 이 0 이 됐다.** legacy 에서 요소를 하나도 못 뽑아 0점 처리되던 행이 있었고, full 에서는 사라진다.
+
+**호환 — 기존 산출물은 재채점하지 않았다 (사용자 결정 2026-08-21).** `metrics_schema` 와 같은 방식으로 두 산출물 최상위에 **`element_set: "full"|"legacy"`** 를 박는다. **이 키가 없는 파일 = 옛 화이트리스트 기준**이므로 새 기준 파일과 나란히 놓지 말 것. 옛 값을 재현해야 할 때만 `--element-set legacy` 를 쓴다 (두 채점기에 **같은 값**을 줘야 한다).
+
 ### Stage 1 보조 — `state_diff_metrics.json` (copy-bias 진단, 2026-08-01 신설)
 
 `hungarian_f1` 만으로는 **"예측했다" 와 "입력을 베꼈다" 가 구분되지 않는다.** next-state 는 current state 와 대부분 겹치므로 — 한 번의 클릭이 화면 전체를 바꾸지는 않으므로 — current 를 그대로 출력하기만 해도 f1 이 높게 나온다. 그래서 채점기에 **current state 를 세 번째 인자로** 주는 보조 지표를 뒀다.
