@@ -613,6 +613,75 @@ class TestLooseAxis(unittest.TestCase):
         self.assertEqual(agg["n_change_f1_floor"], agg["n_change_f1_strict"])
 
 
+class TestDerivabilitySplit(unittest.TestCase):
+    """`addmod_recall_derivable` / `addmod_recall_non_derivable` — action 유도성 축.
+
+    GT_IDX 의 변화 셋: root(STRUCTURE, absorbed text 변화로 MODIFIED) +
+    p"unread inbox 7"(action.text 와 동일 → ACTION_PAYLOAD) + p"brand new banner"
+    (근거 없음 → NON_DERIVABLE). 셋 다 유도 가능/불가능이 실측으로 확정된 라벨이다
+    (분류기 자체의 정확성은 `tests/test_diff_loss_v3.py` 소관 — 여기서는 그 라벨이
+    `addmod_recall` 을 쪼개는 배선만 검증한다).
+    """
+
+    ACTION = {"action": "type", "text": "unread inbox 7"}
+    PARTIAL_MISSES_NON_DERIVABLE = (
+        '<node index="0">'
+        '<button index="1" aria-label="OK"/>'
+        '<p index="2">unread inbox 7</p>'
+        "</node>"
+    )
+
+    def test_action_none_skips_split(self):
+        """action 을 안 주면(기존 호출부) 분리축은 조용히 None — 하위호환."""
+        row = _sd.compute_state_diff(GT_IDX, GT_IDX, CUR_IDX, "index")
+        self.assertIsNone(row["addmod_recall_derivable"])
+        self.assertIsNone(row["addmod_recall_non_derivable"])
+        self.assertEqual(row["addmod_recall"], 1.0)
+
+    def test_perfect_prediction_hits_both(self):
+        row = _sd.compute_state_diff(
+            GT_IDX, GT_IDX, CUR_IDX, "index", action=self.ACTION
+        )
+        self.assertEqual(row["addmod_recall"], 1.0)
+        self.assertEqual(row["addmod_recall_derivable"], 1.0)
+        self.assertEqual(row["addmod_recall_non_derivable"], 1.0)
+
+    def test_split_separates_derivable_hit_from_non_derivable_miss(self):
+        """모델이 action 유도 콘텐츠는 맞히고 근거 없는 신규 콘텐츠는 못 맞힌 사례.
+
+        블렌드된 `addmod_recall` 만 보면 "0.67 = 어중간한 실패"로 읽히지만, 실제로는
+        유도 가능한 것은 **전부** 맞히고 유도 불가능한 것은 **전부** 못 맞힌
+        정반대의 두 극단이 섞인 값이다 — 이 축이 없으면 그 구분이 안 보인다.
+        """
+        row = _sd.compute_state_diff(
+            self.PARTIAL_MISSES_NON_DERIVABLE,
+            GT_IDX,
+            CUR_IDX,
+            "index",
+            action=self.ACTION,
+        )
+        self.assertEqual(row["addmod_recall"], round(2 / 3, 4))
+        self.assertEqual(row["addmod_recall_derivable"], 1.0)
+        self.assertEqual(row["addmod_recall_non_derivable"], 0.0)
+
+    def test_aggregate_carries_avg_and_n_keys(self):
+        rows = [
+            _sd.compute_state_diff(GT_IDX, GT_IDX, CUR_IDX, "index", action=self.ACTION),
+            _sd.compute_state_diff(
+                self.PARTIAL_MISSES_NON_DERIVABLE,
+                GT_IDX,
+                CUR_IDX,
+                "index",
+                action=self.ACTION,
+            ),
+        ]
+        agg = _sd.aggregate(rows)
+        self.assertEqual(agg["n_addmod_recall_derivable"], 2)
+        self.assertEqual(agg["n_addmod_recall_non_derivable"], 2)
+        self.assertEqual(agg["avg_addmod_recall_derivable"], 1.0)
+        self.assertEqual(agg["avg_addmod_recall_non_derivable"], 0.5)
+
+
 class TestNoChangeAccuracy(unittest.TestCase):
     """GT 가 current 와 같은 행에서는 **복사가 정답**이다.
 

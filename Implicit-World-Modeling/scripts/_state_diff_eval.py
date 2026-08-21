@@ -111,6 +111,31 @@ MODIFIED 가 되어, EXP01 과 EXP05 의 숫자가 조용히 비교 불가가 �
 자리다. 판정의 정본도 이 모듈이며 `_compare_site` 와 `rebuild_state_diff_metrics.sh`
 가 여기서 가져다 쓴다.
 
+유도성 축 (`addmod_recall_derivable` / `addmod_recall_non_derivable`)
+--------------------------------------------------------------------
+`addmod_recall` 하나로는 "유도 불가능한 콘텐츠를 못 맞힌 것"과 "유도 가능한 것조차
+못 맞힌 것"이 한 숫자에 섞인다. `diff_loss/hungarian_diff_v3.classify_derivability`
+(current + action 만으로 GT 요소의 내용이 결정되는가)로 GT 의 ADDED∪MODIFIED 를
+두 모집단으로 쪼갠 recall 이다. `evaluate_pairs` 가 매 행 `prompt` 에서
+`hungarian_diff_v3.extract_action` 으로 action 을 뽑아 자동으로 흘려보낸다 — 새
+CLI 플래그가 없다.
+
+**recall 만 쪼갠다 (precision/F1 은 아니다).** precision 의 분모는 pred-side 주장
+(`pred_diff_idx`)인데, GT 에 대응이 없는 주장(spurious ADDED)은 `classify_derivability`
+가 애초에 보지 않는 GT 요소라 유도성 라벨이 없다 — "근거 없는 주장의 유도성"은 이
+축이 답하려는 질문과 다른 질문이라 이번엔 정의하지 않는다. `change_f1_*` 도 같은
+이유로 쪼개지 않는다: DELETED 는 GT 요소가 아니라 current 요소를 가리켜 애초에
+유도성 라벨을 못 받는다(구조적으로 없는 축이지 누락이 아니다).
+
+`classify_derivability` 는 `hungarian_metric_v3.extract_elements(gt_str)` 와 같은
+길이·같은 순서의 리스트를 낸다(그 함수의 docstring 계약). `_he.extract_elements` 가
+`full` 집합일 때 `soup.find_all(True)` 를 그대로 순회하는 것과 `hungarian_metric_v3`
+의 `iter_nodes` 가 정확히 같은 호출이라(두 모듈 다 xml→html.parser 폴백도 동일 규칙),
+`gt_els`(이 모듈이 쓰는 정본 추출)와 `classify_derivability` 의 출력은 같은 GT 문자열
+에서 위치가 1:1 로 대응한다 — **우연이 아니라 두 모듈이 같은 순회·같은 폴백을 쓰기
+때문**이다. 그래도 길이가 어긋나면(파서 경로가 갈렸다는 뜻) 조용히 넘기지 않고 그
+행만 분리축을 건너뛴다(`_derivable_gt_idx`).
+
 Subcommand
 ----------
 score : prediction jsonl + GT test jsonl 로 state_diff_metrics.json 을 만든다.
@@ -130,8 +155,12 @@ from pathlib import Path
 _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
+_DIFF_LOSS = _SCRIPTS / "diff_loss"
+if str(_DIFF_LOSS) not in sys.path:
+    sys.path.insert(0, str(_DIFF_LOSS))
 
 import _hungarian_eval as _he  # noqa: E402
+import hungarian_diff_v3 as _hd3  # noqa: E402
 from _prompt_sections import parse_prompt  # noqa: E402
 
 # "그냥 복사" 판정 — pred 와 current 의 hungarian_f1 이 이 값 이상이면 사실상 복사본.
@@ -634,6 +663,26 @@ def compute_change_items(
     }
 
 
+# ── 유도성 축 (v3) ───────────────────────────────────────────────────────
+def _derivable_gt_idx(
+    current_str: str, gt_str: str, action: dict, gt_els: list[dict]
+) -> set[int] | None:
+    """GT 요소 중 액션 유도 가능한 것의 `gt_idx`(=`gt_els` 위치) 집합.
+
+    실패하거나(파서 예외) `classify_derivability` 의 출력 길이가 `gt_els` 와
+    어긋나면(모듈 docstring 이 설명하는 정렬 보장이 그 행에서 깨졌다는 뜻) `None` —
+    이 행은 분리축만 건너뛴다. 기존 `addmod_recall`/`change_f1_*` 는 이 함수와
+    무관하게 이미 계산이 끝난 값이라 영향받지 않는다.
+    """
+    try:
+        deriv = _hd3.classify_derivability(current_str, gt_str, action)
+    except Exception:
+        return None
+    if len(deriv) != len(gt_els):
+        return None
+    return {j for j, d in enumerate(deriv) if d["derivable"]}
+
+
 # ── 행 단위 채점 ─────────────────────────────────────────────────────────
 def _unclosed_root(pred_str: str) -> float:
     """예측이 root tag 를 닫지 않고 끝났으면 1.0. 절단 leaf 의 사후 식별용 sanity."""
@@ -652,6 +701,7 @@ def compute_state_diff(
     *,
     strict_pos: bool = False,
     include_aria: bool = False,
+    action: dict | None = None,
 ) -> dict:
     """한 행의 state-diff 진단값. 정의되지 않는 지표는 None (평균에서 제외된다).
 
@@ -659,6 +709,9 @@ def compute_state_diff(
       addmod_recall / added_recall / modified_recall / unchanged_recall
           GT 를 diff 유형으로 층화한 recall. `addmod` = MODIFIED + ADDED.
           UNCHANGED 는 높고 addmod 는 낮으면 = 복사만 잘한다.
+      addmod_recall_derivable / addmod_recall_non_derivable
+          `action` 이 주어졌을 때만 정의(모듈 docstring "유도성 축" 참고). `addmod_recall`
+          을 GT 요소의 액션 유도성으로 한 번 더 쪼갠 것 — precision/F1 은 쪼개지 않는다.
       addmod_prec / addmod_f1
           precision 분모를 **pred-side diff**(current 와 매칭되지 않은 예측 요소)로
           잡아 대칭화한 값. recall 과 다른 정의이므로 키를 분리해 둔다.
@@ -707,6 +760,8 @@ def compute_state_diff(
         k: None
         for k in (
             "addmod_recall",
+            "addmod_recall_derivable",
+            "addmod_recall_non_derivable",
             "added_recall",
             "modified_recall",
             "unchanged_recall",
@@ -791,6 +846,15 @@ def compute_state_diff(
     row["added_recall"] = _recall(by_type["ADDED"])
     row["modified_recall"] = _recall(by_type["MODIFIED"])
     row["unchanged_recall"] = _recall(by_type["UNCHANGED"])
+
+    # 유도성 축 (v3) — action 이 주어졌을 때만. `_derivable_gt_idx` 가 None 이면
+    # 이 행은 분리축을 건너뛴다(`addmod_recall` 자체는 이미 위에서 계산 끝났다).
+    if action is not None:
+        derivable_idx = _derivable_gt_idx(current_str, gt_str, action, gt_els)
+        if derivable_idx is not None:
+            non_derivable_idx = set(range(len(gt_els))) - derivable_idx
+            row["addmod_recall_derivable"] = _recall(diff_idx & derivable_idx)
+            row["addmod_recall_non_derivable"] = _recall(diff_idx & non_derivable_idx)
 
     # change 축 — GT 쪽과 **인자 순서까지 같은** 분류를 pred 쪽에도 돌려 대칭을 지킨다.
     # (`_hungarian_match(cur, X)` 로 통일. 아래 pairs_pc 는 인자 순서가 반대라 재사용
@@ -1018,6 +1082,8 @@ def assert_scorer_wired(
 # 함께 기록해 몇 행 위에서 잰 값인지 드러낸다.
 _MEAN_KEYS = [
     "addmod_recall",
+    "addmod_recall_derivable",
+    "addmod_recall_non_derivable",
     "added_recall",
     "modified_recall",
     "unchanged_recall",
@@ -1132,6 +1198,13 @@ def evaluate_pairs(
     프롬프트에서 current state 를 못 읽으면 `classify_diff` 는 전부 ADDED 를,
     copy_rate 는 0 을 돌려준다 — **그럴듯한 완전 오답 표**가 조용히 나온다.
     그래서 실패를 세서 터뜨린다 (`_compare_site` 설계원칙 #2 와 같은 이유).
+
+    action 은 같은 `prompt` 에서 `hungarian_diff_v3.extract_action` 으로 뽑아
+    `compute_state_diff` 에 그대로 흘린다 (유도성 축, 모듈 docstring 참고). 이 값이
+    없어도(action 미검출 시 `{}`) 행 자체는 실패로 보지 않는다 — action 섹션이
+    없는 프롬프트 계열이 실제로 존재하고, 그 경우 유도성 분리축만 조용히 빠진다
+    (`_derivable_gt_idx` 가 `{}` 를 받아도 그냥 ACTION_* 라벨이 안 나올 뿐 터지지
+    않는다).
     """
     opts = {"strict_pos": strict_pos, "include_aria": include_aria}
     assert_scorer_wired(match_mode, **opts)
@@ -1140,11 +1213,17 @@ def evaluate_pairs(
     for gt_entry, pred_entry in zip(gt_entries, pred_entries, strict=False):
         gt_text = gt_entry["messages"][-1]["value"]
         pred_text = pred_entry.get("predict", pred_entry.get("output", ""))
-        current = parse_prompt(pred_entry.get("prompt", "")).get("current_state", "")
+        prompt_text = pred_entry.get("prompt", "")
+        current = parse_prompt(prompt_text).get("current_state", "")
         if not current:
             failures += 1
             continue
-        rows.append(compute_state_diff(pred_text, gt_text, current, match_mode, **opts))
+        action = _hd3.extract_action(prompt_text)
+        rows.append(
+            compute_state_diff(
+                pred_text, gt_text, current, match_mode, action=action, **opts
+            )
+        )
     if failures:
         raise StateDiffError(
             f"프롬프트에서 current state 를 못 읽은 행 {failures}건 "

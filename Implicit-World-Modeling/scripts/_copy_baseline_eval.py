@@ -201,12 +201,17 @@ def score_row(
     *,
     strict_pos: bool = False,
     include_aria: bool = False,
+    action: dict | None = None,
 ) -> dict:
     """한 행의 hungarian 지표 + state-diff 지표를 한 dict 으로.
 
     두 채점기의 **행 키는 서로 겹치지 않는다** (집계 키는 `total` 하나가 겹친다).
     겹치면 한쪽이 조용히 덮여 gain 이 엉뚱한 축에서 계산되므로 매 행 확인한다 —
     집합 교집합은 Hungarian 매칭 비용에 비하면 무시할 수 있다.
+
+    `action` 은 `_state_diff_eval.evaluate_pairs` 와 나란히 두기 위한 것이다
+    (`TestHungarianAggregateParity` 가 두 경로의 동치를 못박는다) — 안 주면
+    `addmod_recall_derivable/non_derivable` 이 조용히 None 이 되어 그 parity 가 깨진다.
     """
     hung = _hungarian_row(
         pred_str, gt_str, match_mode, strict_pos=strict_pos, include_aria=include_aria
@@ -218,6 +223,7 @@ def score_row(
         match_mode,
         strict_pos=strict_pos,
         include_aria=include_aria,
+        action=action,
     )
     clash = set(hung) & set(diff)
     if clash:
@@ -257,17 +263,21 @@ def score_rows(
     failures = 0
     for gt_entry, pred_entry in zip(gt_entries, pred_entries, strict=False):
         gt_text = gt_entry["messages"][-1]["value"]
-        current = parse_prompt(pred_entry.get("prompt", "")).get("current_state", "")
+        prompt_text = pred_entry.get("prompt", "")
+        current = parse_prompt(prompt_text).get("current_state", "")
         if not current:
             failures += 1
             continue
+        action = _sd._hd3.extract_action(prompt_text)
         # ⚠️ `current` 객체를 pred 슬롯과 current 슬롯에 **그대로** 넣는다. 어느 한쪽만
         # 정규화하면 copy_exact 가 1.0 이 아니게 되고 불변식이 무너진다.
-        copy_rows.append(score_row(current, gt_text, current, match_mode, **opts))
+        copy_rows.append(
+            score_row(current, gt_text, current, match_mode, action=action, **opts)
+        )
         if model_rows is not None:
             pred_text = pred_entry.get("predict", pred_entry.get("output", ""))
             model_rows.append(
-                score_row(pred_text, gt_text, current, match_mode, **opts)
+                score_row(pred_text, gt_text, current, match_mode, action=action, **opts)
             )
     if failures:
         raise CopyBaselineError(
