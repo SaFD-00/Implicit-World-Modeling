@@ -521,11 +521,20 @@ def build_metrics(
 
 
 def stamp(metrics: dict, match_mode: str, truncated: str | None) -> dict:
-    """최상위 메타 4종. `metrics_schema` 는 행 단위 지표 정의의 버전이라
-    `_state_diff_eval` 에서 가져온다 (`copy_baseline_schema` 와 축이 다르다)."""
+    """최상위 메타 5종. `metrics_schema` 는 행 단위 지표 정의의 버전이라
+    `_state_diff_eval` 에서 가져온다 (`copy_baseline_schema` 와 축이 다르다).
+
+    `element_set` 은 인자가 아니라 **채점기가 실제로 읽은 전역**(`_he.ELEMENT_SET`)에서
+    읽는다 (`_state_diff_eval.stamp_schema` 와 같은 방식). 호출자가 믿는 값을 적으면
+    전파가 끊긴 바로 그 경우에 산출물이 거짓을 말한다 — 전역은 모듈 사본마다 따로
+    있어서 실제로 끊길 수 있다. 형제 산출물(`hungarian_metrics.json` /
+    `state_diff_metrics.json`)이 같은 규칙으로 스탬프하므로, 세 파일의 `element_set`
+    을 나란히 놓으면 전파 실패가 그대로 드러난다.
+    """
     metrics["copy_baseline_schema"] = COPY_BASELINE_SCHEMA
     metrics["metrics_schema"] = _sd.METRICS_SCHEMA
     metrics["match_mode"] = match_mode
+    metrics["element_set"] = _he.ELEMENT_SET
     metrics["truncated"] = truncated
     return metrics
 
@@ -565,6 +574,12 @@ def _cmd_score(args) -> int:
     # 매칭 기준 스위치는 여기 한 진입점에서만 읽어 아래로 넘긴다 (전역 금지 —
     # `_hungarian_eval._cmd_score` / `_state_diff_eval._cmd_score` 와 같은 규칙이다).
     opts = {"strict_pos": args.strict_pos_match, "include_aria": args.include_aria}
+    # element 집합만 전역이다 (`_he.set_element_set` 위 주석의 (a)(b)(c) 참고).
+    # 이 채점기는 정본 eval 배선에 얹혀 있지 않은 **백필 전용 진입점**이라 스스로
+    # 설정해야 한다 — 안 하면 기본값에만 의존하게 되어 legacy 재산출 경로가 없다.
+    # `getattr` 기본값은 `_hungarian_eval._cmd_score` 와 같은 규칙이다 — CLI 를 거치지
+    # 않고 Namespace 를 직접 만들어 부르는 호출부(테스트·백필 스크립트)가 있다.
+    _he.set_element_set(getattr(args, "element_set", _he._default_element_set()))
 
     # 절단 판정은 **한 번만** 하고 세 섹션에 같은 값을 내린다. 여기서는 leaf 를 건너뛰지
     # 않는다 (`_state_diff_eval._cmd_score` 와 다른 점) — 복사기 점수는 절단과 무관하다.
@@ -656,6 +671,18 @@ def main() -> int:
         dest="include_aria",
         help="pos 모드에서 aria-label 만 가진 요소도 채점 대상에 넣는다. **기본은 꺼짐** — "
         "정본 채점과 **반드시 같은 값**이어야 한다 (element 집합 자체가 달라진다).",
+    )
+    s.add_argument(
+        "--element-set",
+        # 세 채점기가 같은 규칙이어야 `ELEMENT_SET=legacy bash scripts/rebuild_*.sh`
+        # 한 줄로 셋 다 옛 기준으로 재산출된다. 여기만 "full" 로 굳으면 gain 의
+        # 피감수(model)와 감수(복사기)가 서로 다른 element 집합에서 나온다.
+        default=_he._default_element_set(),
+        choices=["full", "legacy"],
+        dest="element_set",
+        help="채점 대상 element 집합. 정본 채점(_hungarian_eval)과 **반드시 같은 값**"
+        "이어야 gain 의 피감수(model)와 감수(복사기)가 같은 세계의 수가 된다. legacy 는 "
+        "2026-08-21 이전의 화이트리스트 집합(실제 요소의 약 24%% 를 버린다) 재현용이다.",
     )
     s.add_argument("--exclude-action", default=None, dest="exclude_action")
     # `--include-truncated` 는 두지 않는다. 절단이어도 복사기 점수는 항상 산출하고

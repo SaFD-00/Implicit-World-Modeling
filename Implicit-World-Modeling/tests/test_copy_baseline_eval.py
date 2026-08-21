@@ -488,6 +488,7 @@ class TestTruncatedLeaf(unittest.TestCase):
                 "copy_baseline_schema",
                 "metrics_schema",
                 "match_mode",
+                "element_set",
                 "truncated",
             },
         )
