@@ -59,8 +59,10 @@ from _prompt_sections import REQUIRED_SECTIONS, parse_prompt  # noqa: E402
 from hungarian_diff_v3 import (  # noqa: E402
     DERIVABILITY_LABELS,
     DERIVABLE_LABELS,
-    _coerce_action,
+    action_type,
     classify_derivability,
+    extract_action,
+    slot_key,
     summarize_derivability,
 )
 from hungarian_metric_v3 import (  # noqa: E402
@@ -89,10 +91,20 @@ LABEL_COLOR: dict[str, str] = {
     "SYSTEM_UI": "#64748b",
     "STRUCTURE": "#94a3b8",
     "NON_DERIVABLE": "#dc2626",
+    # 라벨은 아니지만 화면에서는 일곱 라벨과 같은 자격으로 구분돼야 한다.
+    "UNDECIDABLE": "#78716c",
 }
 
 #: 2분류 모드 색. 동료가 1차적으로 보려는 것이 이 두 색이다.
-D2_COLOR = {"yes": "#059669", "no": "#dc2626"}
+#: `undec` 는 셋째 색이다 — 2분류의 어느 쪽도 아니라 회색으로 뺀다.
+D2_COLOR = {"yes": "#059669", "no": "#dc2626", "undec": "#78716c"}
+
+#: "유도 불가능" 이 아니라 **"판정 못 함"** 인 요소의 규칙 이름.
+#: `classify_derivability` 는 이 경우에도 라벨을 NON_DERIVABLE 로 두지만, 뜻이 다르다 —
+#: action 이 좌표를 줬는데 요소에 bounds 가 없어 포함 판정 자체가 불가능한 것이다.
+#: 진짜 NON_DERIVABLE 과 같은 색으로 칠하면 오분류 사냥의 모집단이 오염된다.
+#: 분류기가 이 문자열을 바꾸면 구분이 조용히 사라지므로 테스트가 실동작으로 고정한다.
+UNDECIDABLE_RULE = "action_target_undecidable_no_bounds"
 
 #: 흡수 텍스트(`element["text"]`)는 루트 컨테이너에서 화면 전체 텍스트가 되므로
 #: 그대로 실으면 payload 가 요소 수 × 화면 길이로 부푼다. 표시용으로만 자른다.
@@ -131,22 +143,27 @@ def _screen(elements: list[dict]) -> list[int] | None:
 
 
 def _pack(nodes: list, records: list[dict]) -> list[dict]:
-    """분류기가 쓰는 element record + 표시용 메타(depth·index 속성)."""
+    """분류기가 쓰는 element record + 표시용 메타(depth).
+
+    `index` 와 `slot` 은 손으로 만들지 않는다 — `index` 는 element record 가 이미
+    싣고 있고, `slot` 은 분류기의 `slot_key()` 가 정본이다. 뷰어가 자체 키 규칙을
+    가지면 (bounds 문자열을 직접 조립하는 등) 라벨을 잇는 축이 분류기와 갈린다.
+    """
     depths = _depths(nodes)
     out = []
-    for node, rec, depth in zip(nodes, records, depths, strict=True):
+    for rec, depth in zip(records, depths, strict=True):
         b = parse_bounds(rec["bounds"])
         item = {
             "seq": rec["seq_idx"],
             "tag": rec["tag"],
             "own": rec["own_text"],
             "depth": depth,
+            "slot": slot_key(rec),
         }
         if b:
             item["bounds"] = list(b)
-        idx = node.get("index")
-        if idx is not None:
-            item["index"] = str(idx)
+        if rec.get("index"):
+            item["index"] = str(rec["index"])
         # 자체 텍스트가 없는 요소만 흡수 텍스트를 보여준다 — own 이 있으면 흡수
         # 텍스트는 own 과 같아서(build_element_records) 중복이다.
         if not rec["own_text"] and rec["text"]:
@@ -174,10 +191,19 @@ def build_sample(row_idx: int, rec: dict) -> dict:
 
     cur_xml = sections["current_state"]
     action_raw = sections["action"]
-    action = _coerce_action(action_raw)
+    # action 파싱은 분류기의 공개 진입점 하나만 쓴다. `extract_action` 이 두 규약
+    # (`<action>{...}</action>` / 태그 없는 `## Action`) 을 모두 흡수하므로 뷰어가
+    # 계열 분기를 갖지 않는다 — 화면의 action 과 판정의 action 이 갈리면 안 된다.
+    action = extract_action(human)
+    if action_raw and not action:
+        raise BuildError(
+            f"[derivability_site] row {row_idx}: Action 섹션은 있는데 "
+            f"extract_action 이 빈 dict 를 냈다 ({action_raw[:80]!r}) — 프롬프트 "
+            "규약이 하나 더 생겼다. 조용히 넘기면 ACTION_* 라벨이 통째로 사라진다."
+        )
 
-    # 분류기와 **같은 입력**을 준다. 표시용 정리(<image> 줄 제거)는 아래에서만 한다.
-    deriv = classify_derivability(cur_xml, gt_xml, action_raw)
+    # 판정에도 **같은 dict** 를 넘긴다 (문자열을 다시 넘기면 파싱 경로가 갈린다).
+    deriv = classify_derivability(cur_xml, gt_xml, action)
 
     gt_nodes = iter_nodes(parse_soup(gt_xml))
     if len(gt_nodes) != len(deriv):
@@ -197,9 +223,16 @@ def build_sample(row_idx: int, rec: dict) -> dict:
             reason["matched"] = {
                 "tag": mc["tag"],
                 "own": mc["own_text"],
-                "bounds": mc["bounds"],
+                # index 계열은 bounds 가 없어 근거 요소를 화면에서 짚을 수 없다 —
+                # index 가 그 자리를 대신한다.
+                "bounds": mc.get("bounds", ""),
+                "index": str(mc.get("index") or ""),
                 "seq": mc["seq_idx"],
             }
+        # 라벨은 NON_DERIVABLE 이지만 뜻은 "판정 못 함" 이다. 2분류/색/필터가
+        # 이것을 진짜 유도 불가능과 섞지 않도록 플래그를 실어 보낸다.
+        if reason["rule"] == UNDECIDABLE_RULE:
+            item["undecidable"] = True
         for k in ("payload", "coordinate"):
             if k in r:
                 reason[k] = r[k]
@@ -210,13 +243,19 @@ def build_sample(row_idx: int, rec: dict) -> dict:
 
     counts = summarize_derivability(deriv)
     counts_own = {lbl: 0 for lbl in DERIVABILITY_LABELS}
+    undec = undec_own = 0
     for d in deriv:
         if d["element"]["own_text"]:
             counts_own[d["derivability"]] += 1
+        if d["reason"].get("rule") == UNDECIDABLE_RULE:
+            undec += 1
+            if d["element"]["own_text"]:
+                undec_own += 1
 
     return {
         "row": row_idx,
         "action": action,
+        "action_type": action_type(action),
         "action_raw": action_raw,
         "current": {
             "xml": _display_xml(cur_xml),
@@ -230,6 +269,9 @@ def build_sample(row_idx: int, rec: dict) -> dict:
         },
         "counts": counts,
         "counts_own": counts_own,
+        # NON_DERIVABLE 의 부분집합이다 (합계에 이중으로 더하지 마라).
+        "undecidable": undec,
+        "undecidable_own": undec_own,
     }
 
 
@@ -261,10 +303,13 @@ def build(test: Path, out: Path, samples: int, seed: int) -> dict:
 
     totals = {lbl: 0 for lbl in DERIVABILITY_LABELS}
     totals_own = {lbl: 0 for lbl in DERIVABILITY_LABELS}
+    undec = undec_own = 0
     for s in built:
         for lbl in DERIVABILITY_LABELS:
             totals[lbl] += s["counts"][lbl]
             totals_own[lbl] += s["counts_own"][lbl]
+        undec += s["undecidable"]
+        undec_own += s["undecidable_own"]
 
     data = {
         "title": test.parent.name + " · " + test.stem,
@@ -276,6 +321,10 @@ def build(test: Path, out: Path, samples: int, seed: int) -> dict:
         "derivable_labels": sorted(DERIVABLE_LABELS),
         "totals": totals,
         "totals_own": totals_own,
+        # NON_DERIVABLE 의 부분집합 — 표에서 별도 행으로만 보여준다.
+        "undecidable": undec,
+        "undecidable_own": undec_own,
+        "undecidable_rule": UNDECIDABLE_RULE,
         "rows": built,
     }
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -472,15 +521,20 @@ const $ = id => document.getElementById(id);
 const row = () => DATA.rows[st.pos];
 
 /* 색 클래스. 2분류 모드는 분류기가 준 el.derivable 을 그대로 쓴다 — 라벨 집합을
-   JS 에 복제하면 그 순간 화면과 지표가 갈린다. */
+   JS 에 복제하면 그 순간 화면과 지표가 갈린다.
+   `el.undecidable` 은 라벨이 NON_DERIVABLE 이면서 뜻이 "판정 못 함" 인 요소다.
+   유도 불가능과 같은 색으로 칠하면 오분류 사냥의 모집단이 오염되므로 셋째 색으로 뺀다. */
 function cls(el){
+  if(el.undecidable) return st.mode === '2' ? 'd2-undec' : 'l7-UNDECIDABLE';
   return st.mode === '2' ? (el.derivable ? 'd2-yes' : 'd2-no') : 'l7-' + el.label;
 }
+function chipCls(el){ return 'chip-' + (el.undecidable ? 'UNDECIDABLE' : el.label); }
 function visible(el){
   if(st.hideStructure && el.label === 'STRUCTURE') return false;
   if(st.onlyOwn && !el.own) return false;
   if(st.filter === 'ALL') return true;
-  if(st.filter === '__ND') return !el.derivable;
+  if(st.filter === '__ND') return !el.derivable && !el.undecidable;
+  if(st.filter === '__UNDEC') return !!el.undecidable;
   if(st.filter === '__D') return el.derivable;
   return el.label === st.filter;
 }
@@ -490,8 +544,9 @@ function labelOf(el){ return el.own || el.absorbed || ''; }
 function renderLegend(){
   const box = $('legend'); box.replaceChildren();
   const items = st.mode === '2'
-    ? [['유도 가능','d2-yes'], ['유도 불가능 (NON_DERIVABLE)','d2-no']]
-    : LABELS.map(l => [l, 'l7-' + l]);
+    ? [['유도 가능','d2-yes'], ['유도 불가능 (NON_DERIVABLE)','d2-no'],
+       ['판정 불가 (' + DATA.undecidable_rule + ')','d2-undec']]
+    : LABELS.map(l => [l, 'l7-' + l]).concat([['UNDECIDABLE','l7-UNDECIDABLE']]);
   for(const [text, c] of items){
     const b = document.createElement('b');
     b.className = st.mode === '2' ? c : 'chip-' + text;
@@ -526,6 +581,19 @@ function countTable(){
     }
     t.appendChild(tr);
   }
+  // 판정 불가 — NON_DERIVABLE 의 **부분집합**이라 합계에 이중으로 더하지 않는다.
+  const ud = document.createElement('tr');
+  const c1 = document.createElement('td');
+  const uchip = document.createElement('b');
+  uchip.className = 'chip-UNDECIDABLE'; uchip.style.fontSize = '9px';
+  uchip.style.borderRadius = '999px'; uchip.style.padding = '2px 7px';
+  uchip.textContent = '└ 판정 불가'; c1.appendChild(uchip); ud.appendChild(c1);
+  for(const v of [cur.undecidable, cur.undecidable_own,
+                  DATA.undecidable, DATA.undecidable_own]){
+    const td = document.createElement('td');
+    td.textContent = String(v); td.style.color = '#78716c'; ud.appendChild(td);
+  }
+  t.appendChild(ud);
   const tr = document.createElement('tr'); tr.className = 'sum';
   for(const v of ['합계', tot.a, tot.b, tot.c, tot.d]){
     const td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
@@ -631,8 +699,9 @@ function renderList(){
     const d = document.createElement('div');
     d.className = 'row' + (st.sel === e.seq ? ' sel' : '');
     const chip = document.createElement('span');
-    chip.className = 'chip chip-' + e.label;
-    chip.textContent = st.mode === '2' ? (e.derivable ? '가능' : '불가') : e.label;
+    chip.className = 'chip ' + chipCls(e);
+    chip.textContent = e.undecidable ? '판정불가'
+      : (st.mode === '2' ? (e.derivable ? '가능' : '불가') : e.label);
     d.appendChild(chip);
     const tg = document.createElement('span'); tg.className = 'tg';
     tg.textContent = `#${e.seq} <${e.tag}>`; d.appendChild(tg);
@@ -656,9 +725,11 @@ function renderDetail(){
   }
   const h = document.createElement('h3');
   const chip = document.createElement('b');
-  chip.className = 'chip-' + e.label;
+  chip.className = chipCls(e);
   chip.style.cssText = 'font-size:11px;border-radius:999px;padding:3px 10px';
-  chip.textContent = e.label + (e.derivable ? ' · 유도 가능' : ' · 유도 불가능');
+  chip.textContent = e.undecidable
+    ? e.label + ' · 판정 불가 (유도 불가능이 아니다)'
+    : e.label + (e.derivable ? ' · 유도 가능' : ' · 유도 불가능');
   h.appendChild(chip);
   const t2 = document.createElement('span');
   t2.style.cssText = 'font:12px ui-monospace,monospace;color:#667085';
@@ -673,13 +744,22 @@ function renderDetail(){
   rows.push(['bounds', e.bounds ? `[${e.bounds[0]},${e.bounds[1]}][${e.bounds[2]},${e.bounds[3]}]`
                                 : (e.bounds_raw || '(없음)')]);
   if(e.index !== undefined) rows.push(['index 속성', e.index]);
+  rows.push(['slot (분류기 slot_key)', e.slot || '(없음)']);
   const m = e.reason.matched;
   rows.push(['근거 current 요소 (reason.matched_current)',
-             m ? `#${m.seq} <${m.tag}> ${m.bounds || '(bounds 없음)'} — ${m.own || '(텍스트 없음)'}` : '(없음)']);
+             m ? `#${m.seq} <${m.tag}> ${m.bounds || (m.index ? 'index=' + m.index : '(자리 정보 없음)')}`
+                 + ` — ${m.own || '(텍스트 없음)'}`
+               : '(없음)']);
   rows.push(['text_sim', String(e.reason.sim)]);
   if(e.reason.payload !== undefined) rows.push(['action payload', e.reason.payload]);
   if(e.reason.coordinate !== undefined) rows.push(['action coordinate', JSON.stringify(e.reason.coordinate)]);
   rows.push(['action (전체)', JSON.stringify(row().action)]);
+  if(e.undecidable){
+    rows.push(['⚠ 판정 불가',
+      'action 이 좌표를 줬는데 이 요소에 bounds 가 없어 ACTION_TARGET 포함 판정을 '
+      + '할 수 없었다. 라벨은 NON_DERIVABLE 이지만 "유도 불가능" 이라는 뜻이 아니다 — '
+      + '유도 불가능 통계에 이것을 섞어 읽지 마라.']);
+  }
   const t = document.createElement('table'); t.className = 'kv';
   for(const [k, v] of rows){
     const tr = document.createElement('tr');
@@ -725,8 +805,11 @@ function init(){
   });
   sel.addEventListener('change', () => { st.pos = Number(sel.value); st.sel = null; render(); });
   const fs = $('filterSelect');
-  const opts = [['ALL','전체'], ['__ND','유도 불가능만 (NON_DERIVABLE)'], ['__D','유도 가능만']]
-    .concat(LABELS.map(l => [l, l + ' 만']));
+  const opts = [['ALL','전체'],
+                ['__ND','유도 불가능만 (판정 불가 제외)'],
+                ['__UNDEC','판정 불가만 (' + DATA.undecidable_rule + ')'],
+                ['__D','유도 가능만']]
+    .concat(LABELS.map(l => [l, l + ' 만 (라벨 그대로)']));
   for(const [v, t] of opts){
     const o = document.createElement('option'); o.value = v; o.textContent = t; fs.appendChild(o);
   }
@@ -783,6 +866,12 @@ def _print_distribution(data: dict) -> None:
         pa = f"{100 * a / tot:.1f}%" if tot else "-"
         pb = f"{100 * b / tot_own:.1f}%" if tot_own else "-"
         print(f"{lbl:<16}{a:>10}{pa:>10}{b:>12}{pb:>10}")
+    if data["undecidable"]:
+        # NON_DERIVABLE 안에 섞여 있는 "판정 못 함" — 유도 불가능으로 읽으면 안 된다.
+        print(
+            f"{'└ 판정 불가':<15}{data['undecidable']:>10}{'':>10}"
+            f"{data['undecidable_own']:>12}{'':>10}   ({data['undecidable_rule']})"
+        )
     der = sum(data["totals"][x] for x in data["derivable_labels"])
     der_own = sum(data["totals_own"][x] for x in data["derivable_labels"])
     print(f"{'-' * 48}")

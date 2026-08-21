@@ -13,6 +13,10 @@
    action 이 실제로 읽히는가. 한 계열만 보는 파서가 다른 계열에서 조용히 빈 값을
    돌려주던 것이 woa 필터 사고(2026-07-30)의 실패 모드였다.
 5. 필수 섹션 누락은 **크게 터진다**. 빈 화면을 정상 산출물처럼 내면 안 된다.
+6. `action_target_undecidable_no_bounds` 는 라벨이 NON_DERIVABLE 이지만 뜻이
+   **"판정 못 함"** 이다. 진짜 유도 불가능과 같은 색/필터로 묶이면 오분류 사냥의
+   모집단이 오염된다. 분류기가 규칙 문자열을 바꾸면 이 구분이 조용히 사라지므로,
+   실동작으로 트리거해서 고정한다 (상수 비교가 아니라 실제 판정 결과로).
 
 Run:
     pytest tests/test_derivability_site.py -v
@@ -145,6 +149,20 @@ class PromptFamilies(unittest.TestCase):
             {"action_type": "input_text", "index": "2", "text": "hello world"},
         )
 
+    def test_action_that_cannot_be_parsed_fails_loudly(self) -> None:
+        """Action 섹션이 있는데 dict 가 안 나오면 ACTION_* 라벨이 통째로 사라진다."""
+        broken = {
+            "messages": [
+                {
+                    "from": "human",
+                    "value": f"Current UI State:\n{CUR_POS}\n\nAction:\nnot json",
+                },
+                {"from": "gpt", "value": GT_POS},
+            ]
+        }
+        with self.assertRaises(ds.BuildError):
+            ds.build_sample(0, broken)
+
     def test_missing_section_fails_loudly(self) -> None:
         broken = {
             "messages": [
@@ -155,6 +173,33 @@ class PromptFamilies(unittest.TestCase):
         with self.assertRaises(ds.BuildError):
             ds.build_sample(0, broken)
 
+    def test_slot_key_comes_from_classifier(self) -> None:
+        """자리 키를 뷰어가 직접 조립하면 라벨을 잇는 축이 분류기와 갈린다."""
+        for row in (ROW_POS, ROW_IDX):
+            s = ds.build_sample(0, row)
+            deriv = H.classify_derivability(
+                ds.parse_prompt(row["messages"][1]["value"])["current_state"],
+                row["messages"][2]["value"],
+                H.extract_action(row["messages"][1]["value"]),
+            )
+            for el, d in zip(s["gt"]["elements"], deriv, strict=True):
+                self.assertEqual(el["slot"], H.slot_key(d["element"]))
+        # 두 계열이 서로 다른 축을 쓴다 — 접두로 구분된다.
+        self.assertTrue(
+            all(
+                e["slot"].startswith("b:")
+                for e in ds.build_sample(0, ROW_POS)["gt"]["elements"]
+                if e["slot"]
+            )
+        )
+        self.assertTrue(
+            all(
+                e["slot"].startswith("i:")
+                for e in ds.build_sample(0, ROW_IDX)["gt"]["elements"]
+                if e["slot"]
+            )
+        )
+
     def test_index_family_has_no_bounds(self) -> None:
         """bounds 없는 계열은 좌표 와이어프레임을 그릴 수 없다 → screen 이 None."""
         s = ds.build_sample(0, ROW_IDX)
@@ -162,6 +207,55 @@ class PromptFamilies(unittest.TestCase):
         self.assertTrue(all("index" in e for e in s["gt"]["elements"]))
         # pos 계열은 반대로 screen 이 잡혀야 한다.
         self.assertEqual(ds.build_sample(0, ROW_POS)["gt"]["screen"], [840, 1800])
+
+
+class Undecidable(unittest.TestCase):
+    """ "판정 못 함" 과 "유도 불가능" 이 화면에서 섞이지 않는가."""
+
+    # action 이 좌표를 주는데(pos 규약) GT 요소에 bounds 가 없는 혼합 케이스.
+    # 이때 ACTION_TARGET 포함 판정 자체가 불가능하다.
+    ROW_MIXED = {
+        "messages": [
+            {"from": "system", "value": "# Role"},
+            {
+                "from": "human",
+                "value": 'Current UI State:\n<div bounds="[0,0][840,1800]"/>\n\n'
+                'Action:\n<action>{"action": "click", "coordinate": [100, 200]}</action>',
+            },
+            {"from": "gpt", "value": "<div><p>brand new server text</p></div>"},
+        ]
+    }
+
+    def test_rule_string_still_triggers(self) -> None:
+        """상수만 비교하면 분류기 쪽 리네임을 못 잡는다 — 실제로 발동시켜 고정한다."""
+        s = ds.build_sample(0, self.ROW_MIXED)
+        rules = {e["reason"]["rule"] for e in s["gt"]["elements"]}
+        self.assertIn(
+            ds.UNDECIDABLE_RULE,
+            rules,
+            "분류기가 판정 불가 규칙 이름을 바꿨다 — 뷰어의 3분류가 무력화된다",
+        )
+
+    def test_flagged_and_counted_separately(self) -> None:
+        s = ds.build_sample(0, self.ROW_MIXED)
+        undec = [e for e in s["gt"]["elements"] if e.get("undecidable")]
+        self.assertTrue(undec)
+        for e in undec:
+            # 라벨 자체는 분류기 그대로여야 한다 (뷰어가 라벨을 바꾸면 지표와 갈린다).
+            self.assertEqual(e["label"], "NON_DERIVABLE")
+            self.assertFalse(e["derivable"])
+        self.assertEqual(s["undecidable"], len(undec))
+        # NON_DERIVABLE 의 부분집합이다 — 합계에 이중으로 더하면 안 된다.
+        self.assertEqual(sum(s["counts"].values()), len(s["gt"]["elements"]))
+        self.assertLessEqual(s["undecidable"], s["counts"]["NON_DERIVABLE"])
+
+    def test_has_its_own_color(self) -> None:
+        css = ds._label_css()
+        self.assertIn(".l7-UNDECIDABLE", css)
+        self.assertIn(".d2-undec", css)
+        self.assertNotEqual(
+            ds.LABEL_COLOR["UNDECIDABLE"], ds.LABEL_COLOR["NON_DERIVABLE"]
+        )
 
 
 class HtmlOutput(unittest.TestCase):
