@@ -17,17 +17,20 @@
 # 실측 37 leaf) 무효 산출물을 채점해 정본 자리에 쓰게 된다. stage1_eval.sh 가 현재
 # 예산·시드로 생성을 마쳤을 때만 남기는 `.gen_done` 마커를 유일한 기준으로 삼는다.
 #
-# usage: rebuild_eval_metrics.sh [-j N] [-n] [FILTER]
+# usage: rebuild_eval_metrics.sh [-j N] [-n] [-f] [FILTER]
 #   -j N    동시 실행 수 (기본 4)
 #   -n      dry-run
+#   -f      기존 state 메트릭을 강제 재산출. 과거 산출물의 state/woa/probe leaf도 포함하며,
+#           action 메트릭은 항상 기존 파일을 보존한다.
 #   FILTER  leaf 경로 부분 문자열로 대상 좁히기
 set -euo pipefail
 
-JOBS=4; DRY=0; FILTER=""
+JOBS=4; DRY=0; FORCE=0; FILTER=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -j) JOBS="$2"; shift 2 ;;
     -n) DRY=1; shift ;;
+    -f) FORCE=1; shift ;;
     -h|--help) sed -n '1,30p' "$0"; exit 0 ;;
     *)  FILTER="$1"; shift ;;
   esac
@@ -48,22 +51,69 @@ CMDS="$(mktemp)"; trap 'rm -f "$CMDS"' EXIT
 
 while IFS= read -r leaf; do
   [ -n "$FILTER" ] && [[ "$leaf" != *"$FILTER"* ]] && continue
-  [ -f "$leaf/.gen_done" ] || continue            # ← 유일한 신선도 근거
   base="$(basename "$leaf")"
-  case "$base" in
-    *-state)  task=state;  scorer=_hungarian_eval.py; metrics=hungarian_metrics.json ;;
-    *-action) task=action; scorer=_action_eval.py;    metrics=action_metrics.json ;;
-    *) continue ;;
-  esac
-  [ -f "$leaf/$metrics" ] && continue             # 이미 채점됨
-  eval_ds="${base#on-}"; eval_ds="${eval_ds%-$task}"
+  task=""; scorer=""; metrics=""; eval_ds=""; woa=0
+
+  if [ "$FORCE" -eq 1 ]; then
+    # 이 경로는 v3 element-set 마이그레이션 전용이다. 과거 leaf에는 `.gen_done`이
+    # 없지만 이미 정본 메트릭을 한 번 끝낸 prediction이 남아 있다. 기존 메트릭과
+    # ID/OOD prediction 둘 다를 요구하므로, 아직 생성 중인 일반 leaf의 신선도
+    # 가드(`.gen_done`)를 약화하지 않는다. action은 이번 변경과 무관하므로 절대
+    # 여기로 들어오지 않는다.
+    case "$base" in
+      *-state)
+        task=state; scorer=_hungarian_eval.py; metrics=hungarian_metrics.json
+        eval_ds="${base#on-}"; eval_ds="${eval_ds%-state}"
+        ;;
+      *-state-without-open_app)
+        task=state; scorer=_hungarian_eval.py; metrics=hungarian_metrics.json; woa=1
+        eval_ds="${base#on-}"; eval_ds="${eval_ds%-without-open_app}"; eval_ds="${eval_ds%-state}"
+        ;;
+      *)
+        case "$leaf" in
+          */probe_forget/*-v1-*)
+            task=state; scorer=_hungarian_eval.py; metrics=hungarian_metrics.json
+            eval_ds="AC_EXP07_v1"
+            ;;
+          */probe_forget/*-v2-*)
+            task=state; scorer=_hungarian_eval.py; metrics=hungarian_metrics.json
+            eval_ds="AC_EXP07_v2"
+            ;;
+          *) continue ;;
+        esac
+        ;;
+    esac
+    [ -f "$leaf/$metrics" ] || continue
+  else
+    [ -f "$leaf/.gen_done" ] || continue          # ← 일반 배치의 유일한 신선도 근거
+    case "$base" in
+      *-state)
+        task=state; scorer=_hungarian_eval.py; metrics=hungarian_metrics.json
+        eval_ds="${base#on-}"; eval_ds="${eval_ds%-state}"
+        ;;
+      *-action)
+        task=action; scorer=_action_eval.py; metrics=action_metrics.json
+        eval_ds="${base#on-}"; eval_ds="${eval_ds%-action}"
+        ;;
+      *) continue ;;
+    esac
+    [ -f "$leaf/$metrics" ] && continue
+  fi
+
   datadir="${DS_DATADIR[$eval_ds]:-}"
   if [ -z "$datadir" ]; then echo "[!] DS_DATADIR 에 '$eval_ds' 없음 — 건너뜀: $leaf" >&2; continue; fi
 
   # 채점 모드 판정은 _common.sh 가 정본 (stage1_eval.sh 와 동일 규칙).
   mode_flag="$(ds_score_mode_flag "$eval_ds" "$task")"
-  test_id="$BASE_DIR/data/${datadir}/stage1_test_id_${task}.jsonl"
-  test_ood="$BASE_DIR/data/${datadir}/stage1_test_ood_${task}.jsonl"
+  if [ "$woa" -eq 1 ]; then
+    # without_open_app leaf는 이미 같은 filter를 적용한 prediction을 갖는다. 정규
+    # test와 다시 짝지으면 행이 어긋나므로 sibling GT를 반드시 쓴다.
+    test_id="$BASE_DIR/data/${datadir}/stage1_test_id_state_without_open_app.jsonl"
+    test_ood="$BASE_DIR/data/${datadir}/stage1_test_ood_state_without_open_app.jsonl"
+  else
+    test_id="$BASE_DIR/data/${datadir}/stage1_test_id_${task}.jsonl"
+    test_ood="$BASE_DIR/data/${datadir}/stage1_test_ood_${task}.jsonl"
+  fi
   if [ ! -f "$test_id" ] || [ ! -f "$test_ood" ]; then
     echo "[!] test jsonl 없음 — 건너뜀: $leaf" >&2; continue
   fi
@@ -78,7 +128,14 @@ while IFS= read -r leaf; do
        --test-id  '$test_id'  --pred-id  '$leaf/generated_predictions_id.jsonl' \
        --test-ood '$test_ood' --pred-ood '$leaf/generated_predictions_ood.jsonl' \
        $mode_flag --output '$leaf/$metrics'" >> "$CMDS"
-done < <(find outputs -type d \( -name 'on-*-state' -o -name 'on-*-action' \) -not -path '*_backup*' | sort)
+done < <(
+  {
+    find outputs -type d \( -name 'on-*-state' -o -name 'on-*-state-without-open_app' -o -name 'on-*-action' \) -not -path '*_backup*'
+    # probe_forget은 stage2 checkpoint를 stage1 state test로 재평가한 기존 leaf다.
+    # 일반 이름 규약 밖이라 -f 마이그레이션 때만 명시적으로 포함한다.
+    find outputs -type d -path '*/probe_forget/*' -not -path '*/probe_forget/*/*' -not -path '*_backup*'
+  } | sort
+)
 
 n=$(wc -l < "$CMDS")
 if [ "$n" -eq 0 ]; then echo "[=] 대상 없음 (FILTER='${FILTER}')"; exit 0; fi
