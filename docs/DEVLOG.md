@@ -3,6 +3,87 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-08-21 — IWM: 채점 element 집합이 실제 요소의 24% 를 버리고 있었다 + v3 유도성 축 + 감사 시각화
+
+조병웅님 피드백(2026-08-17)에서 출발했다 — *"hungarian 코드가 측정하는 element 가 구조 요소들(div…)이
+빠져서 측정되고 가중치 분류하고 있을 텐데 제대로 수정해 달라. v3 에서 유도 불가능/가능한 요소를 잘
+분류하는지 실제 데이터에서 시각화해서 직접 확인해 달라. 그리고 addmod recall, changed f1 을 visualize
+할 수 있는 툴 — 저번에 스코어도 결국 눈으로 확인했어야 했다."*
+
+### 1. 제보는 사실이었다 — 화이트리스트가 24% 를 버렸다
+
+`extract_elements` 의 포함 조건이 `INTERACTIVE_TAGS{button,input,a,select,textarea} ∪
+CONTENT_TAGS{p,img,span} ∪ clickable ∪ description` 인데, 실데이터에 `clickable`·`description` 이
+**0건**이라 사실상 태그 7종만 남았다. EXP05 test 50문서 실측 2,795개 중 2,108개만 채택(24.6% drop) —
+`div` 617 전량, `img` 11 전량(`is_content` 가 텍스트를 요구하는데 img 엔 텍스트가 없다),
+`LinearLayoutCompat/node/RecyclerView/…` 56 전량. EXP01 전수도 24.2%, `<div aria-label="…">` 형태만
+8,352개가 소멸했다. 화면 변화의 상당수가 그 안에서 일어나므로 **버린 만큼 변화 자체가 관측되지 않았다.**
+
+조치: 화이트리스트 제거 + `el.name.lower()` 정규화(파서에 따라 케이스가 갈리는데 `W_TAG=3.0` 이 임계를
+넘겨 사실상 하드 게이트다) + 텍스트 "자체 우선, 비면 자손 흡수"(index/pos 공통 — 옛 divergence 해소).
+`--element-set {full,legacy}` 와 `ELEMENT_SET` 환경변수, 산출물 `element_set` 스탬프를 함께 뒀다.
+기존 산출물은 재채점하지 않는다(사용자 결정) — 스탬프 없는 파일이 곧 옛 기준이다.
+**학습 경로 `scripts/diff_loss/*_v2.py` 는 건드리지 않았다** (하드 제약 9 · EXP05/06/07 재생성 회피).
+
+### 2. 헤드라인은 안 움직였다. 그런데 index 모드는 달랐다 — 그 차이가 발견이다
+
+| | pos (EXP05, n=2684) | index (EXP01, n=3000) |
+|---|---:|---:|
+| `avg_hungarian_f1` | 0.7522 → 0.7525 (**+0.0003**) | 0.3848 → 0.4170 (**+0.0322**) |
+| `avg_hungarian_text` | +0.0810 | +0.0861 |
+| `avg_change_f1_strict` | +0.0116 | +0.0893 |
+| `avg_copy_excess` | −0.0033 | **−0.1504** |
+| `parse_fail_rate` | 0.0011 → 0.0000 | **0.2027 → 0.0000** |
+| `avg_n_gt` | 38.96 → 52.07 (+34%) | 38.29 → 51.32 (+34%) |
+
+pos 에서 요소가 34% 늘었는데 `f1` 이 +0.0003 이라는 게 핵심이다 — **점수 인플레가 아니라 모집단 교체**다.
+index 의 큰 이동은 채점 기준이 아니라 데이터에서 왔다: 그 leaf 예측 3,000행 중 **608행(20.3%)이 문자
+그대로 `<node index="0"/>`** 였다. `node` 가 화이트리스트에 없어 요소 0개 → 전 지표 0.0 으로 채점되고
+조건부 정의 지표에서는 population 에서 빠져 있었다. 즉 `parse_fail_rate` 0 은 "예측이 좋아졌다"가
+아니라 **"파싱 가능한 퇴화 예측을 더 이상 파싱 실패로 오분류하지 않는다"** 이고, `copy_excess` −0.15 는
+population 교체가 만든 수다. 두 함정을 ARCHITECTURE §6 에 명시했다.
+
+### 3. v3 — 액션 유도성 축 (신규 파일, v1/v2 불변)
+
+판정축은 **액션 유도성**으로 정했다 (Slack 문서 §9 의 Presence/VA 분해는 기존 `change_f1_loose/strict`
+와 겹쳐 기각). GT next-state 요소를 `COPY / REFLOW / ACTION_PAYLOAD / ACTION_TARGET / SYSTEM_UI /
+STRUCTURE`(유도 가능) vs `NON_DERIVABLE` 로 나누고 **판정 근거**를 함께 낸다.
+`token_weight_builder_v3` 가 `(diff_type × derivability)` 2축으로 유도 불가능한 ADDED/MODIFIED 를
+감쇠한다 — 모델이 알 수 없는 서버 콘텐츠를 full weight 로 외우게 하면 hallucination 을 학습시킨다.
+화이트리스트 밖 요소가 char span 을 못 얻어 baseline(0.25)으로 방치되던 v2 결함도 여기서 사라진다.
+
+설계에서 **버린 접근 둘**을 기록해 둔다: (a) SYSTEM_UI 를 어휘 목록(q,w,e…)으로 잡기 → 언어/레이아웃에
+묶인다, (b) 키 묶음의 LCA 를 y 임계로 위로 확장 → 다이얼패드 키가 앱 폼 안에 흩어져 있으면 LCA 가
+루트로 올라가 연락처 폼의 Cancel/More options 까지 삼킨다(실측). 채택안은 **키캡 밀도**다.
+
+**index 계열 퇴화도 여기서 잡았다**: `bounds` 만으로 "같은 자리" 를 판정해 EXP01 에서 COPY·ACTION_TARGET·
+ACTION_PAYLOAD 가 **정확히 0** 이었고 `derivability_lookup` 키는 `(tag,"")` 로 붕괴해 같은 태그 전체가
+라벨 하나를 공유했다. `slot_key()`(bounds→index 폴백) + `extract_action` 이 두 프롬프트 규약
+(`<action>{...}</action>` vs 태그 없는 `## Action`)을 모두 흡수하도록 고쳤다.
+
+### 4. 시각화 — 숫자가 아니라 hit/miss 를 보여준다
+
+동료의 원 불만("base 랑 epoch3 가 같은 화면을 냈는데 f1 이 왜 저렇게 차이나나")은 **점수를 감사하고
+싶다**는 뜻이라, 숫자를 한 번 더 띄우는 것으로는 부족하다.
+
+- `_compare_site.py`: 행 단위 addmod/change 점수를 **분자·분모와 함께** 카드에 싣고, 새 "Change" 뷰가
+  GT 요소를 {strict hit / loose-only / miss}, 예측 요소를 {hit / spurious} 로 칠한다. 비어 있던
+  `paneMarks` 의 state 분기를 채웠다. **`_audit_consistency_error` 가 화면 분류를 정본 채점기 값과
+  교차검증한다** — 감사 도구가 스스로 감사받지 못하면 의미가 없다.
+- `eval_viewer.py`: 복사기 기준선 `gain` 축이 2026-08-11 이후 **34 leaf 에서 열이 통째로 비어 있었다**
+  (뷰어가 `copy_baseline_metrics.json` 을 아예 안 읽었다). 이 파일만 섹션이 2단이라 1단 조회로는
+  조용히 빈 dict 가 된다.
+- `scripts/derivability_site.py` (신규): **예측 없이 test jsonl 만으로** current/action/GT 를 놓고
+  유도성 라벨을 색으로 칠하는 감사 사이트. 요소를 클릭하면 판정 근거가 나온다.
+
+### 5. 남은 것
+
+- 채점기 쪽 v3 축(`addmod_recall` 을 derivable/non_derivable 로 분리 리포트)은 아직 배선하지 않았다.
+- 알려진 오분류: 연락처 알파벳 인덱스(ABC/DEF/GHI…)와 키보드 위 nav "Back" 이 NON_DERIVABLE 로 남는다.
+  둘 다 결정론적이라 유도 가능으로 가야 하지만, **precision 우선**(앱 콘텐츠를 유도 가능으로 잘못 넣으면
+  실패가 지표에서 숨는다)이라 지금은 과소 라벨링 쪽에 두었다.
+- 카테고리: devlog
+
 ## 2026-08-12 — IWM: 복사기(copy baseline) 기준선 + similarity gain 신설 — `addmod_recall` 은 복사에 면역이 아니었다
 
 프롬프트의 current state XML 을 그대로 예측으로 낸 가상 모델(**복사기**)의 점수를 지표마다 산출하고
