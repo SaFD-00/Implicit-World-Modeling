@@ -45,11 +45,15 @@ import json
 import os
 from pathlib import Path
 
-from token_weight_builder_v2 import build_token_weights
+import token_weight_builder_v2
 from transformers import AutoTokenizer
 
-# 메트릭 모듈은 CLI 옵션에 따라 런타임에 로드 (v1: hungarian_diff / v2: hungarian_diff_v2)
+# 메트릭 모듈은 CLI 옵션에 따라 런타임에 로드
+# (v1: hungarian_diff / v2: hungarian_diff_v2 / v3: hungarian_diff_v3)
 _hd = None  # hungarian_diff 모듈 참조 (classify_diff, summarize_diff)
+# 가중치 빌더도 함께 갈린다 — v3 는 (diff_type × derivability) 2축 weight_map 이라
+# v2 빌더에 넘기면 키 형태가 안 맞는다. 기본값은 v2 (기존 동작 유지).
+_tw = token_weight_builder_v2
 
 
 class SampleFailure(Exception):
@@ -63,11 +67,23 @@ class SampleFailure(Exception):
 
 
 def _load_metric(version: str) -> None:
-    global _hd
-    if version == "v2":
+    """metric 버전에 맞는 diff 모듈 + 가중치 빌더를 함께 바인딩한다.
+
+    v3 는 diff(ADDED/MODIFIED/UNCHANGED) 위에 **액션 유도성** 축을 얹는다 — 모델이
+    원리적으로 알 수 없는 콘텐츠(서버가 내려준 상품명·가격 등)를 full weight 로
+    외우게 하면 hallucination 을 학습시키기 때문이다. 축이 늘면 weight_map 의 키
+    형태가 바뀌므로 빌더도 같이 갈아야 한다.
+    """
+    global _hd, _tw
+    if version == "v3":
+        _hd = importlib.import_module("hungarian_diff_v3")
+        _tw = importlib.import_module("token_weight_builder_v3")
+    elif version == "v2":
         _hd = importlib.import_module("hungarian_diff_v2")
+        _tw = token_weight_builder_v2
     else:
         _hd = importlib.import_module("hungarian_diff")
+        _tw = token_weight_builder_v2
 
 
 # ── 메시지 포맷 정규화 ──────────────────────────────────────────────────
@@ -254,13 +270,33 @@ def process_sample(
 
     diff_counts = _hd.summarize_diff(diff_result)
 
+    # ── 유도성 분류 (v3 전용) ────────────────────────────────────────────
+    # v1/v2 모듈에는 classify_derivability 가 없다 → deriv_result=None 으로 1축 거동.
+    # 실패해도 학습 데이터 생성을 멈추지 않는다: 유도성은 **가중치를 깎는** 축이라
+    # 없으면 v2 와 같은 full weight 로 되돌아갈 뿐이고, 그건 안전한 방향이다.
+    deriv_result = None
+    deriv_counts: dict[str, int] = {}
+    if hasattr(_hd, "classify_derivability"):
+        try:
+            action = _hd.extract_action(user)
+            deriv_result = _hd.classify_derivability(current_html, future_html, action)
+            deriv_counts = _hd.summarize_derivability(deriv_result)
+        except Exception as e:
+            if on_error == "fail":
+                raise SampleFailure("derivability", line_no, e) from e
+            print(f"[WARN] line {line_no}: 유도성 분류 실패 ({e}) → 유도성 축 없이 진행")
+            deriv_result = None
+
     # ── token weight 생성 ─────────────────────────────────────────────────
     # ★ assistant 부분의 weight만 저장한다.
     #    prefix 길이는 훈련 시 이미지 토큰 확장 등으로 달라지므로,
     #    collator에서 labels(-100 마스크)를 기반으로 prefix/assistant 경계를 판단한다.
     prefix_text = prefix_fn(system, user)
     try:
-        weights = build_token_weights(
+        kwargs = {}
+        if deriv_result is not None:
+            kwargs["deriv_result"] = deriv_result
+        weights = _tw.build_token_weights(
             tokenizer=tokenizer,
             system=system,
             user=user,
@@ -268,6 +304,7 @@ def process_sample(
             diff_result=diff_result,
             prefix_text=prefix_text,
             weight_map=weight_map,
+            **kwargs,
         )
         # prefix 부분(0.0)을 제거하고 assistant 부분만 저장
         prefix_ids = tokenizer(prefix_text, add_special_tokens=False)["input_ids"]
@@ -279,10 +316,14 @@ def process_sample(
         print(f"[WARN] line {line_no}: weight 생성 실패 ({e}) → uniform fallback")
         sample["token_weights"] = _uniform()
         sample["_diff_counts"] = diff_counts
+        if deriv_counts:
+            sample["_deriv_counts"] = deriv_counts
         return sample, "weight_fail"
 
     sample["token_weights"] = weights
     sample["_diff_counts"] = diff_counts  # 훈련 전 제거하거나 그대로 둬도 무방
+    if deriv_counts:
+        sample["_deriv_counts"] = deriv_counts  # 유도성 분포 진단용 (v3 만 채워진다)
 
     return sample, "ok"
 
@@ -319,6 +360,7 @@ def preprocess(
     metric_version: str = "v2",
     revision: str | None = None,
     on_error: str = "fail",
+    w_non_derivable: float = 0.5,
 ) -> dict:
     """
     input_jsonl 전체를 순회하며 token_weights를 계산하고 output_jsonl에 저장.
@@ -336,6 +378,8 @@ def preprocess(
         w_unchanged  : UNCHANGED element 가중치
         revision     : tokenizer commit SHA / 태그 고정 (None 이면 캐시 기본)
         on_error     : "fail" | "uniform" | "skip"
+        w_non_derivable : (v3 전용) 유도 불가능한 ADDED/MODIFIED 의 감쇠 가중치.
+                          v1/v2 에서는 무시된다 (유도성 축이 없다).
 
     Returns:
         집계 dict (sidecar 에 기록되는 것과 동일)
@@ -354,17 +398,28 @@ def preprocess(
 
     tkey = template_key or detect_template(model_name)
     prefix_fn = TEMPLATE_MAP.get(tkey, TEMPLATE_MAP["default"])
+    # v3 빌더는 (diff_type × derivability) 2축 표를 요구한다. 표 생성은 빌더가 갖고
+    # 있으므로 여기서 조합을 하드코딩하지 않는다 (하드 제약 10 — baseline 은 표에서 유도).
+    if hasattr(_tw, "make_weight_map"):
+        weight_map = _tw.make_weight_map(
+            w_added, w_modified, w_unchanged, w_non_derivable
+        )
+        wdesc = (
+            f"ADDED={w_added} MODIFIED={w_modified} UNCHANGED={w_unchanged} "
+            f"NON_DERIVABLE(add/mod)={w_non_derivable}"
+        )
+    else:
+        weight_map = {
+            "ADDED": w_added,
+            "MODIFIED": w_modified,
+            "UNCHANGED": w_unchanged,
+        }
+        wdesc = f"ADDED={w_added} MODIFIED={w_modified} UNCHANGED={w_unchanged}"
+
     print(
-        f"[INFO] metric={metric_version} | 템플릿: {tkey} | "
-        f"가중치 ADDED={w_added} MODIFIED={w_modified} UNCHANGED={w_unchanged} | "
+        f"[INFO] metric={metric_version} | 템플릿: {tkey} | 가중치 {wdesc} | "
         f"on-error={on_error} | tokenizer={model_name}@{resolved_rev[:12]}"
     )
-
-    weight_map = {
-        "ADDED": w_added,
-        "MODIFIED": w_modified,
-        "UNCHANGED": w_unchanged,
-    }
 
     counts = {
         "total": 0,
@@ -377,6 +432,7 @@ def preprocess(
         "written": 0,
     }
     agg_diff = {"ADDED": 0, "MODIFIED": 0, "UNCHANGED": 0}
+    agg_deriv: dict[str, int] = {}
 
     out_p.parent.mkdir(parents=True, exist_ok=True)
     tmp_p = out_p.with_name(out_p.name + ".tmp")
@@ -413,6 +469,8 @@ def preprocess(
 
                 for k, v in sample["_diff_counts"].items():
                     agg_diff[k] += v
+                for k, v in sample.get("_deriv_counts", {}).items():
+                    agg_deriv[k] = agg_deriv.get(k, 0) + v
 
                 fout.write(json.dumps(sample, ensure_ascii=False) + "\n")
                 counts["written"] += 1
@@ -437,10 +495,15 @@ def preprocess(
         "tokenizer_class": tokenizer.__class__.__name__,
         "template": tkey,
         "metric_version": metric_version,
-        "weight_map": weight_map,
+        # 2축 표의 키는 튜플이라 JSON 으로 직렬화되지 않는다 → "DIFF|DERIV" 로 편다.
+        "weight_map": {
+            (f"{k[0]}|{k[1]}" if isinstance(k, tuple) else k): v
+            for k, v in weight_map.items()
+        },
         "on_error": on_error,
         "counts": counts,
         "diff_totals": agg_diff,
+        "derivability_totals": agg_deriv,
     }
     Path(str(out_p) + ".meta.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False)
@@ -454,6 +517,8 @@ def preprocess(
         f"json오류 {counts['json_error']} | 스킵 {counts['skipped']} | 출력 {counts['written']}"
     )
     print(f"[diff 집계] {agg_diff}")
+    if agg_deriv:
+        print(f"[유도성 집계] {agg_deriv}")
     if fallback:
         print(
             f"[주의] {fallback}건이 uniform fallback 이다 — diff 강조가 적용되지 않았다. "
@@ -474,10 +539,22 @@ if __name__ == "__main__":
     parser.add_argument("--w-modified", type=float, default=1.0)
     parser.add_argument("--w-unchanged", type=float, default=0.25)
     parser.add_argument(
+        "--w-non-derivable",
+        type=float,
+        default=0.5,
+        help=(
+            "v3 전용: 유도 불가능한(현재 state + action 으로 내용이 결정되지 않는) "
+            "ADDED/MODIFIED 요소의 감쇠 가중치. v1/v2 에서는 무시된다."
+        ),
+    )
+    parser.add_argument(
         "--metric-version",
-        choices=["v1", "v2"],
+        choices=["v1", "v2", "v3"],
         default="v2",
-        help="v1: 원본 로직 / v2: _collect_texts·_match_cost 개선판",
+        help=(
+            "v1: 원본 로직 / v2: _collect_texts·_match_cost 개선판 / "
+            "v3: element 화이트리스트 제거 + 액션 유도성 2축 가중치"
+        ),
     )
     parser.add_argument(
         "--revision",
@@ -506,4 +583,5 @@ if __name__ == "__main__":
         metric_version=args.metric_version,
         revision=args.revision,
         on_error=args.on_error,
+        w_non_derivable=args.w_non_derivable,
     )
