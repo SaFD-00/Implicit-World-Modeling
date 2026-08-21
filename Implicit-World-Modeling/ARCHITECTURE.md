@@ -668,53 +668,45 @@ Hungarian 계열과 state-diff 계열이 **무엇을 요소로 세는가**를 �
 
 **프로덕션 재채점 완료 (2026-08-21).** `rebuild_eval_metrics.sh -j6 -f`로 상태 Hungarian **54 leaf**, `rebuild_state_diff_metrics.sh -j6 -f`로 비절단 state-diff **39 leaf**, `rebuild_copy_baseline.sh -j6 -f`로 copy baseline **54 leaf**를 다시 만들었다. 세 대상은 모두 `element_set: "full"`이고, state-diff에서 빠진 **15개는 1024-token 절단 split**이라 의도된 제외다. copy baseline은 54개 모두 복사기 불변식(`copy_exact_rate=1.0`, `modified_recall=unchanged_recall=1.0`, `change_f1_strict=0.0`)을 통과했고, 정상 39 leaf × 3 section의 model/gain **117 section**은 모두 채워졌다; 절단 15 leaf는 설계대로 `model`/`gain=null`이다.
 
-아래 A/B는 같은 JSONL을 현재 CLI로 다시 읽은 **실측값**이다. legacy는 `/tmp/iwm-legacy-state-diff-20260821/`에 격리해 `--element-set legacy`로 냈고, production full 산출물을 덮어쓰지 않았다.
+아래 A/B는 같은 production prediction JSONL을 현재 CLI로 다시 읽은 **실측값**이다. legacy 재현 결과는 `/tmp/iwm-legacy-rescore-20260821/`에 격리해 저장했고 production full 산출물은 덮어쓰지 않았다. Hungarian 기준으로 54개 eligible state leaf, 총 270,953행을 leaf의 `overall.total`로 가중 평균했다.
 
-**실측 A/B — 헤드라인은 거의 안 움직이고, 바뀐 것은 "무엇을 재는가" 다.** EXP05 `qwen2.5-vl-3b/full_world-model/epoch-3/on-AC_EXP05-state`, `--match-mode pos`, id split (n=2,684), 같은 예측 jsonl:
+**실측 A/B — 숫자의 이동은 성능 변화가 아니라 측정 모집단 변화다.**
 
-| 지표 | legacy | full | Δ |
+| Hungarian 지표 | legacy | full | Δ (full−legacy) |
 |---|---:|---:|---:|
-| `avg_hungarian_f1` | 0.7522 | 0.7525 | **+0.0003** |
-| `avg_hungarian_prec` | 0.7659 | 0.7601 | −0.0058 |
-| `avg_hungarian_rec` | 0.8593 | 0.8569 | −0.0024 |
-| `avg_hungarian_text` | 0.6535 | 0.7345 | **+0.0810** |
-| `avg_hungarian_pos` | 0.5302 | 0.5679 | **+0.0377** |
-| `avg_bleu` / `avg_rouge_l` | — | — | ±0 (요소를 안 쓴다) |
-| `avg_addmod_recall` | 0.7812 | 0.7571 | −0.0241 |
-| `avg_added_recall` | 0.5588 | 0.5134 | −0.0454 |
-| `avg_change_f1_strict` | 0.2927 | 0.3043 | +0.0116 |
-| `avg_change_f1_loose` | 0.4710 | 0.4578 | −0.0132 |
-| `avg_change_f1_floor` | 0.2489 | 0.2581 | +0.0092 |
-| `avg_copy_excess` | −0.0041 | −0.0074 | −0.0033 |
-| `avg_n_gt` / `avg_n_pred` | 38.96 / 47.56 | 52.07 / 64.71 | **+34% / +36%** |
-| `parse_fail_rate` | 0.0011 | 0.0000 | −0.0011 |
+| `avg_hungarian_ea` | 0.479849 | 0.503279 | +0.023430 |
+| `avg_hungarian_f1` | 0.548915 | 0.574387 | **+0.025472** |
+| `avg_hungarian_prec` | 0.623131 | 0.641858 | +0.018727 |
+| `avg_hungarian_rec` | 0.613535 | 0.639275 | +0.025740 |
+| `avg_hungarian_text` | 0.705135 | 0.796322 | **+0.091187** |
+| `exact_match_rate` | 0.031643 | 0.031732 | +0.000089 |
 
-읽는 법:
-- **`hungarian_f1` 이 +0.0003 이라는 게 핵심이다.** 요소가 34% 늘었는데 헤드라인이 안 움직였다 — 이 변경은 점수 인플레가 아니라 **모집단 교체**다. 그래서 옛 산출물과 새 산출물의 `f1` 이 비슷해 보여도 같은 수가 아니다 (`element_set` 스탬프로 구분하라).
-- **`text` +0.081 · `pos` +0.038 이 실질 개선이다.** 컨테이너가 서브트리 텍스트로 정체성을 얻으면서 매칭된 짝의 내용·위치 정합도가 올라갔다.
-- **`added_recall` −0.045 는 나빠진 게 아니라 어려워진 것이다.** 새로 보이게 된 ADDED 요소(컨테이너·아이콘)가 분모에 들어왔다 (`avg_n_gt_added` 9.82 → 12.91).
-- **`loose` 는 내려가고 `strict` 는 올라가 갭이 좁아졌다** — 새로 세는 요소가 대체로 `text_sim ≥ τ` 로 맞는다는 뜻이다.
-- **`parse_fail_rate` 이 0 이 됐다.** legacy 에서 요소를 하나도 못 뽑아 0점 처리되던 행이 있었고, full 에서는 사라진다.
+요소를 사용하지 않는 BLEU/ROUGE와 exact match는 거의 움직이지 않고, element 기반 text 정합도가 크게 움직인다. 따라서 Full의 F1 상승을 모델 성능 향상으로 읽으면 안 된다. `element_set` 스탬프가 다른 두 모집단을 구분하는 기준이다.
 
-**⚠️ index 모드(EXP01~04·MobiBench)는 이동폭이 훨씬 크다 — pos 결과를 일반화하지 마라.** 같은 A/B 를 EXP01 `qwen2.5-vl-7b_ratio73/lora_world-model/epoch-1/on-AC_EXP01-state`, `--match-mode index`, id split (n=3,000) 에서:
+**Full state-diff 실측 (비절단 39 leaf, 총 181,027행).** state-diff는 legacy A/B를 섞지 않고 현재 production Full만 집계했다. 절단 15 leaf는 copy-rate 편향 때문에 의도적으로 제외했다.
 
-| 지표 | legacy | full | Δ |
-|---|---:|---:|---:|
-| `avg_hungarian_f1` | 0.3848 | 0.4170 | **+0.0322** |
-| `avg_hungarian_prec` | 0.4559 | 0.5107 | +0.0548 |
-| `avg_hungarian_rec` | 0.4200 | 0.4516 | +0.0316 |
-| `avg_hungarian_text` | 0.6728 | 0.7589 | +0.0861 |
-| `avg_hungarian_idx` | 0.3972 | 0.4923 | +0.0951 |
-| `avg_change_f1_strict` | 0.0953 | 0.1846 | **+0.0893** |
-| `avg_copy_excess` | 0.2599 | 0.1095 | **−0.1504** |
-| **`parse_fail_rate`** | **0.2027** | **0.0000** | **−0.2027** |
+| 지표 | Full production |
+|---|---:|
+| `avg_addmod_recall` | 0.468460 |
+| `avg_addmod_recall_derivable` | 0.337340 |
+| `avg_addmod_recall_non_derivable` | 0.514974 |
+| `avg_added_recall` / `avg_modified_recall` | 0.136527 / 0.867984 |
+| `avg_change_f1_strict` / `avg_change_f1_loose` | 0.103803 / 0.153801 |
+| `avg_change_f1_floor` | 0.300113 |
+| `avg_copy_excess` | 0.145386 |
+| `parse_fail_rate` | 0.001942 |
 
-**이 이동의 대부분은 성능이 아니라 `parse_fail` 재분류다.** 이 leaf ID 예측 3,000행 중 **606행(20.20%)이 문자 그대로 `<node index="0"/>`** — 화면이 비었다고 답한 퇴화 예측이다 (OOD도 616/3,000=20.53%). legacy `parse_fail`은 608/3,000=20.27%인데 singleton 외 두 행의 별도 실패까지 포함한 값이다. `node` 가 옛 화이트리스트 어디에도 없어 singleton은 **요소 0개 → 그 행의 전 지표가 0.0** 으로 채점됐고, 조건부 정의 지표(`copy_excess` 등)에서는 빠졌다 (`n_copy_excess` 2,388 → 3,000). `full` 에서는 요소 1개짜리 예측으로 정상 채점된다 (여전히 매우 낮은 점수다).
+`addmod_recall_derivable`는 현재 state+action으로 원칙상 유도 가능한 GT 변경분을 맞힌 비율이고, `..._non_derivable`는 원칙상 action만으로 결정할 수 없는 변경분의 recall이다. 후자는 모델의 단순 실패율로 해석하지 않고, v3 유도성 라벨과 함께 봐야 한다. `change_f1_strict`는 반드시 같은 leaf의 `change_f1_floor`와 함께 읽는다.
 
-읽는 법 — **여기서 지표가 올랐다고 모델이 나아진 게 아니다.**
-- `parse_fail_rate` 이 0 이 된 것은 "예측이 좋아졌다"가 아니라 **"파싱 가능한 퇴화 예측을 더 이상 파싱 실패로 오분류하지 않는다"** 는 뜻이다. 퇴화 예측은 여전히 퇴화 예측이고, 이제 0.0 이 아니라 자기 실력만큼의 낮은 점수를 받는다.
-- `copy_excess` −0.15 는 **population 교체가 만든 수**다. 옛 기준에서 20.3% 가 None 으로 빠져 있었으니 두 값은 서로 다른 모집단 위의 평균이다 (§ "`copy_excess` 를 `parse_fail_rate` 없이 비교하지 마라" 와 같은 함정이 여기서도 발동한다).
-- pos 계열(EXP05·EXP07)의 `parse_fail_rate` 은 원래 0.0011 이라 이 효과가 거의 없다. **그래서 pos 에서는 `hungarian_f1` 이 +0.0003 인데 index 에서는 +0.0322 다** — 두 수의 차이는 채점 기준이 아니라 **각 데이터셋에 퇴화 예측이 얼마나 섞여 있었나**에서 온다.
+**실제 데이터의 유도성 분류 감사 (각 50 ID 표본).** `derivability_site.py`를 Full 파서·v3 분류기와 같은 경로로 생성하고 브라우저에서 확인했다. 사이트는 `STRUCTURE`를 기본 숨기되 필터로 다시 표시하며, 요소 클릭 시 `NON_DERIVABLE`/유도 가능 판정 규칙과 근거 요소를 보여준다.
+
+| 데이터 | 전체 요소 | `STRUCTURE` | `NON_DERIVABLE` | 유도 가능 |
+|---|---:|---:|---:|---:|
+| EXP01 | 2,176 | 647 (29.7%) | 459 (21.1%) | 1,717 (78.9%) |
+| EXP05 | 2,720 | 1,018 (37.4%) | 658 (24.2%) | 2,062 (75.8%) |
+| EXP07 | 2,791 | 938 (33.6%) | 741 (26.5%) | 2,050 (73.5%) |
+
+**대표적인 index-mode 주의 사례.** EXP01 qwen2.5 7B lora epoch-1의 ID 예측에서 `<node index="0"/>` singleton은 606/3,000행(20.20%), OOD는 616/3,000행(20.53%)이었다. legacy `parse_fail`은 ID 608/3,000행(20.27%)으로 singleton 외 두 행의 별도 빈 요소 판정까지 포함한다. legacy에서는 `node`가 화이트리스트 밖이라 이 행들이 요소 0개로 0점/조건부 분모 제외가 되었고, Full에서는 1개 요소로 채점된다. Full ID의 `avg_hungarian_f1=0.4170`, `avg_change_f1_strict=0.1846`, `avg_copy_excess=0.1095`는 이 퇴화 출력을 좋게 만든 값이 아니다. 이 사례는 F1 이동이 성능이 아닌 reclassification임을 검증하는 회귀 기준이다.
 
 **호환 — 최초에는 재채점하지 않기로 했지만, 같은 날 사용자 결정으로 production state leaf를 강제 재채점했다.** `metrics_schema` 와 같은 방식으로 두 산출물 최상위에 **`element_set: "full"|"legacy"`** 를 박는다. 현행 production 대상은 모두 `full`; 이 키가 없는 과거 파일은 옛 화이트리스트 기준이므로 새 기준 파일과 나란히 놓지 말 것. 옛 값을 재현할 때만 별도 경로에서 `--element-set legacy` 를 쓰고, Hungarian과 state-diff에 **같은 값**을 줘야 한다.
 
