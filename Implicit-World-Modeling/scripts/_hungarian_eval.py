@@ -206,6 +206,25 @@ def _collect_texts_pos(el):
 ELEMENT_SET = "full"
 
 
+def _default_element_set():
+    """`--element-set` 의 기본값. 환경변수 `ELEMENT_SET` 이 있으면 그것을 쓴다.
+
+    셸 파이프라인(`stage1_eval.sh` · `rebuild_eval_metrics.sh` ·
+    `rebuild_state_diff_metrics.sh` · `rebuild_woa_metrics.sh` · `probe_forget_eval.sh`)
+    은 이 플래그를 넘기지 않는다. 그래서 플래그만 두면 **정상 경로로는 legacy 를
+    요청할 방법이 아예 없다** — `--include-aria` 가 정확히 그렇게 죽은 코드가 됐다
+    (플래그는 있는데 어떤 스크립트도 켜지 않아 실질 no-op). 스크립트 다섯 개를 고치는
+    대신 환경변수를 기본값으로 받으면 `ELEMENT_SET=legacy bash scripts/stage1_eval.sh …`
+    한 줄로 재현 경로가 열린다. 명시 플래그는 언제나 환경변수를 이긴다.
+
+    값 검증은 `set_element_set` 한 곳에서만 한다 — argparse 는 **choices 를 기본값에
+    적용하지 않으므로** 오타(`legcy`)는 여기서 안 걸리고 진입부에서 ValueError 로 터진다.
+    """
+    # 빈 문자열은 "미설정"으로 읽는다 — 셸에서 `ELEMENT_SET="${ELEMENT_SET:-}"` 처럼
+    # 빈 값을 export 하는 일이 흔한데, 그걸 오타로 취급해 터뜨릴 이유가 없다.
+    return os.environ.get("ELEMENT_SET") or "full"
+
+
 def set_element_set(name):
     """채점 대상 element 집합을 고른다. CLI 진입부(그리고 그 전파 지점)에서만 부른다."""
     global ELEMENT_SET
@@ -319,11 +338,12 @@ def _extract_elements_legacy(soup, pos_mode, include_aria):
 
 
 def extract_elements(xml_str, match_mode="index", include_aria=False):
-    """XML/HTML 문자열 → 채점용 element 리스트.
+    """XML 문자열 → 채점 대상 element 리스트. 집합 정의는 `ELEMENT_SET` 이 고른다.
 
-    `include_aria` 는 `legacy` 기준에서만 뜻이 있다 (pos 모드의 포함 조건에 aria-label
-    을 더한다). `full` 에서는 모든 요소가 이미 들어오고 aria-label 은 항상 텍스트로
-    쓰이므로 **무의미하다** — 호출부가 많아 시그니처만 유지한다.
+    `include_aria` 는 **legacy 집합에서만 의미가 있다** (aria-label 만 가진 요소를
+    포함시킬지). full 에서는 모든 요소가 들어오고 aria-label 은 항상 텍스트로 쓰이므로
+    무의미하다 — 시그니처를 유지하는 것은 호출부(정본/state-diff/copy-baseline)가
+    여럿이고 legacy 재현에 여전히 필요하기 때문이다.
     """
     soup = _parse_soup(xml_str)
     pos_mode = match_mode == "pos"
@@ -331,11 +351,11 @@ def extract_elements(xml_str, match_mode="index", include_aria=False):
         return _extract_elements_legacy(soup, pos_mode, include_aria)
     elements = []
     for el in soup.find_all(True):
-        # 태그 케이스 정규화 — lxml `xml` 파서는 케이스를 보존하고(`RecyclerView`)
-        # 폴백 `html.parser` 는 소문자화한다. 예측만 펜스에 감싸여 폴백 경로를 타면
-        # pred 와 GT 의 같은 태그가 영구 불일치하는데, `_match_cost` 의 태그 불일치는
-        # W_TAG=3.0 이라 두 임계(1.5/1.7)를 모두 넘겨 **사실상 하드 게이트**다 —
-        # 그 문서의 카멜케이스 요소가 통째로 미매칭된다.
+        # 태그 케이스 정규화. lxml "xml" 파서는 케이스를 보존해 `RecyclerView` 로 두고,
+        # 폴백인 html.parser 는 소문자화해 `recyclerview` 로 만든다. 예측만 펜스에
+        # 감싸이면 pred 는 폴백 경로, GT 는 xml 경로를 타 **태그가 영구 불일치**한다.
+        # `_match_cost` 의 태그 불일치 비용은 W_TAG=3.0 이라 임계(1.5/1.7)를 넘겨
+        # 사실상 하드 게이트다 — 한쪽만 소문자면 그 문서는 통째로 0점이 된다.
         tag = el.name.lower()
         text = _collect_texts_full(el)
         if pos_mode:
@@ -1002,18 +1022,20 @@ def main():
         "--include-aria",
         action="store_true",
         dest="include_aria",
-        help="pos 모드에서 aria-label 만 가진 요소도 채점 대상에 넣는다. **기본은 꺼짐** — "
-        "element 집합 자체가 커져 pos 계열 전 지표가 새 기준이 된다 "
-        "(extract_elements 주석 참고).",
+        help="pos 모드에서 aria-label 만 가진 요소도 채점 대상에 넣는다. "
+        "**`--element-set legacy` 에서만 유효하다** — 기본값 full 은 모든 요소를 채택하고 "
+        "aria-label 을 항상 텍스트로 쓰므로 이 플래그가 no-op 이다. legacy 에서는 켜는 순간 "
+        "element 집합이 커져 pos 계열 전 지표가 새 기준이 된다 (extract_elements 주석 참고).",
     )
     p_score.add_argument(
         "--element-set",
-        default="full",
+        default=_default_element_set(),
         choices=["full", "legacy"],
         dest="element_set",
         help="채점 대상 element 집합. full (기본): 파서가 낸 모든 요소. legacy: "
         "2026-08-21 이전 화이트리스트 — 실제 데이터의 약 24%% 를 버렸다 "
-        "(extract_elements 주석 참고). 옛 산출물과 나란히 놓을 때만 legacy 를 쓴다.",
+        "(extract_elements 주석 참고). 옛 산출물과 나란히 놓을 때만 legacy 를 쓴다. "
+        "셸 스크립트 경유로는 환경변수 `ELEMENT_SET=legacy` 로 지정한다 (이 플래그가 이긴다).",
     )
     p_score.add_argument(
         "--exclude-action",

@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +34,7 @@ if str(_SCRIPTS) not in sys.path:
 
 _he = __import__("_hungarian_eval")
 _sd = __import__("_state_diff_eval")
+_cs = __import__("_compare_site")  # 배선 가드 음성 테스트용 — 읽기만 한다
 
 
 def setUpModule():
@@ -252,7 +255,9 @@ class TestCliStamp(unittest.TestCase):
     state-diff 가 실제로 센 요소 수(`avg_n_gt`)까지 본다.
     """
 
-    def _run(self, tmp: Path, flags: list[str]) -> tuple[dict, dict]:
+    def _run(
+        self, tmp: Path, flags: list[str], env: dict | None = None
+    ) -> tuple[dict, dict]:
         test_path = tmp / "test.jsonl"
         pred_path = tmp / "pred.jsonl"
         test_path.write_text(
@@ -286,6 +291,7 @@ class TestCliStamp(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            env={**os.environ, **(env or {})},
         )
         self.assertEqual(r.returncode, 0, r.stderr)
         return (
@@ -313,6 +319,102 @@ class TestCliStamp(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             _, sd = self._run(Path(d), [])
         self.assertEqual(sd["metrics_schema"], _sd.METRICS_SCHEMA)
+
+
+class TestEnvDefault(unittest.TestCase):
+    """셸 파이프라인은 `--element-set` 을 넘기지 않는다 (`stage1_eval.sh` ·
+    `rebuild_*.sh` · `probe_forget_eval.sh`). 환경변수 기본값이 없으면 **정상 경로로는
+    legacy 를 요청할 방법이 없고**, 그러면 플래그가 `--include-aria` 처럼 죽는다."""
+
+    def test_env_var_sets_the_default(self):
+        self.assertEqual(_he._default_element_set(), "full")
+        with unittest.mock.patch.dict(os.environ, {"ELEMENT_SET": "legacy"}):
+            self.assertEqual(_he._default_element_set(), "legacy")
+
+    def test_empty_env_var_is_treated_as_unset(self):
+        """셸에서 `ELEMENT_SET="${ELEMENT_SET:-}"` 로 빈 값을 export 하는 일이 흔하다."""
+        with unittest.mock.patch.dict(os.environ, {"ELEMENT_SET": ""}):
+            self.assertEqual(_he._default_element_set(), "full")
+
+    def test_env_var_reaches_both_scorers_end_to_end(self):
+        stamp = TestCliStamp._run
+        with tempfile.TemporaryDirectory() as d:
+            hung, sd = stamp(self, Path(d), [], {"ELEMENT_SET": "legacy"})
+        self.assertEqual((hung["element_set"], sd["element_set"]), ("legacy", "legacy"))
+        self.assertEqual(sd["avg_n_gt"], 3.0, "실제로 옛 집합으로 채점됐다")
+
+    def test_explicit_flag_beats_the_env_var(self):
+        stamp = TestCliStamp._run
+        with tempfile.TemporaryDirectory() as d:
+            hung, sd = stamp(
+                self, Path(d), ["--element-set", "full"], {"ELEMENT_SET": "legacy"}
+            )
+        self.assertEqual((hung["element_set"], sd["element_set"]), ("full", "full"))
+        self.assertEqual(sd["avg_n_gt"], 4.0)
+
+
+class TestWiringGuardStillFails(unittest.TestCase):
+    """배선 가드가 **여전히 원래 실패를 잡는지** 음성으로 고정한다.
+
+    가드의 존재 이유는 "bs4/scipy 미초기화 → `compute_hungarian_acc` 의 except 가
+    예외를 삼켜 전 행 조용히 0점"이다 (2026-08-01 실측: 표본 f1 0.0 vs aggregate 0.71).
+    element 집합이 `full` 이 되며 추출 경로가 바뀌었으니, 가드가 아직 **정상 종료하지
+    않는다**는 것을 확인해야 한다. `_compare_site` 는 다른 워커 소유라 읽기만 한다.
+    """
+
+    @contextlib.contextmanager
+    def _broken(self, **attrs):
+        """`_lazy_deps` 를 무력화해 의존성 복구를 막고 지정한 전역을 부순다."""
+        saved = {k: getattr(_he, k) for k in (*attrs, "_lazy_deps")}
+        _he._lazy_deps = lambda: None
+        for k, v in attrs.items():
+            setattr(_he, k, v)
+        try:
+            yield
+        finally:
+            for k, v in saved.items():
+                setattr(_he, k, v)
+            _he._lazy_deps()
+
+    def test_empty_extraction_raises_on_both_guards(self):
+        with self._broken(extract_elements=lambda *a, **k: []):
+            for mode in ("index", "pos"):
+                with self.subTest(mode=mode):
+                    with self.assertRaises(_cs.SiteBuildError):
+                        _cs.assert_state_scorer_wired(mode)
+                    with self.assertRaises(_sd.StateDiffError):
+                        _sd.assert_scorer_wired(mode)
+
+    def test_missing_bs4_never_passes_the_guard(self):
+        """이때 `compute_hungarian_acc` 는 **조용히 0점을 돌려준다** — 가드가 없으면
+        그 표가 그대로 저장된다. 가드는 정상 종료하면 안 된다."""
+        with self._broken(BeautifulSoup=None):
+            self.assertEqual(
+                _he.compute_hungarian_acc("<p>a</p>", "<p>a</p>", "pos")[
+                    "hungarian_f1"
+                ],
+                0.0,
+                "가드가 막으려는 조용한 실패가 실제로 존재한다",
+            )
+            # 예외 종류는 의존성이 어디서 터지느냐에 달렸다 (`SiteBuildError` 는
+            # SystemExit 계열, bs4 부재는 `_parse_soup` 의 TypeError). 고정할 것은
+            # **정상 종료하지 않는다**는 성질이다.
+            with self.assertRaises(BaseException):
+                _cs.assert_state_scorer_wired("pos")
+            with self.assertRaises(BaseException):
+                _sd.assert_scorer_wired("pos")
+
+    def test_missing_solver_never_passes_the_guard(self):
+        with self._broken(_solve=None):
+            with self.assertRaises(BaseException):
+                _cs.assert_state_scorer_wired("pos")
+            with self.assertRaises(BaseException):
+                _sd.assert_scorer_wired("pos")
+
+    def test_guards_pass_again_after_restore(self):
+        """위 세 테스트가 전역을 되돌리는지 — 안 되돌리면 다른 파일이 전 행 0점을 받는다."""
+        _cs.assert_state_scorer_wired("pos")
+        _sd.assert_scorer_wired("pos")
 
 
 if __name__ == "__main__":

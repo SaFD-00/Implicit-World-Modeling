@@ -884,6 +884,12 @@ def compute_state_diff(
 # 넘고(위치·텍스트를 아무리 밀어도 **같은 태그면** cost 상한이 임계 아래라 붙는다),
 # 동시에 `INTERACTIVE_TAGS` 소속이라 텍스트 없이도 추출된다 — 화이트리스트 밖 태그
 # (`zzz` 등)를 쓰면 element 가 0 개로 추출돼 빈 예측과 구분이 안 된다.
+# (element 집합이 `full` 이 된 뒤로 뒷절의 화이트리스트 제약은 사라졌다 — 아무 태그나
+#  추출된다. 그래도 `select` 를 유지하는 것은 앞절, 즉 **cur/gt 의 어떤 태그와도 달라야
+#  한다**는 요구가 그대로이고, `legacy` 집합에서 이 probe 가 여전히 돌아야 하기 때문이다.
+#  root `<node>` 도 이제 요소라 maxdel 쪽 root 와 같은 태그로 만나는데, 텍스트가
+#  통째로 다르고 위치·index 가 멀어 두 임계 모두에서 떨어진다 — 마진이 크지 않으니
+#  `_PROBE` 의 좌표/index 를 줄이지 말 것.)
 # 이 probe 가 **바닥이 여전히 0 이 아님**을 배선 단계에서 증명한다: 빈 예측을 0 으로
 # 만들어도 요소가 1개만 있으면 나머지 current 전부가 그대로 DELETED 주장이 된다.
 _PROBE = {
@@ -1277,17 +1283,22 @@ def main() -> int:
         "--include-aria",
         action="store_true",
         dest="include_aria",
-        help="pos 모드에서 aria-label 만 가진 요소도 채점 대상에 넣는다. **기본은 꺼짐** — "
-        "정본 채점과 **반드시 같은 값**이어야 한다 (element 집합 자체가 달라진다).",
+        help="pos 모드에서 aria-label 만 가진 요소도 채점 대상에 넣는다. "
+        "**`--element-set legacy` 에서만 유효하다** (기본값 full 에서는 no-op — "
+        "모든 요소가 이미 들어온다). legacy 에서 켤 때는 정본 채점과 **반드시 같은 값**"
+        "이어야 한다 — element 집합 자체가 달라진다.",
     )
     s.add_argument(
         "--element-set",
-        default="full",
+        # 기본값도 정본 채점과 같은 함수에서 받는다 — 한쪽만 환경변수를 보면 두
+        # 채점기의 element 집합이 갈려 층 분해 항등식이 조용히 깨진다.
+        default=_he._default_element_set(),
         choices=["full", "legacy"],
         dest="element_set",
         help="채점 대상 element 집합. 정본 채점(_hungarian_eval)과 **반드시 같은 값**"
         "이어야 한다 — 다르면 층 분해 항등식이 깨진다. legacy 는 2026-08-21 이전의 "
-        "화이트리스트 집합(실제 요소의 약 24%% 를 버린다) 재현용이다.",
+        "화이트리스트 집합(실제 요소의 약 24%% 를 버린다) 재현용이다. 셸 스크립트 경유로는 "
+        "환경변수 `ELEMENT_SET=legacy` 로 지정한다 (이 플래그가 이긴다).",
     )
     s.add_argument("--exclude-action", default=None, dest="exclude_action")
     s.add_argument(
