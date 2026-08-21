@@ -91,6 +91,17 @@ STATE_METRIC_KEYS = [
     "avg_added_recall",
     "avg_modified_recall",
     "avg_unchanged_recall",
+    # ── 복사기(copy baseline) 대비 gain — copy_baseline_metrics.json ────────
+    # 같은 행에 current 를 그대로 베낀 "복사기" 예측을 넣어 채점하고 그 차를 뺀 값이다
+    # (`scripts/_copy_baseline_eval.py`). **모델 − 복사기** 이므로 0 이 기준이고 음수면
+    # 복사기보다 못한 것이다 — 하드 제약 13b 가 요구하는 "예측인가 입력 복사인가"를
+    # 한 열로 답한다. 절대값(avg_addmod_recall)은 복사기도 높게 받을 수 있어 단독으로는
+    # 그 구분이 안 된다.
+    # `n_gain_*` 는 **model·copy 양쪽이 정의된 행의 교집합** 크기다. 조건부 정의 지표라
+    # 세팅마다 분모가 달라질 수 있어 gain 과 반드시 함께 읽는다 (분모가 갈리면 두 gain
+    # 은 서로 다른 population 위의 평균이다). 정본이 `avg_`/`n_` 를 쌍으로 내는 이유다.
+    "avg_gain_addmod_recall",
+    "n_gain_addmod_recall",
     # change 축 — "변화 자체를 맞혔나". 위 recall 층은 GT 요소를 분모로 잡아 **없어져야
     # 할 요소**를 못 세고, hit 판정이 매칭뿐이라 자리만 맞고 내용이 틀려도 맞힌 게 된다.
     # change_f1_strict 은 pred/gt 양쪽에서 같은 절차로 변화 항목을 뽑아 내용 일치까지 본다.
@@ -108,6 +119,15 @@ STATE_METRIC_KEYS = [
     # 틀린" 양이다 — 둘을 나란히 두지 않으면 그 구분이 사라진다.
     "avg_change_f1_loose",
     "avg_change_f1_floor",
+    # 복사기 대비 gain. floor(퇴화 바닥)와 **다른 눈금**이다 — floor 는 "아무것도
+    # 재현하지 않는 예측"의 상한이고 이건 "current 를 통째로 베낀 예측"과의 차다.
+    # 복사기는 정의상 change 를 하나도 주장하지 않아 이 축이 낮으므로, gain 이 0 근처면
+    # "변화를 맞히는 능력이 복사기와 다르지 않다"는 뜻이다.
+    # `change_f1_floor` 는 예측과 무관한 눈금이라 정본이 gain 을 만들지 않는다
+    # (`_copy_baseline_eval._NO_GAIN_KEYS`) — 여기 없는 것이 정상이다.
+    "avg_gain_change_f1_strict",
+    "avg_gain_change_f1_loose",
+    "n_gain_change_f1_strict",
     "avg_n_change_gt",
     "avg_n_change_pred",
     "avg_addmod_f1",
@@ -125,6 +145,10 @@ STATE_METRIC_KEYS = [
     "avg_no_change_acc",
     "avg_hungarian_ea",
     "avg_hungarian_f1",
+    # hungarian gain 은 전 행에서 정의된다 (None 이 없어 `n_gain_*` 가 total 과 같다)
+    # → 분모 열을 따로 싣지 않는다. 실측상 대부분 음수다: 복사기가 hungarian_f1 을
+    # 매우 높게 받기 때문이고, 그게 정확히 하드 제약 13b 가 말하는 바다.
+    "avg_gain_hungarian_f1",
     "avg_hungarian_prec",
     "avg_hungarian_rec",
     "avg_hungarian_text",
@@ -163,6 +187,18 @@ def _state_diff_file(section: str | None) -> tuple[str, str | None]:
     return ("state_diff_metrics.json", section)
 
 
+# 복사기 기준선 산출도 state leaf 옆에 이미 있다 (`scripts/_copy_baseline_eval.py`).
+# 이 파일은 섹션이 **2단**이다 — `{section: {copy_baseline, model, gain}}` — 이라
+# 1단 section 조회로는 numeric scalar 가 하나도 안 잡혀 조용히 빈 dict 가 된다.
+# `load_metrics` 의 점(dot) 경로가 그 두 번째 단이다.
+#
+# `gain` 만 싣는다: `model` 은 hungarian/state_diff 파일과 같은 수를 다른 이름으로
+# 한 번 더 싣는 것이고, `copy_baseline` 절대값은 세팅마다 같은 값(예측과 무관한
+# 기준선)이라 세팅 비교 표에서 열 하나를 통째로 낭비한다. 판별량은 차(gain)다.
+def _copy_baseline_file(section: str) -> tuple[str, str]:
+    return ("copy_baseline_metrics.json", f"{section}.gain")
+
+
 ACTION_METRIC_KEYS = [
     "total",
     "parse_rate",
@@ -194,6 +230,7 @@ def _ac_stage1_entries(exp: str) -> dict:
                 ("predict_results_id.json", None),
                 ("hungarian_metrics.json", "in_domain"),
                 _state_diff_file("in_domain"),
+                _copy_baseline_file("in_domain"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -205,6 +242,7 @@ def _ac_stage1_entries(exp: str) -> dict:
                 ("predict_results_ood.json", None),
                 ("hungarian_metrics.json", "out_of_domain"),
                 _state_diff_file("out_of_domain"),
+                _copy_baseline_file("out_of_domain"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -216,6 +254,7 @@ def _ac_stage1_entries(exp: str) -> dict:
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "in_domain"),
                 _state_diff_file("in_domain"),
+                _copy_baseline_file("in_domain"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -227,6 +266,7 @@ def _ac_stage1_entries(exp: str) -> dict:
                 ("predict_results.json", None),
                 ("hungarian_metrics.json", "out_of_domain"),
                 _state_diff_file("out_of_domain"),
+                _copy_baseline_file("out_of_domain"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -266,6 +306,9 @@ def _mb_stage1_entries() -> dict:
                 ("hungarian_metrics.json", "overall"),  # 호환: 혹시 nested 면 overall
                 _state_diff_file(None),
                 _state_diff_file("overall"),
+                # single-pair(MB/MC)도 copy_baseline 은 3-섹션 스키마를 쓰되 `overall`
+                # 만 채운다 — state_diff 처럼 top-level flat 변형이 없다.
+                _copy_baseline_file("overall"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -279,6 +322,9 @@ def _mb_stage1_entries() -> dict:
                 ("hungarian_metrics.json", "overall"),
                 _state_diff_file(None),
                 _state_diff_file("overall"),
+                # single-pair(MB/MC)도 copy_baseline 은 3-섹션 스키마를 쓰되 `overall`
+                # 만 채운다 — state_diff 처럼 top-level flat 변형이 없다.
+                _copy_baseline_file("overall"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -298,6 +344,9 @@ def _mc_stage1_entries() -> dict:
                 ("hungarian_metrics.json", "overall"),
                 _state_diff_file(None),
                 _state_diff_file("overall"),
+                # single-pair(MB/MC)도 copy_baseline 은 3-섹션 스키마를 쓰되 `overall`
+                # 만 채운다 — state_diff 처럼 top-level flat 변형이 없다.
+                _copy_baseline_file("overall"),
             ],
             "metric_keys": STATE_METRIC_KEYS,
         },
@@ -444,6 +493,8 @@ def load_metrics(target_dir: Path, metric_files: list[tuple[str, str | None]]) -
 
     section 이 None 이면 JSON top-level 의 numeric scalar 만 merge.
     section 이 str 이면 JSON[section] 이 dict 일 때만 그 안의 numeric scalar 만 merge.
+    section 에 점이 있으면 그만큼 내려간다 (`"in_domain.gain"`) — copy_baseline
+    산출물이 `{section: {copy_baseline, model, gain}}` 2단이라 필요하다.
     파일/섹션 부재는 silent skip.
     """
     merged: dict = {}
@@ -456,7 +507,10 @@ def load_metrics(target_dir: Path, metric_files: list[tuple[str, str | None]]) -
         except json.JSONDecodeError:
             continue
         if section is not None:
-            data = data.get(section)
+            for part in section.split("."):
+                if not isinstance(data, dict):
+                    break
+                data = data.get(part)
         if not isinstance(data, dict):
             continue
         for k, v in data.items():

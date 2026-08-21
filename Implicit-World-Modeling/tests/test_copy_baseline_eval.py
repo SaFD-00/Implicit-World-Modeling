@@ -493,5 +493,126 @@ class TestTruncatedLeaf(unittest.TestCase):
         )
 
 
+class TestViewerExposure(unittest.TestCase):
+    """산출물이 **뷰어까지 닿는가.** 이 채점기는 2026-08-11 부터 leaf 옆에 gain 을
+    쓰고 있었는데 `eval_viewer` 가 그 파일을 아예 안 읽어 34개 leaf 에서 열이 통째로
+    비어 있었다. 그 구멍이 조용했던 이유가 둘이라 둘 다 여기서 찌른다:
+
+      1. site 모드는 `rows[s][k]` bare lookup 이라 **없는 키가 빈 칸**이 된다
+         (pairs 모드의 `_metric()` 폴백조차 안 탄다). 키를 잘못 쓰면 아무도 모른다.
+      2. 이 파일만 섹션이 **2단**(`{section: {copy_baseline, model, gain}}`)이라
+         1단 section 조회로는 numeric scalar 가 하나도 안 잡혀 조용히 빈 dict 다.
+    """
+
+    def _write_leaf(self, d: Path, metrics: dict) -> Path:
+        (d / "copy_baseline_metrics.json").write_text(
+            json.dumps(metrics, ensure_ascii=False), encoding="utf-8"
+        )
+        return d
+
+    def test_registered_gain_keys_exist_in_real_output(self):
+        """`STATE_METRIC_KEYS` 의 gain 키가 실제 산출물에서 값을 얻는가."""
+        ev = __import__("eval_viewer")
+        gts, preds = _fixture("index")
+        m = _cb.build_metrics(gts, preds, gts, preds, "index")
+        gain_keys = [k for k in ev.STATE_METRIC_KEYS if "_gain_" in k]
+        self.assertTrue(gain_keys, "gain 키가 등록되지 않았다 — 노출 자체가 회귀")
+        with tempfile.TemporaryDirectory() as tmp:
+            leaf = self._write_leaf(Path(tmp), m)
+            loaded = ev.load_metrics(leaf, [ev._copy_baseline_file("in_domain")])
+        for k in gain_keys:
+            self.assertIn(k, loaded, f"{k} 가 산출물에 없다 — 열이 빈 칸이 된다")
+
+    def test_registered_gain_keys_match_the_scorer(self):
+        """키 이름이 채점기 정의와 붙어 있는가. `gain_keys()` 가 개명되면 뷰어 열은
+        **에러 없이** 비므로, 목록끼리 직접 대조해 두지 않으면 아무도 못 본다.
+        위치 키(`hungarian_idx`/`hungarian_pos`)는 모드마다 이름이 달라 합집합으로 본다."""
+        ev = __import__("eval_viewer")
+        known = {
+            f"{prefix}_gain_{k}"
+            for prefix in ("avg", "n")
+            for mode in ("index", "pos")
+            for k in _cb.gain_keys(mode)
+        }
+        for k in ev.STATE_METRIC_KEYS:
+            if "_gain_" in k:
+                self.assertIn(k, known, f"{k} 는 채점기가 내지 않는 이름이다")
+
+    def test_every_state_entry_registers_the_file(self):
+        """state leaf 마다 등록돼야 한다 — 한 곳만 빠지면 그 분할만 조용히 빈다."""
+        ev = __import__("eval_viewer")
+        for stage, exps in ev.EVAL_DATASETS.items():
+            for exp, entries in exps.items():
+                for key, entry in entries.items():
+                    if entry["metric_keys"] is not ev.STATE_METRIC_KEYS:
+                        continue
+                    files = {fn for fn, _ in entry["metric_files"]}
+                    self.assertIn(
+                        "copy_baseline_metrics.json",
+                        files,
+                        f"stage{stage}/{exp}/{key} 에 복사기 기준선이 없다",
+                    )
+
+    def test_truncated_leaf_yields_no_gain_columns_without_raising(self):
+        """절단 leaf 는 `gain` 이 null 이다. 예외 없이 **열이 비어야** 한다 —
+        0 으로 채워지면 "복사기와 같다"는 거짓 주장이 표에 남는다."""
+        ev = __import__("eval_viewer")
+        m = {"in_domain": {"copy_baseline": {"total": 3}, "model": None, "gain": None}}
+        with tempfile.TemporaryDirectory() as tmp:
+            leaf = self._write_leaf(Path(tmp), m)
+            loaded = ev.load_metrics(leaf, [ev._copy_baseline_file("in_domain")])
+        self.assertEqual(loaded, {})
+
+    def test_dotted_section_does_not_leak_the_wrapper_level(self):
+        """점 경로가 한 단만 내려가면 `copy_baseline`(예측과 무관한 기준선 절대값)이
+        gain 열 자리에 섞여 들어온다 — 세팅 비교 표에서 전부 같은 값이 된다."""
+        ev = __import__("eval_viewer")
+        m = {
+            "overall": {
+                "copy_baseline": {"avg_hungarian_f1": 0.9},
+                "model": {"avg_hungarian_f1": 0.4},
+                "gain": {"avg_gain_hungarian_f1": -0.5},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            leaf = self._write_leaf(Path(tmp), m)
+            loaded = ev.load_metrics(leaf, [ev._copy_baseline_file("overall")])
+        self.assertEqual(loaded, {"avg_gain_hungarian_f1": -0.5})
+
+    def test_top_level_string_stamps_do_not_break_the_section_scan(self):
+        """산출물 최상위에는 섹션 dict 말고 **문자열 스탬프**도 있다
+        (`element_set` · `metrics_schema` · `match_mode` · `truncated`).
+        2026-08-21 에 `element_set` 이 추가되면서 최상위 키가 또 하나 늘었다 —
+        아직 재채점된 leaf 가 없어 on-disk 로는 못 찌르므로 여기서 합성으로 고정한다.
+
+        세 경로를 다 본다: 이름 조회(AC), 최상위 순회(MB/MC single-pair), 점 경로.
+        점 경로가 문자열 위에서 `.get()` 을 부르면 `AttributeError` 로 **빌드가 죽는다**
+        — silent skip 이 설계인 함수에서 그건 회귀다.
+        """
+        ev = __import__("eval_viewer")
+        m = {
+            "in_domain": {"avg_hungarian_f1": 0.75},
+            "element_set": "full",
+            "metrics_schema": "2026-08-04",
+            "truncated": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            leaf = Path(tmp)
+            (leaf / "hungarian_metrics.json").write_text(
+                json.dumps(m, ensure_ascii=False), encoding="utf-8"
+            )
+            named = ev.load_metrics(leaf, [("hungarian_metrics.json", "in_domain")])
+            flat = ev.load_metrics(leaf, [("hungarian_metrics.json", None)])
+            dotted = ev.load_metrics(leaf, [("hungarian_metrics.json", "element_set.gain")])
+        # 이름 조회: 스탬프는 섹션 밖이라 섞이지 않는다.
+        self.assertEqual(named, {"avg_hungarian_f1": 0.75})
+        # 최상위 순회: 스탬프가 함께 실리지만 STATE_METRIC_KEYS 에 없어 렌더링되지
+        # 않는다. 중요한 건 **예외 없이** 지나가고 숫자 열을 오염시키지 않는 것이다.
+        self.assertEqual(flat.get("element_set"), "full")
+        self.assertNotIn("avg_hungarian_f1", flat)
+        # 점 경로가 문자열을 만나면 조용히 빈 dict.
+        self.assertEqual(dotted, {})
+
+
 if __name__ == "__main__":
     unittest.main()
