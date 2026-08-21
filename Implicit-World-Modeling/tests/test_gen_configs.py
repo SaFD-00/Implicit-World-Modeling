@@ -41,6 +41,7 @@ from implicit_world_modeling.gen_configs import (  # noqa: E402
     generate_all,
 )
 from implicit_world_modeling.lf_registry import (  # noqa: E402
+    _HF_S1_MODEL_VERIFIED,
     _MODEL_CONFIG,
     CONFIGS,
     DATASET_MODEL_ELIGIBILITY,
@@ -264,7 +265,8 @@ def test_exp06_stage2_only_and_exp05_lineage(generated: dict[str, str]) -> None:
             expected = _MODEL_CONFIG[model_short]["model_id"]
         else:
             lineage = variant.rsplit("-", 1)[1]  # world-model-{full,lora}
-            expected = f"SaFD-00/{model_short}-ac-exp05-stage1-{lineage}-world-model"
+            default = f"SaFD-00/{model_short}-ac-exp05-stage1-{lineage}-world-model"
+            expected = _HF_S1_MODEL_VERIFIED.get(default, default)
         assert f"model_name_or_path: {expected}\n" in content, rel
 
     # base 는 소재 모델 그대로 (회귀 방어용 명시 단언).

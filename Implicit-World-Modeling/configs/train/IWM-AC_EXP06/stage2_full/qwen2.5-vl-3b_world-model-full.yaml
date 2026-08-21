@@ -1,5 +1,5 @@
 ### model
-model_name_or_path: SaFD-00/qwen2.5-vl-3b-ac-exp05-stage1-full-world-model
+model_name_or_path: SaFD-00/qwen2.5-vl-3b-ac-exp05-world-model-stage1-full-epoch3
 trust_remote_code: true
 image_max_pixels: 1605632
 image_min_pixels: 3136

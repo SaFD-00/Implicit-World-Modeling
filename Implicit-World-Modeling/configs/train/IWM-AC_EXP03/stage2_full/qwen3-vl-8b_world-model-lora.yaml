@@ -1,6 +1,6 @@
 # [reconstructed 2026-07-13] as-trained YAML 소실 — 생성기 재구성본, 실제 학습 설정과 다를 수 있음
 ### model
-model_name_or_path: SaFD-00/qwen3-vl-8b-ac-exp03-stage1-lora-world-model
+model_name_or_path: SaFD-00/qwen3-vl-8b-ac-exp03-world-model-stage1-lora-epoch3
 trust_remote_code: true
 image_max_pixels: 2097152
 image_min_pixels: 4096

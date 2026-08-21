@@ -678,6 +678,37 @@ _LONG_CUTOFF_DS = (
 
 
 # ============================================================
+# === hf_s1_model_full/lora as-trained 검증 override ===
+# 두 필드는 실제 push 명명 규칙(scripts/_common.sh::hf_repo_id_stage1 — epoch 포함,
+# "world-model-stage1-{mode}-epoch{E}" 어순)과 형식이 다른 구형 placeholder다
+# ("stage1-{mode}-world-model", epoch 없음). model_name_or_path 는
+# stage2_train.sh 가 런타임에 실제 stage1 경로로 sed 치환하므로 학습 자체엔
+# 영향이 없지만, 아래 4 조합은 HF Hub 실측(``HfApi.list_models(author="SaFD-00")``,
+# 2026-08-09)으로 실제 push 된 epoch 을 확인했으므로 그 이름으로 override 한다.
+#
+# hf_s1_model_full/lora 필드 자체(위 printf 형식)를 바꾸지 않는 이유: as-trained
+# byte-exact 스냅샷(tests/test_gen_configs.py::test_as_trained_yaml_reproduced_byte_exact,
+# 커밋 17f49a3)이 이 필드를 참조하는 32개 파일(ratio55 처럼 학습된 적 없는 조합
+# 포함)을 그대로 재현하길 강제한다 — 필드를 고치면 그 32개가 전부 깨지고, 학습
+# 이력이 없는 조합(27개)엔 검증되지 않은 epoch 추정치를 박아넣게 된다. 아래 4개는
+# 전부 그 32개 밖(EXP03/05/07)이라 override 해도 byte-exact 불변식과 충돌하지 않는다.
+_HF_S1_MODEL_VERIFIED = {
+    "SaFD-00/qwen3-vl-8b-ac-exp03-stage1-lora-world-model": (
+        "SaFD-00/qwen3-vl-8b-ac-exp03-world-model-stage1-lora-epoch3"
+    ),
+    "SaFD-00/qwen2.5-vl-3b-ac-exp05-stage1-full-world-model": (
+        "SaFD-00/qwen2.5-vl-3b-ac-exp05-world-model-stage1-full-epoch3"
+    ),
+    "SaFD-00/qwen2.5-vl-3b-ac-exp07-stage1-lora-world-model-v1": (
+        "SaFD-00/qwen2.5-vl-3b-ac-exp07-world-model-stage1-lora-epoch1-v1"
+    ),
+    "SaFD-00/qwen2.5-vl-3b-ac-exp07-stage1-lora-world-model-v2": (
+        "SaFD-00/qwen2.5-vl-3b-ac-exp07-world-model-stage1-lora-epoch1-v2"
+    ),
+}
+
+
+# ============================================================
 # === Build CONFIGS: CONFIGS[model_key][ds_name] ===
 # ============================================================
 def build_configs() -> dict[str, dict[str, dict]]:
@@ -770,11 +801,17 @@ def build_configs() -> dict[str, dict[str, dict]]:
             # Stage 1 체크포인트 slug 는 기본적으로 hf_slug 와 같다. 다른 실험군의
             # stage1 을 잇는 DS 만 "stage1_hf_slug" 로 override 한다 (EXP06 → ac-exp05-).
             s1_slug = cfg.get("stage1_hf_slug", c["hf_slug"])
-            c["hf_s1_model_full"] = (
+            _hf_s1_full_default = (
                 f"SaFD-00/{mcfg['short_name']}-{s1_slug}stage1-full-world-model{hf_ver}"
             )
-            c["hf_s1_model_lora"] = (
+            _hf_s1_lora_default = (
                 f"SaFD-00/{mcfg['short_name']}-{s1_slug}stage1-lora-world-model{hf_ver}"
+            )
+            c["hf_s1_model_full"] = _HF_S1_MODEL_VERIFIED.get(
+                _hf_s1_full_default, _hf_s1_full_default
+            )
+            c["hf_s1_model_lora"] = _HF_S1_MODEL_VERIFIED.get(
+                _hf_s1_lora_default, _hf_s1_lora_default
             )
             c["hf_s1_model"] = c["hf_s1_model_full"]
 
