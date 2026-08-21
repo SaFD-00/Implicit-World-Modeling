@@ -666,6 +666,10 @@ Hungarian 계열과 state-diff 계열이 **무엇을 요소로 세는가**를 �
 
 **⚠️ 이 스위치는 전역이다.** 호출 경로가 정본·state-diff·copy-baseline 에 걸쳐 있고 시그니처가 전부 달라 인자로 못 흘린다. 게다가 `_hungarian_eval.py` 를 스크립트로 돌리면 그 모듈은 `__main__` 이고 `_state_diff_eval` 의 `import _hungarian_eval as _he` 가 **두 번째 사본**을 만든다 — 한쪽만 설정하면 hungarian 은 새 집합, state-diff 는 옛 집합으로 채점되어 층 분해 항등식 `(unchanged+modified+added hit)/n_gt == hungarian_rec` 이 조용히 깨진다. 그래서 `_write_state_diff` 가 `_sd._he.set_element_set()` 로 **명시 전파**하고, 두 산출물이 각각 **자기가 실제로 읽은 전역**을 스탬프한다.
 
+**프로덕션 재채점 완료 (2026-08-21).** `rebuild_eval_metrics.sh -j6 -f`로 상태 Hungarian **54 leaf**, `rebuild_state_diff_metrics.sh -j6 -f`로 비절단 state-diff **39 leaf**, `rebuild_copy_baseline.sh -j6 -f`로 copy baseline **54 leaf**를 다시 만들었다. 세 대상은 모두 `element_set: "full"`이고, state-diff에서 빠진 **15개는 1024-token 절단 split**이라 의도된 제외다. copy baseline은 54개 모두 복사기 불변식(`copy_exact_rate=1.0`, `modified_recall=unchanged_recall=1.0`, `change_f1_strict=0.0`)을 통과했고, 정상 39 leaf × 3 section의 model/gain **117 section**은 모두 채워졌다; 절단 15 leaf는 설계대로 `model`/`gain=null`이다.
+
+아래 A/B는 같은 JSONL을 현재 CLI로 다시 읽은 **실측값**이다. legacy는 `/tmp/iwm-legacy-state-diff-20260821/`에 격리해 `--element-set legacy`로 냈고, production full 산출물을 덮어쓰지 않았다.
+
 **실측 A/B — 헤드라인은 거의 안 움직이고, 바뀐 것은 "무엇을 재는가" 다.** EXP05 `qwen2.5-vl-3b/full_world-model/epoch-3/on-AC_EXP05-state`, `--match-mode pos`, id split (n=2,684), 같은 예측 jsonl:
 
 | 지표 | legacy | full | Δ |
@@ -705,14 +709,14 @@ Hungarian 계열과 state-diff 계열이 **무엇을 요소로 세는가**를 �
 | `avg_copy_excess` | 0.2599 | 0.1095 | **−0.1504** |
 | **`parse_fail_rate`** | **0.2027** | **0.0000** | **−0.2027** |
 
-**이 이동의 대부분은 성능이 아니라 `parse_fail` 재분류다.** 이 leaf 의 예측 3,000행 중 **608행(20.3%)이 문자 그대로 `<node index="0"/>`** — 화면이 비었다고 답한 퇴화 예측이다. `node` 가 옛 화이트리스트 어디에도 없어 **요소 0개 → 그 행의 전 지표가 0.0** 으로 채점됐고, 조건부 정의 지표(`copy_excess` 등)에서는 아예 population 에서 빠졌다. `full` 에서는 요소 1개짜리 예측으로 정상 채점된다 (여전히 매우 낮은 점수다).
+**이 이동의 대부분은 성능이 아니라 `parse_fail` 재분류다.** 이 leaf ID 예측 3,000행 중 **606행(20.20%)이 문자 그대로 `<node index="0"/>`** — 화면이 비었다고 답한 퇴화 예측이다 (OOD도 616/3,000=20.53%). legacy `parse_fail`은 608/3,000=20.27%인데 singleton 외 두 행의 별도 실패까지 포함한 값이다. `node` 가 옛 화이트리스트 어디에도 없어 singleton은 **요소 0개 → 그 행의 전 지표가 0.0** 으로 채점됐고, 조건부 정의 지표(`copy_excess` 등)에서는 빠졌다 (`n_copy_excess` 2,388 → 3,000). `full` 에서는 요소 1개짜리 예측으로 정상 채점된다 (여전히 매우 낮은 점수다).
 
 읽는 법 — **여기서 지표가 올랐다고 모델이 나아진 게 아니다.**
 - `parse_fail_rate` 이 0 이 된 것은 "예측이 좋아졌다"가 아니라 **"파싱 가능한 퇴화 예측을 더 이상 파싱 실패로 오분류하지 않는다"** 는 뜻이다. 퇴화 예측은 여전히 퇴화 예측이고, 이제 0.0 이 아니라 자기 실력만큼의 낮은 점수를 받는다.
 - `copy_excess` −0.15 는 **population 교체가 만든 수**다. 옛 기준에서 20.3% 가 None 으로 빠져 있었으니 두 값은 서로 다른 모집단 위의 평균이다 (§ "`copy_excess` 를 `parse_fail_rate` 없이 비교하지 마라" 와 같은 함정이 여기서도 발동한다).
 - pos 계열(EXP05·EXP07)의 `parse_fail_rate` 은 원래 0.0011 이라 이 효과가 거의 없다. **그래서 pos 에서는 `hungarian_f1` 이 +0.0003 인데 index 에서는 +0.0322 다** — 두 수의 차이는 채점 기준이 아니라 **각 데이터셋에 퇴화 예측이 얼마나 섞여 있었나**에서 온다.
 
-**호환 — 기존 산출물은 재채점하지 않았다 (사용자 결정 2026-08-21).** `metrics_schema` 와 같은 방식으로 두 산출물 최상위에 **`element_set: "full"|"legacy"`** 를 박는다. **이 키가 없는 파일 = 옛 화이트리스트 기준**이므로 새 기준 파일과 나란히 놓지 말 것. 옛 값을 재현해야 할 때만 `--element-set legacy` 를 쓴다 (두 채점기에 **같은 값**을 줘야 한다).
+**호환 — 최초에는 재채점하지 않기로 했지만, 같은 날 사용자 결정으로 production state leaf를 강제 재채점했다.** `metrics_schema` 와 같은 방식으로 두 산출물 최상위에 **`element_set: "full"|"legacy"`** 를 박는다. 현행 production 대상은 모두 `full`; 이 키가 없는 과거 파일은 옛 화이트리스트 기준이므로 새 기준 파일과 나란히 놓지 말 것. 옛 값을 재현할 때만 별도 경로에서 `--element-set legacy` 를 쓰고, Hungarian과 state-diff에 **같은 값**을 줘야 한다.
 
 ### Stage 1 보조 — `state_diff_metrics.json` (copy-bias 진단, 2026-08-01 신설)
 
@@ -724,6 +728,7 @@ Hungarian 계열과 state-diff 계열이 **무엇을 요소로 세는가**를 �
 |---|---|
 | `avg_copy_excess` | **판별량.** `copy_rate_pred − copy_rate_gt`. 0 근처면 "GT 가 겹치는 만큼만 겹쳤다", 큰 양수면 "바뀌었어야 할 자리까지 베꼈다" |
 | `avg_addmod_recall` | GT 의 변경분(MODIFIED+ADDED) 중 예측이 맞힌 비율. **복사에 면역이 아니다** — 복사기가 이 값을 그냥 받아간다 (아래 복사기 기준선 절) |
+| `avg_addmod_recall_derivable` / `avg_addmod_recall_non_derivable` | v3 액션 유도성 분해. current state+action만으로 내용이 결정되는 GT 변경 요소 / 그렇지 않은 요소에서의 recall이다. **precision/F1은 분해하지 않는다** — pred-side spurious 요소·DELETED에는 GT 유도성 라벨이 구조적으로 없기 때문이다. 각 `n_addmod_recall_*`을 해당 평균의 분모로 함께 읽는다 |
 | `avg_added_recall` | ADDED 만. current 에 없던 요소라 **순수 예측력** |
 | `avg_modified_recall` / `avg_unchanged_recall` | 나머지 두 층 |
 | `avg_addmod_f1` | precision 분모를 pred-side diff 로 대칭화한 F1 (recall 과 정의가 다른 별도 키) |
@@ -738,6 +743,8 @@ Hungarian 계열과 state-diff 계열이 **무엇을 요소로 세는가**를 �
 | `unclosed_root_rate` | 예측이 root tag 를 안 닫고 끝난 비율 — 절단 sanity |
 
 > **2026-08-04 개명 + 규칙 변경**: `diff_recall`/`diff_prec`/`diff_f1` → `addmod_recall`/`addmod_prec`/`addmod_f1`, `change_f1`/`change_f1_null` → `change_f1_strict`/`change_f1_floor`, `change_prec`/`change_recall` → `..._strict` (avg_/n_ 접두는 그대로). `diff_*` 는 DELETED 가 빠진 ADDED∪MODIFIED 인데 `change_*` 는 DELETED 를 포함해 이름만으로 두 접두어가 구분이 안 됐고, `_null` 은 이 채점기의 진짜 None 값(조건부 정의)과 헷갈렸다. `_strict` 는 새로 생긴 loose 축과의 대칭이다. `aggregate()` 가 옛 키를 하위호환 alias 로 함께 내고, `eval_viewer.py` 소비자는 새 이름 우선·옛 이름 폴백(`_metric()`)이다.
+>
+> **v3 유도성 읽는 법 (2026-08-21).** `derivable`이 낮으면 action으로 결정 가능한 전이조차 못 맞힌 것이고, `non_derivable`이 낮으면 서버/동적 콘텐츠처럼 action만으로 정해지지 않는 항목까지 포함한 난이도다. 두 평균은 각자 조건부 정의 행을 평균하므로 전체 `avg_addmod_recall`의 가중 분해식으로 역산하지 않는다. 실제 라벨은 [derivability site](../outputs/_compare/derivability_ac_exp05_id/index.html)에서 current/action/GT와 판정 근거를 함께 눈으로 감사한다; 이 뷰어는 라벨을 JS에서 재구현하지 않는다.
 >
 > ⚠️ **`change_f1` alias 는 "이름만 다른 같은 수"가 아니다 — 정의가 바뀌었다.** 빈/파싱실패 예측이 옛 규칙에서는 "current 전체를 지웠다"는 주장으로 분류돼 바닥값을 공짜로 받았는데, 이제는 **주장 없음 → 0.0** 이다 (ScratchWorld: *"Outputs that fail schema parsing are scored as **incorrect**."*). 그래서 **저장된 35개 leaf 를 같은 예측 jsonl 로 전량 재채점했다** — 재채점 전 값은 `docs/metrics_snapshot_pre_rescore_20260804.json` 에 보존돼 있다(`outputs/` 는 gitignore 라 git 안전망이 없다). 산출물 최상위의 **`metrics_schema: "2026-08-04"`** 가 옛/새 파일의 유일한 구분 수단이다 — 이 키가 없는 파일의 `avg_change_f1` 은 옛 정의값이니 나란히 놓지 말 것.
 - **recall 3 층은 정본 `avg_hungarian_rec` 의 정확한 분해다** — `pred↔gt` 매칭을 한 번만 하고 GT 를 diff 유형으로 나눠 세기 때문이다. `tests/test_state_diff_eval.py::TestStratumInvariant` 가 이 항등식을 고정한다. diff 부분집합을 따로 매칭하면 UNCHANGED 에 붙었어야 할 예측 요소가 MODIFIED 로 재배정되며 recall 이 부풀어 성질이 깨진다.

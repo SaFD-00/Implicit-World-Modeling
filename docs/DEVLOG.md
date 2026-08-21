@@ -3,6 +3,22 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-08-21 — IWM: v3 배선 뒤 historical state 전량을 full element set으로 강제 재채점
+
+이 항목 바로 아래의 초기 기록은 "새 기준은 배선하되 기존 산출물은 보존"하던 시점의 스냅샷이다. 같은 날
+사용자 결정으로 v3 유도성 축을 먼저 배선한 뒤 `-f`를 추가해, 저장된 예측 JSONL은 그대로 두고 **채점
+산출물만** full element set으로 전량 다시 만들었다. 학습 경로 `scripts/diff_loss/*_v2.py`는 건드리지 않았다.
+
+- 산출/스탬프: `hungarian_metrics.json` **54**, 비절단 `state_diff_metrics.json` **39**, `copy_baseline_metrics.json` **54**가 모두 `element_set: "full"`. state-diff의 나머지 **15 split**은 1024-token 절단이라 의도적으로 제외했다.
+- 복사기 검증: 54 파일 × 3 section × 3 항등식 **486건 위반 0**. `copy_exact_rate=1.0`, `modified_recall=unchanged_recall=1.0`, `change_f1_strict=0.0`; 정상 39 leaf의 model/gain **117 section**은 채워졌고, 절단 15 leaf는 model/gain null이 정상이다.
+- 실제 legacy→full A/B (동일 ID JSONL): EXP05 pos epoch-3 Hungarian F1 **.7522→.7525**(+.0003), EXP01 index epoch-1 **.3848→.4170**(+.0322). EXP01의 이동은 품질 향상이 아니다 — literal `<node index="0"/>`가 ID **606/3,000(20.20%)**, OOD 616/3,000이고 legacy `parse_fail` 608/3,000이 이를 빈 요소로 오분류해 `copy_excess` 분모에서 제외했다.
+- v3: `addmod_recall`을 action으로 유도 가능한/불가능한 GT 변경 요소로 분리해 39개 state-diff에 기록했다. 예: EXP05 epoch-3 ID `addmod=.7571`, `derivable=.6583` (n=2,039), `non_derivable=.7820` (n=2,397). 두 축은 "action으로도 못 맞힘"과 "action만으로 결정되지 않는 콘텐츠"를 섞지 않는다.
+- 시각 점검: 기본 split별 50표본 compare site와 [`derivability_ac_exp05_id`](../Implicit-World-Modeling/outputs/_compare/derivability_ac_exp05_id/index.html)를 실제로 열어 current/GT, change hit/miss, 유도성 라벨·근거를 확인했다. 산출물 정본은 `outputs/_compare/index.html` 아래에 있다.
+- 검증: `bash -n scripts/rebuild_eval_metrics.sh` · force dry-run 54 targets · `pytest -q` 전체 통과.
+- 커밋: `de400d5 feat(eval): force-rescore all historical state leaves` (코드); 문서/워크플로 동기화는 후속 커밋.
+- 상세: `.claude/analysis/2026-08-21_11-48-54_hungarian-v3-production-rescore/` 및 `.claude/devlog/2026-08-21_11-48-54_hungarian-v3-production-rescore.md` (로컬 워크플로 산출물).
+- 카테고리: devlog
+
 ## 2026-08-21 — IWM: 채점 element 집합이 실제 요소의 24% 를 버리고 있었다 + v3 유도성 축 + 감사 시각화
 
 조병웅님 피드백(2026-08-17)에서 출발했다 — *"hungarian 코드가 측정하는 element 가 구조 요소들(div…)이
