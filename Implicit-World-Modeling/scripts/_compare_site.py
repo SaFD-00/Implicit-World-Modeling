@@ -1296,8 +1296,13 @@ const LOWER_IS_BETTER = new Set(['no_bbox_n']);
    칠하면 정확히 반대로 읽힌다 (퇴화가 심할수록 바닥이 높다). n_* 는 분모라 성능이
    아니다. */
 const NOT_RANKED = new Set(['total', 'no_bbox_n',
-  'avg_change_f1_floor', 'avg_n_change_gt', 'avg_n_change_pred', 'change_f1_floor']);
-function isRanked(k){return !NOT_RANKED.has(k) && !k.startsWith('n_')}
+  'avg_change_f1_floor', 'change_f1_floor']);
+/* 개수 열은 **접두 규칙**으로 뺀다 — 하드코딩 목록으로 두면 나중에 추가되는
+   `n_*`/`avg_n_*` 가 조용히 랭킹에 들어온다 (실제로 `n_gain_*` 6열이 그렇게 들어왔다).
+   개수는 분모이지 성능이 아니라서, 파싱 실패율이 다른 세팅 사이에서는 **분모가 큰
+   쪽이 best 로 굵어진다** — 정확히 반대로 읽힌다. floor 도 같은 이유다: 지표가 아니라
+   눈금이라 최대값이 "최고"가 아니다 (퇴화가 심할수록 바닥이 높다). */
+function isRanked(k){return !NOT_RANKED.has(k) && !/^n_/.test(k) && !/^avg_n_/.test(k)}
 function metricsTable(rows, keys, fmt){
   const best = {};
   for(const k of keys){
