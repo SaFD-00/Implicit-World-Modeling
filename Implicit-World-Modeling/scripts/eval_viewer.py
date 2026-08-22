@@ -67,6 +67,7 @@ DS_DATADIR: dict[str, str] = {
     "AC_EXP06": "AndroidControl_EXP06",
     "AC_EXP07_v1": "AndroidControl_EXP07",
     "AC_EXP07_v2": "AndroidControl_EXP07",
+    "AC_EXP08": "AndroidControl_EXP08",
     "MC": "MonkeyCollection",
 }
 
@@ -354,6 +355,69 @@ def _mc_stage1_entries() -> dict:
     }
 
 
+def _exp08_stage1_entries() -> dict:
+    """AC_EXP08 stage1 entries — ID/OOD 가 없는 단일 test 계열.
+
+    leaf 4 종 (state_full / state_masked / state_dropped / action) 이 각각 단일 파일
+    1-회 추론이라 섹션이 overall 하나뿐이다 (MB/MC 와 같은 single-pair 모드). state leaf
+    3 종은 `-without-open_app` sibling 도 함께 등록한다 (stage1_eval.sh 가 산출한다).
+    디렉토리 이름은 stem 의 `_` 를 `-` 로 바꾼 on-AC_EXP08-state-full 형태.
+    """
+    data = REPO / "data" / DS_DATADIR["AC_EXP08"]
+    entries: dict[str, dict] = {}
+    for stem in ("state_full", "state_masked", "state_dropped"):
+        leaf = stem.replace("_", "-")
+        for suffix in ("", "-without-open_app"):
+            test_stem = f"stage1_test_{stem}" + (
+                "_without_open_app" if suffix else ""
+            )
+            entries[f"on-AC-{leaf}{suffix}"] = {
+                "dir": f"on-AC_EXP08-{leaf}{suffix}",
+                "pred": "generated_predictions.jsonl",
+                "test": data / f"{test_stem}.jsonl",
+                "metric_files": [
+                    ("predict_results.json", None),
+                    ("hungarian_metrics.json", None),  # single-pair: top-level flat
+                    ("hungarian_metrics.json", "overall"),  # 호환: nested 면 overall
+                    _state_diff_file(None),
+                    _state_diff_file("overall"),
+                    # single-pair 도 copy_baseline 은 3-섹션 스키마를 쓰되 overall 만 채운다.
+                    _copy_baseline_file("overall"),
+                ],
+                "metric_keys": STATE_METRIC_KEYS,
+            }
+    entries["on-AC-action"] = {
+        "dir": "on-AC_EXP08-action",
+        "pred": "generated_predictions.jsonl",
+        "test": data / "stage1_test_action.jsonl",
+        "metric_files": [
+            ("predict_results.json", None),
+            ("action_metrics.json", None),
+            ("action_metrics.json", "overall"),
+        ],
+        "metric_keys": ACTION_METRIC_KEYS,
+    }
+    return entries
+
+
+def _exp08_stage2_entries() -> dict:
+    """AC_EXP08 stage2 entries — 단일 stage2_test.jsonl (overall 1-섹션)."""
+    data = REPO / "data" / DS_DATADIR["AC_EXP08"]
+    return {
+        "on-AC": {
+            "dir": "on-AC_EXP08",
+            "pred": "generated_predictions.jsonl",
+            "test": data / "stage2_test.jsonl",
+            "metric_files": [
+                ("predict_results.json", None),
+                ("action_metrics.json", None),
+                ("action_metrics.json", "overall"),
+            ],
+            "metric_keys": ACTION_METRIC_KEYS,
+        },
+    }
+
+
 def _ac_stage2_entries(exp: str) -> dict:
     ds = DS_DATADIR[exp]
     data = REPO / "data" / ds
@@ -435,6 +499,8 @@ EVAL_DATASETS: dict[int, dict[str, dict[str, dict]]] = {
         # AC_EXP06 은 Stage 2 전용 대조군이라 stage1 entry 가 없다.
         "AC_EXP07_v1": _ac_stage1_entries("AC_EXP07_v1"),
         "AC_EXP07_v2": _ac_stage1_entries("AC_EXP07_v2"),
+        # AC_EXP08 은 ID/OOD 가 없어 _ac_stage1_entries (id/ood 전제) 를 쓸 수 없다.
+        "AC_EXP08": _exp08_stage1_entries(),
         "MC": {**_mc_stage1_entries(), **_mb_stage1_entries()},
     },
     2: {
@@ -445,6 +511,7 @@ EVAL_DATASETS: dict[int, dict[str, dict[str, dict]]] = {
         "AC_EXP06": _ac_stage2_entries("AC_EXP06"),
         "AC_EXP07_v1": _ac_stage2_entries("AC_EXP07_v1"),
         "AC_EXP07_v2": _ac_stage2_entries("AC_EXP07_v2"),
+        "AC_EXP08": _exp08_stage2_entries(),
     },
 }
 
@@ -938,7 +1005,7 @@ def parse_args() -> argparse.Namespace:
         required=True,
         metavar="EXP:MODEL",
         help="비교할 (EXP, MODEL) 쌍. 1개면 단일-EXP 모드, 2개 이상이면 cross-EXP 모드. "
-        "EXP ∈ {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, MC}, MODEL = outputs/<DS_DATADIR(EXP)>/eval/ 아래 디렉토리 명. "
+        "EXP ∈ {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, AC_EXP08, MC}, MODEL = outputs/<DS_DATADIR(EXP)>/eval/ 아래 디렉토리 명. "
         "예: --include AC_EXP01:qwen3-vl-8b_ratio73 AC_EXP02:qwen3-vl-8b",
     )
     p.add_argument(

@@ -313,12 +313,12 @@ def test_exp07_adapter_variant_only_in_exp07_stage2_lora(
             assert "adapter_name_or_path" not in c, rel
 
 
-def test_diff_loss_flag_only_exp02_exp05_exp07(generated: dict[str, str]) -> None:
-    """diff loss 플래그는 EXP02/EXP05/EXP07 stage1 에만 (레지스트리 플래그와 일치)."""
+def test_diff_loss_flag_only_exp02_exp05_exp07_exp08(generated: dict[str, str]) -> None:
+    """diff loss 플래그는 EXP02/EXP05/EXP07/EXP08 stage1 에만 (레지스트리 플래그와 일치)."""
     for rel, content in generated.items():
         has_flag = "use_diff_token_weighted_loss: true" in content
         expected = rel.startswith(
-            ("IWM-AC_EXP02/", "IWM-AC_EXP05/", "IWM-AC_EXP07/")
+            ("IWM-AC_EXP02/", "IWM-AC_EXP05/", "IWM-AC_EXP07/", "IWM-AC_EXP08/")
         ) and ("/stage1_" in rel)
         assert has_flag == expected, rel
 
@@ -392,8 +392,8 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
         if is_small or is_lora:
             # 80GB × (3-4B | lora) → no-offload + half-batch 면제 → 전 DS 에서 pdbs=2, ga=16.
             assert EXPECTED_DS_NO_OFFLOAD in content, rel
-            if rel.startswith("IWM-AC_EXP07/"):
-                # EXP07(v1/v2) 은 긴 시퀀스 activation OOM 때문에 no-offload 여도
+            if rel.startswith(("IWM-AC_EXP07/", "IWM-AC_EXP08/")):
+                # EXP07(v1/v2)/EXP08 은 긴 시퀀스 activation OOM 때문에 no-offload 여도
                 # half-batch 를 강제한다 (_FORCE_HALF_BATCH_DATASETS) → pdbs=1, ga=32.
                 assert "per_device_train_batch_size: 1" in content, rel
                 assert "gradient_accumulation_steps: 32" in content, rel
@@ -406,13 +406,15 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
             # 7-9B × full → offload 유지 (없으면 확정 OOM).
             assert EXPECTED_DS in content, rel
             seen_7b_full_offload = True
-            # A100 base pdbs=2 → ga=16. 단 EXP03/04/05 는 half-batch → pdbs=1, ga=32.
+            # A100 base pdbs=2 → ga=16. 단 EXP03/04/05/06/08 은 half-batch → pdbs=1, ga=32.
+            # (EXP07 은 3B 단독 자격이라 7-9B × full 조합 자체가 없어 이 갈래에 오지 않는다.)
             if rel.startswith(
                 (
                     "IWM-AC_EXP03/",
                     "IWM-AC_EXP04/",
                     "IWM-AC_EXP05/",
                     "IWM-AC_EXP06/",
+                    "IWM-AC_EXP08/",
                 )
             ):
                 assert "per_device_train_batch_size: 1" in content, rel
@@ -431,15 +433,17 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
 
 
 def test_generated_count(generated: dict[str, str]) -> None:
-    """as-trained 74 − 자격박탈 2 + 신규 130 = 202 (EXP06 12 + EXP07 v1/v2 18 포함).
+    """as-trained 74 − 자격박탈 2 + 신규 146 = 218 (EXP06 12 + EXP07 v1/v2 18 + EXP08 16 포함).
 
     개수를 하드코딩하지 않는다 — 자격 정의(DATASET_MODEL_ELIGIBILITY)의 결과이지
     독립적 사실이 아니기 때문이다. 자격을 바꾸면 개수는 따라 바뀌는 게 정상이고,
     이 테스트가 잡아야 할 것은 "생성기가 자격과 어긋나게 만드는가" 다.
     """
-    # 신규 130 = 기존 확장 100 + EXP06 stage2 12 (2 모델 × 2 모드 × 3 variant)
-    #          + EXP07 v1/v2 18 (버전당 3B 단독 9: stage1 full/lora 2 + stage2 full 3 + stage2 lora 4).
-    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 130
+    # 신규 146 = 기존 확장 100 + EXP06 stage2 12 (2 모델 × 2 모드 × 3 variant)
+    #          + EXP07 v1/v2 18 (버전당 3B 단독 9: stage1 full/lora 2 + stage2 full 3 + stage2 lora 4)
+    #          + EXP08 16 (Qwen2.5-VL 2 모델 × 2 모드 × [stage1 1 + stage2 3];
+    #            EXP07 과 달리 merge X 변형이 없어 stage2_lora 도 3 variant).
+    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 146
 
     # 생성된 모든 YAML 이 자격 집합 안에 있는가 (자격 밖 조합을 만들지 않는가)
     for rel in generated:

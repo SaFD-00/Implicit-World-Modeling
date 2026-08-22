@@ -176,6 +176,7 @@ declare -A DS_PREFIX=(
   [AC_EXP06]="IWM-AC_EXP06"
   [AC_EXP07_v1]="IWM-AC_EXP07"
   [AC_EXP07_v2]="IWM-AC_EXP07"
+  [AC_EXP08]="IWM-AC_EXP08"
   [MC]="IWM-MC"
 )
 declare -A HF_SLUG=(
@@ -190,6 +191,7 @@ declare -A HF_SLUG=(
   [AC_EXP06]="ac-exp06-"
   [AC_EXP07_v1]="ac-exp07-"
   [AC_EXP07_v2]="ac-exp07-"
+  [AC_EXP08]="ac-exp08-"
   [MC]="mc-"
 )
 declare -A DS_DATADIR=(
@@ -218,6 +220,10 @@ declare -A DS_DATADIR=(
   [AC_EXP07_v1]="AndroidControl_EXP07"
   # AC_EXP07_v2 = v1 과 동형(데이터만 다름). data 디렉토리·test 는 v1 과 공유.
   [AC_EXP07_v2]="AndroidControl_EXP07"
+  # AC_EXP08 = EXP05 계열(절대 픽셀 xy) dual-task 실험군 (stage1 + stage2 둘 다 학습).
+  # 버전 variant 없음. test 는 ID/OOD 구분이 없고 stage1 4 종(state full/masked/dropped
+  # + action) + stage2 1 종의 단일 test 계열이다.
+  [AC_EXP08]="AndroidControl_EXP08"
   [MC]="MonkeyCollection"
 )
 
@@ -235,6 +241,7 @@ ds_outputs_code() {
     AC_EXP05) echo "AndroidControl_EXP05" ;;
     AC_EXP06) echo "AndroidControl_EXP06" ;;
     AC_EXP07_v1|AC_EXP07_v2) echo "AndroidControl_EXP07" ;;
+    AC_EXP08) echo "AndroidControl_EXP08" ;;
     *) echo "$1" ;;
   esac
 }
@@ -249,7 +256,7 @@ ds_stage1_source() {
 }
 
 # DS 키 → 절대 픽셀(xy) 액션 스페이스인가.
-# EXP05 계열(EXP05/06/07)은 좌표를 정규화하지 않은 절대 픽셀(840×1876)로 쓰고 HTML 에
+# EXP05 계열(EXP05/06/07/08)은 좌표를 정규화하지 않은 절대 픽셀(840×1876)로 쓰고 HTML 에
 # index 속성이 없다. 그래서 state 는 --match-mode pos(bounds 기반 매칭), action 은
 # --coord-mode xy 로 채점해야 한다. 나머지 EXP 는 플래그 없이 기존 경로.
 #
@@ -260,7 +267,7 @@ ds_stage1_source() {
 # 네 군데서 따로 유지하면 언젠가 진짜로 갈린다. 여기 한 곳만 고치면 되게 모은다.
 ds_is_pixel_xy() {
   case "$1" in
-    AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2) return 0 ;;
+    AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2|AC_EXP08) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -273,6 +280,19 @@ ds_score_mode_flag() {
   local ds="$1" task="${2:-state}"
   ds_is_pixel_xy "$ds" || { echo ""; return; }
   if [[ "$task" == state ]]; then echo "--match-mode pos"; else echo "--coord-mode xy"; fi
+}
+
+# DS 키 → state 채점기(_hungarian_eval / _state_diff_eval)에 넘길 XML 스키마 플래그.
+# AC_EXP08 데이터는 Cerebra 파서 산출이라 위치축이 `data-bbox="x1 y1 x2 y2"`,
+# 텍스트축이 `aria-label` 계열이다. 채점기 기본값은 `android`(bounds/description)라
+# 기본값으로 EXP08 을 채점하면 **에러 없이** 지표가 무너진다 (하드 제약 15f).
+# 반대로 기존 실험군에는 절대 붙이지 않는다 — 빈 문자열을 반환해 채점 결과를 불변으로 둔다.
+# action 채점기(_action_eval.py)는 이 플래그를 받지 않으므로 state 경로에서만 쓴다.
+ds_xml_schema_flag() {
+  case "$1" in
+    AC_EXP08) echo "--xml-schema cerebra" ;;
+    *) echo "" ;;
+  esac
 }
 
 # leaf 단위 배치를 병렬 실행하는 공통 러너. rebuild_*.sh 3종이 같은 것을 복제하고 있었다.
@@ -416,7 +436,7 @@ Usage: $(basename "$0") [--model MODEL] [--dataset DS] [--stage1-mode MODE]
 
 Options:
   --model MODEL        모델 short_name 또는 "all" (기본: all)
-  --dataset DS         AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC (필수) — 학습 대상 DS.
+  --dataset DS         AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | AC_EXP08 | MC (필수) — 학습 대상 DS.
                        AC_EXP01 은 ratio mix (3:7, 5:5, 7:3) 3 종을 모두 sweep 하므로
                        --exp01-ratios 로 부분 실행 가능. MB 는 평가 전용이라 사용 불가.
                        AC_EXP02 는 AC_EXP01 ratio73 동일 데이터 + Stage1 state-pred
@@ -509,6 +529,7 @@ EOF
     AC_EXP06) DATASETS=(AC_EXP06) ;;
     AC_EXP07_v1) DATASETS=(AC_EXP07_v1) ;;
     AC_EXP07_v2) DATASETS=(AC_EXP07_v2) ;;
+    AC_EXP08) DATASETS=(AC_EXP08) ;;
     MC)       DATASETS=(MC) ;;
     AC_EXP01)
       DATASETS=()
@@ -516,13 +537,13 @@ EOF
       unset _r
       ;;
     "")
-      echo "Error: --dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC)." >&2; exit 2 ;;
+      echo "Error: --dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | AC_EXP08 | MC)." >&2; exit 2 ;;
     MB)
       echo "Error: MobiBench (MB) 는 평가 전용 벤치마크입니다. 학습/merge 에는 사용할 수 없습니다." >&2
       echo "       교차 평가는 stage{1,2}_eval.sh --train-dataset {AC_EXP01|AC_EXP02|MC} --eval-datasets AC_EXP01,AC_EXP02,MC,MB 를 사용하세요." >&2
       exit 2
       ;;
-    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC." >&2; exit 2 ;;
+    *) echo "Error: Unknown dataset '$dataset_arg'. Use AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | AC_EXP08 | MC." >&2; exit 2 ;;
   esac
 
   IFS=',' read -r -a EPOCHS <<< "$epochs_arg"
@@ -605,10 +626,10 @@ Usage: $(basename "$0") --train-dataset {AC_EXP01|AC_EXP02|MC} [--eval-datasets 
 
 Options:
   --model MODEL           모델 short_name 또는 "all" (기본: all)
-  --train-dataset DS      AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC (필수) — HF Hub merged repo 를
+  --train-dataset DS      AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | AC_EXP08 | MC (필수) — HF Hub merged repo 를
                           해석할 학습 DS. AC_EXP01 은 ratio 하나를 추가로 지정해야 함 (--exp01-ratio).
   --eval-datasets LIST    콤마로 구분된 평가 DS 리스트 (기본: --train-dataset 단일값)
-                          허용값: AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, MC, MB (MB 는 단일 파일 overall 채점).
+                          허용값: AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, AC_EXP08, MC, MB (MB 는 단일 파일 overall 채점).
                           AC_EXP01 / AC_EXP02 는 state_pred / action_pred 두 task 를 각각 채점한다.
   --stage1-mode MODE      full | lora (기본: full) — world-model variant 의 상류 Stage1 모드.
   --stage2-mode MODE      full | lora (기본: lora) — Stage 2 merge/eval 전용.
@@ -635,10 +656,10 @@ EOF
   done
 
   if [[ -z "$train_arg" ]]; then
-    echo "Error: --train-dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC)." >&2; exit 2
+    echo "Error: --train-dataset 는 필수입니다 (AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | AC_EXP08 | MC)." >&2; exit 2
   fi
   case "$train_arg" in
-    AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2|MC) TRAIN_DATASET="$train_arg" ;;
+    AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2|AC_EXP08|MC) TRAIN_DATASET="$train_arg" ;;
     AC_EXP01)
       # AC_EXP01 은 ratio 별로 학습 가중치가 다르므로 평가 sweep 은 한 번에 한 ratio.
       # 미지정 시 ratio55 default. TRAIN_DATASET 은 ratio variant 키로 정규화.
@@ -652,7 +673,7 @@ EOF
     MB)
       echo "Error: --train-dataset MB 는 허용되지 않습니다 (MobiBench 는 평가 전용)." >&2
       exit 2 ;;
-    *) echo "Error: --train-dataset must be AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC (got '$train_arg')." >&2; exit 2 ;;
+    *) echo "Error: --train-dataset must be AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | AC_EXP08 | MC (got '$train_arg')." >&2; exit 2 ;;
   esac
 
   # --exp01-ratio 는 AC_EXP01 train 일 때만 유효. 다른 train DS 와 함께 주면 에러.
@@ -675,8 +696,8 @@ EOF
     fi
     for _d in "${EVAL_DATASETS[@]}"; do
       case "$_d" in
-        AC_EXP01|AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2|MC|MB) ;;
-        *) echo "Error: --eval-datasets item '$_d' invalid (use AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | MC | MB)." >&2; exit 2 ;;
+        AC_EXP01|AC_EXP02|AC_EXP03|AC_EXP04|AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2|AC_EXP08|MC|MB) ;;
+        *) echo "Error: --eval-datasets item '$_d' invalid (use AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP04 | AC_EXP05 | AC_EXP08 | MC | MB)." >&2; exit 2 ;;
       esac
     done
     unset _d
@@ -1146,8 +1167,10 @@ build_infer_cmd() {
   # AC_EXP03/EXP04/EXP05 좌표(point) 표현은 평가 입력도 ~2.5x 길다 → cutoff_len 을 학습과 통일해
   # 상향(잘림 0), 그 외는 8192. vLLM max_model_len = cutoff + max_new_tokens 증가 →
   # KV cache 메모리↑/throughput↓ (필요 시 VLLM_GPU_MEM_UTIL 로 보정).
+  # EXP08 도 같은 좌표계·cutoff(24576) 실험군이다 — 빠뜨리면 평가 입력이 8192 에서
+  # 에러 없이 잘린다 (AGENTS 하드 제약 4/7).
   local infer_cutoff=8192
-  if [[ "$ds_name" == IWM-AC_EXP03* || "$ds_name" == IWM-AC_EXP04* || "$ds_name" == IWM-AC_EXP05* || "$ds_name" == IWM-AC_EXP06* || "$ds_name" == IWM-AC_EXP07* ]]; then
+  if [[ "$ds_name" == IWM-AC_EXP03* || "$ds_name" == IWM-AC_EXP04* || "$ds_name" == IWM-AC_EXP05* || "$ds_name" == IWM-AC_EXP06* || "$ds_name" == IWM-AC_EXP07* || "$ds_name" == IWM-AC_EXP08* ]]; then
     infer_cutoff=24576
   fi
   # 생성 시드. vllm_infer.py 의 기본값은 temperature=0.95 / top_p=0.7 / top_k=50 / seed=None 이라

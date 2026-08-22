@@ -149,7 +149,8 @@ _MODEL_CONFIG = {
 
 # ============================================================
 # === Dataset configs (baseline hparams per dataset) ===
-# 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, AC_EXP07, MC}. MB 는 평가 전용.
+# 학습 대상 DS 는 {AC_EXP01, AC_EXP02, AC_EXP03, AC_EXP04, AC_EXP05, AC_EXP07, AC_EXP08, MC}.
+# MB 는 평가 전용.
 # ============================================================
 # AC_EXP01: state_pred / action_pred dual-task test. id/ood × task = 4 test 파일.
 _DUAL_TASK_TEST = {
@@ -537,6 +538,53 @@ _DATASET_CONFIG = {
             "lr_scheduler_type": "cosine",
         },
     },
+    # AC_EXP08 — EXP05 계열(절대 픽셀 840×1876, budget 1605632)의 dual-task 실험군.
+    # 좌표 규약·image budget·cutoff 는 EXP05/EXP07 과 같고 하이퍼파라미터는 EXP07 을
+    # 승계한다 (브리프가 cutoff/diff loss/save_steps/자격만 지정 → 선례 그대로).
+    # EXP07 과 다른 점 셋:
+    #   (1) 자격이 Qwen2.5-VL family 전체 (3B + 7B) — EXP07 은 3B 단독.
+    #   (2) 버전 variant 가 없다 (_v1/_v2 접미사 체계를 만들지 않는다).
+    #   (3) stage2 merge X 변형(world-model-adapter) opt-in 을 **넣지 않는다**.
+    # test 는 ID/OOD 구분이 없다 (원본에 앱 파티션 메타 부재 → 에피소드 단위 홀드아웃).
+    "AndroidControl_EXP08": {
+        "lf_subfolder": "IWM-AC_EXP08",
+        "ds_prefix": "IWM-AC_EXP08",
+        "output_prefix": "AndroidControl_EXP08/",
+        "hf_slug": "ac-exp08-",
+        "stage1": {
+            "lr": "1.0e-5",
+            "epochs": 1,
+            "warmup_ratio": 0.03,
+            "save_strategy": "steps",
+            "save_steps": 0.25,  # float — transformers 가 총 스텝 대비 비율로 해석
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 64,
+            "lora_alpha": 128,  # α = 2r 관례
+            "lora_dropout": 0.05,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+            "use_diff_token_weighted_loss": True,  # Stage 1 diff loss (state-pred 가중)
+        },
+        "stage2": {
+            "lr": "5.0e-5",
+            "epochs": 3,
+            "warmup_ratio": 0.03,
+            "save_strategy": "epoch",
+            "save_steps": None,
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 8,
+            "lora_alpha": 16,  # α = 2r 관례 (rank 8). EXP07 승계 (64→16→8)
+            "lora_dropout": 0.1,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+        },
+    },
     "MonkeyCollection": {
         "lf_subfolder": "IWM-MC",
         "ds_prefix": "IWM-MC",
@@ -585,9 +633,15 @@ _STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04"}
 # 대조군이라 stage1 학습 데이터가 아예 없고, stage1 체크포인트는 EXP05 것을 잇는다.
 _STAGE2_ONLY = {"AndroidControl_EXP06"}
 
-# ID/OOD split 없이 `stage{1,2}_test.jsonl` 단일 파일을 쓰는 DS.
+# ID/OOD split 없이 단일 test 계열을 쓰는 DS.
 # `_STAGE1_ONLY` 와 직교 — MC 는 Stage 1 만 + 단일 test.
-_SINGLE_TEST = {"MonkeyCollection"}
+# EXP08 은 stage1/stage2 둘 다 학습하되 ID/OOD 구분이 없다 (원본에 앱 파티션 메타가
+# 없어 에피소드 단위 홀드아웃만 한다). stage2 test 는 `stage2_test.jsonl` 하나로
+# 여기서 유도되는 이름과 정확히 일치하고, stage1 test 는 state 3 변형
+# (`stage1_test_state_{full,masked,dropped}.jsonl`) + action 1 (`stage1_test_action.jsonl`)
+# 의 4 파일 계열이라 이 규칙으로 유도되지 않는다 — 그 이름의 소유자는
+# `configs/lf_dataset/dataset_info.json` 과 eval 셸(stage1_eval.sh)이다.
+_SINGLE_TEST = {"MonkeyCollection", "AndroidControl_EXP08"}
 
 _EVAL_ONLY_BENCHMARKS = {
     "MobiBench": {
@@ -634,6 +688,9 @@ DATASET_MODEL_ELIGIBILITY: dict[str, frozenset[str]] = {
     "AndroidControl_EXP07_v1": frozenset({"qwen2.5-vl-3b"}),
     # EXP07_v2 는 v1 과 동형 — 같은 절대 픽셀 표현·3B 단독 자격.
     "AndroidControl_EXP07_v2": frozenset({"qwen2.5-vl-3b"}),
+    # EXP08 은 절대 픽셀 EXP05 계열이되 자격을 좁히지 않는다 — Qwen2.5-VL family
+    # 전체(7B + 3B). EXP07 의 3B 단독 제한은 EXP07 한정 사용자 스펙이었다.
+    "AndroidControl_EXP08": frozenset(_QWEN2_5_VL_FAMILY),
 }
 
 
@@ -674,6 +731,7 @@ _LONG_CUTOFF_DS = (
     "AndroidControl_EXP06",
     "AndroidControl_EXP07_v1",
     "AndroidControl_EXP07_v2",
+    "AndroidControl_EXP08",
 )
 
 

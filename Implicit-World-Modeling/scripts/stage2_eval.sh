@@ -14,6 +14,8 @@
 #        (overall / in_domain / out_of_domain 3-섹션)
 #   MB : 단일 파일 stage2.jsonl 1-회 inference → action_metrics.json
 #        (overall 1-섹션, single-pair 모드)
+#   AC_EXP08 : 단일 파일 stage2_test.jsonl 1-회 inference → action_metrics.json
+#        (overall 1-섹션, single-pair 모드 — ID/OOD 파티션 메타가 없다)
 #
 # Flags (공통은 _common.sh::parse_eval_args 참고):
 #   --model / --train-dataset / --eval-datasets
@@ -46,7 +48,8 @@ TRAIN_DS="$TRAIN_DATASET"
 case "$TRAIN_DS" in
   # AC_EXP04 stage2 보류 — 데이터/등록 키 없음 (현재 *) 분기로 거부). 도입 시 case + 아래 에러문에 AC_EXP04 포함.
   # AC_EXP05 = xy 통일 액션 스페이스 실험군 — action 채점 시 --coord-mode xy (run_variant_epoch_eval_on 참조).
-  AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02|AC_EXP03|AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2) ;;
+  # AC_EXP08 = EXP05 계열 dual-task 실험군 (stage2 test 는 ID/OOD 없는 단일 파일).
+  AC_EXP01_ratio37|AC_EXP01_ratio55|AC_EXP01_ratio73|AC_EXP02|AC_EXP03|AC_EXP05|AC_EXP06|AC_EXP07_v1|AC_EXP07_v2|AC_EXP08) ;;
   MC)
     echo "[!] Stage 2 는 MonkeyCollection(MC) 학습 데이터를 갖지 않습니다 (got '$TRAIN_DS')." >&2
     echo "    --train-dataset 는 AC_EXP01 | AC_EXP02 | AC_EXP03 | AC_EXP05 만 사용하세요." >&2
@@ -79,14 +82,21 @@ run_variant_epoch_eval_on() {
   # AC_EXP05 는 xy 통일 액션 스페이스라 action 채점 모드가 다르다 (stage1_eval 과 동일).
   # 나머지 EXP 는 플래그 없이 기존 index 채점 경로 그대로.
   local action_mode_flag=""
-  if [[ "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP06" || "$eval_ds" == "AC_EXP07_v1" || "$eval_ds" == "AC_EXP07_v2" ]]; then
+  if [[ "$eval_ds" == "AC_EXP05" || "$eval_ds" == "AC_EXP06" || "$eval_ds" == "AC_EXP07_v1" || "$eval_ds" == "AC_EXP07_v2" || "$eval_ds" == "AC_EXP08" ]]; then
     action_mode_flag="--coord-mode xy"
   fi
 
-  # Single-test 데이터셋 (overall only): MB.
-  if [[ "$eval_ds" == "MB" ]]; then
-    local test_jsonl="$BASE_DIR/data/${datadir}/stage2.jsonl"
-    local ds_test="${eval_prefix}_stage2"
+  # Single-test 데이터셋 (overall only): MB, AC_EXP08.
+  # AC_EXP08 은 앱 파티션 메타가 없어 ID/OOD 를 나누지 않는다 → stage2_test.jsonl 단일 파일.
+  if [[ "$eval_ds" == "MB" || "$eval_ds" == "AC_EXP08" ]]; then
+    local test_jsonl ds_test
+    if [[ "$eval_ds" == "AC_EXP08" ]]; then
+      test_jsonl="$BASE_DIR/data/${datadir}/stage2_test.jsonl"
+      ds_test="${eval_prefix}_stage2_test"
+    else
+      test_jsonl="$BASE_DIR/data/${datadir}/stage2.jsonl"
+      ds_test="${eval_prefix}_stage2"
+    fi
     if [ ! -f "$test_jsonl" ]; then
       echo "[!] [$model_short][train=$train_ds][eval=$eval_ds] Missing test file: $test_jsonl" >&2
       exit 1

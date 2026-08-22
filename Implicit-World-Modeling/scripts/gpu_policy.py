@@ -111,6 +111,9 @@ _HALF_BATCH_DATASETS: frozenset[str] = frozenset(
         "AndroidControl_EXP07",
         "AndroidControl_EXP07_v1",
         "AndroidControl_EXP07_v2",
+        # EXP08: EXP07 과 같은 절대 픽셀 + cutoff 24576 실험군. 버전 variant 가 없어
+        # gen_configs 키와 런타임 DS_DATADIR 이 같은 문자열이다 (한 줄이면 충분).
+        "AndroidControl_EXP08",
     }
 )
 
@@ -126,6 +129,9 @@ _FORCE_HALF_BATCH_DATASETS: frozenset[str] = frozenset(
         "AndroidControl_EXP07",
         "AndroidControl_EXP07_v1",
         "AndroidControl_EXP07_v2",
+        # EXP08 은 EXP07 과 같은 좌표계·image budget·cutoff 라 activation(logits)
+        # 압박도 같다 → 같은 강제 half-batch 대상.
+        "AndroidControl_EXP08",
     }
 )
 
