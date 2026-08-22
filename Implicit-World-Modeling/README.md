@@ -57,7 +57,7 @@ CPUAdam 이 미리 빌드된 이미지라면 `LF_CUDA_GUARD_SKIP=1` 로 가드�
 
 ## 2. 데이터 준비
 
-학습 대상 DS 는 `AC_EXP01` · `AC_EXP02` · `AC_EXP03` · `AC_EXP04` · `AC_EXP05` · `AC_EXP06` · `AC_EXP07` · `MC`. `MB` (MobiBench) 는 평가 전용이다. 원본 `AndroidControl/` 은 학습/평가 entry 가 아니라 **source 자산**이다. 계보와 각 실험군의 설계 의도는 [ARCHITECTURE §3 "데이터 계보"](./ARCHITECTURE.md#3-데이터와-설정-계약).
+학습 대상 DS 는 `AC_EXP01` · `AC_EXP02` · `AC_EXP03` · `AC_EXP04` · `AC_EXP05` · `AC_EXP06` · `AC_EXP07` · `AC_EXP08` · `MC`. `MB` (MobiBench) 는 평가 전용이다. 원본 `AndroidControl/` 은 학습/평가 entry 가 아니라 **source 자산**이다. 계보와 각 실험군의 설계 의도는 [ARCHITECTURE §3 "데이터 계보"](./ARCHITECTURE.md#3-데이터와-설정-계약).
 
 행수·파일 목록은 문서가 아니라 디스크에서 센다: `wc -l data/AndroidControl_EXP05/*.jsonl`
 
@@ -162,6 +162,41 @@ cat data/AndroidControl_EXP07/stage1_train.jsonl.meta.json
 ```
 
 > stage1 은 `save_steps 0.25` 라 체크포인트 라벨이 **0.25 / 0.5 / 0.75 / 1** 이다 — `--epochs`·`--stage1-epoch` 에 소수를 넘길 수 있다 ([ARCHITECTURE §4](./ARCHITECTURE.md#4-파이프라인-컴포넌트)). stage2 의 **merge X 변형**(`world-model-adapter`) 은 EXP07 한정 opt-in 이며 기본 sweep 에 없다 — `--variants lora_world_model_adapter` 로 명시해야 채점된다.
+
+### AC_EXP08 — anti-copy 3-포맷 관측성 분할 (Cerebra 스키마, 자체 소스)
+
+EXP05 계열의 절대 픽셀 좌표계·budget·`cutoff_len` 을 승계하되, state 학습분의 **입력 XML 을 세 가지 관측성 포맷 (`full` / `masked` / `dropped`) 으로 나눠** 굽는다 — "가려진 부분을 스크린샷에서 복원하라"로 복사를 억제하는 설계다. 원천은 AndroidControl 을 Cerebra html-like 파서 (`data-bbox` / `aria-label`) 로 재추출한 0822 파일이라 계보는 AC 계열이 맞다. 비율·가중 상수·설계 근거는 [ARCHITECTURE §3 "EXP08 빌드"](./ARCHITECTURE.md#3-데이터와-설정-계약) 와 [`../docs/WM_FORMATS.md`](../docs/WM_FORMATS.md) · [`../docs/DIFF_TARGETS.md`](../docs/DIFF_TARGETS.md).
+
+```bash
+# 1) 원천 2 파일을 배치 → data/AndroidControl/ (공유 원본 디렉토리, ARCHITECTURE §3 규칙 2)
+#    EXP08_stage1_state.jsonl   state-pred (Cerebra XML)
+#    EXP08_stage2.jsonl         downstream (with_history) — stage1 action test 도 여기서 파생
+#    행수는 디스크에서 센다: wc -l data/AndroidControl/EXP08_*.jsonl
+
+# 2) 빌드 정본 — train 2 + 자체 test 5 + sidecar
+python scripts/build_exp08_data.py
+
+python scripts/build_exp08_data.py --limit 2000    # 스모크 (목표치를 축소해 한 바퀴)
+python scripts/build_exp08_data.py --verify-only   # 재빌드 없이 산출물 불변식만 (train∩test·포맷 간 동일성)
+```
+
+이 빌더가 `scripts/build_wm_formats.py` (3-포맷 변환) → `scripts/validate_wm_formats.py` (불변식 C1~C11, 실패하면 빌드가 그 자리에서 멈춘다) → `scripts/diff_loss/build_diff_targets.py` (raw 로 헝가리안 → applied 에 `token_weights` 부착) 를 순서대로 호출한다 — **따로 돌릴 필요는 없다.** 이 경로는 `*_v2c.py` (v2 의 Cerebra 확장 복제본) 를 쓰고 `*_v2.py` 는 건드리지 않는다 ([AGENTS 하드 제약 15e](./AGENTS.md)).
+
+행수·비율·가중 상수·토크나이저 SHA 는 문서가 아니라 sidecar 에서 읽는다:
+
+```bash
+cat data/AndroidControl_EXP08/stage1_train.jsonl.meta.json
+```
+
+학습 전에 가중치가 제대로 붙었는지 **눈으로** 본다 — 집계 숫자만으로는 이 파이프라인의 조용한 실패 (위치 신호 사망, 컨테이너가 문서 전체를 덮음) 가 정상과 구분되지 않는다:
+
+```bash
+python scripts/diff_loss/weight_site.py \
+  --weighted data/AndroidControl_EXP08/_build/state_train_split_weighted.jsonl \
+  --out outputs/AndroidControl_EXP08/_weight_site
+```
+
+> 채점 플래그 `--xml-schema cerebra` 는 손으로 넘기지 않는다 — `_common.sh::ds_xml_schema_flag()` 가 `AC_EXP08` 에 자동 주입한다 (EXP06 의 `--coord-mode xy` 와 같은 방식). 기본값 `android` 로 채점하면 **에러 없이** 지표가 무너지고, 반대로 기존 실험군에 `cerebra` 를 주면 채점 기준이 바뀐다 ([AGENTS 하드 제약 15f](./AGENTS.md)) — 근거와 `raw_current_state` 우선 규칙은 [ARCHITECTURE §6 메트릭](./ARCHITECTURE.md#6-메트릭).
 
 ### MC / MB
 
@@ -362,7 +397,7 @@ scripts/stage1_eval.sh   --train-dataset DS --eval-datasets ...
 scripts/stage2_train.sh  / stage2_merge.sh / stage2_eval.sh   # 동일 패턴
 ```
 
-다른 모델/모드/DS 는 **shell 인자 (`--model` / `--dataset` / `--stage{1,2}-mode`) 만 바꾼다.** 데이터 빌더는 실험군별로 `scripts/build_exp0N_data.py` (EXP02/EXP05/EXP07) 를 쓴다.
+다른 모델/모드/DS 는 **shell 인자 (`--model` / `--dataset` / `--stage{1,2}-mode`) 만 바꾼다.** 데이터 빌더는 실험군별로 `scripts/build_exp0N_data.py` (EXP02/EXP05/EXP07/EXP08) 를 쓴다.
 
 ---
 
