@@ -52,6 +52,10 @@ from transformers import AutoTokenizer  # noqa: E402
 
 
 # ── 상수 ─────────────────────────────────────────────────────────────────────
+_REVISION_ARG: str | None = None
+_REVISION_RESOLVED: str | None = None
+_TOKENIZER_CLASS: str | None = None
+
 HDR_UI = "Current UI State:"
 HDR_SHOT = "[Screenshot]"
 
@@ -297,6 +301,24 @@ def build(
     raw_by_sid = {s["sample_id"]: s for s in raw}
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
+    # 실제로 해석된 commit SHA 를 남긴다. `--revision` 을 안 주면 Hub HEAD(또는 로컬
+    # 캐시 스냅샷)로 해석되므로, 무엇으로 굳었는지 sidecar 에 없으면 재현이 불가능하다.
+    resolved_revision = revision
+    if resolved_revision is None:
+        # tokenizer 객체는 repo id 로 로드하면 name_or_path 에 SHA 를 남기지 않는다.
+        # 캐시에서 실제로 읽힌 스냅샷 경로(.../snapshots/<sha>/...)로 역추적한다.
+        try:
+            from huggingface_hub import try_to_load_from_cache  # noqa: PLC0415
+
+            hit = try_to_load_from_cache(model_name, "tokenizer_config.json")
+            if isinstance(hit, str) and "/snapshots/" in hit:
+                resolved_revision = hit.split("/snapshots/")[1].split("/")[0]
+        except Exception:  # noqa: BLE001 — sidecar 부가정보라 실패해도 빌드를 막지 않는다
+            resolved_revision = None
+    global _REVISION_ARG, _REVISION_RESOLVED, _TOKENIZER_CLASS
+    _REVISION_ARG = revision
+    _REVISION_RESOLVED = resolved_revision
+    _TOKENIZER_CLASS = type(tokenizer).__name__
     tkey = template_key or detect_template(model_name)
     prefix_fn = TEMPLATE_MAP.get(tkey, TEMPLATE_MAP["default"])
     weight_map = {
@@ -367,7 +389,14 @@ def build(
         "output": str(out_path),
         "model": model_name,
         "template": tkey,
-        "metric_version": "v2",
+        # 실제로 import 한 모듈을 적는다. AC_EXP08 은 Cerebra 확장본(_v2c)을 쓰므로
+        # "v2" 로 찍으면 어느 채점 규약으로 만든 데이터인지 사후에 구분할 수 없다.
+        "metric_version": getattr(hungarian_diff_v2, "__name__", "v2").replace(
+            "hungarian_diff_", ""
+        ),
+        "revision_arg": _REVISION_ARG,
+        "revision_resolved": _REVISION_RESOLVED,
+        "tokenizer_class": _TOKENIZER_CLASS,
         "weight_map": weight_map,
         "on_error": on_error,
         "counts": dict(counts),
