@@ -39,7 +39,7 @@ HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md
 | **AC_EXP05** | ✅ **eval 완주** | `qwen2.5-vl-3b` stage1 full FT + stage2(full·lora world-model·base) **전부 eval 완주** (2026-07-21). **데이터 쟁점 4건 미판정** |
 | **AC_EXP06** | 🔄 **merge/업로드** | EXP05 비증강 Stage-2 대조군. `base` variant 완료·업로드, **world-model variant 학습 미착수** |
 | **AC_EXP07** | 🧱 **데이터·인프라 완비** | `qwen2.5-vl-3b` 단독 stage1 world-modeling. 등록·YAML·빌더 완비, **0725 실데이터 빌드 완료(누출 0)**, **학습 이력 0** |
-| **AC_EXP08** | 🧱 **데이터·인프라 구축 중** | anti-copy **3-포맷 관측성 분할** stage1. 자격 `qwen2.5-vl-3b`·`7b`. 배선·YAML 완비, **데이터 빌드 진행**, **학습 이력 0** |
+| **AC_EXP08** | 🧱 **데이터·인프라 완비** | anti-copy **3-포맷 관측성 분할** stage1. 자격 `qwen2.5-vl-3b`·`7b`. 배선·YAML·데이터 완비(누출 0), **학습 이력 0** |
 | **MC** | ⬜ 미착수 | 데이터·등록·YAML 완비, 자격 제한 없음. **프로덕션 코퍼스 아님** |
 | **MB** | ⬜ 미사용 | 평가 전용. `on-MB*` 산출물 0 |
 
@@ -151,7 +151,7 @@ EXP05 의 **비증강(증강 X) Stage-2 대조군**. 좌표/budget/`--coord-mode
 
 ---
 
-## 🧱 EXP08 — anti-copy 3-포맷 분할 (데이터 빌드 중, 학습 미착수)
+## 🧱 EXP08 — anti-copy 3-포맷 분할 (데이터·인프라 완비, 학습 미착수)
 
 `qwen2.5-vl-3b` + `qwen2.5-vl-7b` stage1 world-modeling. **EXP07 과의 핵심 차이는 입력 관측성을 세 포맷으로 쪼갠 것**이다 — `full` 25% / `masked` 55% / `dropped` 20%. 모델이 입력 XML 을 그대로 베끼는 국소 최적(실측 복사만으로 토큰 절반 적중)에서 빠져나오게 하려고 **베낄 원본을 물리적으로 제거**한다. 설계 배경은 [`WM_FORMATS.md`](./WM_FORMATS.md), 파이프라인은 [`DIFF_TARGETS.md`](./DIFF_TARGETS.md).
 
@@ -160,7 +160,12 @@ EXP05 의 **비증강(증강 X) Stage-2 대조군**. 좌표/budget/`--coord-mode
 **완료 (2026-08-22)**:
 - **원천 배치** — `data/AndroidControl/EXP08_{stage1_state,stage2}.jsonl` (60,871 / 86,431). 이미지는 **새로 받을 필요가 없었다**: 소스의 `myset/images/episode_{N}_...` 는 zero-pad 만 다를 뿐 공용 `AndroidControl/images/` 와 **전수 매핑**된다 (60,871 + 86,431 전부 hit). 즉 AndroidControl 을 Cerebra 파서로 다시 뽑은 것이고 AC 계보가 맞다.
 - **diff loss v2c** — `scripts/diff_loss/{hungarian_metric,hungarian_diff,token_weight_builder}_v2c.py`. v2 는 **덮지 않았다** (하드 제약 9·15e). Cerebra 스키마(`data-bbox`/`aria-label`) 지원 + **구조축 `div` 채택** + **컨테이너는 여는-태그만 가중**.
-- **빌드 정본** — `scripts/build_exp08_data.py`. 길이 필터(state 22 / down 2 drop) → 95% 복사 필터(state-train 57,255 → **56,827**, drop 428 = 0.75%) → 층화 표본 40K → 3-포맷 분할 **정확히 10,000/22,000/8,000, skip 0** → C1~C11 전수 통과 → 헝가리안 diff → `token_weights` 부착.
+- **데이터 빌드 완료 (2026-08-22)** — `scripts/build_exp08_data.py --seed 8`. 길이 필터(state 22 / down 2 drop) → 95% 복사 필터(state-train 57,255 → **56,827**, drop 428 = 0.75% / state-test 3,594 → 3,565) → 층화 표본 40K → 3-포맷 분할 **정확히 10,000/22,000/8,000, skip 0** → C1~C11 전수 통과 → 헝가리안 diff **40,000/40,000 ok, fallback 0** (ADDED 581,101 / MODIFIED 568,839 / UNCHANGED 664,960) → `token_weights` 부착.
+  산출: `stage1_train.jsonl` 50,000행(795MB) · `stage2_train.jsonl` 15,000행 · test 5종 각 500행.
+  빌더 `verify()`: fmt 분포 masked 22,000 / full 10,000 / dropped 8,000 / action 10,000,
+  test 3 포맷 `raw_current_state` 500건 동일, **train 에피소드 13,571 / test 750 / 교집합 0**.
+- **시각 감사** — `scripts/diff_loss/weight_site.py` 가 `outputs/AndroidControl_EXP08/_weight_site/index.html` 을 낸다 (조병웅님 요청 항목). 왼쪽에 모델이 실제로 본 current state, 오른쪽에 타깃 토큰별 가중치를 색으로 칠한다.
+  **diff 를 raw 로 계산했다는 증거**(40,000건 전량): 상향-가중 비율이 dropped p50 `.705` / full `.704` / masked `.702` 로 포맷 간 동일하고 "전부 상향" 샘플이 0.31~0.34% 다. applied(가려진 current)로 계산했다면 dropped 는 1.0 에 몰려야 한다. token_weights 길이 불일치 **0** (state 40K·downstream 10K 양쪽 표본 검사).
 - **배선** — `dataset_info` 7 키, `lf_registry`(자격 3b·7b), `_common.sh`, `gpu_policy`, `stage1_eval.sh`(EXP08 전용 단일-test helper, leaf 4 종), `eval_viewer`. **YAML 16 종** (stage1 {full,lora}×2모델 + stage2 {full,lora}×3variant×2모델). `gen_configs --check` 통과(218 YAML), `pytest tests` **926 passed / 9 skipped / 0 failed**.
 - **채점기 Cerebra opt-in** — `--xml-schema cerebra` (기본 `android` → 기존 실험군 불변), 프롬프트 파서에 관측성 라벨 머리글 추가, copy 지표를 **`raw_current_state`** 로 계산.
 
@@ -171,6 +176,8 @@ EXP05 의 **비증강(증강 X) Stage-2 대조군**. 좌표/budget/`--coord-mode
 - **원격 제출은 여전히 UNVALIDATED** — `scripts/remote_launch.sh` 는 실행 이력 0 이고 `configs/remote/run.template.yaml` 은 `--dataset AC_EXP05 --stage1-mode full` 이 **하드코딩**돼 있다. EXP08 을 원격으로 돌리려면 그 줄을 바꿔야 한다.
 - **중간 체크포인트 → 로컬 eval 접착이 없다.** 협업자가 요청한 "0.25 epoch 마다 내려받아 연구실 서버에서 validation eval" 을 자동으로 해 주는 스크립트는 리포에 **없다** (`export:` 블록의 계획만 있고 미검증). 체크포인트를 손으로 내려받은 뒤 `stage1_eval.sh --train-dataset AC_EXP08 --eval-datasets AC_EXP08` 로 4 leaf 를 도는 것은 배선돼 있다.
 - **가중치 0.25 는 지난 실험(EXP07 v2 = 0.05)과 다르다** — 사용자 확정 사항이다. 포맷 분할이라는 새 변수가 이미 들어갔으므로 원인 분리 시 이 차이를 함께 고려해야 한다.
+- **헝가리안 매칭 임계값은 EXP07 값을 그대로 승계했고 육안 검증을 하지 않았다.** [`WM_FORMATS.md`](./WM_FORMATS.md) §4.4 는 이 임계값을 "최대 리스크" 로 지목하며 무작위 30 샘플 육안 확인을 요구한다. 현행 값(`MATCH_THRESHOLD=1.7`, `UNCHANGED_COST_THRESHOLD=0.05`)은 `build_diff_targets.py` 에 CLI 로 노출돼 있지도 않다 — 변수 최소화 차원의 승계이지 검증된 값이 아니다. `_weight_site` 로 요소 단위 확인은 가능하다.
+- **초기 빌드는 `--revision` 핀 없이 돌았다.** 로컬 캐시 스냅샷이 `66285546…` 하나뿐이라 실제로 그 SHA 로 해석됐고(그래서 이제 빌더 기본값이다), 다만 그 빌드의 sidecar `diff_targets_meta.revision_resolved` 는 `null` 이다. bit-exact 재현이 필요하면 핀이 박힌 현재 코드로 재빌드하면 된다.
 
 ---
 
