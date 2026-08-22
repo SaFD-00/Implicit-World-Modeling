@@ -3,6 +3,43 @@
 시점성 진행 로그 (append-only). 최신 엔트리를 위에 추가한다. 과거 엔트리는 수정·삭제하지 않는다.
 상세 결과는 Notion Dev Log / Experiments DB, 계획은 [ROADMAP.md](./ROADMAP.md) 참조.
 
+## 2026-08-22 — IWM: AC_EXP08 anti-copy 3-포맷 관측성 분할 세팅 (코드·데이터, 학습 전)
+
+조병웅님 `diff_loss_bundle_v2` + 0822 Cerebra 재추출 데이터를 새 실험군 **AC_EXP08** 로 세팅했다.
+학습은 돌리지 않았다 (사용자 지시: 코드·데이터 세팅까지). 벤더 번들을 그대로 적용하지 않고, 실측으로
+드러난 **조용한 실패 4건**을 고친 것이 이 작업의 실질이다.
+
+- **v2 불가침 유지:** 번들 INSTALL 은 `hungarian_metric_v2.py`/`token_weight_builder_v2.py` in-place
+  교체를 지시했으나 두 파일은 EXP02/05/06/07 학습 데이터 생성 경로다 (하드 제약 9) → `_v2c` 복제본으로
+  벤더링하고 `build_diff_targets.py` 만 그걸 import 한다.
+- **구조 div (협업자 지적 사항):** 번들의 `aria-label` 확장만으로는 **div 여는-태그의 52% (166/319,
+  next-XML 문자의 10.8%)** 가 어떤 element span 에도 안 덮였다. `data-bbox` 보유 `div` 를 element 로
+  채택해 **52% → 0.9%**, 문자 커버리지 **89.2% → 94.3%**.
+- **컨테이너 서브트리 가중 함정:** 문서 전체를 감싼 `<div aria-label=…>` 이나 루트 `<button>` 하나가
+  MODIFIED 로 잡히면 UNCHANGED 요소가 22 개 있어도 토큰 100% 가 1.0 이 됐다 (200 샘플 중 6 건).
+  태그명이 아니라 **자식 element 유무**로 판정하게 바꿔 6 건 → 1 건 (정당 케이스).
+- **채점 경로 2 건:** `_prompt_sections` 가 `^Current UI State:$` 앵커라 EXP08 프롬프트를 전부 파싱
+  실패했고(→ `state_diff_metrics.json` 전체가 깨진다), copy 지표를 가려진 프롬프트로 계산하면
+  masked/dropped 가 가짜 개선을 낸다(`dropped` 는 `copy_excess` 가 0 으로 붕괴). 관측성 라벨 마커 추가 +
+  GT 의 `raw_current_state` 우선으로 막았다.
+
+- **데이터:** `stage1_train.jsonl` 50,000행 (state 40K = full 10,000 / masked 22,000 / dropped 8,000,
+  + downstream 10K) · `stage2_train.jsonl` 15,000행 · test 5 종 각 500행. **train ∩ test 에피소드 = 0**
+  (앱 파티션 메타가 없어 ID/OOD 대신 에피소드 단위 홀드아웃). 복사 필터 drop 428/57,255 (0.75%) —
+  원천이 이미 dedup 돼 있었다.
+- **검증:** `pytest` 936 passed / 9 skipped / 0 failed · `gen_configs --check` 218 YAML OK (기존 byte 불변) ·
+  `validate_wm_formats` C1~C11 ALL PASS · 헝가리안 diff 40,000/40,000 fallback 0 ·
+  `token_weights` 길이 불일치 0 (state·downstream 양쪽) · `datasets.load_dataset` 50,000행 정상 로드.
+- **채점기 실증:** pred=GT 오라클(완벽한 예측)에서 `android` 모드 `avg_hungarian_pos` **0.0000** vs
+  `cerebra` **1.0000**. f1/text 는 0.6646 vs 0.6553 로 거의 안 움직여 지표표만 보면 정상으로 착각한다.
+- **diff 를 raw 로 계산했다는 증거:** 상향-가중 비율 p50 이 dropped `.705` / full `.704` / masked `.702` 로
+  포맷 간 동일. applied 로 계산했다면 dropped 는 1.0 에 몰려야 한다. 시각 감사는
+  `scripts/diff_loss/weight_site.py` → `outputs/AndroidControl_EXP08/_weight_site/index.html`.
+- **남은 것:** 학습 이력 0 (로컬 GPU 점유 · `remote_launch.sh` 는 실행 이력 0 이고 템플릿이 AC_EXP05
+  하드코딩) · 0.25 epoch 중간 체크포인트 eval 접착 스크립트 없음 (협업자 요청 미구현) · 헝가리안 매칭
+  임계값은 EXP07 승계이고 육안 미검증 · 초기 빌드가 `--revision` 핀 없이 실행 (이후 기본값 고정).
+- 커밋 `145933d`..`26eb3e6` (11건). 로컬 상세: `.claude/devlog/2026-08-22_09-31-44_ac-exp08-anti-copy-setup.md`
+
 ## 2026-08-21 — IWM: Hungarian v3 전체 집계·시각 검증 패키지 확정
 
 기존 대표 leaf 수치만으로는 구조 요소 보정의 전체 효과와 협업자 피드백(실제 화면을 눈으로 확인)을
