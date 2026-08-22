@@ -252,15 +252,24 @@ class TestHungarianAggregateParity(unittest.TestCase):
                     _he.evaluate_pairs(gts, preds, mode),
                 )
 
+    # `_sd.evaluate_pairs` 만 내는 **출처 카운트**. 지표가 아니라 provenance 라
+    # `_sd.aggregate` 에는 없다 — 그래서 이 모듈의 `aggregate` 를 타는
+    # `copy_baseline_metrics.json` 의 스키마는 그대로다. 지표 파리티를 보는 이 테스트는
+    # 그 두 키만 빼고 **나머지 전부**를 정확히 비교한다 (빼는 키를 늘리지 말 것 —
+    # 늘리는 순간 이 테스트가 드리프트를 못 잡는다).
+    _PROVENANCE_KEYS = ("n_current_state_raw", "n_current_state_prompt")
+
     def test_state_half_matches_state_diff_evaluate_pairs(self):
         """model 섹션의 state-diff 절반도 정본과 같아야 한다 (재계산이므로 정확히)."""
         for mode in MODES:
             with self.subTest(mode=mode):
                 gts, preds = _fixture(mode)
                 model_rows, _ = _cb.score_rows(gts, preds, mode)
-                self.assertEqual(
-                    _sd.aggregate(model_rows), _sd.evaluate_pairs(gts, preds, mode)
-                )
+                canon = _sd.evaluate_pairs(gts, preds, mode)
+                for k in self._PROVENANCE_KEYS:
+                    self.assertIn(k, canon, "정본이 출처 카운트를 내야 한다")
+                    canon.pop(k)
+                self.assertEqual(_sd.aggregate(model_rows), canon)
 
     def test_only_total_collides_on_merge(self):
         for mode in MODES:

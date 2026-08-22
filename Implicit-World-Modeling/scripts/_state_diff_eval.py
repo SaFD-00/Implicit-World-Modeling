@@ -74,6 +74,39 @@ element 집합 (`--element-set full|legacy`)
 이 모듈은 산출물에 **자기가 실제로 읽은 전역**을 스탬프한다 (`stamp_schema`). 두 파일의
 `element_set` 이 어긋나 있으면 그게 전파 실패의 증거다.
 
+XML 스키마 (`--xml-schema android|cerebra`)
+------------------------------------------
+`element_set` 과 **같은 규약**의 전역이다 (`_hungarian_eval.XML_SCHEMA`) — 정본 채점과
+반드시 같은 값이어야 하고, `_hungarian_eval._write_state_diff` 가 `_sd._he.set_xml_schema()`
+로 명시 전파하며, 산출물에는 **자기가 실제로 읽은 전역**이 스탬프된다 (`stamp_schema`).
+element 집합과 **직교**한다. cerebra(AC_EXP08)는 위치축이 `data-bbox="x1 y1 x2 y2"` 라
+android 로 채점하면 **에러 없이** 위치 cost 가 전부 0 이 된다.
+
+current state 를 어디서 읽는가 (`raw_current_state`)
+----------------------------------------------------
+기본은 **예측 파일의 `prompt`** 다 (`_prompt_sections.parse_prompt`). 그런데 AC_EXP08 의
+state test 는 관측성 3 포맷(`full`/`masked`/`dropped`)이라 프롬프트의 current 가 이미
+가려져 있다 — `masked` 는 `<MASK/>`·`[MASK]` 로 일부가, `dropped` 는 `(none)` 으로 전부가.
+그대로 채점하면 **masked/dropped 가 구조적으로 낮은 copy_rate 를 받아 가짜 개선**이 되고,
+`dropped` 는 `copy_rate_pred`/`copy_rate_gt` 가 둘 다 0 으로 붕괴해 `copy_excess` 가 뜻을
+잃는다. `addmod_recall`·`change_f1_*` 도 current 를 기준으로 잡으므로 같이 무너진다.
+
+그래서 **GT test 레코드에 `raw_current_state`(마스킹 전 원본 XML)가 있으면 그것을 먼저
+쓴다** (`scripts/build_exp08_data.attach_raw_current_state` 가 채운다). 없으면 지금까지처럼
+프롬프트에서 뽑는다 — 기존 실험군 파일에는 이 필드가 없으므로 동작이 그대로다.
+
+한 파일 안에서 두 경로가 **섞이면 터뜨린다**(`StateDiffError`). copy 계열은 current 의
+정의가 갈리는 순간 **서로 다른 population 위의 평균**이 되는데(같은 파일 안 `copy_excess`
++ `parse_fail_rate` 경고와 같은 함정), 필드는 빌더가 전량 채우거나 전량 비우는 것이라
+혼재는 값이 아니라 배선 고장이다. split 모드의 `overall` 섹션이 `gt_id + gt_ood` 를 합쳐
+채점하므로 **ID/OOD 파일 간 혼재도 같은 가드에 걸린다** — 서로 다른 current 정의로 채점된
+두 섹션을 나란히 놓는 것이야말로 막아야 할 일이다.
+
+어느 경로를 탔는지는 산출물이 스스로 말한다: 섹션마다 `n_current_state_raw` /
+`n_current_state_prompt`, 최상위에 `current_state_source`(`raw_field` | `prompt` | `mixed`
+| `unknown`) 스탬프 — `element_set`·`xml_schema` 와 같은 규약으로, **채점기가 실제로 관측한
+것**에서 도출한다.
+
 UNCHANGED 판정 기준
 -------------------
 `diff_loss/hungarian_diff_v2.classify_diff` 는 `match_cost <= 0.05` 를 UNCHANGED 로
@@ -1142,6 +1175,32 @@ _LEGACY_KEY_ALIAS = {
 }
 
 
+def _current_state_source(metrics: dict) -> str:
+    """채점이 **실제로** 어느 경로에서 current state 를 얻었는지 도출한다.
+
+    `evaluate_pairs` 가 섹션마다 남긴 관측 카운트(`n_current_state_raw` /
+    `n_current_state_prompt`)만 본다 — 인자로 받은 "의도"가 아니라 관측이어야
+    `element_set`·`xml_schema` 스탬프와 같은 쓸모(어긋남의 증거)를 갖는다.
+
+    `mixed` 는 정상 경로에서는 나오지 않는다 (`evaluate_pairs` 가 한 섹션 안의 혼재를
+    이미 터뜨리고, split 모드의 `overall` 이 ID/OOD 를 합쳐 채점하므로 파일 간 혼재도
+    거기서 걸린다). 그래도 값을 두는 것은 **조용한 폴백을 만들지 않기 위해서**다.
+    `unknown` 은 집계된 행이 아예 없는 경우다.
+    """
+    seen: set[str] = set()
+    sections = [metrics, *(v for v in metrics.values() if isinstance(v, dict))]
+    for sec in sections:
+        if "n_current_state_raw" not in sec:
+            continue
+        if sec["n_current_state_raw"]:
+            seen.add("raw_field")
+        if sec["n_current_state_prompt"]:
+            seen.add("prompt")
+    if len(seen) == 1:
+        return seen.pop()
+    return "mixed" if seen else "unknown"
+
+
 def stamp_schema(metrics: dict) -> dict:
     """산출물 최상위에 스키마 버전과 element 집합을 박는다. **파일로 쓰는 모든 경로**가
     불러야 한다 (`_state_diff_eval._cmd_score` · `_hungarian_eval._write_state_diff` 둘 다).
@@ -1151,6 +1210,10 @@ def stamp_schema(metrics: dict) -> dict:
     스탬프와 대조해 전파 실패를 잡을 수 있다."""
     metrics["metrics_schema"] = METRICS_SCHEMA
     metrics["element_set"] = _he.ELEMENT_SET
+    metrics["xml_schema"] = _he.XML_SCHEMA
+    # current state 의 출처도 같은 규약이다 — 다만 이건 설정이 아니라 **관측**이라
+    # 전역이 아니라 집계 결과에서 읽는다 (`_current_state_source`).
+    metrics["current_state_source"] = _current_state_source(metrics)
     return metrics
 
 
@@ -1192,12 +1255,16 @@ def evaluate_pairs(
     GT next-state 는 **정본과 같은 출처**(`messages[-1]["value"]`)에서 읽는다.
     prediction 의 `label` 을 쓰면 chat template 정규화 차이로 소수 행이 어긋나
     (2026-08-01 실측 EXP01/EXP05 각 4행) 층 분해가 `hungarian_rec` 과 안 맞는다.
-    current state 는 prediction 의 `prompt` 에서 읽는다 — 행 정렬이 보장되고
-    필터(woa) leaf 도 그대로 커버된다.
+
+    current state 는 **GT 레코드의 `raw_current_state` 우선, 없으면 prediction 의
+    `prompt`** 에서 읽는다 (모듈 docstring "current state 를 어디서 읽는가" 참고).
+    프롬프트 경로는 행 정렬이 보장되고 필터(woa) leaf 도 그대로 커버된다.
 
     프롬프트에서 current state 를 못 읽으면 `classify_diff` 는 전부 ADDED 를,
     copy_rate 는 0 을 돌려준다 — **그럴듯한 완전 오답 표**가 조용히 나온다.
     그래서 실패를 세서 터뜨린다 (`_compare_site` 설계원칙 #2 와 같은 이유).
+    ⚠️ `raw_current_state` 로 온 행은 이 가드를 **타지 않는다** — 필드 자체가 검증된
+    출처이기 때문이다 (빌더가 `stage1_test_state_*` 3 포맷의 동일성까지 검사한다).
 
     action 은 같은 `prompt` 에서 `hungarian_diff_v3.extract_action` 으로 뽑아
     `compute_state_diff` 에 그대로 흘린다 (유도성 축, 모듈 docstring 참고). 이 값이
@@ -1210,14 +1277,27 @@ def evaluate_pairs(
     assert_scorer_wired(match_mode, **opts)
     rows = []
     failures = 0
-    for gt_entry, pred_entry in zip(gt_entries, pred_entries, strict=False):
+    n_raw = 0
+    prompt_rows: list = []  # 프롬프트에서 읽은 행의 식별자 (혼재 진단용)
+    for i, (gt_entry, pred_entry) in enumerate(
+        zip(gt_entries, pred_entries, strict=False)
+    ):
         gt_text = gt_entry["messages"][-1]["value"]
         pred_text = pred_entry.get("predict", pred_entry.get("output", ""))
         prompt_text = pred_entry.get("prompt", "")
-        current = parse_prompt(prompt_text).get("current_state", "")
-        if not current:
-            failures += 1
-            continue
+        # 마스킹 전 원본이 GT 에 실려 있으면 그것이 우선이다. 빈 문자열은 "미설정"으로
+        # 읽는다 — 필드는 있는데 비어 있으면 프롬프트로 폴백하고, 그 결과 혼재가 되면
+        # 아래 가드가 터진다 (조용히 넘기지 않는다).
+        raw_current = (gt_entry.get("raw_current_state") or "").strip()
+        if raw_current:
+            current = raw_current
+            n_raw += 1
+        else:
+            current = parse_prompt(prompt_text).get("current_state", "")
+            if not current:
+                failures += 1
+                continue
+            prompt_rows.append(gt_entry.get("sample_id", i))
         action = _hd3.extract_action(prompt_text)
         rows.append(
             compute_state_diff(
@@ -1231,7 +1311,21 @@ def evaluate_pairs(
             "'## Current State' / 'Current UI State:' 중 어느 쪽도 아닙니다 — "
             "scripts/_prompt_sections.py 에 계열을 등록하세요."
         )
-    return aggregate(rows)
+    if n_raw and prompt_rows:
+        raise StateDiffError(
+            f"current state 출처 혼재 — raw_current_state 보유 {n_raw}행 / "
+            f"미보유 {len(prompt_rows)}행 (미보유 예: {prompt_rows[:5]}). "
+            "copy 계열은 current 의 정의가 갈리면 서로 다른 population 위의 평균이 "
+            "됩니다. 빌더가 전량 채우거나 전량 비워야 합니다 "
+            "(split 모드라면 ID/OOD 파일이 서로 다를 수 있습니다)."
+        )
+    out = aggregate(rows)
+    # 출처를 **관측값**으로 남긴다. `stamp_schema` 가 이걸 읽어 최상위
+    # `current_state_source` 를 도출한다 — 호출자가 믿는 값이 아니라 채점기가 실제로
+    # 탄 경로를 적어야 나중에 두 체제를 구분할 수 있다.
+    out["n_current_state_raw"] = n_raw
+    out["n_current_state_prompt"] = len(prompt_rows)
+    return out
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────
@@ -1260,6 +1354,7 @@ def _cmd_score(args) -> int:
     opts = {"strict_pos": args.strict_pos_match, "include_aria": args.include_aria}
     # element 집합은 전역이라 여기서 `_he` 사본에 박는다 (모듈 docstring 참고).
     _he.set_element_set(args.element_set)
+    _he.set_xml_schema(args.xml_schema)
     if not args.include_truncated:
         reason = truncated_reason(args.pred, args.pred_id, args.pred_ood)
         if reason:
@@ -1378,6 +1473,17 @@ def main() -> int:
         "이어야 한다 — 다르면 층 분해 항등식이 깨진다. legacy 는 2026-08-21 이전의 "
         "화이트리스트 집합(실제 요소의 약 24%% 를 버린다) 재현용이다. 셸 스크립트 경유로는 "
         "환경변수 `ELEMENT_SET=legacy` 로 지정한다 (이 플래그가 이긴다).",
+    )
+    s.add_argument(
+        "--xml-schema",
+        # element 집합과 같은 이유로 기본값도 정본 채점과 같은 함수에서 받는다.
+        default=_he._default_xml_schema(),
+        choices=["android", "cerebra"],
+        dest="xml_schema",
+        help="읽을 XML 스키마. 정본 채점(_hungarian_eval)과 **반드시 같은 값**이어야 한다 "
+        "— 다르면 위치축이 갈려 층 분해 항등식이 깨진다. cerebra 는 AC_EXP08 "
+        "(data-bbox 위치축 · aria-label/alt/placeholder/value 텍스트축)용이다. "
+        "셸 스크립트 경유로는 환경변수 `XML_SCHEMA=cerebra` 로 지정한다 (이 플래그가 이긴다).",
     )
     s.add_argument("--exclude-action", default=None, dest="exclude_action")
     s.add_argument(

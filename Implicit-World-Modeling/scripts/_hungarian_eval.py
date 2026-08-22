@@ -176,6 +176,9 @@ def _collect_texts_pos(el):
     add(el.get("id"))
     add(el.get("text"))
     add(el.get("aria-label"))
+    if XML_SCHEMA == "cerebra":
+        for attr in _CEREBRA_TEXT_ATTRS:
+            add(el.get(attr))
     for c in el.contents:
         if isinstance(c, NavigableString):
             s = str(c).strip()
@@ -233,9 +236,66 @@ def set_element_set(name):
     ELEMENT_SET = name
 
 
+# ── XML 스키마 스위치 ────────────────────────────────────────────────────
+# "android" (기본) : bounds="[x1,y1][x2,y2]" · description · index — EXP01~07 전부.
+# "cerebra"        : data-bbox="x1 y1 x2 y2" · aria-label/alt/placeholder/value — AC_EXP08.
+#
+# 왜 필요한가 — AC_EXP08 의 XML 은 위치축이 `data-bbox` 이고 `bounds` 속성이 아예 없다.
+# android 규약만 읽는 채점기에 넣으면 **에러 없이** `_parse_bounds_center` 가 전부 None 을
+# 돌려주고 위치 cost 가 0 이 된다. 게다가 컨테이너의 텍스트가 비어 `_text_sim("","")==1.0`
+# 이므로 같은 태그끼리 cost 0 으로 붙는다 — 매칭에 판별자가 하나도 남지 않는데 f1 은
+# 그럴듯하게 나온다 (2026-08-22 실측: full/pos 로 EXP08 1행 채점 시 f1 0.9189,
+# hungarian_pos 0.0). 하드 제약 8 과 같은 실패 계열이다.
+#
+# ⚠️ `ELEMENT_SET` 과 **직교**하고, 같은 전역 사본 문제를 그대로 갖는다 — 전파 규칙과
+# 산출물 스탬프는 `set_element_set` 주석을 그대로 따른다 (`_write_state_diff` 가
+# `_sd._he.set_xml_schema()` 로 명시 전파, 두 산출 JSON 이 각자 읽은 전역을 스탬프).
+XML_SCHEMA = "android"
+
+
+def _default_xml_schema():
+    """`--xml-schema` 의 기본값. 환경변수 `XML_SCHEMA` 가 있으면 그것을 쓴다.
+
+    `_default_element_set` 과 같은 이유다 — 셸 파이프라인이 플래그를 넘기지 않는
+    경로에서도 `XML_SCHEMA=cerebra bash scripts/stage1_eval.sh …` 로 재현할 수 있어야
+    한다. 명시 플래그는 언제나 환경변수를 이긴다. 값 검증은 `set_xml_schema` 한 곳에서만
+    한다 (argparse 는 choices 를 기본값에 적용하지 않는다).
+    """
+    return os.environ.get("XML_SCHEMA") or "android"
+
+
+def set_xml_schema(name):
+    """읽을 XML 스키마를 고른다. CLI 진입부(그리고 그 전파 지점)에서만 부른다."""
+    global XML_SCHEMA
+    if name not in ("android", "cerebra"):
+        raise ValueError(f"xml_schema 는 android|cerebra 여야 합니다: {name!r}")
+    XML_SCHEMA = name
+
+
 # full 집합에서 "요소 자체의 텍스트"로 보는 속성들. `description`/`id` 는 EXP01~04 계열,
 # `text`/`aria-label` 은 EXP05~07 계열에서 쓰인다 (EXP05 XML 에 description 은 0건이다).
 _TEXT_ATTRS = ("description", "id", "text", "aria-label")
+# cerebra 스키마에서만 더 보는 텍스트 원천 — `img` 는 `alt`, `input` 은 `placeholder`/
+# `value` 에 유일한 semantic 신호가 실린다 (`diff_loss/hungarian_metric_v2c._collect_texts`
+# 와 같은 목록이어야 한다).
+_CEREBRA_TEXT_ATTRS = ("alt", "placeholder", "value")
+
+
+def _text_attrs():
+    """현재 스키마의 "요소 자체 텍스트" 속성 목록. android 에서는 기존 4개 그대로."""
+    if XML_SCHEMA == "cerebra":
+        return _TEXT_ATTRS + _CEREBRA_TEXT_ATTRS
+    return _TEXT_ATTRS
+
+
+# [cerebra 구조축] 속성 없는 레이아웃 컨테이너도 위치축(data-bbox/bounds)이 있으면
+# **legacy 집합에서** 채택한다 (`hungarian_metric_v2c.STRUCTURE_TAGS`/`ADOPT_STRUCTURE`
+# 규약 복제). full 집합은 이미 `soup.find_all(True)` 로 전부 채택하므로 여기 해당이 없다 —
+# 그리고 full 의 채택 조건은 **바꾸면 안 된다**: `_state_diff_eval` 의 유도성 축이
+# `hungarian_metric_v3.extract_elements` 와 같은 길이·같은 순서를 전제하는데, full 쪽만
+# 조건이 붙으면 길이가 어긋나 그 행의 분리축이 조용히 건너뛰어진다.
+STRUCTURE_TAGS = {"div"}
+ADOPT_STRUCTURE = True
 
 
 def _collect_texts_full(el):
@@ -263,7 +323,7 @@ def _collect_texts_full(el):
         if v:
             tokens.add(v.strip())
 
-    for attr in _TEXT_ATTRS:
+    for attr in _text_attrs():
         add(el.get(attr))
     for c in el.contents:
         if isinstance(c, NavigableString):
@@ -275,7 +335,7 @@ def _collect_texts_full(el):
     # description/id 만 봤는데, EXP05 계열은 aria-label 만 쓰므로 그대로 두면 컨테이너가
     # 자손에서 아무것도 못 걷어 위 퇴화를 그대로 맞는다.
     for child in el.find_all(True):
-        for attr in _TEXT_ATTRS:
+        for attr in _text_attrs():
             add(child.get(attr))
     # separator=" " 없이 부르면 `<div><p>a</p><p>b</p></div>` 가 "ab" 라는 없는 토큰이 된다.
     add(el.get_text(separator=" ", strip=True))
@@ -319,17 +379,35 @@ def _extract_elements_legacy(soup, pos_mode, include_aria):
             # aria-label 만 가진 요소(EXP05 test 300문서 기준 div 366개 — "Home"/"Listen"
             # 같은 nav 항목)는 매칭 대상에서 빠진다. `include_aria=True` 가 그 조건을
             # 여는 스위치였다 (기본 꺼짐).
+            #
+            # [cerebra] 파서가 content-desc 를 aria-label 로 정규화하므로 그 축을 항상
+            # 보고(= v2c 의 `is_described`), 위치축만 가진 레이아웃 컨테이너도 구조축으로
+            # 채택한다. android 에서는 둘 다 꺼져 옛 집합이 그대로 재현된다.
+            cerebra = XML_SCHEMA == "cerebra"
             is_described = bool(el.get("description")) or (
-                include_aria and bool(el.get("aria-label"))
+                (include_aria or cerebra) and bool(el.get("aria-label"))
             )
-            if is_interactive or is_content or is_clickable or is_described:
-                elements.append(
-                    {
-                        "tag": tag,
-                        "text": text,
-                        "bounds": el.get("bounds", "") or "",
-                    }
-                )
+            is_structure = (
+                cerebra
+                and ADOPT_STRUCTURE
+                and tag in STRUCTURE_TAGS
+                and bool(el.get("data-bbox") or el.get("bounds"))
+            )
+            if (
+                is_interactive
+                or is_content
+                or is_clickable
+                or is_described
+                or is_structure
+            ):
+                item = {
+                    "tag": tag,
+                    "text": text,
+                    "bounds": el.get("bounds", "") or "",
+                }
+                if cerebra:
+                    item["data-bbox"] = el.get("data-bbox", "") or ""
+                elements.append(item)
             continue
         idx = _safe_int(el.get("index", -1))
         if is_interactive or is_content or is_clickable:
@@ -359,9 +437,13 @@ def extract_elements(xml_str, match_mode="index", include_aria=False):
         tag = el.name.lower()
         text = _collect_texts_full(el)
         if pos_mode:
-            elements.append(
-                {"tag": tag, "text": text, "bounds": el.get("bounds", "") or ""}
-            )
+            item = {"tag": tag, "text": text, "bounds": el.get("bounds", "") or ""}
+            # cerebra 는 위치축이 data-bbox 다. 키를 **더할** 뿐 채택 조건은 건드리지
+            # 않는다 — full 의 요소 수·순서는 `hungarian_metric_v3` 와 1:1 이어야 한다
+            # (STRUCTURE_TAGS 주석 참고).
+            if XML_SCHEMA == "cerebra":
+                item["data-bbox"] = el.get("data-bbox", "") or ""
+            elements.append(item)
         else:
             elements.append(
                 {"tag": tag, "text": text, "index": _safe_int(el.get("index", -1))}
@@ -393,7 +475,11 @@ def _match_cost(e1, e2, max_idx):
 
 
 def _parse_bounds_center(s):
-    """'[x1,y1][x2,y2]' → 중심점 (cx, cy). 실패 시 None."""
+    """좌표 문자열 → 중심점 (cx, cy). 실패 시 None.
+
+    android : '[x1,y1][x2,y2]' (대괄호 두 쌍)
+    cerebra : 'x1 y1 x2 y2'    (공백 구분 4정수) — `XML_SCHEMA == "cerebra"` 일 때만.
+    """
     if not s:
         return None
     m = _BOUNDS_RE.findall(s)
@@ -401,12 +487,28 @@ def _parse_bounds_center(s):
         x1, y1 = int(m[0][0]), int(m[0][1])
         x2, y2 = int(m[1][0]), int(m[1][1])
         return (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    if XML_SCHEMA == "cerebra":
+        parts = s.split()
+        if len(parts) == 4:
+            try:
+                x1, y1, x2, y2 = (int(v) for v in parts)
+            except ValueError:
+                return None
+            return (x1 + x2) / 2.0, (y1 + y2) / 2.0
     return None
 
 
+def _pos_key(el):
+    """element 의 위치축 값. `bounds` 우선, 없으면 `data-bbox` (`v2c._pos_key` 규약).
+
+    android 에서는 element dict 에 `data-bbox` 키 자체가 없으므로 앞 항만 산다.
+    """
+    return el.get("bounds", "") or el.get("data-bbox", "") or ""
+
+
 def _bounds_dist(e1, e2):
-    c1 = _parse_bounds_center(e1.get("bounds", ""))
-    c2 = _parse_bounds_center(e2.get("bounds", ""))
+    c1 = _parse_bounds_center(_pos_key(e1))
+    c2 = _parse_bounds_center(_pos_key(e2))
     if c1 is None or c2 is None:
         return None
     return ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
@@ -774,6 +876,10 @@ def _cmd_score(args):
     # 어긋나면 파일만 보고도 드러나게 한다 (`set_element_set` 주석 참고).
     element_set = getattr(args, "element_set", "full")
     set_element_set(element_set)
+    # XML 스키마도 같은 규약이다 (전역 + 명시 전파 + 산출물 스탬프). element 집합과
+    # **직교**한다 — full/legacy × android/cerebra 네 조합이 모두 유효하다.
+    xml_schema = getattr(args, "xml_schema", "android")
+    set_xml_schema(xml_schema)
 
     # 필터된 jsonl 산출용 디렉토리 (exclude 가 set 일 때만 사용)
     test_out_dir = Path(args.filtered_test_dir) if args.filtered_test_dir else None
@@ -862,6 +968,9 @@ def _cmd_score(args):
     # split 모드에서는 overall/in_domain/out_of_domain 옆의 4번째 최상위 키가 된다 —
     # `eval_viewer.load_metrics` 는 섹션을 이름으로만 조회하고 dict 가 아니면 건너뛴다.
     metrics["element_set"] = ELEMENT_SET
+    # 같은 이유로 XML 스키마도 박는다. 스탬프가 없는 파일 = android 기준이다
+    # (2026-08-22 이전 산출물 전부).
+    metrics["xml_schema"] = XML_SCHEMA
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
     print(f"[score] saved: {out_path}")
@@ -890,6 +999,7 @@ def _cmd_score(args):
             match_mode,
             exclude,
             element_set=element_set,
+            xml_schema=xml_schema,
             **score_opts,
         )
         if rc:
@@ -907,6 +1017,7 @@ def _write_state_diff(
     strict_pos=False,
     include_aria=False,
     element_set="full",
+    xml_schema="android",
 ) -> int:
     """state_diff_metrics.json 을 hungarian_metrics.json 과 같은 섹션 구조로 저장.
 
@@ -921,6 +1032,7 @@ def _write_state_diff(
     # 위 `set_element_set` 은 이쪽에 닿지 않는다. 빠뜨리면 hungarian 은 새 집합,
     # state-diff 는 옛 집합으로 채점되어 층 분해 항등식이 조용히 깨진다.
     _sd._he.set_element_set(element_set)
+    _sd._he.set_xml_schema(xml_schema)
 
     sd_path = out_path.parent / "state_diff_metrics.json"
 
@@ -1036,6 +1148,17 @@ def main():
         "2026-08-21 이전 화이트리스트 — 실제 데이터의 약 24%% 를 버렸다 "
         "(extract_elements 주석 참고). 옛 산출물과 나란히 놓을 때만 legacy 를 쓴다. "
         "셸 스크립트 경유로는 환경변수 `ELEMENT_SET=legacy` 로 지정한다 (이 플래그가 이긴다).",
+    )
+    p_score.add_argument(
+        "--xml-schema",
+        default=_default_xml_schema(),
+        choices=["android", "cerebra"],
+        dest="xml_schema",
+        help='읽을 XML 스키마. android (기본, EXP01~07): bounds="[x1,y1][x2,y2]" · '
+        'description · index. cerebra (AC_EXP08): data-bbox="x1 y1 x2 y2" 위치축과 '
+        "aria-label/alt/placeholder/value 텍스트축을 읽고, legacy 집합에서는 "
+        "aria-label 보유 요소와 위치축을 가진 div 를 채택한다. `--element-set` 과 **직교**한다. "
+        "셸 스크립트 경유로는 환경변수 `XML_SCHEMA=cerebra` 로 지정한다 (이 플래그가 이긴다).",
     )
     p_score.add_argument(
         "--exclude-action",

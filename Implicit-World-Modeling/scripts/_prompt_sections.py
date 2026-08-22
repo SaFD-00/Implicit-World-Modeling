@@ -24,9 +24,15 @@ import re
 #   A) EXP01~04 : '## Current State' / '## Next State' / '## Action'
 #   B) EXP05~07 : 'Current UI State:' / 'Next UI State:' / 'Action:' /
 #                 'Task Instruction:' / 'Action History:'
+#   C) EXP08    : B 와 같되 current state 머리글에 **관측성 포맷 라벨**이 붙는다 —
+#                 'Current UI State (FULL):' / '(PARTIAL — hidden content is marked …):' /
+#                 '(NOT PROVIDED):' (scripts/build_wm_formats.py 의 인라인 마커).
+#                 라벨은 세 포맷에서 서로 다르고 A/B 계열 문자열과 겹치지 않으므로
+#                 **추가만으로 안전**하다 (기존 실험군 파싱 결과 불변).
 SECTION_MARKERS: list[tuple[str, str]] = [
     ("current_state", r"^##\s*Current State\s*$"),
     ("current_state", r"^Current UI State:\s*$"),
+    ("current_state", r"^Current UI State \([^)\n]*\):\s*$"),
     ("next_state", r"^##\s*Next State\s*$"),
     ("next_state", r"^Next UI State:\s*$"),
     ("action", r"^##\s*Action\s*$"),

@@ -1414,5 +1414,107 @@ class TestSanitySignals(unittest.TestCase):
         self.assertEqual(_sd._unclosed_root("no tags at all"), 1.0)
 
 
+class TestRawCurrentState(unittest.TestCase):
+    """AC_EXP08 관측성 3 포맷(full/masked/dropped) — copy 진단은 **마스킹 전 원본**으로.
+
+    프롬프트의 current 를 그대로 쓰면 `dropped`(`(none)`)는 `copy_rate` 가 0 으로
+    붕괴하고 `masked` 는 구조적으로 낮은 값을 받아 **가짜 개선**이 된다. GT 레코드의
+    `raw_current_state` 가 그 축을 원본으로 되돌린다.
+    """
+
+    # `scripts/build_wm_formats.py` 의 실제 마커/본문 (INLINE_MARKER · DROPPED_BODY).
+    FULL_PROMPT = (
+        "system\nrole\nuser\nCurrent UI State (FULL):\n"
+        + CUR_POS
+        + "\n\n[Screenshot]\n"
+        '\nAction:\n<action>{"action": "click", "coordinate": [3, 3]}</action>\n'
+        "assistant\n"
+    )
+    DROPPED_PROMPT = (
+        "system\nrole\nuser\nCurrent UI State (NOT PROVIDED):\n(none)\n\n[Screenshot]\n"
+        '\nAction:\n<action>{"action": "click", "coordinate": [3, 3]}</action>\n'
+        "assistant\n"
+    )
+
+    def _pair(self, prompt: str, raw: str | None):
+        gt = {"messages": [{"value": "sys"}, {"value": prompt}, {"value": GT_POS}]}
+        if raw is not None:
+            gt["raw_current_state"] = raw
+        # 예측 = current 를 그대로 베낀 복사기. copy_rate_pred 가 1.0 이어야 정상이다.
+        return [gt], [{"prompt": prompt, "predict": CUR_POS}]
+
+    def test_absent_field_keeps_the_prompt_path(self):
+        gts, preds = self._pair(self.FULL_PROMPT, None)
+        m = _sd.evaluate_pairs(gts, preds, "pos")
+        self.assertEqual(m["n_current_state_raw"], 0)
+        self.assertEqual(m["n_current_state_prompt"], 1)
+        self.assertEqual(_sd.stamp_schema(m)["current_state_source"], "prompt")
+
+    def test_raw_field_wins_and_is_stamped(self):
+        gts, preds = self._pair(self.FULL_PROMPT, CUR_POS)
+        m = _sd.evaluate_pairs(gts, preds, "pos")
+        self.assertEqual(m["n_current_state_raw"], 1)
+        self.assertEqual(m["n_current_state_prompt"], 0)
+        self.assertEqual(_sd.stamp_schema(m)["current_state_source"], "raw_field")
+
+    def test_same_current_gives_identical_numbers(self):
+        """필드가 **같은 XML** 을 실어 나르면 수치가 한 자리도 달라지면 안 된다 —
+        경로만 바뀌었지 채점 입력은 같기 때문이다."""
+        without = _sd.evaluate_pairs(*self._pair(self.FULL_PROMPT, None), "pos")
+        with_raw = _sd.evaluate_pairs(*self._pair(self.FULL_PROMPT, CUR_POS), "pos")
+        skip = {"n_current_state_raw", "n_current_state_prompt"}
+        self.assertEqual(
+            {k: v for k, v in without.items() if k not in skip},
+            {k: v for k, v in with_raw.items() if k not in skip},
+        )
+
+    def test_dropped_format_collapses_without_the_field(self):
+        """`(none)` 은 빈 청크가 아니라 **문자열**이라 파싱 가드에 안 걸린다 —
+        예외 대신 `copy_rate` 0 이라는 그럴듯한 오답표가 나온다. 그게 이 필드의 이유다."""
+        m = _sd.evaluate_pairs(*self._pair(self.DROPPED_PROMPT, None), "pos")
+        self.assertEqual(m["avg_copy_rate_pred"], 0.0)
+        self.assertEqual(m["avg_copy_rate_gt"], 0.0)
+        self.assertEqual(m["avg_copy_excess"], 0.0)
+
+    def test_dropped_format_is_restored_by_the_field(self):
+        m = _sd.evaluate_pairs(*self._pair(self.DROPPED_PROMPT, CUR_POS), "pos")
+        self.assertEqual(
+            m["avg_copy_rate_pred"], 1.0, "복사기는 current 를 전부 재현한다"
+        )
+        self.assertGreater(m["avg_copy_rate_gt"], 0.0)
+        self.assertGreater(m["avg_copy_excess"], 0.0, "베낀 만큼이 초과분으로 잡힌다")
+
+    def test_empty_field_falls_back_to_the_prompt(self):
+        m = _sd.evaluate_pairs(*self._pair(self.FULL_PROMPT, "   "), "pos")
+        self.assertEqual(m["n_current_state_prompt"], 1)
+
+    def test_mixed_sources_raise(self):
+        """빌더가 전량 채우거나 전량 비우거나 둘 중 하나다 — 혼재는 배선 고장이다."""
+        gts, preds = self._pair(self.FULL_PROMPT, CUR_POS)
+        gts2, preds2 = self._pair(self.FULL_PROMPT, None)
+        with self.assertRaises(_sd.StateDiffError) as cm:
+            _sd.evaluate_pairs(gts + gts2, preds + preds2, "pos")
+        self.assertIn("혼재", str(cm.exception))
+
+    def test_split_mode_catches_cross_file_mixing(self):
+        """ID 는 필드가 있고 OOD 는 없는 경우 — `overall` 이 합쳐 채점하므로 걸린다."""
+        gt_id, pr_id = self._pair(self.FULL_PROMPT, CUR_POS)
+        gt_ood, pr_ood = self._pair(self.FULL_PROMPT, None)
+        with self.assertRaises(_sd.StateDiffError):
+            _sd.build_metrics(gt_id, pr_id, gt_ood, pr_ood, "pos")
+
+    def test_source_stamp_is_derived_per_section(self):
+        gt_id, pr_id = self._pair(self.FULL_PROMPT, CUR_POS)
+        gt_ood, pr_ood = self._pair(self.DROPPED_PROMPT, CUR_POS)
+        metrics = _sd.build_metrics(gt_id, pr_id, gt_ood, pr_ood, "pos")
+        self.assertEqual(_sd.stamp_schema(metrics)["current_state_source"], "raw_field")
+        for sec in ("overall", "in_domain", "out_of_domain"):
+            self.assertEqual(metrics[sec]["n_current_state_prompt"], 0)
+
+    def test_unknown_when_nothing_was_scored(self):
+        """행이 없으면 출처를 지어내지 않는다."""
+        self.assertEqual(_sd._current_state_source({"overall": {}}), "unknown")
+
+
 if __name__ == "__main__":
     unittest.main()
