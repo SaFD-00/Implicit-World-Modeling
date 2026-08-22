@@ -39,6 +39,7 @@ HF slug 규약은 [§3 이름 규약](../Implicit-World-Modeling/ARCHITECTURE.md
 | **AC_EXP05** | ✅ **eval 완주** | `qwen2.5-vl-3b` stage1 full FT + stage2(full·lora world-model·base) **전부 eval 완주** (2026-07-21). **데이터 쟁점 4건 미판정** |
 | **AC_EXP06** | 🔄 **merge/업로드** | EXP05 비증강 Stage-2 대조군. `base` variant 완료·업로드, **world-model variant 학습 미착수** |
 | **AC_EXP07** | 🧱 **데이터·인프라 완비** | `qwen2.5-vl-3b` 단독 stage1 world-modeling. 등록·YAML·빌더 완비, **0725 실데이터 빌드 완료(누출 0)**, **학습 이력 0** |
+| **AC_EXP08** | 🧱 **데이터·인프라 구축 중** | anti-copy **3-포맷 관측성 분할** stage1. 자격 `qwen2.5-vl-3b`·`7b`. 배선·YAML 완비, **데이터 빌드 진행**, **학습 이력 0** |
 | **MC** | ⬜ 미착수 | 데이터·등록·YAML 완비, 자격 제한 없음. **프로덕션 코퍼스 아님** |
 | **MB** | ⬜ 미사용 | 평가 전용. `on-MB*` 산출물 0 |
 
@@ -147,6 +148,29 @@ EXP05 의 **비증강(증강 X) Stage-2 대조군**. 좌표/budget/`--coord-mode
 - 재빌드는 `python scripts/build_exp07_data.py --seed 7` 로 한다 — `--source-dir` 기본값이 **공유 원본 디렉토리 `data/AndroidControl/`** 이라 보통 넘길 필요가 없다 (`W_UNCHANGED=0.2`·metric v2 는 빌더 불변식으로 고정). 소스가 바뀌면 test 도 함께 다시 구워지므로 **누출 0 불변식은 빌더가 매번 재검사**한다. **`--revision` 을 반드시 고정하라** (sidecar 의 `revision_resolved`, 현재 `66285546…`) — 기본값 `None` 은 Hub HEAD 를 다시 해석하므로 토크나이저가 바뀌면 `token_weights` 가 조용히 달라진다.
 - ⚠️ **다음 재빌드에서 sidecar 는 바뀐다 — 손상이 아니다.** train/test 8 파일은 2026-07-26 에 bit-identical 재현성이 증명됐지만, sidecar 의 `exp07_sampling.source_dir` 에는 **빌드 당시 경로**가 박힌다. 디스크의 현 sidecar 는 아직 이동 전 경로(`AndroidControl_EXP07_src`)를 담고 있으므로, 재빌드하면 그 문자열 하나가 갱신된 diff 가 나온다. 파일 내용·md5 와 무관하다.
 - ~~thought eval 의존성 (`sentence-transformers`·`sacrebleu`) 미충족~~ → **2026-07-26 해소**. conda env 에 `pip install --no-deps sacrebleu portalocker tabulate colorama` 로 설치(sacrebleu 2.6.0 · portalocker 3.2.0 · colorama 0.4.6, tabulate 는 이미 충족). `pip freeze` 차분 추가 3 줄뿐 — numpy 2.2.6 / torch 2.8.0+cu128 / vLLM 0.11.0 불변. EXP07 test 300 쌍 오라클에서 cosine/rouge_l/**bleu** 모두 산출 확인, conda `pytest tests` 691 passed / 9 skipped (조건부 skip 0). **env 재구성 시에도 반드시 `--no-deps`** — 평범한 `pip install` 은 numpy 를 올려 torch/vLLM 을 깨뜨릴 수 있다.
+
+---
+
+## 🧱 EXP08 — anti-copy 3-포맷 분할 (데이터 빌드 중, 학습 미착수)
+
+`qwen2.5-vl-3b` + `qwen2.5-vl-7b` stage1 world-modeling. **EXP07 과의 핵심 차이는 입력 관측성을 세 포맷으로 쪼갠 것**이다 — `full` 25% / `masked` 55% / `dropped` 20%. 모델이 입력 XML 을 그대로 베끼는 국소 최적(실측 복사만으로 토큰 절반 적중)에서 빠져나오게 하려고 **베낄 원본을 물리적으로 제거**한다. 설계 배경은 [`WM_FORMATS.md`](./WM_FORMATS.md), 파이프라인은 [`DIFF_TARGETS.md`](./DIFF_TARGETS.md).
+
+**스펙 요약**: **stage1** 1ep · `save_steps 0.25` · train **50K** = state 40K(3-포맷·가중) + downstream 10K(이미지 **유지**, 균일 1.0) · diff **1 : 0.25** · full/lora YAML 둘 다 · **stage2** train 15K. test 는 **자체 5 종** (state ×3 포맷 · action · stage2), **ID/OOD 없음**. 계약 정본은 [§3 계보](../Implicit-World-Modeling/ARCHITECTURE.md#3-데이터와-설정-계약), 채점 규약은 [§6](../Implicit-World-Modeling/ARCHITECTURE.md#6-메트릭).
+
+**완료 (2026-08-22)**:
+- **원천 배치** — `data/AndroidControl/EXP08_{stage1_state,stage2}.jsonl` (60,871 / 86,431). 이미지는 **새로 받을 필요가 없었다**: 소스의 `myset/images/episode_{N}_...` 는 zero-pad 만 다를 뿐 공용 `AndroidControl/images/` 와 **전수 매핑**된다 (60,871 + 86,431 전부 hit). 즉 AndroidControl 을 Cerebra 파서로 다시 뽑은 것이고 AC 계보가 맞다.
+- **diff loss v2c** — `scripts/diff_loss/{hungarian_metric,hungarian_diff,token_weight_builder}_v2c.py`. v2 는 **덮지 않았다** (하드 제약 9·15e). Cerebra 스키마(`data-bbox`/`aria-label`) 지원 + **구조축 `div` 채택** + **컨테이너는 여는-태그만 가중**.
+- **빌드 정본** — `scripts/build_exp08_data.py`. 길이 필터(state 22 / down 2 drop) → 95% 복사 필터(state-train 57,255 → **56,827**, drop 428 = 0.75%) → 층화 표본 40K → 3-포맷 분할 **정확히 10,000/22,000/8,000, skip 0** → C1~C11 전수 통과 → 헝가리안 diff → `token_weights` 부착.
+- **배선** — `dataset_info` 7 키, `lf_registry`(자격 3b·7b), `_common.sh`, `gpu_policy`, `stage1_eval.sh`(EXP08 전용 단일-test helper, leaf 4 종), `eval_viewer`. **YAML 16 종** (stage1 {full,lora}×2모델 + stage2 {full,lora}×3variant×2모델). `gen_configs --check` 통과(218 YAML), `pytest tests` **926 passed / 9 skipped / 0 failed**.
+- **채점기 Cerebra opt-in** — `--xml-schema cerebra` (기본 `android` → 기존 실험군 불변), 프롬프트 파서에 관측성 라벨 머리글 추가, copy 지표를 **`raw_current_state`** 로 계산.
+
+**남은 것**: **학습 실행** — 학습 이력 0. 데이터 빌드 완료 후 실제 `stage1_train.sh` 실행이 남았고, GPU 는 미정이라 config 는 **A100×2 기준**(ds_z3_offload)으로 잡아 뒀다 (하드웨어가 바뀌어도 YAML 재생성 금지 — 하드 제약 6, 환경변수로 override).
+
+**차단·쟁점**:
+- **로컬 GPU 없음** — RTX 5090 2 장이 다른 사용자 서빙으로 상시 점유(2026-08-22 실측 31GB/32GB × 2). EXP07 과 같은 상황이다.
+- **원격 제출은 여전히 UNVALIDATED** — `scripts/remote_launch.sh` 는 실행 이력 0 이고 `configs/remote/run.template.yaml` 은 `--dataset AC_EXP05 --stage1-mode full` 이 **하드코딩**돼 있다. EXP08 을 원격으로 돌리려면 그 줄을 바꿔야 한다.
+- **중간 체크포인트 → 로컬 eval 접착이 없다.** 협업자가 요청한 "0.25 epoch 마다 내려받아 연구실 서버에서 validation eval" 을 자동으로 해 주는 스크립트는 리포에 **없다** (`export:` 블록의 계획만 있고 미검증). 체크포인트를 손으로 내려받은 뒤 `stage1_eval.sh --train-dataset AC_EXP08 --eval-datasets AC_EXP08` 로 4 leaf 를 도는 것은 배선돼 있다.
+- **가중치 0.25 는 지난 실험(EXP07 v2 = 0.05)과 다르다** — 사용자 확정 사항이다. 포맷 분할이라는 새 변수가 이미 들어갔으므로 원인 분리 시 이 차이를 함께 고려해야 한다.
 
 ---
 

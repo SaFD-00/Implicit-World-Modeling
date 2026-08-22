@@ -315,6 +315,9 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
   ├── EXP07_stage2.jsonl                                    #   downstream(with_history). stage2 15K 가 주 소비자,
   │                                                         #   stage1 down 10K·stage1 action test 도 같은 풀 (규칙 3)
   ├── EXP07_open_aug.jsonl                                  #   open 증강 (home.jpg) — s1/s2 에 50 씩 균등 → stage 중립명
+  ├── EXP08_stage1_state.jsonl                              # ★ EXP08 원천 — 0822 Cerebra 파서 재추출 (data-bbox/aria-label)
+  ├── EXP08_stage2.jsonl                                    #   downstream(with_history, **이미 img-first**). stage2 15K 가
+  │                                                         #   주 소비자, stage1 down 10K·stage1 action test 도 같은 풀 (규칙 3)
   ├── episodes_meta.jsonl         # primary_app = 전경 앱 package_name
   └── images/                     # ★ 유일한 이미지 디렉토리 — EXP01~EXP07 전부가 "AndroidControl/images/..." 로 참조
       ⚠ EXP04 원천 (EXP04_stage1_{action,state}.jsonl) 은 디스크에 없다 → 재빌드 불가 (§2 경고 블록)
@@ -335,6 +338,15 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
          재현해 자체 파일로 굽고 id/ood 배정을 승계한다. train 내용은 EXP05 와 무관하며
          그 test 키 union 을 train 두 풀에서 전량 제외해 train ∩ test = 0 을 만든다.
          이미지는 myset → AndroidControl/images/ 로 경로 문자열 remap (파일 복사·링크 없음).
+
+  AC_EXP08  = EXP01 계보 밖 — AndroidControl/EXP08_*.jsonl (0822 Cerebra 재추출) 에서 자체 빌드
+     │                                                        (build_exp08_data.py, seed 8)
+     ├── train  : stage1 50K (state 40K **3-포맷 분할 + 가중** + downstream 10K 이미지 **유지**) + stage2 15K
+     ├── test   : 자체 5 종 — stage1 state 3 (**같은 500 원본의 full/masked/dropped**) · stage1 action 1 · stage2 1
+     └── 누출 차단은 **에피소드 단위 홀드아웃**이다 (EXP07 처럼 EXP05 test 키를 승계하지 않는다).
+         원본에 앱 파티션 메타가 없어 ID/OOD 를 재현할 수 없고, state·downstream 두 소스가
+         에피소드를 13,967/14,095 공유해 step 단위 분리로는 누출이 남기 때문이다.
+         이미지는 EXP07 과 같은 규약으로 AndroidControl/images/ 를 참조한다 (zero-pad remap).
 
   MonkeyCollection  = Stage 1 전용 (random split 0.95)
   MobiBench         = 평가 전용 (stage{1,2}.jsonl 단일 파일)
@@ -360,6 +372,7 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
 | **AC_EXP04** | ✗ `_STAGE1_ONLY` | EXP03 미러 + 프롬프트 (4 + without_open_app 2) | **§2 경고 참조** | — |
 | **AC_EXP05** | ✓ (2026-07-15 도입) | 4 + without_open_app 2 | **절대 픽셀 840×1876** | **v2** (stage1) |
 | **AC_EXP07** | ✓ (자체 train 15K) | **자체 4** (id,ood) × (state,action) | **절대 픽셀 840×1876** | **v2** (stage1 state, 인라인 1:0.2) |
+| **AC_EXP08** | ✓ (자체 train 15K) | **자체 5** (state ×3 포맷 · action · stage2) | **절대 픽셀 840×1876** | **v2c** (stage1 state, 인라인 1:0.25) |
 | MC | ✗ (데이터 없음) | 단일 test | — | — |
 | MB | 평가 전용 | 단일 파일 | — | — |
 
@@ -378,6 +391,12 @@ data/AndroidControl/              # 원본 source 자산 — 학습/평가 entry
   - **이미지 remap**: `myset/images/episode_{N}_step_{M}.jpg` → `AndroidControl/images/episode_{N:06d}_step_{M}.jpg` (zero-pad 6), `home.jpg` → `AndroidControl/images/home.jpg`. 즉 EXP07 도 이미지는 공용 `AndroidControl/images/` 를 참조한다 (하드 제약 12 의 prefix 규약 그대로).
   - **diff v2 1:0.2 는 데이터-빌드 시점 인라인이라 실험군 격리**다: `ADDED 1.0 / MODIFIED 1.0 / UNCHANGED 0.2` 가중이 EXP07 train jsonl 에만 박혀 EXP02(v1)·EXP05(v2 1:0.25) 에 영향이 없다. 학습측 배선은 EXP05 와 동일하게 stage1 YAML 의 `use_diff_token_weighted_loss: true` 뿐이다 (§3 diff loss 절).
   - 재빌드는 `--source-dir` / `--seed` 로 한다 (`W_UNCHANGED=0.2` · metric v2 는 불변식으로 고정). 과거 잠정본이 남긴 EXP05 심링크는 빌더의 `cleanup_legacy_symlinks()` 가 제거한다 — 그 시절의 `--links-only` 플래그는 **없어졌다**.
+- **EXP08 빌드**: 빌드 정본 [`scripts/build_exp08_data.py`](./scripts/build_exp08_data.py) — **EXP08 train/test jsonl 의 유일한 커밋된 생성 경로**다. 원천은 `data/AndroidControl/` 의 0822 Cerebra 재추출본 2 파일이고, 이미지는 EXP07 과 같은 zero-pad remap 으로 공용 `AndroidControl/images/` 를 참조한다 (2026-08-22 전수 확인: 60,871 + 86,431 전부 실재 파일에 매핑). **이 데이터는 AndroidControl 을 Cerebra html-like 파서로 다시 뽑은 것**이라 계보상 AC 계열이 맞다 — 새 코퍼스가 아니다.
+  - **anti-copy 3-포맷 관측성 분할**이 EXP07 과의 핵심 차이다. state 학습분을 `full` 25% / `masked` 55% / `dropped` 20% 로 나눠 입력 XML 을 부분/전부 제거한다 (변환 정본 [`scripts/build_wm_formats.py`](./scripts/build_wm_formats.py), 불변식 C1~C11 검증 [`scripts/validate_wm_formats.py`](./scripts/validate_wm_formats.py), 설계 배경 [`../docs/WM_FORMATS.md`](../docs/WM_FORMATS.md)). **프롬프트는 img-first** 로 재조립된다 — 마스킹된 XML 토큰이 스크린샷을 attend 할 수 있어야 "가려진 부분을 이미지에서 복원하라"가 성립하기 때문이다. downstream 원천은 벤더가 이미 img-first 로 주었다.
+  - **diff 는 raw 로 계산하고 학습은 applied 로 한다.** 마스킹된 current XML 로 헝가리안을 돌리면 가려져 사라진 요소가 next 에서 ADDED 로 오분류되고, dropped 는 current 가 비어 전 요소가 ADDED 가 되어 anti-copy 신호가 소멸한다. 두 산출물을 `sample_id` 로 조인해 `token_weights` 를 붙이는 것이 [`scripts/diff_loss/build_diff_targets.py`](./scripts/diff_loss/build_diff_targets.py) 다. 성립 근거는 타깃(next XML)이 세 포맷에서 **바이트 동일**(C2)이고 가중치 배열이 assistant standalone 토크나이즈 기준이라는 것.
+  - **가중치는 1 : 0.25** (ADDED/MODIFIED : UNCHANGED). EXP07 v1 은 0.2, v2 는 0.05 였다. Cerebra XML 은 토큰의 상당수가 `data-bbox` 좌표라 baseline 을 과도하게 낮추면 다음 화면의 렌더 골격이 무너진다는 판단 (2026-08-22 사용자 확정, [`../docs/WM_FORMATS.md`](../docs/WM_FORMATS.md) §4.3).
+  - **필터**: 길이 필터는 EXP07 과 동일(`cutoff_len` 24576, train 풀에만). 95% 복사-편향 필터는 **train 과 state test 양쪽**에 건다 — 이 실험의 지표가 복사율이라 "복사가 정답"인 샘플이 test 에 섞이면 copy 계열 지표가 구조적으로 부풀기 때문이다. 다만 원천이 이미 `hungarian_deduped` 라 실제 drop 은 미미하다 (3,000 샘플 실측 0.7%).
+  - **state test 3 종은 같은 500 원본을 세 포맷으로 각각 변환한 것**이다 (`--ratio-full 1.0` 식으로 세 번 굽는다). 포맷 간 난이도 교란을 없애려는 설계라 세 파일의 `sample_id` 집합이 동일해야 하고, 빌더 `verify()` 가 이를 검사한다.
 
 ### MC 데이터 상태 (2026-07-14 — 프로덕션 코퍼스 아님)
 
@@ -443,6 +462,26 @@ page 지문 오염 (S-9) 으로 의도적으로 제외했고, 수집기의 page_
 
   > ⚠️ **함정 — 청킹은 per-token loss 를 concat 한 뒤 *한 번에* reduce 해야 한다.** 메모리를 더 아끼려고 **청크마다 분자·분모(sum/count)를 따로 누적하면 합산 순서가 바뀌어 bit-exact 가 깨진다.** 패치가 전 토큰 loss 를 리스트에 들고 있는 것은 낭비가 아니라 **의도**다. bit-exactness 는 EXP02 재현성과 이 패치의 검증 근거라, 깨지면 조용히 재현성을 잃는다 (`tests/test_diff_loss_double_ce.py` 가 chunked ↔ unchunked 를 대조한다 — 이 테스트를 "고치는" 방향으로 가지 마라).
 - `scripts/diff_loss/hungarian_metric.py` 는 채점용 `scripts/_hungarian_eval.py` 와 **의도적으로 분리된** 학습 전처리용 사본이다.
+
+#### v2c — Cerebra 스키마 확장 (AC_EXP08 전용, 2026-08-22)
+
+`scripts/diff_loss/{hungarian_metric,hungarian_diff,token_weight_builder}_v2c.py` 는 **v2 의 복제본**이다. v2 파일 자체를 고치지 않은 이유는 하드 제약 9 와 같다 — v2 는 EXP02/05/06/07 학습 데이터의 생성 경로라 규약이 바뀌면 재현이 조용히 깨진다 (특히 `_make_el_key` 의 축 우선순위). `build_diff_targets.py` 만 `_v2c` 를 import 하고 `preprocess_dataset_v2.py` 경로는 그대로 `_v2` 를 쓴다.
+
+| | **v2** | **v2c** |
+|---|---|---|
+| 위치축 | `bounds="[x1,y1][x2,y2]"` | `bounds` **+ `data-bbox="x1 y1 x2 y2"`** (공백 4정수) |
+| 텍스트 원천 | description / id / text / aria-label | **+ `alt` · `placeholder` · `value`** |
+| element 채택 | interactive / content / clickable / described(`description`) | **+ `aria-label` 보유** **+ 구조축: `data-bbox` 보유 `div`** |
+| element 키 | index → bounds | index → bounds → **data-bbox**, 각 축에 접두 (`i:`/`b:`/`d:`) |
+| 가중 구간 | element 서브트리 전체 | **자식 element 가 있으면 여는-태그 구간만** |
+
+> ⚠️ **함정 — 컨테이너의 서브트리 가중은 diff 신호를 통째로 삼킨다.** 번들 원본은 채택된 element 의 **서브트리 전체**에 가중치를 준다. Cerebra 스키마는 `div` 뿐 아니라 `button` 도 컨테이너로 쓰기 때문에, 문서 전체를 감싼 `<div aria-label="…">` 이나 루트 `<button>` 하나가 MODIFIED 로 잡히면 **UNCHANGED 요소가 22 개 있어도 assistant 토큰의 100% 가 1.0** 이 된다 (2026-08-22 실측: 200 샘플 중 6 건). v2c 는 **태그명이 아니라 자식 element 유무**로 판정해 컨테이너에는 여는-태그 구간만 가중한다 → 6 건 → 1 건 (그 1 건은 UNCHANGED 가 2 개뿐인 정당 케이스).
+
+> ⚠️ **함정 — 구조 div 는 aria-label 확장만으로 안 고쳐진다.** 조병웅님이 지적한 "구조 div 에 diff loss 미적용" 은 실재했다. 벤더 번들의 `aria-label` 확장만 적용했을 때 **div 여는-태그의 52% (166/319, next-XML 문자의 10.8%)** 가 여전히 어떤 element span 에도 안 덮여, 새로 생긴 컨테이너의 좌표 토큰이 baseline 에 방치됐다. 구조축(`data-bbox` 보유 `div` 채택)을 넣어 **52% → 0.9%**, 문자 커버리지 **89.2% → 94.3%** 가 됐다. 남은 미커버는 들여쓰기 공백과 닫는 태그다.
+
+**두 모듈의 채택 규약은 반드시 동일해야 한다** — `hungarian_metric_v2c.extract_elements` 와 `token_weight_builder_v2c.get_element_char_spans` 가 어긋나면 diff_result 의 키와 char_span 의 키가 안 맞아 **에러 없이** 전 토큰이 baseline 으로 방치된다. 두 파일의 `STRUCTURE_TAGS` / `ADOPT_STRUCTURE` 상수가 그 계약이다.
+
+벤더 원문과 이 저장소의 실제 배선 차이는 [`../docs/WM_FORMATS.md`](../docs/WM_FORMATS.md) · [`../docs/DIFF_TARGETS.md`](../docs/DIFF_TARGETS.md) 상단의 편차 표가 정본이고, 변경 이력은 [`../docs/CHANGES_v2_cerebra.md`](../docs/CHANGES_v2_cerebra.md) 다.
 
 ### EXP05 데이터 쟁점 (원천 확인 필요 — 본실험 전 선결)
 
@@ -756,6 +795,18 @@ Hungarian 계열과 state-diff 계열이 **무엇을 요소로 세는가**를 �
 > **현재 절단은 15 leaf** — EXP01 10 · EXP02 `3-8b` 4 · EXP03 1. 그리고 **판정은 split 별로 갈릴 수 있다**: EXP03 `3-8b/lora epoch-3` 은 ID 가 정상인데 OOD 가 절단이다 (OOD 재추론이 중단돼 옛 파일이 남았다). leaf 단위로 재고, 한 leaf 가 "절단" 이어도 그것이 두 split 모두를 뜻하지는 않는다.
 >
 > 가드는 **채점기 안**에 있다 — `_state_diff_eval.truncated_reason()` 이 `score` 진입부에서 검사하고, `_hungarian_eval._write_state_diff` 도 같은 함수를 부른다. 백필 스크립트에만 뒀다면 `rebuild_woa_metrics.sh → _hungarian_eval score` 경로가 그대로 통과해 편향된 산출물이 woa sibling 에 생겼을 것이다. 판정의 정본은 그 함수 하나이고 `_compare_site` 와 `rebuild_state_diff_metrics.sh` 가 **그것을 호출한다** (한때 각자 mtime 비교를 다시 구현했고, 그래서 채점기를 고쳐도 백필 대상에서 빠지는 구멍이 있었다). `--include-truncated` 로만 강제한다. **절단 leaf 에 이 컬럼이 비는 것은 정상이다.**
+
+### AC_EXP08 채점 — 스키마 opt-in 과 raw current state (2026-08-22 신설)
+
+EXP08 은 채점 경로에 **두 가지 opt-in** 이 걸린다. 둘 다 기본값은 기존 실험군 동작이라 다른 실험군의 산출물은 불변이다.
+
+**(a) `--xml-schema {android,cerebra}` (기본 `android`).** EXP08 XML 은 Cerebra html-like (`data-bbox="x1 y1 x2 y2"` / `aria-label`) 라 기본 파서로 채점하면 **에러 없이** 위치 신호가 죽고 element 집합이 쪼그라든다. `cerebra` 모드는 `scripts/diff_loss/hungarian_metric_v2c.py` 와 **같은 규약**(텍스트 원천 확장 · `data-bbox` 좌표 파서 · 구조축 `div` 채택)을 쓴다. 산출 JSON 에 `xml_schema` 가 스탬프되며, 이는 `element_set` 스탬프와 직교한다.
+
+**(b) `raw_current_state` 필드 우선.** copy-bias 진단(`state_diff_metrics.json`) 은 current state 를 **예측 파일의 프롬프트**에서 뽑는데, EXP08 state test 는 관측성 3 포맷이라 그 프롬프트의 current 가 이미 가려져 있다. 그대로 채점하면 **masked/dropped 가 구조적으로 낮은 `copy_rate` 를 받아 가짜 개선**이 되고, `dropped` 는 current 가 `(none)` 이라 `copy_excess` 가 0 으로 붕괴한다. 그래서 빌더가 state test 3 파일에 **마스킹 전 원본 XML** 을 `raw_current_state` 로 실어 두고, 채점기는 그 필드가 있으면 프롬프트보다 우선한다. 어느 경로를 썼는지는 `current_state_source` 로 스탬프된다.
+
+> ⚠️ **함정 — 포맷별 copy 지표를 프롬프트 기준으로 읽지 마라.** diff 타깃을 raw 로 계산해야 하는 것과 **같은 이유**다 (§3 EXP08 빌드). 세 포맷의 `raw_current_state` 는 서로 **동일**해야 하며 빌더 `verify()` 가 이를 검사한다 — 다르면 포맷 간 비교 자체가 무효다.
+
+`scripts/_prompt_sections.py` 의 `SECTION_MARKERS` 에는 EXP08 의 관측성 라벨 머리글 (`Current UI State (FULL|PARTIAL …|NOT PROVIDED):`) 이 추가돼 있다. 라벨 문자열이 기존 A/B 계열과 겹치지 않아 **추가만으로 안전**하다.
 
 ### Stage 1 보조 — `copy_baseline_metrics.json` (복사기 기준선 · similarity gain, 2026-08-11 신설)
 
