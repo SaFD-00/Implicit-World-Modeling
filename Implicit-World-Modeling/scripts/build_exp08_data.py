@@ -74,6 +74,11 @@ sys.path.insert(0, str(SCRIPTS / "diff_loss"))  # hungarian_diff_v2c
 
 # ── 상수 ─────────────────────────────────────────────────────────────────────
 DEFAULT_MODEL = "Qwen/Qwen2.5-VL-3B-Instruct"
+# tokenizer commit SHA 고정. 기본값 None 은 Hub HEAD 를 다시 해석하므로 토크나이저가
+# 바뀌면 token_weights 가 **조용히** 달라진다 (EXP07 이 같은 함정을 겪었고 같은 SHA 를
+# 박았다). 2026-08-22 초기 빌드는 이 핀 없이 돌았지만 로컬 캐시 스냅샷이 이것 하나뿐이라
+# 실제로 이 SHA 로 해석됐다 — 그래서 이 값을 기본값으로 굳힌다.
+DEFAULT_REVISION = "66285546d2b821cf421d4f5eb2576359d3770cd3"
 DEFAULT_SEED = 8
 
 N_STATE = 40000
@@ -607,8 +612,14 @@ def verify(out_dir: Path, res: dict) -> int:
         if recs and miss:
             fails.append(f"stage1_test_state_{f}: raw_current_state 없는 행 {miss}")
         raw_maps.append({r["sample_id"]: r.get("raw_current_state") for r in recs})
-    if all(raw_maps) and not (raw_maps[0] == raw_maps[1] == raw_maps[2]):
-        fails.append("test_state 세 포맷의 raw_current_state 가 서로 다르다")
+    if all(raw_maps):
+        same = raw_maps[0] == raw_maps[1] == raw_maps[2]
+        # 통과해도 한 줄 남긴다 — 조용한 통과와 "검사 자체가 안 돌았다"가 구분돼야 한다.
+        print(f"[verify] test_state raw_current_state: 3 포맷 {len(raw_maps[0])}건 동일={same}")
+        if not same:
+            fails.append("test_state 세 포맷의 raw_current_state 가 서로 다르다")
+    else:
+        print("[verify] test_state raw_current_state: 검사 못 함 (파일 없음/필드 없음)")
 
     # test 세 포맷이 같은 sample_id 집합인지 (포맷 간 난이도 교란 제거의 전제)
     sids = [
@@ -642,9 +653,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--source-dir", type=Path, default=PROJ / "data" / SRC_DEFAULT_SUBDIR)
     p.add_argument("--data-root", type=Path, default=PROJ / "data")
     p.add_argument("--model", default=DEFAULT_MODEL)
-    p.add_argument("--revision", default=None,
-                   help="tokenizer/processor commit SHA 고정. 재현성을 위해 반드시 주라 — "
-                        "None 이면 Hub HEAD 를 다시 해석해 token_weights 가 조용히 달라진다. "
+    p.add_argument("--revision", default=DEFAULT_REVISION,
+                   help=f"tokenizer/processor commit SHA (기본 {DEFAULT_REVISION[:12]}…). "
+                        "빈 값으로 풀면 Hub HEAD 를 다시 해석해 token_weights 가 조용히 달라진다. "
                         "실제 해석값은 sidecar 의 diff_targets_meta.revision_resolved 에 남는다")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--n-state", type=int, default=N_STATE)
