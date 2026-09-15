@@ -313,12 +313,20 @@ def test_exp07_adapter_variant_only_in_exp07_stage2_lora(
             assert "adapter_name_or_path" not in c, rel
 
 
-def test_diff_loss_flag_only_exp02_exp05_exp07_exp08(generated: dict[str, str]) -> None:
-    """diff loss 플래그는 EXP02/EXP05/EXP07/EXP08 stage1 에만 (레지스트리 플래그와 일치)."""
+def test_diff_loss_flag_only_exp02_exp05_exp07_exp08_exp09(
+    generated: dict[str, str],
+) -> None:
+    """diff loss 플래그는 EXP02/EXP05/EXP07/EXP08/EXP09 stage1 에만 (레지스트리 플래그와 일치)."""
     for rel, content in generated.items():
         has_flag = "use_diff_token_weighted_loss: true" in content
         expected = rel.startswith(
-            ("IWM-AC_EXP02/", "IWM-AC_EXP05/", "IWM-AC_EXP07/", "IWM-AC_EXP08/")
+            (
+                "IWM-AC_EXP02/",
+                "IWM-AC_EXP05/",
+                "IWM-AC_EXP07/",
+                "IWM-AC_EXP08/",
+                "IWM-AC_EXP09/",
+            )
         ) and ("/stage1_" in rel)
         assert has_flag == expected, rel
 
@@ -436,7 +444,7 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
 
 
 def test_generated_count(generated: dict[str, str]) -> None:
-    """as-trained 74 − 자격박탈 2 + 신규 150 = 222 (EXP06 12 + EXP07 v1/v2 18 + EXP08 20 포함).
+    """as-trained 74 − 자격박탈 2 + 신규 156 = 228 (EXP06 12 + EXP07 v1/v2 18 + EXP08 20 + EXP09 2 포함).
 
     개수를 하드코딩하지 않는다 — 자격 정의(DATASET_MODEL_ELIGIBILITY)의 결과이지
     독립적 사실이 아니기 때문이다. 자격을 바꾸면 개수는 따라 바뀌는 게 정상이고,
@@ -450,7 +458,9 @@ def test_generated_count(generated: dict[str, str]) -> None:
     #            2 모델 × 2 variant
     #            + stage2_extra_variants(action-distribution) 4 개 — stage2 full 만,
     #            2 모델 × {base, world-model-full}).
-    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 154
+    #          + EXP09 2 (3B 단독 자격 × stage1 full/lora. stage2 는 데이터가 없어
+    #            `_STAGE1_ONLY` 로 skip — lora 만 쓰지만 full 도 렌더된다).
+    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 156
 
     # 생성된 모든 YAML 이 자격 집합 안에 있는가 (자격 밖 조합을 만들지 않는가)
     for rel in generated:

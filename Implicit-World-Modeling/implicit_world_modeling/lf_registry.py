@@ -618,6 +618,62 @@ _DATASET_CONFIG = {
             "lr_scheduler_type": "cosine",
         },
     },
+    # AC_EXP09 — EXP08 stage1 state 소스에서 Time Management 도메인만 떠 온 도메인 적응
+    # 실험군. 데이터가 EXP08 산출물을 그대로 잇기 때문에 좌표 규약(절대 픽셀 840×1876)·
+    # image budget(1605632/3136)·cutoff(24576)·template·Cerebra XML 은 EXP08 과 **같아야
+    # 한다** — 하나라도 어긋나면 에러 없이 grounding 만 깨진다.
+    # EXP08 과 다른 점 넷:
+    #   (1) 자격이 qwen2.5-vl-3b 단독 — 설계가 backbone 을 고정했다 (EXP07 선례).
+    #   (2) stage2 가 없다 (`_STAGE1_ONLY`) — stage2 데이터 자체가 존재하지 않는다.
+    #   (3) lr 1.0e-5 → 1.0e-4, epochs 1 → 3 (EXP09 설계 문서 고정값).
+    #   (4) save_steps 가 float ratio(0.25) 가 아니라 **정수 27** 이다. ratio 는 총 step
+    #       수의 균등 분할이라 0.25/0.5/0.75/1/2/3 epoch 를 정확히 짚지 못한다. train
+    #       3996 행 · grad_accum 37 이면 epoch 당 108 step 이라 27 이 정확히 quarter-epoch.
+    #       그 grad_accum 37 은 GPU 정책 baseline(32) 이 낼 수 없는 값이라 커밋 YAML 이
+    #       아니라 scripts/run_exp09_stage1.sh 의 런타임 override 로 주입한다
+    #       (gen_configs docstring "커밋 YAML 의 GPU 트리오는 RTX5090×2 baseline" 규약).
+    "AndroidControl_EXP09": {
+        "lf_subfolder": "IWM-AC_EXP09",
+        "ds_prefix": "IWM-AC_EXP09",
+        "output_prefix": "AndroidControl_EXP09/",
+        "hf_slug": "ac-exp09-",
+        "stage1": {
+            "lr": "1.0e-4",
+            "epochs": 3,
+            "warmup_ratio": 0.03,
+            "save_strategy": "steps",
+            "save_steps": 27,  # int — 정수 global step (위 (4) 참조)
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 64,
+            "lora_alpha": 128,  # α = 2r 관례
+            "lora_dropout": 0.05,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+            "use_diff_token_weighted_loss": True,  # Stage 1 diff loss (state-pred 가중)
+        },
+        # Stage 2 데이터 없음 — placeholder. `_STAGE1_ONLY` guard 로 skip 되지만
+        # build_configs 가 c["stage2"] 를 무조건 읽으므로 KeyError 방지용으로 둔다
+        # (MC / EXP04 와 같은 관례).
+        "stage2": {
+            "lr": "5.0e-5",
+            "epochs": 3,
+            "warmup_ratio": 0.03,
+            "save_strategy": "epoch",
+            "save_steps": None,
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 32,
+            "lora_alpha": 64,
+            "lora_dropout": 0.1,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+        },
+    },
     "MonkeyCollection": {
         "lf_subfolder": "IWM-MC",
         "ds_prefix": "IWM-MC",
@@ -660,7 +716,8 @@ _DATASET_CONFIG = {
 }
 
 # EXP04 stage2 보류 — 데이터 도입 시 제거. (EXP05 는 stage2 도입 완료.)
-_STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04"}
+# EXP09 는 "보류" 가 아니라 설계상 stage1 단독이다 (stage2 데이터가 존재하지 않는다).
+_STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04", "AndroidControl_EXP09"}
 
 # Stage 2 만 학습하는 DS (`_STAGE1_ONLY` 의 대칭). EXP06 은 EXP05 stage2 의 비증강
 # 대조군이라 stage1 학습 데이터가 아예 없고, stage1 체크포인트는 EXP05 것을 잇는다.
@@ -677,6 +734,13 @@ _STAGE2_ONLY = {"AndroidControl_EXP06"}
 # 빌더 `scripts/build_exp08_eval_v2.py` · `configs/lf_dataset/dataset_info.json` ·
 # eval 셸(stage1_eval.sh / stage2_eval.sh) 이고, 드리프트는
 # `tests/test_exp08_eval_v2_wiring.py` 가 잡는다.
+#
+# EXP09 는 **여기 넣지 않는다.** 이 집합이 실제로 가르는 것은 아래 build_configs 의
+# `ds_s1_test`/`ds_s2_test` 키 이름뿐인데, EXP09 의 eval 키는 두 관례 어느 쪽도 아니다
+# (`IWM-AC_EXP09_stage1_eval_{id_seen,id_unseen,ood_chegal,ood_digibites}` — 소유자는
+# `scripts/eval_exp09_stage1.sh` 와 dataset_info.json 이고 그 셸이 이름을 직접 만든다).
+# 넣든 말든 여기서 유도되는 키는 존재하지 않는 죽은 이름이라, 넣으면 "EXP09 가 그
+# 채점 경로를 탄다" 는 거짓 신호만 남는다.
 _SINGLE_TEST = {"MonkeyCollection", "AndroidControl_EXP08"}
 
 # ============================================================
@@ -700,6 +764,14 @@ _SINGLE_TEST = {"MonkeyCollection", "AndroidControl_EXP08"}
 # 이름 규약은 `DATASET_MODEL_ELIGIBILITY` 와 같은 **긴 이름**이다. 레지스트리 안에서
 # 두 키 공간이 섞이면 그 자체가 다음 드리프트의 씨앗이 된다 — 셸·뷰어가 쓰는 짧은
 # 키는 `pixel_xy_ds_keys()` 로 유도한다.
+#
+# ⚠️ AC_EXP09 는 데이터상 이 계열이 **맞지만** 아직 넣지 않았다 (2026-09-15). 넣으려면
+# 세 곳을 **함께** 고쳐야 한다 — 여기 · `_common.sh::ds_is_pixel_xy` (테스트가 일치를
+# 강제) · `_common.sh::ds_xml_schema_flag` (AC_EXP08 만 있고 테스트가 없다). 한쪽만
+# 넣으면 pos 매칭 + android 스키마 파싱이라는 조용한 오채점이 되는데, 그게 정확히 위
+# 1·2차 사고의 형태다. 지금은 `scripts/eval_exp09_stage1.sh` 가 `--match-mode pos` 와
+# `--xml-schema cerebra` 를 직접 박아 쓰고 있어 채점은 이미 옳다 — 사이트(`_compare_site`)
+# 가 EXP09 를 그리기 시작할 때 세 곳을 한 번에 여는 것이 맞다.
 PIXEL_XY_DATASETS: frozenset[str] = frozenset({
     "AndroidControl_EXP05",
     "AndroidControl_EXP06",
@@ -767,6 +839,9 @@ DATASET_MODEL_ELIGIBILITY: dict[str, frozenset[str]] = {
     # EXP08 은 절대 픽셀 EXP05 계열이되 자격을 좁히지 않는다 — Qwen2.5-VL family
     # 전체(7B + 3B). EXP07 의 3B 단독 제한은 EXP07 한정 사용자 스펙이었다.
     "AndroidControl_EXP08": frozenset(_QWEN2_5_VL_FAMILY),
+    # EXP09 는 EXP08 데이터를 그대로 잇는 절대 픽셀 실험군이지만 설계가 backbone 을
+    # 고정했다 — EXP08 처럼 family 전체가 아니라 Qwen2.5-VL-3B 단독 (EXP07 선례).
+    "AndroidControl_EXP09": frozenset({"qwen2.5-vl-3b"}),
 }
 
 
@@ -808,6 +883,8 @@ _LONG_CUTOFF_DS = (
     "AndroidControl_EXP07_v1",
     "AndroidControl_EXP07_v2",
     "AndroidControl_EXP08",
+    # EXP09 데이터는 EXP08 stage1 state 를 그대로 떠 온 것이라 같은 길이 분포다.
+    "AndroidControl_EXP09",
 )
 
 

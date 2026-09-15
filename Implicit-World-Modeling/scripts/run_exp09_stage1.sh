@@ -12,20 +12,29 @@
 # 아래 env 블록에서 전부 재현한다.
 #
 # 사용법
-#   bash scripts/run_exp09_stage1.sh --deepspeed        # 실제 학습 (3 epoch, ~13 시간)
+#   bash scripts/run_exp09_stage1.sh                    # 실제 학습 (3 epoch, ~13 시간)
 #   bash scripts/run_exp09_stage1.sh --smoke-test       # 소수 step 스모크 (별도 output_dir)
 #   bash scripts/run_exp09_stage1.sh --select-checkpoints  # 학습 후 epoch→checkpoint 매핑만
 #   bash scripts/run_exp09_stage1.sh --dry-run          # 최종 커맨드만 출력
 #
-# --deepspeed (ZeRO-3 + CPU offload) — 2026-09-15 실측으로 필요성 확인
+# YAML 은 생성기 산출물이다 (런타임 override 2 개)
+# ---------------------------------------------------------------------
+# configs/train/** 는 전부 `implicit_world_modeling.gen_configs` 가 만든다 —
+# 손으로 쓴 YAML 은 `--check` 가 고아로 잡는다. 생성기는 GPU 트리오를 RTX5090×2
+# baseline (pdbs=1 / ga=32 / ZeRO-3 offload) 로 고정 emit 하고 save_total_limit 은
+# 5 로 하드코딩하므로, EXP09 가 필요로 하는 두 값만 아래 OVERRIDES 로 주입한다
+# (gen_configs docstring "커밋 YAML 의 GPU 트리오는 RTX5090×2 baseline" 규약).
+#
+# deepspeed (ZeRO-3 + CPU offload) 는 항상 켠다 — 2026-09-15 실측
 # ---------------------------------------------------------------------
 # deepspeed 없이 돌리면 32GB 한 장에 **들어가지 않는다**. 스모크 실측: step 1 은 통과했으나
 # step 2 에서 `diff_token_weighted_loss_func` 안의 cross_entropy 가 OOM (30.22 GiB 점유 중
 # 594 MiB 추가 실패). OOM peak 을 지배하는 항은 lm_head logits (시퀀스 길이 × vocab 151,936)
 # 이라 LoRA 여부·모델 크기와 무관하다 — scripts/gpu_policy.py:45 의 "(e) RTX5090(32GB): 크기·
 # 모드와 무관하게 offload 없이는 들어가지 않는다" 와 같은 결론이다.
-# 이 플래그를 주면 EXP08 과 동일한 ds_z3_offload_config.json + CPUAdam JIT 빌드에 필요한
-# LIBRARY_PATH + torchrun(nproc=1) 을 함께 주입한다 (셋 다 있어야 돈다).
+# 그래서 끄는 스위치를 두지 않는다. deepspeed 경로 자체는 YAML(생성기, GPU 정책 산출)이
+# 들고 있고, 이 스크립트는 그것이 돌아가는 데 필요한 나머지 둘을 무조건 깐다 —
+# CPUAdam JIT 빌드용 LIBRARY_PATH 와 torchrun(nproc=1). 셋 다 있어야 돈다.
 #
 # 환경변수
 #   CUDA_DEVICE          기본 1  (GPU0 은 타인의 vLLM 서버 — 건드리지 않는다)
@@ -39,9 +48,18 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LF_ROOT="$BASE_DIR/LlamaFactory"
 LOG_DIR="$BASE_DIR/logs"
-YAML="$BASE_DIR/configs/train/IWM-AC_EXP09/stage1_lora/qwen2.5-vl-3b_time-mgmt-world-model.yaml"
+YAML="$BASE_DIR/configs/train/IWM-AC_EXP09/stage1_lora/qwen2.5-vl-3b_world-model.yaml"
 DATASET_JSONL="$BASE_DIR/data/AndroidControl_EXP09/stage1_train_time_mgmt.jsonl"
 LF_DATASET_DIR="$BASE_DIR/configs/lf_dataset"
+
+# 커밋 YAML 의 정책 baseline 은 32 다. EXP09 는 train 3996 행 · pdbs=1 · world_size=1 에서
+# 3996/37 = epoch 당 정확히 108 optimizer step 이라 quarter-epoch 이 정수 step 27 에
+# 떨어진다 (37 은 999=3996/4 의 약수 중 원래 값 40 에 최근접). 아래 가드와 OVERRIDES 가
+# **이 한 변수**를 공유한다 — YAML 을 sed 로 다시 읽으면 32 를 검사하게 된다.
+GRAD_ACCUM=37
+# 생성기는 save_total_limit 을 5 로 하드코딩한다. 3 epoch × 4 = 12 회 저장이므로 5 면
+# oldest-first 정리로 0.25 epoch 체크포인트가 학습 도중 삭제된다.
+SAVE_TOTAL_LIMIT=20
 
 CONDA_ENV="${CONDA_ENV:-/opt/miniconda3/envs/implicit-world-modeling}"
 CUDA_DEVICE="${CUDA_DEVICE:-1}"
@@ -49,14 +67,12 @@ SMOKE_MAX_STEPS="${SMOKE_MAX_STEPS:-3}"
 
 MODE="train"
 DRY_RUN=0
-USE_DEEPSPEED=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --smoke-test)        MODE="smoke"; shift ;;
     --select-checkpoints) MODE="select"; shift ;;
-    --deepspeed)         USE_DEEPSPEED=1; shift ;;
     --dry-run)           DRY_RUN=1; shift ;;
-    -h|--help)           sed -n '1,40p' "$0"; exit 0 ;;
+    -h|--help)           sed -n '1,44p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -133,9 +149,7 @@ fi
 
 # ── env (stage1_train.sh / _common.sh 가 주입하던 것 중 실제로 필요한 것) ──────
 # 재현: PATH(conda bin 선두) · PYTHONPATH · DISABLE_VERSION_CHECK · alloc conf · cwd=LF_ROOT
-#       · dataset_dir/media_dir 절대경로 주입.
-# 의도적으로 제외: deepspeed 와 그에 딸린 CUDA_HOME 가드 / LIBRARY_PATH(nvidia curand,
-#       cuda_runtime) — 전부 DeepSpeed CPUAdam JIT 빌드 전용인데 EXP09 는 deepspeed 를 쓰지 않는다.
+#       · dataset_dir/media_dir 절대경로 주입 · DeepSpeed CPUAdam JIT 빌드용 LIBRARY_PATH.
 [[ -d "$CONDA_ENV" ]] || { echo "[!] conda env 가 없다: $CONDA_ENV" >&2; exit 1; }
 export PATH="$CONDA_ENV/bin:$PATH"
 # LlamaFactory 는 editable install 의 .pth 가 존재하지 않는 체크아웃 경로를 가리키고 있어
@@ -145,25 +159,26 @@ export DISABLE_VERSION_CHECK=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export CUDA_VISIBLE_DEVICES="$CUDA_DEVICE"
 
-LAUNCH_ENV=()
-if (( USE_DEEPSPEED )); then
-  # CPUAdam JIT 빌드는 -lcudart -lcublas 를 링크하는데 그 .so 들은 $CONDA_PREFIX/lib 에만
-  # 있다 (빌드가 기본으로 보는 lib64 에는 stubs 뿐이라 ld 가 실패한다).
-  _NV="$CONDA_ENV/lib/python3.12/site-packages/nvidia"
-  _CUDA_LIBS="$CONDA_ENV/lib:$_NV/curand/lib:$_NV/cuda_runtime/lib:$_NV/cublas/lib"
-  export LIBRARY_PATH="${_CUDA_LIBS}${LIBRARY_PATH:+:$LIBRARY_PATH}"
-  export LD_LIBRARY_PATH="${_CUDA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  # deepspeed 는 프로세스 그룹을 요구한다. world_size=1 이라도 torchrun 이 세팅해 주는 게 가장 싸다.
-  LAUNCH_ENV=(FORCE_TORCHRUN=1 NNODES=1 NPROC_PER_NODE=1)
-fi
+# deepspeed 는 YAML(생성기)이 항상 들고 있다 — 여기서는 그것이 돌아가는 데 필요한
+# 나머지 둘을 무조건 깐다. 조건부로 두면 YAML 의 deepspeed 키와 어긋나 CPUAdam 빌드
+# 실패나 프로세스 그룹 부재로 죽는다.
+# CPUAdam JIT 빌드는 -lcudart -lcublas 를 링크하는데 그 .so 들은 $CONDA_PREFIX/lib 에만
+# 있다 (빌드가 기본으로 보는 lib64 에는 stubs 뿐이라 ld 가 실패한다).
+_NV="$CONDA_ENV/lib/python3.12/site-packages/nvidia"
+_CUDA_LIBS="$CONDA_ENV/lib:$_NV/curand/lib:$_NV/cuda_runtime/lib:$_NV/cublas/lib"
+export LIBRARY_PATH="${_CUDA_LIBS}${LIBRARY_PATH:+:$LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${_CUDA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# deepspeed 는 프로세스 그룹을 요구한다. world_size=1 이라도 torchrun 이 세팅해 주는 게 가장 싸다.
+LAUNCH_ENV=(FORCE_TORCHRUN=1 NNODES=1 NPROC_PER_NODE=1)
 
 DS_DIR="$LF_DATASET_DIR"
 OVERRIDES=(
   "dataset_dir=$DS_DIR"
   "media_dir=$BASE_DIR/data"
   "output_dir=$OUT_DIR"
+  "gradient_accumulation_steps=$GRAD_ACCUM"
+  "save_total_limit=$SAVE_TOTAL_LIMIT"
 )
-(( USE_DEEPSPEED )) && OVERRIDES+=("deepspeed=$LF_ROOT/examples/deepspeed/ds_z3_offload_config.json")
 if [[ "$MODE" == "smoke" ]]; then
   [[ -n "${SMOKE_DATASET_DIR:-}" ]] && { DS_DIR="$SMOKE_DATASET_DIR"; OVERRIDES[0]="dataset_dir=$DS_DIR"; }
   [[ -n "${SMOKE_DATASET:-}" ]] && OVERRIDES+=("dataset=$SMOKE_DATASET")
@@ -175,12 +190,11 @@ fi
 # ── run metadata ─────────────────────────────────────────────────────────────
 write_run_meta() {
   mkdir -p "$OUT_DIR"
-  python3 - "$OUT_DIR" "$YAML" "$DATASET_JSONL" "$BASE_DIR" "$MODE" "$USE_DEEPSPEED" "${OVERRIDES[@]}" <<'PY'
+  python3 - "$OUT_DIR" "$YAML" "$DATASET_JSONL" "$BASE_DIR" "$MODE" "${OVERRIDES[@]}" <<'PY'
 import hashlib, json, os, subprocess, sys
 
-out_dir, yaml_path, jsonl, base_dir, mode, use_ds = sys.argv[1:7]
-overrides = sys.argv[7:]
-use_ds = use_ds == "1"
+out_dir, yaml_path, jsonl, base_dir, mode = sys.argv[1:6]
+overrides = sys.argv[6:]
 
 def sha256(p):
     h = hashlib.sha256()
@@ -211,26 +225,25 @@ meta = {
     "target_epoch_checkpoints": {
         "0.25": 27, "0.5": 54, "0.75": 81, "1.0": 108, "2.0": 216, "3.0": 324,
     },
-    "deepspeed": "ds_z3_offload_config.json (ZeRO-3 + CPU offload)" if use_ds else None,
+    "deepspeed": "ds_z3_offload_config.json (ZeRO-3 + CPU offload, YAML 이 소유)",
     "deviations_from_exp08_stage1_lora": [
-        "deepspeed 키를 YAML 에서 제거 — 설계 지시(단일 32GB GPU 의 rank-64 LoRA 에는 불필요). "
-        "단 2026-09-15 실측에서 이 구성은 16k 토큰 이상 샘플의 cross_entropy 에서 OOM 했다. "
-        "--deepspeed 로 EXP08 과 동일한 ZeRO-3 + CPU offload 를 되돌릴 수 있고, "
-        f"이 런은 {'그것을 사용했다' if use_ds else '사용하지 않았다'}.",
-        "gradient_accumulation_steps 32 → 37 — pdbs=1 · world_size=1 · train=3996(길이필터 후) 에서 "
-        "3996/37 = epoch 당 정확히 108 optimizer step (나머지 0) 이라 quarter-epoch 이 정수 step "
-        "27 에 떨어진다. (최초 설계는 train=4000 가정하에 grad_accum=40 이었으나, "
-        "build_exp09_data.py 의 length filter 가 train 을 3996 으로 줄이면서 40 은 더 이상 "
-        "4000%(4×40)==0 조건을 만족하지 못해 37 로 재산정했다 — 999(=3996/4)의 약수 중 40 에 최근접.)",
         "save_steps 0.25 (float ratio) → 27 (정수 step) — float ratio 는 전체 step 수에 대한 균등 "
-        "분할이라 목표 epoch 지점을 정확히 짚지 못한다.",
-        "save_total_limit 5 → 20 — 3 epoch × 4 = 12 회 저장되므로 5 면 oldest-first 정리로 "
-        "0.25 epoch 체크포인트가 학습 도중 삭제된다.",
-        "learning_rate 1.0e-5 → 1.0e-4 (EXP09 설계 문서 고정값).",
-        "num_train_epochs 1 → 3 (EXP09 설계 문서 고정값).",
-        "seed 42 를 YAML 에 명시 — HF 기본값과 같은 값이라 동작은 불변, run_meta 와 대조 가능하게 한 것.",
-        "gpu_policy.py / resolve_overrides 경로 전면 우회 — GLOBAL_BATCH=64 강제가 grad_accum=37 을 거절한다.",
-        "torchrun 미사용 (world_size=1) — launcher 의 torchrun 재실행은 FORCE_TORCHRUN/multi-device 에서만 발동.",
+        "분할이라 목표 epoch 지점을 정확히 짚지 못한다. 레지스트리(lf_registry)에 등록된 값이다.",
+        "learning_rate 1.0e-5 → 1.0e-4 (EXP09 설계 문서 고정값). 레지스트리 등록값.",
+        "num_train_epochs 1 → 3 (EXP09 설계 문서 고정값). 레지스트리 등록값.",
+        "[런타임 override] gradient_accumulation_steps 32 → 37 — pdbs=1 · world_size=1 · "
+        "train=3996(길이필터 후) 에서 3996/37 = epoch 당 정확히 108 optimizer step (나머지 0) 이라 "
+        "quarter-epoch 이 정수 step 27 에 떨어진다. (최초 설계는 train=4000 가정하에 grad_accum=40 "
+        "이었으나, build_exp09_data.py 의 length filter 가 train 을 3996 으로 줄이면서 40 은 더 이상 "
+        "4000%(4×40)==0 조건을 만족하지 못해 37 로 재산정했다 — 999(=3996/4)의 약수 중 40 에 최근접.) "
+        "GPU 정책 SSoT 는 RTX5090×2 baseline 32 만 낼 수 있으므로 커밋 YAML 이 아니라 "
+        "llamafactory-cli 런타임 override 로 주입한다.",
+        "[런타임 override] save_total_limit 5 → 20 — 3 epoch × 4 = 12 회 저장되므로 5 면 "
+        "oldest-first 정리로 0.25 epoch 체크포인트가 학습 도중 삭제된다. 생성기가 5 를 "
+        "하드코딩하고 레지스트리에 이 필드가 없어 override 로 간다.",
+        "gpu_policy.py / resolve_overrides 경로 전면 우회 — GLOBAL_BATCH=64 강제가 grad_accum=37 을 거절한다. "
+        "(커밋 YAML 의 GPU 트리오 자체는 그 정책이 만든 baseline 이다.)",
+        "seed 는 YAML 에 명시하지 않는다 — 생성기에 그 필드가 없다. HF 기본값 42 를 그대로 쓴다.",
     ],
 }
 path = os.path.join(out_dir, "run_meta.json")
@@ -245,25 +258,22 @@ PY
 # quarter-epoch 이 정수 global step 에 떨어지려면 train 행 수 N 이 4 × grad_accum 의
 # 배수여야 한다 (epoch(step k) = k × ga / N). 어긋나면 6 개 목표 체크포인트가 존재하지
 # 않게 되는데, 그 사실은 13 시간 뒤 --select-checkpoints 에서야 드러난다.
+#
+# 검사 대상은 **실제로 주입되는 값** $GRAD_ACCUM 이다 — YAML 을 sed 로 읽으면 정책
+# baseline 32 를 검사하게 돼(3996 % 128 != 0) 가드가 엉뚱한 숫자에 대해 울린다.
 if [[ "$MODE" == "train" ]]; then
-  GA="$(sed -nE 's/^gradient_accumulation_steps:[[:space:]]*([0-9]+).*/\1/p' "$YAML")"
   N="$(wc -l < "$DATASET_JSONL")"
-  if (( N % (4 * GA) != 0 )); then
-    echo "[!] train 행 수 N=$N 이 4 × grad_accum($GA) = $((4 * GA)) 의 배수가 아닙니다." >&2
+  if (( N % (4 * GRAD_ACCUM) != 0 )); then
+    echo "[!] train 행 수 N=$N 이 4 × grad_accum($GRAD_ACCUM) = $((4 * GRAD_ACCUM)) 의 배수가 아닙니다." >&2
     echo "    quarter-epoch 이 정수 step 에 떨어지지 않아 목표 체크포인트 6 개를 만들 수 없습니다." >&2
     echo "    N 을 되돌리거나 grad_accum 을 재산정한 뒤 다시 실행하세요." >&2
     exit 1
-  fi
-  if (( ! USE_DEEPSPEED )); then
-    echo "[!] --deepspeed 없이 실제 런을 시작합니다. 2026-09-15 실측에서 이 구성은" >&2
-    echo "    16k 토큰 이상 샘플(현재 데이터에 16 행)에서 cross_entropy OOM 으로 죽었습니다." >&2
-    echo "    스크립트 상단의 --deepspeed 설명을 확인하세요." >&2
   fi
 fi
 
 CMD="cd '$LF_ROOT' && env ${LAUNCH_ENV[*]} llamafactory-cli train '$YAML' ${OVERRIDES[*]}"
 echo "[cfg] mode       : $MODE"
-echo "[cfg] deepspeed  : $( ((USE_DEEPSPEED)) && echo "ZeRO-3 + CPU offload" || echo "없음 (실측 OOM 구성)" )"
+echo "[cfg] deepspeed  : ZeRO-3 + CPU offload (YAML 이 소유 — 끄는 스위치 없음)"
 echo "[cfg] YAML       : $YAML"
 echo "[cfg] output_dir : $OUT_DIR"
 echo "[cfg] overrides  : ${OVERRIDES[*]}"

@@ -1169,7 +1169,7 @@
       "system_tag": "system"
     }
   },
-  "IWM-AC_EXP09_stage1_train_time_mgmt": {
+  "IWM-AC_EXP09_stage1_train": {
     "file_name": "../../data/AndroidControl_EXP09/stage1_train_time_mgmt.jsonl",
     "formatting": "sharegpt",
     "columns": {
