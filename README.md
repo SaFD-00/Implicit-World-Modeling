@@ -14,7 +14,6 @@
 ## 현재 상태 (2026-08-29)
 
 - **Monkey-Collector**: device-push(Android 앱 + AccessibilityService + TCP)에서 **host-pull 로 전면 재구축 완료**. 파서는 EXP08 `data-bbox` dialect 로, page 식별은 LLM-Explorer 방식으로 교체했고, 탐색을 **LLM-Explorer 정책 + AIG(`graph.json`)** 로 새로 만들었다. Action space 는 기존 7종 그대로 유지. 798 tests.
-- 이전 device-push 시절 ablation 기록: [iter6 통제 ablation 보고](./.claude/analysis/2026-07-14_04-05-29_iter6-controlled-ablation/README.md) · [DEVLOG](./.claude/devlog/DEVLOG.md)
 
 ## 핵심 아이디어 — 2-stage 파이프라인 (메인 프로젝트)
 
