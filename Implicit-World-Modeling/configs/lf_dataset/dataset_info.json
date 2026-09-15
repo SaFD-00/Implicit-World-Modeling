@@ -1168,5 +1168,80 @@
       "assistant_tag": "gpt",
       "system_tag": "system"
     }
+  },
+  "IWM-AC_EXP09_stage1_train_time_mgmt": {
+    "file_name": "../../data/AndroidControl_EXP09/stage1_train_time_mgmt.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
+  },
+  "IWM-AC_EXP09_stage1_eval_id_seen": {
+    "file_name": "../../data/AndroidControl_EXP09/stage1_eval_id_seen_full.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
+  },
+  "IWM-AC_EXP09_stage1_eval_id_unseen": {
+    "file_name": "../../data/AndroidControl_EXP09/stage1_eval_id_unseen_full.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
+  },
+  "IWM-AC_EXP09_stage1_eval_ood_chegal": {
+    "file_name": "../../data/AndroidControl_EXP09/stage1_eval_ood_chegal_full.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
+  },
+  "IWM-AC_EXP09_stage1_eval_ood_digibites": {
+    "file_name": "../../data/AndroidControl_EXP09/stage1_eval_ood_digibites_full.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "human",
+      "assistant_tag": "gpt",
+      "system_tag": "system"
+    }
   }
 }
