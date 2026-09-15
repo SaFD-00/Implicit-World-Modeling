@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import collections
+import hashlib
 import json
 import random
 import re
@@ -12,8 +13,9 @@ from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS_DIR = Path(__file__).resolve().parent
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(SCRIPTS_DIR))
 
 APP_LIST_FILE = REPO_ROOT / ".claude" / "prompts" / "exp09-app.txt"
 STATE_FILE = PROJECT_DIR / "data" / "AndroidControl" / "EXP08_stage1_state.jsonl"
@@ -40,6 +42,10 @@ IMG_MAX_PIXELS = 1605632
 IMG_MIN_PIXELS = 3136
 LENGTH_MODEL = "Qwen/Qwen2.5-VL-3B-Instruct"
 LENGTH_MODEL_REVISION = "66285546d2b821cf421d4f5eb2576359d3770cd3"
+
+# Diff-loss token weights — same values build_exp08_data.py passes, so EXP09's weighting
+# convention is identical to the lineage it is compared against.
+W_ADDED, W_MODIFIED, W_UNCHANGED = 1.0, 1.0, 0.25
 
 OOD_CHEGAL = "com.chegal.alarm"
 OOD_DIGIBITES = "com.digibites.calendar"
@@ -140,6 +146,12 @@ def collect_domain_records(domain_apps: set[str], episode_app: dict[int, str | N
             if app not in domain_apps:
                 continue
             rec["images"] = [remap_image(ip) for ip in rec["images"]]
+            # sample_id/content_hash travel inside the written record too (EXP08 carries
+            # both on train and eval rows), so a prediction file can be audited back to
+            # its source sample rather than relying on line order alone.
+            gpt = next(m["value"] for m in rec["messages"] if m["from"] == "gpt")
+            rec["sample_id"] = match.group(0)
+            rec["content_hash"] = hashlib.sha1(gpt.encode("utf-8")).hexdigest()[:12]
             records.append(
                 {
                     "sample_id": match.group(0),
@@ -229,7 +241,85 @@ def filter_train_by_length(train: list[dict], id_seen: list[dict]) -> tuple[list
     return kept, id_seen_final, filter_meta
 
 
-def write_jsonl(path: Path, records: list[dict]) -> None:
+def attach_token_weights(train: list[dict]) -> tuple[list[dict], dict]:
+    """Return Train records carrying diff-based `token_weights`, plus a meta block.
+
+    Returns copies rather than mutating: id_seen was sampled out of the Train list and
+    holds the same dict objects, and it is an eval split that must stay unweighted.
+
+    Train only — EXP08's eval/test JSONLs carry no token_weights either. Without this
+    field `use_diff_token_weighted_loss: true` silently degrades to plain CE
+    (converter.py reads example["token_weights"]; the loss fn treats None as all-ones).
+
+    `--raw` and `--applied` are the same file: those differ in EXP08 only because its
+    masked/dropped formats hide the current state, and the diff must be computed on the
+    unmasked original. EXP09 is 100% full/unmasked, so the record *is* its own raw.
+    """
+    import subprocess  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory() as tmp:
+        src, out = Path(tmp) / "in.jsonl", Path(tmp) / "out.jsonl"
+        with src.open("w", encoding="utf-8") as handle:
+            for rec in train:
+                handle.write(rec["line"] + "\n")
+        subprocess.run(
+            [
+                sys.executable, str(SCRIPTS_DIR / "diff_loss" / "build_diff_targets.py"),
+                "--raw", str(src), "--applied", str(src), "--output", str(out),
+                "--model", LENGTH_MODEL, "--revision", LENGTH_MODEL_REVISION,
+                "--w-added", str(W_ADDED), "--w-modified", str(W_MODIFIED),
+                "--w-unchanged", str(W_UNCHANGED), "--on-error", "fail",
+            ],
+            check=True,
+        )
+        weighted = {}
+        for line in out.read_text(encoding="utf-8").splitlines():
+            payload = json.loads(line)
+            weighted[payload["sample_id"]] = payload
+
+    assert len(weighted) == len(train), f"weight builder returned {len(weighted)} of {len(train)}"
+    uniform = 0
+    out_train: list[dict] = []
+    for rec in train:
+        payload = weighted[rec["sample_id"]]
+        weights = payload["token_weights"]
+        assert weights, f"{rec['sample_id']}: empty token_weights"
+        if set(weights) == {1.0}:
+            uniform += 1
+        out_train.append({**rec, "line": json.dumps(payload, ensure_ascii=False)})
+    # A uniform row is build_diff_targets' silent fallback — it would ship a
+    # token_weights field that trains identically to plain CE.
+    assert not uniform, f"{uniform} train rows got all-1.0 token_weights (diff fallback)"
+
+    ratios = sorted(
+        sum(1 for w in weighted[r["sample_id"]]["token_weights"] if w > W_UNCHANGED)
+        / len(weighted[r["sample_id"]]["token_weights"])
+        for r in train
+    )
+    print(f"[weights] {len(train)} rows, 0 uniform, up-weighted p50={ratios[len(ratios) // 2]:.3f}")
+    return out_train, {
+        "applied_to": "train only (matches EXP08: its eval/test JSONLs carry no token_weights)",
+        "weight_map": {"ADDED": W_ADDED, "MODIFIED": W_MODIFIED, "UNCHANGED": W_UNCHANGED},
+        "builder": "scripts/diff_loss/build_diff_targets.py (--on-error fail)",
+        "model": LENGTH_MODEL,
+        "revision": LENGTH_MODEL_REVISION,
+        "raw_equals_applied": "EXP09 is 100% full/unmasked, so each record is its own raw",
+        "n_uniform_fallback": uniform,
+        "upweighted_ratio_p50": round(ratios[len(ratios) // 2], 4),
+    }
+
+
+TRAIN_ONLY_FIELDS = ("token_weights", "_diff_counts")
+
+
+def write_jsonl(path: Path, records: list[dict], *, train: bool) -> None:
+    """Write one split. Eval splits drop the train-only diff-loss fields.
+
+    ID-Seen aliases the same record objects as Train (it is a subset of it), so
+    attach_token_weights reaches its rows too; EXP08's eval JSONLs carry no
+    token_weights, and all four EXP09 eval files must have the same shape.
+    """
     bad = sum(
         1
         for rec in records
@@ -238,7 +328,13 @@ def write_jsonl(path: Path, records: list[dict]) -> None:
     assert not bad, f"{path.name}: {bad} rows with un-remapped images"
     with path.open("w", encoding="utf-8") as handle:
         for rec in records:
-            handle.write(rec["line"])
+            payload = json.loads(rec["line"])
+            if train:
+                assert payload.get("token_weights"), f"{rec['sample_id']}: train row without token_weights"
+            else:
+                for field in TRAIN_ONLY_FIELDS:
+                    payload.pop(field, None)
+            handle.write(json.dumps(payload, ensure_ascii=False))
             handle.write("\n")
     print(f"[write] {path} ({len(records)} records)")
 
@@ -301,13 +397,14 @@ def main() -> None:
     # Post-split length filter: shrinks train (and, only on overlap, id_seen) in place.
     # id_unseen/ood_chegal/ood_digibites/unused are untouched — see filter_train_by_length.
     train, id_seen, length_filter_meta = filter_train_by_length(train, id_seen)
+    train, token_weights_meta = attach_token_weights(train)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    write_jsonl(OUT_DIR / "stage1_train_time_mgmt.jsonl", train)
-    write_jsonl(OUT_DIR / "stage1_eval_id_seen_full.jsonl", id_seen)
-    write_jsonl(OUT_DIR / "stage1_eval_id_unseen_full.jsonl", id_unseen)
-    write_jsonl(OUT_DIR / "stage1_eval_ood_chegal_full.jsonl", ood_chegal)
-    write_jsonl(OUT_DIR / "stage1_eval_ood_digibites_full.jsonl", ood_digibites)
+    write_jsonl(OUT_DIR / "stage1_train_time_mgmt.jsonl", train, train=True)
+    write_jsonl(OUT_DIR / "stage1_eval_id_seen_full.jsonl", id_seen, train=False)
+    write_jsonl(OUT_DIR / "stage1_eval_id_unseen_full.jsonl", id_unseen, train=False)
+    write_jsonl(OUT_DIR / "stage1_eval_ood_chegal_full.jsonl", ood_chegal, train=False)
+    write_jsonl(OUT_DIR / "stage1_eval_ood_digibites_full.jsonl", ood_digibites, train=False)
 
     episode_actions = load_episode_actions(EPISODES_META_FILE)
     splits = {
@@ -347,6 +444,7 @@ def main() -> None:
             "the original frozen-spec split (100/88/92/66), unaffected by the filter."
         ),
         "length_filter": length_filter_meta,
+        "token_weights": token_weights_meta,
         "image_remap": {
             "applied": True,
             "rule": "myset/images/episode_{N}_step_{M}.jpg -> AndroidControl/images/episode_{N:06d}_step_{M}.jpg",
