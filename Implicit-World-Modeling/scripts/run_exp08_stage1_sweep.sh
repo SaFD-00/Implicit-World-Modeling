@@ -79,13 +79,25 @@ TASKS=()
 add() { TASKS+=("$*"); }
 
 add "--variants base"
-for e in 0.25 0.5 0.75 1 1.25 1.5 1.76 2.01 2.26 2.51 2.76 3; do
+
+# ── 우선순위: 계보별 epoch 1 · 3 먼저 (2026-09-10 사용자 지시) ─────────────────
+# "2" 에 정확히 해당하는 체크포인트가 계보마다 없어(가장 가까운 건 2.01/2.04) 근사치는
+# 우선순위에 넣지 않고 아래 "나머지" 순서 그대로 둔다 — 사용자가 명시적으로 선택.
+add "--variants full_world_model --epochs 1"
+add "--variants full_world_model --epochs 3"
+add "--variants full_world_model --stage1-variant action-only --epochs 1"
+add "--variants full_world_model --stage1-variant action-only --epochs 3"
+add "--variants full_world_model --stage1-variant inverse-mix --epochs 1"
+add "--variants full_world_model --stage1-variant inverse-mix --epochs 3"
+
+# ── 나머지 (계보별 원래 순서, 위에서 뺀 epoch 1·3 제외) ────────────────────────
+for e in 0.25 0.5 0.75 1.25 1.5 1.76 2.01 2.26 2.51 2.76; do
   add "--variants full_world_model --epochs $e"
 done
-for e in 0.77 1 1.02 1.28 1.53 1.79 2.04 2.29 2.55 2.81 3; do
+for e in 0.77 1.02 1.28 1.53 1.79 2.04 2.29 2.55 2.81; do
   add "--variants full_world_model --stage1-variant action-only --epochs $e"
 done
-for e in 0.25 0.5 0.75 1 1.5 2.01 2.51 3; do
+for e in 0.25 0.5 0.75 1.5 2.01 2.51; do
   add "--variants full_world_model --stage1-variant inverse-mix --epochs $e"
 done
 # lora_world_model/epoch-1 은 재현 불가 (위 "재고 현실" 참조).
