@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""EXP09 (Time-Mgmt LoRA, Qwen2.5-VL-3B) stage1 eval 결과 집계 + 플롯.
+"""EXP09 (도메인별 LoRA, Qwen2.5-VL-3B) stage1 eval 결과 집계 + 플롯.
 
-읽는 트리 (모두 `--eval-root` 아래):
-    base/{id-seen,id-unseen,ood-chegal,ood-digibites}/
+읽는 트리 (모두 `--eval-root` 아래, `--domain` 으로 고른 한 도메인만):
+    base/{id-seen,id-unseen,ood-<slug1>,ood-<slug2>}/
     general-full/{...}/
-    time-mgmt-lora/epoch-{0.25,0.5,0.75,1,2,3}/{...}/
+    {domain}-lora/epoch-{0.25,0.5,0.75,1,2,3,4,5}/{...}/
+
+도메인마다 독립된 학습 데이터·eval 세트·어댑터를 가지므로 두 도메인을 한 표/곡선에
+합치지 않는다 — Base/General-Full 조차 도메인별 eval 세트로 평가한 결과라 값이 다르다.
+DOMAIN_CONFIG 의 `splits`/`expected_n`/`ood_apps` 가 그 도메인의 SSoT 다 (OOD 슬러그·N
+은 scripts/build_exp09_data.py 의 DOMAINS 테이블과 실측이 일치해야 한다).
 
 각 leaf 는 `hungarian_metrics.json` + `state_diff_metrics.json` 두 파일을 갖는다 (둘 다
 scripts/_state_diff_eval.py / _hungarian_eval.py 의 **single-pair 모드** 출력 — flat
@@ -15,12 +20,12 @@ dict, `overall`/`in_domain`/`out_of_domain` 섹션 없음). 키는 `avg_` 접두
 `_state_diff_eval.py` 의 `_LEGACY_KEY_ALIAS` 가 옛 정의를 새 키 이름 옆에 얹어 내보내는
 하위호환용이라, 같은 값을 두 번 세거나 옛 스키마 파일을 새 스키마로 오독하는 함정이다.
 
-pooled-OOD (ood-chegal ∪ ood-digibites) 는 **근사가 아니라 정확한 값**이다:
+pooled-OOD (두 OOD split 의 합집합) 는 **근사가 아니라 정확한 값**이다:
 `_state_diff_eval.aggregate()` 는 macro 평균(`avg_X = sum(rows)/n_X`)을 내고 그 분모
-`n_X` 를 나란히 적어 두므로, 두 split 을 가중합하면 원래 380행을 한 번에 채점했을 때와
-`round()` 오차 내로 동일하다 (`(avg_A*n_A + avg_B*n_B)/(n_A+n_B)`). `hungarian_f1` 은
-`_hungarian_eval.evaluate_pairs.hung_avg` 가 항상 전체 `total` 을 분모로 쓰므로(실패 시
-0.0 폴백, None-스킵 없음) `total` 가중이 정확하다. 그래서 state_diff 6개 지표는
+`n_X` 를 나란히 적어 두므로, 두 split 을 가중합하면 원래 두 split 을 한 번에 채점했을
+때와 `round()` 오차 내로 동일하다 (`(avg_A*n_A + avg_B*n_B)/(n_A+n_B)`). `hungarian_f1`
+은 `_hungarian_eval.evaluate_pairs.hung_avg` 가 항상 전체 `total` 을 분모로 쓰므로(실패
+시 0.0 폴백, None-스킵 없음) `total` 가중이 정확하다. 그래서 state_diff 6개 지표는
 `n_<metric>` 으로, hungarian_f1 은 `total` 로 가중한다 — 두 분모가 다를 수 있는 이유는
 metric 마다 정의되는 행 수가 달라서다 (예: added_recall 은 GT 에 ADDED 요소가 있는
 행에서만 정의된다).
@@ -38,21 +43,60 @@ from pathlib import Path
 
 PROJ = Path(__file__).resolve().parent.parent
 
-# ── 트리 정의 (glob 아님 — enumerate 해야 오타 디렉터리가 조용히 사라지지 않는다) ──
-SPLITS = ["id-seen", "id-unseen", "ood-chegal", "ood-digibites"]
-EXPECTED_N = {"id-seen": 100, "id-unseen": 100, "ood-chegal": 88, "ood-digibites": 92}
-LORA_EPOCHS = [0.25, 0.5, 0.75, 1, 2, 3]
-OOD_APPS = {"ood-chegal": "com.chegal.alarm", "ood-digibites": "com.digibites.calendar"}
+# ── 도메인 SSoT — build_exp09_data.py 의 DOMAINS 테이블·실측과 반드시 일치 ──────
+# id-seen 은 도메인마다 다를 수 있다 (Media 는 토큰가중치 불일치 필터가 겹친 1건이
+# 빠져 99) — 100 을 가정하고 anomaly 로 잘못 잡지 않도록 도메인별로 명시한다.
+DOMAIN_CONFIG = {
+    "time_mgmt": {
+        "splits": ["id-seen", "id-unseen", "ood-chegal", "ood-digibites"],
+        "expected_n": {"id-seen": 100, "id-unseen": 100, "ood-chegal": 88, "ood-digibites": 92},
+        "ood_apps": {"ood-chegal": "com.chegal.alarm", "ood-digibites": "com.digibites.calendar"},
+    },
+    "media": {
+        "splits": ["id-seen", "id-unseen", "ood-readera", "ood-bsbportal"],
+        "expected_n": {"id-seen": 99, "id-unseen": 100, "ood-readera": 87, "ood-bsbportal": 105},
+        "ood_apps": {"ood-readera": "org.readera", "ood-bsbportal": "com.bsbportal.music"},
+    },
+}
+LORA_EPOCHS = [0.25, 0.5, 0.75, 1, 2, 3, 4, 5]
 
-# (model_dir, epoch, display_label) — 곡선 순서 그대로. base 가 곡선의 epoch=0 점이다
-# (general-full 은 곡선이 아니라 수평 기준선이라 따로 뺀다). epoch 은 LORA_EPOCHS 의
-# 원래 타입(0.25 는 float, 1/2/3 은 int)을 그대로 쓴다 — float() 로 강제하면 "1" 이
-# "1.0" 으로 출력돼 CSV/플롯 라벨이 "0, 0.25, ..., 1, 2, 3" 이라는 스펙 표기와 어긋난다.
-CURVE_SPECS = [("base", 0, "Base(0)")] + [
-    (f"time-mgmt-lora/epoch-{e}", e, f"LoRA({e})") for e in LORA_EPOCHS
-]
+# configure_domain() 이 채운다 (모듈 로드 시점엔 도메인을 모른다 — main() 에서 결정).
+SPLITS: list[str] = []
+EXPECTED_N: dict[str, int] = {}
+OOD_APPS: dict[str, str] = {}
+CURVE_SPECS: list[tuple] = []
 STATIC_SPEC = ("general-full", "static", "General Full(static)")
-ALL_MODEL_SPECS = CURVE_SPECS + [STATIC_SPEC]
+ALL_MODEL_SPECS: list[tuple] = []
+X_POS: list[int] = []
+X_LABELS: list[str] = []
+
+
+def configure_domain(domain: str) -> None:
+    """모듈 전역(SPLITS/EXPECTED_N/OOD_APPS/CURVE_SPECS/...)을 도메인에 맞게 채운다.
+
+    `SPLITS` 는 항상 `[id-seen, id-unseen, ood-<slug1>, ood-<slug2>]` 순서를
+    지킨다 — Plot C/`pool_ood`가 `SPLITS[2]`/`SPLITS[3]`을 그 순서로 가정한다.
+    """
+    global SPLITS, EXPECTED_N, OOD_APPS, CURVE_SPECS, ALL_MODEL_SPECS, X_POS, X_LABELS
+    cfg = DOMAIN_CONFIG[domain]
+    SPLITS = cfg["splits"]
+    EXPECTED_N = cfg["expected_n"]
+    OOD_APPS = cfg["ood_apps"]
+    # base 가 곡선의 epoch=0 점이다 (general-full 은 곡선이 아니라 수평 기준선이라
+    # STATIC_SPEC 으로 따로 뺀다). epoch 은 LORA_EPOCHS 의 원래 타입(0.25 는 float,
+    # 1/2/3/4/5 는 int)을 그대로 쓴다 — float() 로 강제하면 "1" 이 "1.0" 으로 출력돼
+    # CSV/플롯 라벨이 스펙 표기(0, 0.25, ..., 5)와 어긋난다.
+    CURVE_SPECS = [("base", 0, "Base(0)")] + [
+        (f"{domain}-lora/epoch-{e}", e, f"LoRA({e})") for e in LORA_EPOCHS
+    ]
+    ALL_MODEL_SPECS = CURVE_SPECS + [STATIC_SPEC]
+    # x 축: 실측 epoch 값을 그대로 쓰면 0→1 구간(변화가 실제로 일어나는 구간)이
+    # 짓눌린다. 균등 간격 categorical 틱을 쓰고 라벨만 실값으로 붙인다 — 9 점을
+    # 모두 고르게 비교 가능하게 읽히도록 하는 선택이고, 물리적 epoch 간격의
+    # 정직성은 포기한다 (한 줄로 명시).
+    X_POS = list(range(len(CURVE_SPECS)))
+    X_LABELS = [str(e) for _m, e, _l in CURVE_SPECS]
+
 
 # bare 이름 → 소스 JSON 의 avg_ 키. state_diff 쪽은 pooling 가중치로 쓸 n_ 키도 같이 문다.
 STATE_DIFF_KEYS = {
@@ -151,11 +195,11 @@ def collect(eval_root: Path) -> tuple[list[Leaf], list[str], list[str], dict | N
     """(leaves, missing 설명, anomaly 설명, 관측된 채점 스탬프). corrupt 입력은 그대로 raise 돼 전파된다.
 
     `element_set`/`xml_schema`/`current_state_source` 는 `stamp_schema()` 가 "채점기가
-    실제로 본 값"으로 찍어 두는 것이다 (_state_diff_eval.py:1204-1217 docstring). 8
-    모델×4 split 을 한 표/곡선에 나란히 놓으므로, sibling 두 파일끼리도, leaf 전체에
-    걸쳐서도 이 스탬프가 어긋나면 hard fail 한다 — 그렇지 않으면 서로 다른 채점 체제의
-    숫자를 이어 그린 곡선이 조용히 나온다 (LoRA leaf 는 나중에 증분으로 채워지므로
-    특히 중요).
+    실제로 본 값"으로 찍어 두는 것이다 (_state_diff_eval.py:1204-1217 docstring). 한
+    도메인의 10 모델×4 split 을 한 표/곡선에 나란히 놓으므로, sibling 두 파일끼리도,
+    leaf 전체에 걸쳐서도 이 스탬프가 어긋나면 hard fail 한다 — 그렇지 않으면 서로 다른
+    채점 체제의 숫자를 이어 그린 곡선이 조용히 나온다 (LoRA leaf 는 나중에 증분으로
+    채워지므로 특히 중요).
     """
     leaves: list[Leaf] = []
     missing: list[str] = []
@@ -219,8 +263,8 @@ def _leaf_lookup(leaves: list[Leaf]) -> dict[tuple[str, str], Leaf]:
 
 
 def pool_ood(model_dir: str, epoch: object, lut: dict[tuple[str, str], Leaf]) -> tuple[Leaf | None, Leaf | None]:
-    """(ood-pooled, ood-macro) — 둘 다 chegal+digibites 가 모두 있어야 계산된다."""
-    a, b = lut.get((model_dir, "ood-chegal")), lut.get((model_dir, "ood-digibites"))
+    """(ood-pooled, ood-macro) — 두 OOD split(`SPLITS[2]`/`SPLITS[3]`) 이 모두 있어야 계산된다."""
+    a, b = lut.get((model_dir, SPLITS[2])), lut.get((model_dir, SPLITS[3]))
     if a is None or b is None:
         return None, None
     n = a.n + b.n
@@ -293,6 +337,8 @@ def write_tables(rows: list[Leaf], out_dir: Path, missing: list[str], anomalies:
                   global_stamp: dict | None) -> None:
     lut = {(r.model, r.split): r for r in rows}
     sections = []
+    ood1, ood2 = SPLITS[2], SPLITS[3]
+    ood1_label, ood2_label = ood1.removeprefix("ood-").title(), ood2.removeprefix("ood-").title()
 
     sections.append("# EXP09 stage1 eval 결과 요약\n")
     if global_stamp is not None:
@@ -303,17 +349,19 @@ def write_tables(rows: list[Leaf], out_dir: Path, missing: list[str], anomalies:
             f"current_state_source=`{global_stamp['current_state_source']}`_"
         )
 
-    # 1) primary: addmod_recall, 열 = ID-Seen/ID-Unseen/Chegal/DigiBites/OOD-Pooled
-    headers = ["Model", "ID-Seen", "ID-Unseen", "Chegal", "DigiBites", "OOD-Pooled"]
+    # 1) primary: addmod_recall, 열 = ID-Seen/ID-Unseen/<ood1>/<ood2>/OOD-Pooled
+    headers = ["Model", "ID-Seen", "ID-Unseen", ood1_label, ood2_label, "OOD-Pooled"]
     body = []
     for model_dir, _epoch, label in ALL_MODEL_SPECS:
-        vals = [lut.get((model_dir, s)) for s in ("id-seen", "id-unseen", "ood-chegal", "ood-digibites", "ood-pooled")]
+        vals = [lut.get((model_dir, s)) for s in ("id-seen", "id-unseen", ood1, ood2, "ood-pooled")]
         body.append([label, *(v.metrics["addmod_recall"] if v else None for v in vals)])
+    n1, n2 = EXPECTED_N[ood1], EXPECTED_N[ood2]
     sections.append(
         "## Primary — addmod_recall\n\n" + _md_table(headers, body)
-        + "\n\n(OOD-Pooled = chegal(n=88)/digibites(n=92) 를 metric 별 `n_<metric>` 으로 "
-        "가중합한 값. `aggregate()` 가 macro 평균을 내므로 이는 근사가 아니라 두 split 을 "
-        "합쳐 한 번에 채점했을 때와 동일한 값이다 — 스크립트 상단 docstring 참고.)"
+        + f"\n\n(OOD-Pooled = {ood1_label}(n={n1})/{ood2_label}(n={n2}) 를 metric 별 "
+        "`n_<metric>` 으로 가중합한 값. `aggregate()` 가 macro 평균을 내므로 이는 근사가 "
+        "아니라 두 split 을 합쳐 한 번에 채점했을 때와 동일한 값이다 — 스크립트 상단 "
+        "docstring 참고.)"
     )
 
     # 2) detailed
@@ -352,15 +400,6 @@ def write_tables(rows: list[Leaf], out_dir: Path, missing: list[str], anomalies:
     (out_dir / "tables.md").write_text("\n\n".join(sections) + "\n", encoding="utf-8")
 
 
-# ── 플롯 ─────────────────────────────────────────────────────────────────
-# x 축: 실측 epoch 값(0, 0.25, ..., 3) 을 그대로 쓰면 0→1 구간(변화가 실제로 일어나는
-# 구간)이 전체 폭의 1/3 로 짓눌린다. 균등 간격 categorical 틱을 쓰고 라벨만 실값으로
-# 붙인다 — 7 점을 모두 고르게 비교 가능하게 읽히도록 하는 선택이고, 물리적 epoch
-# 간격의 정직성은 포기한다 (한 줄로 명시).
-X_POS = list(range(len(CURVE_SPECS)))  # [0,1,2,3,4,5,6] <-> epoch [0,.25,.5,.75,1,2,3]
-X_LABELS = [str(e) for _m, e, _l in CURVE_SPECS]
-
-
 def _curve(rows_by_model: dict, split: str, key: str) -> list[float]:
     out = []
     for model_dir, _epoch, _label in CURVE_SPECS:
@@ -375,7 +414,7 @@ def _static_value(rows_by_model: dict, split: str, key: str):
     return r.metrics[key] if r is not None else None
 
 
-def make_plots(rows: list[Leaf], out_dir: Path, dpi: int) -> list[str]:
+def make_plots(rows: list[Leaf], out_dir: Path, dpi: int, domain: str) -> list[str]:
     import matplotlib
 
     matplotlib.use("agg")
@@ -383,6 +422,7 @@ def make_plots(rows: list[Leaf], out_dir: Path, dpi: int) -> list[str]:
 
     lut = {(r.model, r.split): r for r in rows}
     produced = []
+    ood1, ood2 = SPLITS[2], SPLITS[3]
 
     def setup_ax(ax, title, ylabel):
         ax.set_xticks(X_POS)
@@ -395,7 +435,7 @@ def make_plots(rows: list[Leaf], out_dir: Path, dpi: int) -> list[str]:
     # A: headline — addmod_recall on id-unseen, LoRA curve (base=epoch0 included) + general-full ref line
     fig, ax = plt.subplots(figsize=(7, 4.5))
     ax.plot(X_POS, _curve(lut, "id-unseen", "addmod_recall"), marker="o", linestyle="-",
-            color="tab:blue", label="time-mgmt-lora (incl. base@0)")
+            color="tab:blue", label=f"{domain}-lora (incl. base@0)")
     ref = _static_value(lut, "id-unseen", "addmod_recall")
     if ref is not None:
         ax.axhline(ref, color="tab:gray", linestyle="--", marker="x", label=f"general-full (static, {ref:.3f})")
@@ -421,12 +461,12 @@ def make_plots(rows: list[Leaf], out_dir: Path, dpi: int) -> list[str]:
     plt.close(fig)
     produced.append(p.name)
 
-    # C: chegal vs digibites (+ ood-pooled, subordinate)
+    # C: OOD app 1 vs app 2 (+ ood-pooled, subordinate)
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    ax.plot(X_POS, _curve(lut, "ood-chegal", "addmod_recall"), marker="^", linestyle="-",
-            color="tab:blue", label=OOD_APPS["ood-chegal"])
-    ax.plot(X_POS, _curve(lut, "ood-digibites", "addmod_recall"), marker="v", linestyle="-",
-            color="tab:orange", label=OOD_APPS["ood-digibites"])
+    ax.plot(X_POS, _curve(lut, ood1, "addmod_recall"), marker="^", linestyle="-",
+            color="tab:blue", label=OOD_APPS[ood1])
+    ax.plot(X_POS, _curve(lut, ood2, "addmod_recall"), marker="v", linestyle="-",
+            color="tab:orange", label=OOD_APPS[ood2])
     ax.plot(X_POS, _curve(lut, "ood-pooled", "addmod_recall"), marker=None, linestyle=":",
             color="tab:gray", linewidth=1.2, label="ood-pooled (n-weighted, subordinate)")
     setup_ax(ax, "Plot C — OOD apps (addmod_recall)", "addmod_recall")
@@ -459,28 +499,35 @@ def make_plots(rows: list[Leaf], out_dir: Path, dpi: int) -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--domain", required=True, choices=sorted(DOMAIN_CONFIG))
     ap.add_argument(
-        "--eval-root", type=Path,
-        default=PROJ / "outputs/AndroidControl_EXP09/eval/qwen2.5-vl-3b/stage1_eval",
+        "--eval-root", type=Path, default=None,
+        help="기본값: outputs/AndroidControl_EXP09/eval/qwen2.5-vl-3b/stage1_eval/<domain>",
     )
     ap.add_argument("--out-dir", type=Path, default=None, help="기본값: <eval-root>/_summary")
     ap.add_argument("--dpi", type=int, default=150)
     args = ap.parse_args()
 
-    out_dir = args.out_dir or (args.eval_root / "_summary")
+    configure_domain(args.domain)
+    eval_root = args.eval_root or (
+        PROJ / "outputs/AndroidControl_EXP09/eval/qwen2.5-vl-3b/stage1_eval" / args.domain
+    )
+    out_dir = args.out_dir or (eval_root / "_summary")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    leaves, missing, anomalies, global_stamp = collect(args.eval_root)
+    leaves, missing, anomalies, global_stamp = collect(eval_root)
     if not leaves:
-        print(f"[summarize_exp09] ERROR: {args.eval_root} 아래에서 유효한 leaf 를 하나도 못 찾음", file=sys.stderr)
+        print(f"[summarize_exp09] ERROR: {eval_root} 아래에서 유효한 leaf 를 하나도 못 찾음", file=sys.stderr)
         return 2
 
     rows = build_rows(leaves)
     write_csv_json(rows, out_dir)
     write_tables(rows, out_dir, missing, anomalies, global_stamp)
-    plots = make_plots(rows, out_dir, args.dpi)
+    plots = make_plots(rows, out_dir, args.dpi, args.domain)
 
-    print(f"[summarize_exp09] leaves found: {len(leaves)}/32, rows (incl. pooled/macro): {len(rows)}")
+    expected_leaves = len(ALL_MODEL_SPECS) * len(SPLITS)
+    print(f"[summarize_exp09] domain={args.domain} leaves found: {len(leaves)}/{expected_leaves}, "
+          f"rows (incl. pooled/macro): {len(rows)}")
     if missing:
         print(f"[summarize_exp09] missing leaves: {len(missing)}", file=sys.stderr)
         for m in missing:

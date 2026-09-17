@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
-# AC_EXP09 stage1 eval 러너 — Time-Mgmt LoRA vs 레퍼런스 2종, 고정 380 샘플.
+# AC_EXP09 stage1 eval 러너 — 도메인별 LoRA vs 레퍼런스 2종, 고정 eval 샘플.
 #
-# 8 조건 × 4 split = 32 leaf. leaf 하나 = "추론 → 채점" 이고 leaf 마다 marker 가
-# 독립이라 중단·재개가 안전하다 (run_exp08_stage1_sweep.sh / run_exp08_stage2_sweep.sh
-# 와 같은 관례). max_new_tokens=12288 짜리 32 leaf 는 길어서 **반드시 중간에 끊긴다**.
+# 10 조건(base, general-full, {domain}-lora@{0.25..5} 8개) × 4 split = 40 leaf.
+# leaf 하나 = "추론 → 채점" 이고 leaf 마다 marker 가 독립이라 중단·재개가 안전하다
+# (run_exp08_stage1_sweep.sh / run_exp08_stage2_sweep.sh 와 같은 관례).
+# max_new_tokens=12288 짜리 40 leaf 는 길어서 **반드시 중간에 끊긴다**.
+#
+# 도메인 (--domain 필수)
+# -----------------------
+# EXP09 는 도메인마다 독립된 학습 데이터·eval 세트·어댑터를 가진다 (Base/General-Full
+# 조차 도메인별 eval 세트로 따로 평가한다 — 같은 모델이지만 예측 결과가 다르다).
+#   time_mgmt: split = id-seen/id-unseen/ood-chegal/ood-digibites
+#   media:     split = id-seen/id-unseen/ood-readera/ood-bsbportal
 #
 # 왜 stage1_eval.sh / _common.sh 를 쓰지 않는가
 # ---------------------------------------------
@@ -13,16 +21,16 @@
 # (vllm_infer.py:49 · 81-84 · 116 · 141-144). 또 `_common.sh::build_infer_cmd` 의
 # cutoff_len 상향은 `IWM-AC_EXP08*` 데이터셋 이름 prefix allowlist 로 걸려 있어
 # (_common.sh:1385-1387) EXP09 이름은 조용히 8192 로 떨어진다. 그래서 _common.sh 를
-# source 하지 않고 필요한 것만 아래에서 재현한다 — run_exp09_stage1.sh:4-12 와 같은 판단.
+# source 하지 않고 필요한 것만 아래에서 재현한다 — run_exp09_stage1.sh 와 같은 판단.
 #
-# max_lora_rank (이게 없으면 LoRA 조건 6 개가 전부 죽는다)
+# max_lora_rank (이게 없으면 LoRA 조건 8 개가 전부 죽는다)
 # --------------------------------------------------------
 # vllm_infer.py 의 engine_args (108-117) 에는 `max_lora_rank` 가 없고 vLLM 기본값은
 # **16** 이다 (vllm/config/lora.py:33). EXP09 어댑터는 rank 64 라
-# (configs/train/IWM-AC_EXP09/stage1_lora/qwen2.5-vl-3b_world-model.yaml 의 `lora_rank: 64`, 저장된
-# adapter_config.json 도 `r=64`) 기본값으로는 어댑터 로드가 거절된다. 유일한 주입 경로가
-# `--vllm_config` 의 engine_args.update (121-122) 라 거기에 넣는다.
-# 허용값은 (8,16,32,64,128,256,320,512) — 64 는 그 안에 있다 (lora.py:106).
+# (configs/train/IWM-AC_EXP09/stage1_lora/qwen2.5-vl-3b_world-model_{domain}.yaml 의
+# `lora_rank: 64`, 저장된 adapter_config.json 도 `r=64`) 기본값으로는 어댑터 로드가
+# 거절된다. 유일한 주입 경로가 `--vllm_config` 의 engine_args.update (121-122) 라
+# 거기에 넣는다. 허용값은 (8,16,32,64,128,256,320,512) — 64 는 그 안에 있다 (lora.py:106).
 #
 # vllm_config 를 통째로 갈아끼우면 안 되는 이유
 # ----------------------------------------------
@@ -46,10 +54,10 @@
 # 따로 부르지 않는다.
 #
 # 사용법
-#   bash scripts/eval_exp09_stage1.sh --dry-run
-#   bash scripts/eval_exp09_stage1.sh --conditions base,general-full      # 오늘 가능한 것만
-#   bash scripts/eval_exp09_stage1.sh --splits id-seen --dry-run
-#   CUDA_DEVICE=1 bash scripts/eval_exp09_stage1.sh
+#   bash scripts/eval_exp09_stage1.sh --domain time_mgmt --dry-run
+#   bash scripts/eval_exp09_stage1.sh --domain media --conditions base,general-full  # 오늘 가능한 것만
+#   bash scripts/eval_exp09_stage1.sh --domain time_mgmt --splits id-seen --dry-run
+#   CUDA_DEVICE=1 bash scripts/eval_exp09_stage1.sh --domain media
 #
 # 환경변수
 #   CUDA_DEVICE        기본 1   (GPU0 은 타인의 vLLM 서버)
@@ -62,9 +70,6 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LF_ROOT="$BASE_DIR/LlamaFactory"
 LF_DATASET_DIR="$BASE_DIR/configs/lf_dataset"
 DATA_DIR="$BASE_DIR/data/AndroidControl_EXP09"
-EVAL_ROOT="$BASE_DIR/outputs/AndroidControl_EXP09/eval/qwen2.5-vl-3b/stage1_eval"
-ADAPTER_DIR="$BASE_DIR/outputs/AndroidControl_EXP09/adapters/qwen2.5-vl-3b_time-mgmt_stage1_lora"
-CKPT_MAP="$ADAPTER_DIR/epoch_checkpoint_map.json"
 
 BASE_MODEL="Qwen/Qwen2.5-VL-3B-Instruct"
 GENERAL_FULL_DIR="$BASE_DIR/outputs/AndroidControl_EXP08/merged/qwen2.5-vl-3b_stage1_full_world-model/epoch-3"
@@ -84,25 +89,43 @@ MM_MAX=1605632
 MM_MIN=3136
 LORA_RANK=64
 
-ALL_CONDITIONS=(base general-full
-                time-mgmt-lora@0.25 time-mgmt-lora@0.5 time-mgmt-lora@0.75
-                time-mgmt-lora@1 time-mgmt-lora@2 time-mgmt-lora@3)
-ALL_SPLITS=(id-seen id-unseen ood-chegal ood-digibites)
+# epoch 체크포인트 지점 — run_exp09_stage1.sh 의 저장 스케줄과 반드시 일치해야 한다.
+LORA_EPOCHS=(0.25 0.5 0.75 1 2 3 4 5)
 
+DOMAIN=""
 DRY_RUN=0
 CONDITIONS=()
 SPLITS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --domain)     DOMAIN="$2"; shift 2 ;;
     --conditions) IFS=',' read -r -a CONDITIONS <<< "$2"; shift 2 ;;
     --splits)     IFS=',' read -r -a SPLITS     <<< "$2"; shift 2 ;;
     --conda-env)  CONDA_ENV="$2"; shift 2 ;;
     --dry-run)    DRY_RUN=1; shift ;;
-    -h|--help)    sed -n '1,58p' "$0"; exit 0 ;;
+    -h|--help)    sed -n '1,66p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+# ── 도메인별 OOD 슬러그 (build_exp09_data.py 의 DOMAINS 테이블과 같은 슬러그) ────
+case "$DOMAIN" in
+  time_mgmt) OOD_SLUG_1="chegal";   OOD_SLUG_2="digibites" ;;
+  media)     OOD_SLUG_1="readera";  OOD_SLUG_2="bsbportal" ;;
+  "") echo "[!] --domain 이 필요하다 (time_mgmt | media)" >&2; exit 2 ;;
+  *) echo "[!] 알 수 없는 --domain: $DOMAIN (허용: time_mgmt, media)" >&2; exit 2 ;;
+esac
+
+EVAL_ROOT="$BASE_DIR/outputs/AndroidControl_EXP09/eval/qwen2.5-vl-3b/stage1_eval/$DOMAIN"
+ADAPTER_DIR="$BASE_DIR/outputs/AndroidControl_EXP09/adapters/qwen2.5-vl-3b_stage1_lora_world-model_$DOMAIN"
+CKPT_MAP="$ADAPTER_DIR/epoch_checkpoint_map.json"
+LORA_COND_PREFIX="${DOMAIN}-lora"
+
+ALL_CONDITIONS=(base general-full)
+for e in "${LORA_EPOCHS[@]}"; do ALL_CONDITIONS+=("${LORA_COND_PREFIX}@${e}"); done
+ALL_SPLITS=(id-seen id-unseen "ood-$OOD_SLUG_1" "ood-$OOD_SLUG_2")
+
 [[ ${#CONDITIONS[@]} -eq 0 ]] && CONDITIONS=("${ALL_CONDITIONS[@]}")
 [[ ${#SPLITS[@]}     -eq 0 ]] && SPLITS=("${ALL_SPLITS[@]}")
 
@@ -116,17 +139,16 @@ for s in "${SPLITS[@]}"; do
     echo "    가능: ${ALL_SPLITS[*]}" >&2; exit 2; }
 done
 
-# split → (dataset 키, jsonl stem). N 은 파일에서 직접 센다 — 상수로 박으면 데이터가
+# split → (dataset 키, jsonl 경로). N 은 파일에서 직접 센다 — 상수로 박으면 데이터가
 # 바뀌었을 때 "완료된 predictions" 판정이 조용히 틀린다.
-split_ds_key()  { echo "IWM-AC_EXP09_stage1_eval_${1//-/_}"; }
-split_jsonl()   { echo "$DATA_DIR/stage1_eval_${1//-/_}_full.jsonl"; }
+split_ds_key()  { echo "IWM-AC_EXP09_stage1_eval_${1//-/_}_${DOMAIN}"; }
+split_jsonl()   { echo "$DATA_DIR/stage1_eval_${1//-/_}_${DOMAIN}.jsonl"; }
 
 # ── LoRA 체크포인트 해석 ──────────────────────────────────────────────────────
 # run_exp09_stage1.sh --select-checkpoints 가 쓰는 map 을 읽는다. 값은 basename 이라
-# (run_exp09_stage1.sh:88 의 os.path.basename) ADAPTER_DIR 과 join 해야 한다.
-# map 이 없으면 = 학습이 아직 안 끝난 것. checkpoint-N 을 추측하지 않는다.
-# **LoRA 조건이 실제로 요청됐을 때만** 이 경로를 탄다 — base/general-full 만 돌리는
-# 오늘 같은 상황에서 map 부재로 죽으면 안 된다.
+# ADAPTER_DIR 과 join 해야 한다. map 이 없으면 = 학습이 아직 안 끝난 것.
+# checkpoint-N 을 추측하지 않는다. **LoRA 조건이 실제로 요청됐을 때만** 이 경로를
+# 탄다 — base/general-full 만 돌리는 오늘 같은 상황에서 map 부재로 죽으면 안 된다.
 resolve_lora_ckpt() {
   local epoch="$1"
   python3 - "$CKPT_MAP" "$ADAPTER_DIR" "$epoch" <<'PY'
@@ -145,13 +167,13 @@ PY
 
 NEED_LORA=0 HAS_NON_LORA=0
 for c in "${CONDITIONS[@]}"; do
-  if [[ "$c" == time-mgmt-lora@* ]]; then NEED_LORA=1; else HAS_NON_LORA=1; fi
+  if [[ "$c" == "${LORA_COND_PREFIX}@"* ]]; then NEED_LORA=1; else HAS_NON_LORA=1; fi
 done
 if (( NEED_LORA )) && [[ ! -f "$CKPT_MAP" ]]; then
   echo "[!] epoch_checkpoint_map.json 이 없다: $CKPT_MAP" >&2
   echo "    = stage1 학습이 아직 끝나지 않았다는 뜻이다. 먼저:" >&2
-  echo "      bash scripts/run_exp09_stage1.sh --deepspeed" >&2
-  echo "      bash scripts/run_exp09_stage1.sh --select-checkpoints" >&2
+  echo "      bash scripts/run_exp09_stage1.sh --domain $DOMAIN" >&2
+  echo "      bash scripts/run_exp09_stage1.sh --domain $DOMAIN --select-checkpoints" >&2
   echo "    지금 돌릴 수 있는 것만 먼저 돌리려면: --conditions base,general-full" >&2
   # 요청에 비-LoRA 조건이 섞여 있으면 그것들은 오늘 돌릴 수 있다 — 여기서 멈추지 않고
   # LoRA 조건만 resolve_condition 에서 leaf 단위로 실패시킨다. 전부 LoRA 면 할 일이
@@ -168,10 +190,10 @@ resolve_condition() {
   case "$cond" in
     base)         COND_MODEL="$BASE_MODEL";       COND_SUBDIR="base" ;;
     general-full) COND_MODEL="$GENERAL_FULL_DIR"; COND_SUBDIR="general-full" ;;
-    time-mgmt-lora@*)
-      local epoch="${cond#time-mgmt-lora@}"
+    "${LORA_COND_PREFIX}@"*)
+      local epoch="${cond#${LORA_COND_PREFIX}@}"
       COND_MODEL="$BASE_MODEL"
-      COND_SUBDIR="time-mgmt-lora/epoch-$epoch"
+      COND_SUBDIR="${LORA_COND_PREFIX}/epoch-$epoch"
       if [[ -f "$CKPT_MAP" ]]; then
         COND_ADAPTER="$(resolve_lora_ckpt "$epoch")" || return 1
       elif (( DRY_RUN )); then
@@ -187,7 +209,7 @@ resolve_condition() {
   return 0
 }
 
-# ── env (run_exp09_stage1.sh:134-146 이 이미 푼 문제를 그대로 재현) ────────────
+# ── env (run_exp09_stage1.sh 가 이미 푼 문제를 그대로 재현) ───────────────────
 if (( ! DRY_RUN )); then
   [[ -d "$CONDA_ENV" ]] || { echo "[!] conda env 가 없다: $CONDA_ENV" >&2; exit 1; }
   export PATH="$CONDA_ENV/bin:$PATH"
@@ -198,11 +220,11 @@ if (( ! DRY_RUN )); then
   export CUDA_VISIBLE_DEVICES="$CUDA_DEVICE"
 fi
 
-LOG_DIR="$BASE_DIR/logs/eval_exp09_stage1_$(date +%Y%m%d_%H%M%S)"
+LOG_DIR="$BASE_DIR/logs/eval_exp09_stage1_${DOMAIN}_$(date +%Y%m%d_%H%M%S)"
 (( DRY_RUN )) || mkdir -p "$LOG_DIR"
 
 TOTAL=$(( ${#CONDITIONS[@]} * ${#SPLITS[@]} ))
-echo "[eval09] 조건 ${#CONDITIONS[@]} × split ${#SPLITS[@]} = leaf $TOTAL 개"
+echo "[eval09] 도메인 $DOMAIN · 조건 ${#CONDITIONS[@]} × split ${#SPLITS[@]} = leaf $TOTAL 개"
 echo "[eval09] 출력 $EVAL_ROOT"
 (( DRY_RUN )) || echo "[eval09] 로그 $LOG_DIR · GPU CUDA_VISIBLE_DEVICES=$CUDA_DEVICE"
 
