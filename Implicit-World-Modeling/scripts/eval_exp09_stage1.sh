@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
 # AC_EXP09 stage1 eval 러너 — 도메인별 LoRA vs 레퍼런스 2종, 고정 eval 샘플.
 #
-# 10 조건(base, general-full, {domain}-lora@{0.25..5} 8개) × 4 split = 40 leaf.
+# 15 조건(base, general-full@{1,2.01,3} 3개, general-inverse-mix@{1,2.01,3} 3개,
+# {domain}-lora@{0.25..5} 8개) × 4 split = 60 leaf.
 # leaf 하나 = "추론 → 채점" 이고 leaf 마다 marker 가 독립이라 중단·재개가 안전하다
 # (run_exp08_stage1_sweep.sh / run_exp08_stage2_sweep.sh 와 같은 관례).
-# max_new_tokens=12288 짜리 40 leaf 는 길어서 **반드시 중간에 끊긴다**.
+# max_new_tokens=12288 짜리 60 leaf 는 길어서 **반드시 중간에 끊긴다**.
 #
 # 도메인 (--domain 필수)
 # -----------------------
-# EXP09 는 도메인마다 독립된 학습 데이터·eval 세트·어댑터를 가진다 (Base/General-Full
-# 조차 도메인별 eval 세트로 따로 평가한다 — 같은 모델이지만 예측 결과가 다르다).
+# EXP09 는 도메인마다 독립된 학습 데이터·eval 세트·어댑터를 가진다 (Base/General-Full/
+# General-Inverse-Mix 조차 도메인별 eval 세트로 따로 평가한다 — 같은 모델이지만 예측
+# 결과가 다르다).
 #   time_mgmt: split = id-seen/id-unseen/ood-chegal/ood-digibites
 #   media:     split = id-seen/id-unseen/ood-readera/ood-bsbportal
+#
+# 정적 레퍼런스 두 계보 (EXP08 stage1, action-only 제외 — 유일하게 재현 가능한 "다른
+# baseline"은 inverse-mix 뿐이다, lora_world_model 은 어댑터 자체가 없어 재현 불가)
+# ------------------------------------------------------------------------------
+# general-full/general-inverse-mix 는 각각 그 계보의 epoch 1/2.01/3 지점(2 는 어느
+# 계보에도 정확히 없어 가장 가까운 2.01 을 쓴다 — EXP08 sweep 스크립트와 같은 선택)을
+# 고정 레퍼런스로 삼는다. 로컬 병합본이 있으면 그걸 쓰고(이 머신 한정 지름길), 없으면
+# HF 저장소로 폴백한다 — 병합본이 없는 환경(예: Megazone)에서도 그대로 돌아가야 한다.
+# HF repo id 유도 규칙은 scripts/_common.sh::hf_repo_id_stage1 그대로다.
 #
 # 왜 stage1_eval.sh / _common.sh 를 쓰지 않는가
 # ---------------------------------------------
@@ -55,7 +66,7 @@
 #
 # 사용법
 #   bash scripts/eval_exp09_stage1.sh --domain time_mgmt --dry-run
-#   bash scripts/eval_exp09_stage1.sh --domain media --conditions base,general-full  # 오늘 가능한 것만
+#   bash scripts/eval_exp09_stage1.sh --domain media --conditions base,general-full@3  # 오늘 가능한 것만
 #   bash scripts/eval_exp09_stage1.sh --domain time_mgmt --splits id-seen --dry-run
 #   CUDA_DEVICE=1 bash scripts/eval_exp09_stage1.sh --domain media
 #
@@ -72,7 +83,13 @@ LF_DATASET_DIR="$BASE_DIR/configs/lf_dataset"
 DATA_DIR="$BASE_DIR/data/AndroidControl_EXP09"
 
 BASE_MODEL="Qwen/Qwen2.5-VL-3B-Instruct"
-GENERAL_FULL_DIR="$BASE_DIR/outputs/AndroidControl_EXP08/merged/qwen2.5-vl-3b_stage1_full_world-model/epoch-3"
+
+# 정적 레퍼런스 epoch 지점 (두 계보 공통 — 위 헤더 주석 참조).
+REF_EPOCHS=(1 2.01 3)
+general_full_local()        { echo "$BASE_DIR/outputs/AndroidControl_EXP08/merged/qwen2.5-vl-3b_stage1_full_world-model/epoch-$1"; }
+general_full_hf()           { echo "SaFD-00/qwen2.5-vl-3b-ac-exp08-world-model-stage1-full-epoch$1"; }
+general_inverse_mix_local() { echo "$BASE_DIR/outputs/AndroidControl_EXP08/merged/qwen2.5-vl-3b_stage1_full_world-model-inverse-mix/epoch-$1"; }
+general_inverse_mix_hf()    { echo "SaFD-00/qwen2.5-vl-3b-ac-exp08-world-model-inverse-mix-stage1-full-epoch$1"; }
 
 CONDA_ENV="${CONDA_ENV:-/opt/miniconda3/envs/implicit-world-modeling}"
 CUDA_DEVICE="${CUDA_DEVICE:-1}"
@@ -122,7 +139,9 @@ ADAPTER_DIR="$BASE_DIR/outputs/AndroidControl_EXP09/adapters/qwen2.5-vl-3b_stage
 CKPT_MAP="$ADAPTER_DIR/epoch_checkpoint_map.json"
 LORA_COND_PREFIX="${DOMAIN}-lora"
 
-ALL_CONDITIONS=(base general-full)
+ALL_CONDITIONS=(base)
+for e in "${REF_EPOCHS[@]}"; do ALL_CONDITIONS+=("general-full@${e}"); done
+for e in "${REF_EPOCHS[@]}"; do ALL_CONDITIONS+=("general-inverse-mix@${e}"); done
 for e in "${LORA_EPOCHS[@]}"; do ALL_CONDITIONS+=("${LORA_COND_PREFIX}@${e}"); done
 ALL_SPLITS=(id-seen id-unseen "ood-$OOD_SLUG_1" "ood-$OOD_SLUG_2")
 
@@ -188,8 +207,19 @@ resolve_condition() {
   local cond="$1"
   COND_ADAPTER=""
   case "$cond" in
-    base)         COND_MODEL="$BASE_MODEL";       COND_SUBDIR="base" ;;
-    general-full) COND_MODEL="$GENERAL_FULL_DIR"; COND_SUBDIR="general-full" ;;
+    base) COND_MODEL="$BASE_MODEL"; COND_SUBDIR="base" ;;
+    general-full@*)
+      local epoch="${cond#general-full@}" local_dir
+      local_dir="$(general_full_local "$epoch")"
+      if [[ -d "$local_dir" ]]; then COND_MODEL="$local_dir"; else COND_MODEL="$(general_full_hf "$epoch")"; fi
+      COND_SUBDIR="general-full/epoch-$epoch"
+      ;;
+    general-inverse-mix@*)
+      local epoch="${cond#general-inverse-mix@}" local_dir
+      local_dir="$(general_inverse_mix_local "$epoch")"
+      if [[ -d "$local_dir" ]]; then COND_MODEL="$local_dir"; else COND_MODEL="$(general_inverse_mix_hf "$epoch")"; fi
+      COND_SUBDIR="general-inverse-mix/epoch-$epoch"
+      ;;
     "${LORA_COND_PREFIX}@"*)
       local epoch="${cond#${LORA_COND_PREFIX}@}"
       COND_MODEL="$BASE_MODEL"
@@ -238,8 +268,10 @@ for cond in "${CONDITIONS[@]}"; do
     continue
   fi
 
-  # 모델 경로 존재 확인 (base 는 HF hub id 라 로컬 검사 대상이 아니다).
-  if [[ "$COND_MODEL" != "$BASE_MODEL" && ! -d "$COND_MODEL" ]]; then
+  # 모델 경로 존재 확인 — 절대경로(로컬 병합본)만 검사한다. HF hub id 는
+  # "org/repo" 형태라 "/" 로 시작하지 않으므로(base 의 "Qwen/..." 도, general-full/
+  # general-inverse-mix 가 HF 로 폴백했을 때의 "SaFD-00/..." 도) 로컬 검사 대상이 아니다.
+  if [[ "$COND_MODEL" == /* && ! -d "$COND_MODEL" ]]; then
     echo "[eval09][!] 모델 디렉토리가 없다: $COND_MODEL — condition '$cond' 건너뛴다" >&2
     FAILED=$((FAILED + ${#SPLITS[@]})); FAILED_LEAVES+=("$cond/* (${#SPLITS[@]} leaf)")
     continue

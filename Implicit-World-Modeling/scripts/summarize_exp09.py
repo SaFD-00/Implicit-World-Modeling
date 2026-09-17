@@ -3,8 +3,16 @@
 
 읽는 트리 (모두 `--eval-root` 아래, `--domain` 으로 고른 한 도메인만):
     base/{id-seen,id-unseen,ood-<slug1>,ood-<slug2>}/
-    general-full/{...}/
+    general-full/epoch-{1,2.01,3}/{...}/
+    general-inverse-mix/epoch-{1,2.01,3}/{...}/
     {domain}-lora/epoch-{0.25,0.5,0.75,1,2,3,4,5}/{...}/
+
+정적 레퍼런스는 두 계보(EXP08 stage1 의 general-full, general-inverse-mix — action-only 는
+재현 가능한 유일한 "다른 baseline" 이 아니라서 제외됨, lora_world_model 은 어댑터 자체가
+없어 애초에 대상이 아니다) × 각 3 epoch(1/2.01/3 — 2 는 어느 계보에도 정확히 없어 가장
+가까운 2.01) 로 총 6 개다. `{domain}-lora` 곡선의 epoch 축(0~5)과는 **별개의 축**이라
+(도메인 LoRA 만 도메인 데이터로 파인튜닝됐고, 두 계보는 EXP08 데이터로 학습된 고정
+체크포인트다) 플롯에서 같은 x 위치에 두지 않고 수평 기준선 6 개로 그린다.
 
 도메인마다 독립된 학습 데이터·eval 세트·어댑터를 가지므로 두 도메인을 한 표/곡선에
 합치지 않는다 — Base/General-Full 조차 도메인별 eval 세트로 평가한 결과라 값이 다르다.
@@ -60,12 +68,23 @@ DOMAIN_CONFIG = {
 }
 LORA_EPOCHS = [0.25, 0.5, 0.75, 1, 2, 3, 4, 5]
 
+# 정적 레퍼런스 두 계보 × 3 epoch. 도메인 무관(같은 EXP08 체크포인트를 모든 도메인의
+# eval 세트에 돌리는 것뿐) — configure_domain() 이 아니라 모듈 레벨에서 한 번만 정의한다.
+REF_EPOCHS = [1, 2.01, 3]
+STATIC_SPECS = [(f"general-full/epoch-{e}", e, f"General Full({e})") for e in REF_EPOCHS] + [
+    (f"general-inverse-mix/epoch-{e}", e, f"General Inverse-Mix({e})") for e in REF_EPOCHS
+]
+# 플롯에서 두 계보를 색으로, epoch(1→2.01→3)을 옅음→짙음으로 구분한다.
+REF_COLORS = {
+    "general-full": ["#d0d0d0", "#909090", "#404040"],
+    "general-inverse-mix": ["#f2b6c6", "#c2185b", "#6a0033"],
+}
+
 # configure_domain() 이 채운다 (모듈 로드 시점엔 도메인을 모른다 — main() 에서 결정).
 SPLITS: list[str] = []
 EXPECTED_N: dict[str, int] = {}
 OOD_APPS: dict[str, str] = {}
 CURVE_SPECS: list[tuple] = []
-STATIC_SPEC = ("general-full", "static", "General Full(static)")
 ALL_MODEL_SPECS: list[tuple] = []
 X_POS: list[int] = []
 X_LABELS: list[str] = []
@@ -82,14 +101,14 @@ def configure_domain(domain: str) -> None:
     SPLITS = cfg["splits"]
     EXPECTED_N = cfg["expected_n"]
     OOD_APPS = cfg["ood_apps"]
-    # base 가 곡선의 epoch=0 점이다 (general-full 은 곡선이 아니라 수평 기준선이라
-    # STATIC_SPEC 으로 따로 뺀다). epoch 은 LORA_EPOCHS 의 원래 타입(0.25 는 float,
-    # 1/2/3/4/5 는 int)을 그대로 쓴다 — float() 로 강제하면 "1" 이 "1.0" 으로 출력돼
-    # CSV/플롯 라벨이 스펙 표기(0, 0.25, ..., 5)와 어긋난다.
+    # base 가 곡선의 epoch=0 점이다 (general-full/general-inverse-mix 는 곡선이 아니라
+    # 수평 기준선이라 도메인 무관 STATIC_SPECS 로 따로 뺀다). epoch 은 LORA_EPOCHS 의
+    # 원래 타입(0.25 는 float, 1/2/3/4/5 는 int)을 그대로 쓴다 — float() 로 강제하면
+    # "1" 이 "1.0" 으로 출력돼 CSV/플롯 라벨이 스펙 표기(0, 0.25, ..., 5)와 어긋난다.
     CURVE_SPECS = [("base", 0, "Base(0)")] + [
         (f"{domain}-lora/epoch-{e}", e, f"LoRA({e})") for e in LORA_EPOCHS
     ]
-    ALL_MODEL_SPECS = CURVE_SPECS + [STATIC_SPEC]
+    ALL_MODEL_SPECS = CURVE_SPECS + STATIC_SPECS
     # x 축: 실측 epoch 값을 그대로 쓰면 0→1 구간(변화가 실제로 일어나는 구간)이
     # 짓눌린다. 균등 간격 categorical 틱을 쓰고 라벨만 실값으로 붙인다 — 9 점을
     # 모두 고르게 비교 가능하게 읽히도록 하는 선택이고, 물리적 epoch 간격의
@@ -196,7 +215,7 @@ def collect(eval_root: Path) -> tuple[list[Leaf], list[str], list[str], dict | N
 
     `element_set`/`xml_schema`/`current_state_source` 는 `stamp_schema()` 가 "채점기가
     실제로 본 값"으로 찍어 두는 것이다 (_state_diff_eval.py:1204-1217 docstring). 한
-    도메인의 10 모델×4 split 을 한 표/곡선에 나란히 놓으므로, sibling 두 파일끼리도,
+    도메인의 15 모델×4 split 을 한 표/곡선에 나란히 놓으므로, sibling 두 파일끼리도,
     leaf 전체에 걸쳐서도 이 스탬프가 어긋나면 hard fail 한다 — 그렇지 않으면 서로 다른
     채점 체제의 숫자를 이어 그린 곡선이 조용히 나온다 (LoRA leaf 는 나중에 증분으로
     채워지므로 특히 중요).
@@ -409,9 +428,23 @@ def _curve(rows_by_model: dict, split: str, key: str) -> list[float]:
     return out
 
 
-def _static_value(rows_by_model: dict, split: str, key: str):
-    r = rows_by_model.get((STATIC_SPEC[0], split))
+def _static_value(rows_by_model: dict, model_dir: str, split: str, key: str):
+    r = rows_by_model.get((model_dir, split))
     return r.metrics[key] if r is not None else None
+
+
+def _draw_static_refs(ax, rows_by_model: dict, split: str, key: str) -> None:
+    """6 개 정적 레퍼런스(general-full/general-inverse-mix × epoch 1/2.01/3)를 수평
+    기준선으로 그린다. 도메인 LoRA 곡선의 epoch 축과는 물리적으로 다른 축이라(각
+    계보 자신의 학습 진행도일 뿐 도메인 데이터 노출량이 아니다) x 위치를 공유하지
+    않는다 — 값이 없는 leaf(예: 아직 안 돈 조건)는 조용히 건너뛴다."""
+    for model_dir, epoch, label in STATIC_SPECS:
+        v = _static_value(rows_by_model, model_dir, split, key)
+        if v is None:
+            continue
+        lineage = "general-full" if model_dir.startswith("general-full") else "general-inverse-mix"
+        color = REF_COLORS[lineage][REF_EPOCHS.index(epoch)]
+        ax.axhline(v, color=color, linestyle="--", linewidth=1.0, label=f"{label}={v:.3f}")
 
 
 def make_plots(rows: list[Leaf], out_dir: Path, dpi: int, domain: str) -> list[str]:
@@ -432,13 +465,12 @@ def make_plots(rows: list[Leaf], out_dir: Path, dpi: int, domain: str) -> list[s
         ax.set_title(title)
         ax.grid(True, axis="y", alpha=0.3)
 
-    # A: headline — addmod_recall on id-unseen, LoRA curve (base=epoch0 included) + general-full ref line
+    # A: headline — addmod_recall on id-unseen, LoRA curve (base=epoch0 included) +
+    # 6 정적 레퍼런스(general-full/general-inverse-mix × epoch 1/2.01/3) 수평선.
     fig, ax = plt.subplots(figsize=(7, 4.5))
     ax.plot(X_POS, _curve(lut, "id-unseen", "addmod_recall"), marker="o", linestyle="-",
             color="tab:blue", label=f"{domain}-lora (incl. base@0)")
-    ref = _static_value(lut, "id-unseen", "addmod_recall")
-    if ref is not None:
-        ax.axhline(ref, color="tab:gray", linestyle="--", marker="x", label=f"general-full (static, {ref:.3f})")
+    _draw_static_refs(ax, lut, "id-unseen", "addmod_recall")
     setup_ax(ax, "Plot A — addmod_recall on ID-Unseen", "addmod_recall")
     ax.legend()
     fig.tight_layout()
@@ -453,6 +485,10 @@ def make_plots(rows: list[Leaf], out_dir: Path, dpi: int, domain: str) -> list[s
             color="tab:blue", label="ID-Seen")
     ax.plot(X_POS, _curve(lut, "id-unseen", "addmod_recall"), marker="s", linestyle="--",
             color="tab:orange", label="ID-Unseen")
+    # 정적 레퍼런스는 id-unseen 만 겹쳐 그린다 — "Seen" 은 도메인 LoRA 고유 개념이라
+    # (레퍼런스 두 계보는 이 도메인 데이터를 아예 학습한 적이 없다) id-seen 에 대응하는
+    # 레퍼런스 선을 그리면 오해를 유발한다.
+    _draw_static_refs(ax, lut, "id-unseen", "addmod_recall")
     setup_ax(ax, "Plot B — ID-Seen vs ID-Unseen (addmod_recall)", "addmod_recall")
     ax.legend()
     fig.tight_layout()
