@@ -12,7 +12,7 @@ freeze_vision_tower: true
 use_diff_token_weighted_loss: true
 
 ### dataset
-dataset: IWM-AC_EXP09_stage1_train
+dataset: IWM-AC_EXP09_stage1_train_media
 template: qwen2_vl
 cutoff_len: 24576
 overwrite_cache: false
@@ -20,10 +20,10 @@ preprocessing_num_workers: 16
 media_dir: ../data
 
 ### output
-output_dir: ../outputs/AndroidControl_EXP09/adapters/qwen2.5-vl-3b_stage1_full_world-model
+output_dir: ../outputs/AndroidControl_EXP09/adapters/qwen2.5-vl-3b_stage1_full_world-model_media
 logging_steps: 1
 save_strategy: steps
-save_steps: 27
+save_steps: 1
 save_total_limit: 5
 plot_loss: true
 overwrite_output_dir: true
@@ -32,7 +32,7 @@ overwrite_output_dir: true
 per_device_train_batch_size: 1
 gradient_accumulation_steps: 32
 learning_rate: 1.0e-4
-num_train_epochs: 3
+num_train_epochs: 5
 lr_scheduler_type: cosine
 warmup_ratio: 0.03
 weight_decay: 0.01

@@ -618,31 +618,36 @@ _DATASET_CONFIG = {
             "lr_scheduler_type": "cosine",
         },
     },
-    # AC_EXP09 — EXP08 stage1 state 소스에서 Time Management 도메인만 떠 온 도메인 적응
+    # AC_EXP09 — EXP08 stage1 state 소스에서 하나의 semantic 도메인만 떠 온 도메인 적응
     # 실험군. 데이터가 EXP08 산출물을 그대로 잇기 때문에 좌표 규약(절대 픽셀 840×1876)·
     # image budget(1605632/3136)·cutoff(24576)·template·Cerebra XML 은 EXP08 과 **같아야
     # 한다** — 하나라도 어긋나면 에러 없이 grounding 만 깨진다.
     # EXP08 과 다른 점 넷:
     #   (1) 자격이 qwen2.5-vl-3b 단독 — 설계가 backbone 을 고정했다 (EXP07 선례).
     #   (2) stage2 가 없다 (`_STAGE1_ONLY`) — stage2 데이터 자체가 존재하지 않는다.
-    #   (3) lr 1.0e-5 → 1.0e-4, epochs 1 → 3 (EXP09 설계 문서 고정값).
-    #   (4) save_steps 가 float ratio(0.25) 가 아니라 **정수 27** 이다. ratio 는 총 step
-    #       수의 균등 분할이라 0.25/0.5/0.75/1/2/3 epoch 를 정확히 짚지 못한다. train
-    #       3996 행 · grad_accum 37 이면 epoch 당 108 step 이라 27 이 정확히 quarter-epoch.
-    #       그 grad_accum 37 은 GPU 정책 baseline(32) 이 낼 수 없는 값이라 커밋 YAML 이
-    #       아니라 scripts/run_exp09_stage1.sh 의 런타임 override 로 주입한다
-    #       (gen_configs docstring "커밋 YAML 의 GPU 트리오는 RTX5090×2 baseline" 규약).
-    "AndroidControl_EXP09": {
+    #   (3) lr 1.0e-5 → 1.0e-4, epochs 1 → 5 (EXP09 설계 문서 고정값).
+    #   (4) 도메인마다 별도 LoRA 를 학습한다 (EXP07 의 _v1/_v2 버전 variant 와 같은 구조—
+    #       `train_stem_suffix`/`model_run_suffix`/`config_version_suffix` 로 분기). 각
+    #       도메인의 최종 train 행수·quarter-epoch step 은 scripts/build_exp09_data.py 가
+    #       실측해서 정하므로(GPU 1/2/4·RTX5090/A100/H100 무관 동일 궤적을 내는 global
+    #       batch=32 로 나누어떨어지도록) 여기 save_steps/gradient_accumulation_steps 는
+    #       고정값이 아니라 항상 scripts/run_exp09_stage1.sh 의 런타임 override 로
+    #       덮인다 — 아래 값은 절대 실제로 쓰이지 않는 placeholder 다.
+    "AndroidControl_EXP09_time_mgmt": {
         "lf_subfolder": "IWM-AC_EXP09",
         "ds_prefix": "IWM-AC_EXP09",
         "output_prefix": "AndroidControl_EXP09/",
         "hf_slug": "ac-exp09-",
+        "model_run_suffix": "_time_mgmt",
+        "hf_version_suffix": "-time_mgmt",
+        "train_stem_suffix": "_time_mgmt",
+        "config_version_suffix": "_time_mgmt",
         "stage1": {
             "lr": "1.0e-4",
-            "epochs": 3,
+            "epochs": 5,
             "warmup_ratio": 0.03,
             "save_strategy": "steps",
-            "save_steps": 27,  # int — 정수 global step (위 (4) 참조)
+            "save_steps": 1,  # placeholder — always runtime-overridden, see comment above
             "eval_strategy": "epoch",
             "eval_steps": None,
             "per_device_eval_batch_size": 4,
@@ -657,6 +662,51 @@ _DATASET_CONFIG = {
         # Stage 2 데이터 없음 — placeholder. `_STAGE1_ONLY` guard 로 skip 되지만
         # build_configs 가 c["stage2"] 를 무조건 읽으므로 KeyError 방지용으로 둔다
         # (MC / EXP04 와 같은 관례).
+        "stage2": {
+            "lr": "5.0e-5",
+            "epochs": 3,
+            "warmup_ratio": 0.03,
+            "save_strategy": "epoch",
+            "save_steps": None,
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 32,
+            "lora_alpha": 64,
+            "lora_dropout": 0.1,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+        },
+    },
+    # AC_EXP09_media — time_mgmt 와 동형(같은 이유로 도메인만 다르다). 앱 리스트·OOD·
+    # train 크기 산정 방식의 차이는 scripts/build_exp09_data.py 의 DOMAINS 테이블 참조.
+    "AndroidControl_EXP09_media": {
+        "lf_subfolder": "IWM-AC_EXP09",
+        "ds_prefix": "IWM-AC_EXP09",
+        "output_prefix": "AndroidControl_EXP09/",
+        "hf_slug": "ac-exp09-",
+        "model_run_suffix": "_media",
+        "hf_version_suffix": "-media",
+        "train_stem_suffix": "_media",
+        "config_version_suffix": "_media",
+        "stage1": {
+            "lr": "1.0e-4",
+            "epochs": 5,
+            "warmup_ratio": 0.03,
+            "save_strategy": "steps",
+            "save_steps": 1,  # placeholder — always runtime-overridden, see comment above
+            "eval_strategy": "epoch",
+            "eval_steps": None,
+            "per_device_eval_batch_size": 4,
+            "lora_rank": 64,
+            "lora_alpha": 128,  # α = 2r 관례
+            "lora_dropout": 0.05,
+            "weight_decay": 0.01,
+            "max_grad_norm": 1.0,
+            "lr_scheduler_type": "cosine",
+            "use_diff_token_weighted_loss": True,  # Stage 1 diff loss (state-pred 가중)
+        },
         "stage2": {
             "lr": "5.0e-5",
             "epochs": 3,
@@ -717,7 +767,12 @@ _DATASET_CONFIG = {
 
 # EXP04 stage2 보류 — 데이터 도입 시 제거. (EXP05 는 stage2 도입 완료.)
 # EXP09 는 "보류" 가 아니라 설계상 stage1 단독이다 (stage2 데이터가 존재하지 않는다).
-_STAGE1_ONLY = {"MonkeyCollection", "AndroidControl_EXP04", "AndroidControl_EXP09"}
+_STAGE1_ONLY = {
+    "MonkeyCollection",
+    "AndroidControl_EXP04",
+    "AndroidControl_EXP09_time_mgmt",
+    "AndroidControl_EXP09_media",
+}
 
 # Stage 2 만 학습하는 DS (`_STAGE1_ONLY` 의 대칭). EXP06 은 EXP05 stage2 의 비증강
 # 대조군이라 stage1 학습 데이터가 아예 없고, stage1 체크포인트는 EXP05 것을 잇는다.
@@ -735,12 +790,13 @@ _STAGE2_ONLY = {"AndroidControl_EXP06"}
 # eval 셸(stage1_eval.sh / stage2_eval.sh) 이고, 드리프트는
 # `tests/test_exp08_eval_v2_wiring.py` 가 잡는다.
 #
-# EXP09 는 **여기 넣지 않는다.** 이 집합이 실제로 가르는 것은 아래 build_configs 의
-# `ds_s1_test`/`ds_s2_test` 키 이름뿐인데, EXP09 의 eval 키는 두 관례 어느 쪽도 아니다
-# (`IWM-AC_EXP09_stage1_eval_{id_seen,id_unseen,ood_chegal,ood_digibites}` — 소유자는
-# `scripts/eval_exp09_stage1.sh` 와 dataset_info.json 이고 그 셸이 이름을 직접 만든다).
-# 넣든 말든 여기서 유도되는 키는 존재하지 않는 죽은 이름이라, 넣으면 "EXP09 가 그
-# 채점 경로를 탄다" 는 거짓 신호만 남는다.
+# EXP09 는 **여기 넣지 않는다** (두 도메인 변형 전부). 이 집합이 실제로 가르는 것은
+# 아래 build_configs 의 `ds_s1_test`/`ds_s2_test` 키 이름뿐인데, EXP09 의 eval 키는 두
+# 관례 어느 쪽도 아니다 (`IWM-AC_EXP09_stage1_eval_{id_seen,id_unseen,ood_<slug>}_<domain>`
+# — 소유자는 `scripts/build_exp09_data.py::register_dataset_info` 와
+# `scripts/eval_exp09_stage1.sh` 이고 그 둘이 이름을 직접 만든다). 넣든 말든 여기서
+# 유도되는 키는 존재하지 않는 죽은 이름이라, 넣으면 "EXP09 가 그 채점 경로를 탄다" 는
+# 거짓 신호만 남는다.
 _SINGLE_TEST = {"MonkeyCollection", "AndroidControl_EXP08"}
 
 # ============================================================
@@ -841,7 +897,9 @@ DATASET_MODEL_ELIGIBILITY: dict[str, frozenset[str]] = {
     "AndroidControl_EXP08": frozenset(_QWEN2_5_VL_FAMILY),
     # EXP09 는 EXP08 데이터를 그대로 잇는 절대 픽셀 실험군이지만 설계가 backbone 을
     # 고정했다 — EXP08 처럼 family 전체가 아니라 Qwen2.5-VL-3B 단독 (EXP07 선례).
-    "AndroidControl_EXP09": frozenset({"qwen2.5-vl-3b"}),
+    # 두 도메인 변형 모두 같은 자격이다.
+    "AndroidControl_EXP09_time_mgmt": frozenset({"qwen2.5-vl-3b"}),
+    "AndroidControl_EXP09_media": frozenset({"qwen2.5-vl-3b"}),
 }
 
 
@@ -883,8 +941,10 @@ _LONG_CUTOFF_DS = (
     "AndroidControl_EXP07_v1",
     "AndroidControl_EXP07_v2",
     "AndroidControl_EXP08",
-    # EXP09 데이터는 EXP08 stage1 state 를 그대로 떠 온 것이라 같은 길이 분포다.
-    "AndroidControl_EXP09",
+    # EXP09 데이터는 EXP08 stage1 state 를 그대로 떠 온 것이라 같은 길이 분포다
+    # (두 도메인 변형 모두).
+    "AndroidControl_EXP09_time_mgmt",
+    "AndroidControl_EXP09_media",
 )
 
 
@@ -967,6 +1027,12 @@ def build_configs() -> dict[str, dict[str, dict]]:
             # (데이터 디렉토리·test 는 버전 무관 공유; 버전은 model/train 아티팩트에만).
             if ds_name.startswith("AndroidControl_EXP07"):
                 c["data_dir"] = os.path.join(BASE_DIR, "data", "AndroidControl_EXP07")
+
+            # EXP09 도메인 variant(_time_mgmt, _media, 향후 추가 도메인)는
+            # data/AndroidControl_EXP09 를 공유한다 (EXP07 버전 variant 와 같은 이유 —
+            # 파일명 stem 끝의 도메인 접미사만 다르고 디렉토리는 공유).
+            if ds_name.startswith("AndroidControl_EXP09"):
+                c["data_dir"] = os.path.join(BASE_DIR, "data", "AndroidControl_EXP09")
 
             # 버전 접미사 (EXP07_v1 만 값이 있고 다른 DS 는 "" → byte 불변).
             #   train_sfx : train dataset 키/파일 stem 끝 (test 키는 불변)

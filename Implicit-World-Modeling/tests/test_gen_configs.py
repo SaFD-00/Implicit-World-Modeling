@@ -444,7 +444,7 @@ def test_deepspeed_offload_splits_by_size_class_and_mode_on_a100() -> None:
 
 
 def test_generated_count(generated: dict[str, str]) -> None:
-    """as-trained 74 − 자격박탈 2 + 신규 156 = 228 (EXP06 12 + EXP07 v1/v2 18 + EXP08 20 + EXP09 2 포함).
+    """as-trained 74 − 자격박탈 2 + 신규 158 = 230 (EXP06 12 + EXP07 v1/v2 18 + EXP08 20 + EXP09 4 포함).
 
     개수를 하드코딩하지 않는다 — 자격 정의(DATASET_MODEL_ELIGIBILITY)의 결과이지
     독립적 사실이 아니기 때문이다. 자격을 바꾸면 개수는 따라 바뀌는 게 정상이고,
@@ -458,9 +458,10 @@ def test_generated_count(generated: dict[str, str]) -> None:
     #            2 모델 × 2 variant
     #            + stage2_extra_variants(action-distribution) 4 개 — stage2 full 만,
     #            2 모델 × {base, world-model-full}).
-    #          + EXP09 2 (3B 단독 자격 × stage1 full/lora. stage2 는 데이터가 없어
-    #            `_STAGE1_ONLY` 로 skip — lora 만 쓰지만 full 도 렌더된다).
-    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 156
+    #          + EXP09 4 (3B 단독 자격 × 도메인 변형 2 개(time_mgmt, media) × stage1
+    #            full/lora 2. stage2 는 데이터가 없어 `_STAGE1_ONLY` 로 skip — lora 만
+    #            쓰지만 full 도 각 도메인마다 렌더된다).
+    assert len(generated) == AS_TRAINED_COUNT - len(INELIGIBLE_REMOVED) + 158
 
     # 생성된 모든 YAML 이 자격 집합 안에 있는가 (자격 밖 조합을 만들지 않는가)
     for rel in generated:
